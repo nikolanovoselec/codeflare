@@ -68,8 +68,7 @@ User clicks "Sign in with GitHub" on /login
   -> Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
   -> Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
   -> Redirect active user to /app/
-  -> Redirect pending SaaS user to /app/subscribe
-  -> Redirect pending onboarding user to /login?status=requested
+  -> Redirect pending user to /app/subscribe (SaaS) or /login?status=requested (onboarding)
   -> On state verification failure: redirect to /?error=session-expired
 ```
 

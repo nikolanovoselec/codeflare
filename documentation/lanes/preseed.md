@@ -58,7 +58,9 @@ After explicit opt-in, package settings expose context-mode skills but filter ou
 
 The managed Pi extension packages are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. This includes the exact-pinned native Goal package for session-scoped autonomous completion. Every Pi skill treats `ctx_*` tools as optional; `/ctx off` switches root workflows to documented native fallbacks without narrowing work.
 
-The repository-owned `native-notifications.ts` extension is seeded in both modes. It emits fixed OSC 777 text when `ask_user_question` needs attention — subscribed via the package's stable `rpiv:ask-user:prompt` notifier channel (immutable channel names, append-only payloads), so the signal survives package major upgrades and fires only when a questionnaire actually opens — and emits completion only at `agent_settled`, avoiding premature completion during retry, compaction, or queued continuation. Cancellation and abort suppress stale completion. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. No reviewed third-party notifier met both Codeflare's transport contract and the required maintenance/adoption threshold. Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
+The repository-owned `native-notifications.ts` extension is seeded in both modes. It emits fixed OSC 777 text when `ask_user_question` needs attention — subscribed via the package's stable `rpiv:ask-user:prompt` notifier channel (immutable channel names, append-only payloads), so the signal survives package major upgrades and fires only when a questionnaire actually opens — and emits completion only at `agent_settled`, avoiding premature completion during retry, compaction, or queued continuation. Cancellation and abort suppress stale completion. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. No reviewed third-party notifier met both Codeflare's transport contract and the required maintenance/adoption threshold.
+
+Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 
@@ -66,7 +68,9 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 `pi-web-access` 0.17 adds filtered zero-config Exa routing and configurable public tool names without changing Codeflare's default `web_search`, `source_check`, `fetch_content`, or paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the workflow as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
-`@narumitw/pi-goal` is pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. On startup, Codeflare creates `~/.pi/agent/pi-goal.json` with `toolVisibility: "after-first-goal"` only when the file is absent. Capability-filtered sessions therefore start narrow and reveal Goal's two terminal tools when `/goal` begins, while every existing Goal preference remains byte-for-byte user-owned. On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
+`@narumitw/pi-goal` is pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. On startup, Codeflare creates `~/.pi/agent/pi-goal.json` with `toolVisibility: "after-first-goal"` only when the file is absent. Capability-filtered sessions therefore start narrow and reveal Goal's two terminal tools when `/goal` begins, while every existing Goal preference remains byte-for-byte user-owned.
+
+On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
 Startup removes the retired `pi-goal-list-loop-audit` package from persisted settings, preventing its Explore ownership warning from surviving an image upgrade. Its replacement's runtime dependencies remain integrity-locked in the committed preseed lock.
 
@@ -884,16 +888,9 @@ fixes. This implements [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-re
 [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill),
 and [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
-The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn.
-Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
-with a durable audit event; generated artifacts never suppress review for mixed
-diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
-`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
-A source delta the shared `inert-source-delta.mjs` prover proves is comments and
-whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/`
-lane the same diff independently earns; the code lane is never dropped, and any
-file the prover cannot decide keeps all three. Non-SDD projects fire no review
-agents.
+The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn. Generated-only `graphify-out/` diffs require no review lanes and are auto-acked with a durable audit event; generated artifacts never suppress review for mixed diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn `spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
+
+A source delta the shared `inert-source-delta.mjs` prover proves is comments and whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/` lane the same diff independently earns; the code lane is never dropped, and any file the prover cannot decide keeps all three. Non-SDD projects fire no review agents.
 
 Each tool-gated hook is registered on two matcher entries covering three
 tool names: the `Bash` matcher (with `Bash(git *)` and `Bash(gh *)`
@@ -1193,7 +1190,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Any executable `git` or `gh` command is a cheap candidate in both hooks. They emit or enforce review only when the normal checkout's current branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD` and differs from that PR's checkpoint. A synchronized closed or merged head never launches review: the Stop hook stays silent when its checkpoint matches, otherwise it emits one visibility notice without writing acknowledgement or consuming the one-shot bypass. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLOSED_NOTICE_FILE -->
+The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Any executable `git` or `gh` command is a cheap candidate in both hooks. They emit or enforce review only when the normal checkout's current branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD` and differs from that PR's checkpoint.
+
+A synchronized closed or merged head never launches review: the Stop hook stays silent when its checkpoint matches, otherwise it emits one visibility notice without writing acknowledgement or consuming the one-shot bypass. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLOSED_NOTICE_FILE -->
 
 The same script is additionally registered under `PreToolUse` (empty matcher, all tools) as the mid-turn triage gate ([REQ-AGENT-104](../../sdd/spec/agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict) AC7). Once every review lane spawned in the transcript has a completed notification and no canonical triage table follows the last of them, every tool except `Read`, `TaskOutput`, `TaskGet`, `TaskList`, and `AskUserQuestion` is refused with a one-line reminder until the table is published.
 

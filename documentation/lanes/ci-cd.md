@@ -29,7 +29,7 @@ The root npm lane owns application Wrangler. Container Image instead uses the de
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration; `registry` selector cloudflare/dockerhub; optional advanced `verified_run_id`) | Automatically reuses a successful exact-head, exact-tree PR Checks receipt or falls back to inline checks, then runs staged `prepare` → (`build-worker` ∥ `container`) → `deploy`. |
-| `container-image.yml` | `workflow_call` (from `deploy.yml`) | Reusable container build → Trivy scan → push, parameterized by registry and the environment's selected coding-agent CLIs. Tags images `in-<input-hash>` and reuses an unchanged retained digest only after its GitHub provenance verifies against this reusable workflow; otherwise it builds and scans fresh. Selected agents and a weekly salt are part of identity. |
+| `container-image.yml` | `workflow_call` (from `deploy.yml`) | Builds, scans with Trivy, and pushes for the selected registry and coding-agent CLIs. Images use `in-<input-hash>` tags. An unchanged digest is reused only after provenance verifies against this workflow; otherwise it builds and scans fresh. Selected agents and a weekly salt participate in identity. |
 | `sign-release.yml` | GitHub release publication + recovery `workflow_dispatch` with an existing tag | Validates that a semantic-version release tag is reachable from `main`, creates a deterministic source archive and checksum manifest, keylessly signs both with Sigstore, records GitHub build provenance, and uploads the four verifiable assets to that release. |
 | `test.yml` | PRs to `main` or `develop`, push to `main`, `merge_group`, `workflow_dispatch`, and `workflow_call` | Reusable parallel path-filtered quality (lint, knip, audit, seed drift), typecheck, workflow-audit, bundle-size, coverage, test-suite, host, and dependency-review lanes. One fail-closed action runs four backend shards, a Node leg, three frontend shards, and landing. The required `test` summary fails failed/cancelled lanes and passes unaffected skipped lanes. |
 | `nightly-pr-checks.yml` | Nightly schedule (03:30 UTC) | Calls `test.yml` under the distinct `Nightly PR Checks` identity. All lanes run, while Deploy continues listening only to main-push `PR Checks` and therefore receives no nightly no-op event. |
@@ -141,7 +141,10 @@ The run title (`run-name`) resolves and displays the deploy target (production /
    - Fresh-image smoke records complete image bytes and identity as evidence; image size has no fixed deployment-failing ceiling.
 
      Reuse preserves the original scan and uploaded SBOM without regenerating them, but verifies the retained digest's signed provenance before trusting that evidence. The first deployment under a new ISO-week identity rebuilds and rescans an unchanged image, bounding a reused CVE verdict to seven days without claiming an unconditional scheduled rebuild.
-   - Otherwise buildx uses the deployment-owned GHCR registry cache. Login failure disables cache use; export errors are ignored without failing or restarting the image build. PR Checks never authenticate to this cache. The base image comes from the AWS ECR Public Node mirror to avoid Docker Hub anonymous pull limits.
+   - Otherwise buildx uses the deployment-owned GHCR registry cache.
+   - Login failure disables cache use; export errors are ignored without failing or restarting the image build.
+   - PR Checks never authenticate to this cache.
+   - The base image comes from the AWS ECR Public Node mirror to avoid Docker Hub anonymous pull limits.
    - Before scan or push, the locally loaded image runs the packaged Pi/Claude/empty-inventory, cold-readiness, process, resource, and prefixed-proxy smoke gates.
    - Trivy scans HIGH/CRITICAL with `ignore-unfixed: true` and `.trivyignore` for consciously accepted fixable CVEs (daily-cached vuln DB) — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011).
    - Push runs in a bounded retry loop (30 attempts, 30s apart); a COPY-coverage guard disables reuse if a Dockerfile COPY source ever falls outside the hashed path set.
@@ -165,7 +168,8 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
 
 - **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` means "no diff was filtered, run everything".
   - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
-- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`; [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
+- **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`
+- [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
 - **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
