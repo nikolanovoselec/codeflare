@@ -312,10 +312,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   // Extract CF Access JWT early - evaluated after service token and SaaS OIDC checks
   const jwtToken = extractAccessJwt(request);
 
-  const config = await loadAuthConfig(env);
-
   const serviceAuthResult = await validateServiceAuthHeader(request, env);
   if (serviceAuthResult) return serviceAuthResult;
+
+  const config = await loadAuthConfig(env);
 
   const sessionResult = await validateSessionOidc(request, env);
   if (sessionResult) return sessionResult;
@@ -911,6 +911,14 @@ export async function authenticateRequest(
   if (!normalizedEmail) {
     throw new AuthError('Not authenticated');
   }
+  // Only cryptographically verified identities may create a new JIT record.
+  // The pre-setup email header remains usable for setup and existing allowlisted
+  // users, but cannot persist a new identity by itself.
+  const jitIdentityVerified = !!rawUser.role
+    || !!extractAccessJwt(request)
+    || (isSessionOidcMode(env) && !!getCookieValue(request.headers.get('Cookie'), 'codeflare_session'))
+    || (!isSaasModeActive(env.SAAS_MODE) && !!request.headers.get('cf-access-client-id'));
+
   // Service auth users already have a role - skip KV allowlist lookup
   if (rawUser.role) {
     const bucketName = await resolveBucketName(env, normalizedEmail);
@@ -922,6 +930,9 @@ export async function authenticateRequest(
   // SaaS and non-SaaS branches below are byte-identical when the flag is unset.
   // REQ-ENTERPRISE-010.
   if (isEnterpriseMode(env)) {
+    if (!jitIdentityVerified && !(await resolveUserFromKV(env.KV, normalizedEmail))) {
+      throw new ForbiddenError('Verified identity required for JIT provisioning');
+    }
     const accessToken = extractAccessJwt(request);
     const { authDomain } = await loadAuthConfig(env);
     const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionEnterpriseUser(env.KV, normalizedEmail, accessToken, authDomain);
@@ -931,6 +942,9 @@ export async function authenticateRequest(
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
   if (isSaasModeActive(env.SAAS_MODE)) {
+    if (!jitIdentityVerified && !(await resolveUserFromKV(env.KV, normalizedEmail))) {
+      throw new ForbiddenError('Verified identity required for JIT provisioning');
+    }
     const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
     const bucketName = await resolveBucketName(env, normalizedEmail);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };

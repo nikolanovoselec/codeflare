@@ -274,20 +274,14 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       } as Env;
     }
 
-    it('AC1 e2e: a fresh Access user (pre-setup header trust) is auto-provisioned unlimited', async () => {
-      // Empty KV => no auth config => pre-setup header trust => authenticated without a JWT.
+    it('rejects JIT persistence from the unverified pre-setup email header', async () => {
       const req = new Request('https://app.example.com/api/user', {
         method: 'GET',
         headers: { 'cf-access-authenticated-user-email': 'fresh@example.com' },
       });
 
-      const { user, bucketName } = await authenticateRequest(req, enterpriseEnv());
-
-      expect(user.email).toBe('fresh@example.com');
-      expect(user.role).toBe('user');
-      expect(user.subscriptionTier).toBe('unlimited');
-      expect(bucketName).toContain('fresh');
-      expect(JSON.parse(mockKV._store.get('user:fresh@example.com') as string).addedBy).toBe('enterprise-jit');
+      await expect(authenticateRequest(req, enterpriseEnv())).rejects.toThrow('Verified identity required');
+      expect(mockKV._store.get('user:fresh@example.com')).toBeUndefined();
     });
 
     it('AC6 flag-off: with ENTERPRISE_MODE unset, an unknown non-SaaS user is rejected and never provisioned', async () => {

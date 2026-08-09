@@ -117,7 +117,7 @@ app.use('*', async (c, next) => {
   // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
   if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
-    return c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503);
+    return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
   }
 
   // CF-017: Warn on first request if credentials will be stored as plaintext

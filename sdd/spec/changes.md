@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Authentication ordering and accepted bypass diagnostics are fail-closed** ([REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation) AC1 and [REQ-AUTH-007](authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) AC1 clarified; [REQ-SEC-019](security.md#req-sec-019-websocket-connection-rate-limiting) AC5 remains Implemented). Valid service auth resolves before KV configuration reads; unverified pre-setup headers cannot create JIT identities; SaaS stress misconfiguration receives security headers; accepted HTTP/WebSocket stress bypasses share one warning.
+
 - **Enterprise LLM interception is now a mandatory pre-start boundary** ([REQ-ENTERPRISE-011](enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) AC3 added; status remains Implemented). Provider hosts are registered even without Gateway configuration so requests fail closed with 503, and registration exceptions abort startup instead of permitting direct provider egress.
 
 - **Bucket identity collisions now fail closed or receive an owned v2 identity** ([REQ-AUTH-006](authentication.md#req-auth-006-user-email-normalized) AC3 and [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC1/AC3 remain Implemented). Authentication serializes unambiguous legacy ownership in Durable Object storage, projects it to KV for observability, assigns a digest-suffixed bucket to later colliding identities, and denies pre-existing ambiguous collisions rather than selecting a shared bucket.

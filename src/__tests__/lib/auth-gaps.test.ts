@@ -90,6 +90,21 @@ describe('REQ-AUTH-004: Service token authentication (X-Service-Auth)', () => {
     expect(user.role).toBe('admin');
   });
 
+  it('REQ-AUTH-004 AC1: valid service auth succeeds before a KV configuration failure', async () => {
+    const env = makeEnv({
+      SERVICE_AUTH_SECRET: 'service-first-secret',
+      SERVICE_TOKEN_EMAIL: 'service@example.com',
+    });
+    mockKV.get.mockRejectedValue(new Error('KV unavailable'));
+
+    const user = await getUserFromRequest(new Request('https://example.com/api', {
+      headers: { 'X-Service-Auth': 'service-first-secret' },
+    }), env);
+
+    expect(user).toMatchObject({ authenticated: true, email: 'service@example.com', role: 'admin' });
+    expect(mockKV.get).not.toHaveBeenCalled();
+  });
+
   // REQ-AUTH-004 AC2: Constant-time comparison - wrong secret is rejected
   it('REQ-AUTH-004 AC2: rejects X-Service-Auth header with wrong secret (constant-time)', async () => {
     const env = makeEnv({
