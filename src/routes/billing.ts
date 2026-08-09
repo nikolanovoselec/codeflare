@@ -25,6 +25,7 @@ import {
 } from '../lib/stripe';
 import { getCurrencyForCountry } from '../lib/currency';
 import { parseJsonBody } from '../lib/request-helpers';
+import { verifyTurnstileToken } from '../lib/turnstile';
 
 const logger = createLogger('billing');
 
@@ -40,6 +41,7 @@ const checkoutRateLimiter = createRateLimiter({
 const CheckoutSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
   mode: z.enum(['default', 'advanced']).optional().default('default'),
+  turnstileToken: z.string().optional(),
 });
 
 // POST /billing/checkout
@@ -69,7 +71,21 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     }
   }
 
-  const { tier, mode } = await parseJsonBody(c, CheckoutSchema);
+  const { tier, mode, turnstileToken } = await parseJsonBody(c, CheckoutSchema);
+
+  if (!isAlreadySubscribed) {
+    const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
+      || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
+    if (turnstileSecret) {
+      if (!turnstileToken) throw new ForbiddenError('CAPTCHA token required');
+      const verification = await verifyTurnstileToken(
+        turnstileToken,
+        turnstileSecret,
+        c.req.header('CF-Connecting-IP') || null,
+      );
+      if (!verification.success) throw new ForbiddenError('CAPTCHA verification failed');
+    }
+  }
 
   // Free tier doesn't go through Stripe
   if (tier === 'free') {

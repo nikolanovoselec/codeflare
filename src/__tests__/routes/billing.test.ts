@@ -95,6 +95,19 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
   });
 
+  it('rejects a new paid checkout without the configured Turnstile token before Stripe mutation', async () => {
+    const { app } = createApp({ TURNSTILE_SECRET_KEY: 'turnstile-secret' });
+
+    const res = await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('returns checkoutUrl for paid tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {

@@ -379,7 +379,7 @@ const SubscribePage: Component = () => {
         }
       }
       if (isPaid) {
-        const { checkoutUrl } = await createCheckoutSession(tierId, mode);
+        const { checkoutUrl } = await createCheckoutSession(tierId, mode, token);
         window.location.href = checkoutUrl;
       } else {
         const result = await subscribe(tierId, token, mode);

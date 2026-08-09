@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Paid checkout now verifies Turnstile before Stripe** ([REQ-SETUP-009](setup.md#req-setup-009-saas-subscription-flow-and-ui) AC3 clarified; status remains Implemented). Pending users pass the existing challenge token to `/billing/checkout`; missing or rejected tokens make no Stripe call or user mutation, while active-subscriber plan switches retain their exemption.
+
 - **Browser Run read tools now reject unsafe initial targets before fetch** ([REQ-BROWSER-003](browser-run.md#req-browser-003-pi-native-browser-run-wrapper) AC3 and [REQ-BROWSER-005](browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) AC3 clarified; both remain Implemented). Claude and Pi share a parity-tested matrix for malformed URLs, credentials, non-HTTP(S), localhost, and private/loopback/link-local/unspecified literal addresses; redirect and DNS-rebinding protection are not claimed.
 
 - **Authentication ordering and accepted bypass diagnostics are fail-closed** ([REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation) AC1 and [REQ-AUTH-007](authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) AC1 clarified; [REQ-SEC-019](security.md#req-sec-019-websocket-connection-rate-limiting) AC5 remains Implemented). Valid service auth resolves before KV configuration reads; unverified pre-setup headers cannot create JIT identities; SaaS stress misconfiguration receives security headers; accepted HTTP/WebSocket stress bypasses share one warning.
