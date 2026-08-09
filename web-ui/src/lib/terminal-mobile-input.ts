@@ -415,6 +415,7 @@ export function setupMobileInput(
     window.removeEventListener('focus', onWindowFocus);
     window.removeEventListener('pagehide', onPageHide);
     disableVirtualKeyboardOverlay();
+    forceResetKeyboardState();
     iframe.remove();
   };
 }

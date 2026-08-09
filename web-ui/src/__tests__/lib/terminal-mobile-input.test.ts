@@ -21,8 +21,9 @@ import {
   activateStickyCtrl,
   deactivateStickyCtrl,
   isStickyCtrlActive,
+  setupMobileInput,
 } from '../../lib/terminal-mobile-input';
-import { disableVirtualKeyboardOverlay, isFocusOnTerminalInput } from '../../lib/mobile';
+import { disableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput } from '../../lib/mobile';
 
 describe('FUNCTIONAL_KEY_MAP', () => {
   it('maps Enter to carriage return', () => {
@@ -273,5 +274,19 @@ describe('releaseKeyboardOnBlur / REQ-MOB-015 AC2 (blur teardown handoff guard)'
     releaseKeyboardOnBlur(onCursorBlur);
     expect(onCursorBlur).toHaveBeenCalledTimes(1);
     expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+  });
+
+  it('REQ-MOB-015 AC4: retires shared keyboard state when the owning component unmounts, even while its input still has focus', () => {
+    vi.mocked(isFocusOnTerminalInput).mockReturnValue(true);
+    const cleanupMobileInput = setupMobileInput(
+      {} as Parameters<typeof setupMobileInput>[0],
+      { active: true },
+      { refreshCursorLine: vi.fn() },
+    );
+
+    cleanupMobileInput();
+
+    expect(disableVirtualKeyboardOverlay).toHaveBeenCalledTimes(1);
+    expect(forceResetKeyboardState).toHaveBeenCalledTimes(1);
   });
 });

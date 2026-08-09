@@ -5,6 +5,7 @@ import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sendTerminalKey } from '../../lib/touch-gestures';
+import { setIframeInput } from '../../lib/xterm-internals';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -64,6 +65,7 @@ vi.mock('../../stores/session', () => ({
 
 const speechMock = vi.hoisted(() => ({
   supported: true as boolean,
+  permissionState: 'prompt' as 'granted' | 'denied' | 'prompt' | 'unknown',
 }));
 
 vi.mock('../../lib/speech-input', () => ({
@@ -71,6 +73,7 @@ vi.mock('../../lib/speech-input', () => ({
   isListening: vi.fn(() => false),
   startListening: vi.fn(() => true),
   stopListening: vi.fn(),
+  getMicPermissionState: vi.fn(async () => speechMock.permissionState),
 }));
 
 // REQ-MOB-001: Terminal fully usable on mobile devices
@@ -80,12 +83,15 @@ vi.mock('../../lib/speech-input', () => ({
 describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     mobileMock.isTouchDevice.mockReturnValue(true);
     mobileMock.isVirtualKeyboardOpen.mockReturnValue(true);
     mobileMock.getKeyboardHeight.mockReturnValue(300);
 
     settingsMock.showButtonLabels = true;
     settingsMock.clipboardAccess = false;
+    speechMock.supported = true;
+    speechMock.permissionState = 'prompt';
   });
 
   afterEach(() => {
@@ -189,6 +195,34 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
       const rows = document.querySelectorAll('.floating-btn-row');
       expect(rows.length).toBe(6);
+    });
+  });
+
+  describe('Voice input', () => {
+    it('REQ-MOB-013 AC1: dismisses the mobile keyboard before speech may issue a first prompt when permission state is unknown', async () => {
+      vi.useRealTimers();
+      speechMock.permissionState = 'unknown';
+
+      const iframeInput = document.createElement('input');
+      document.body.appendChild(iframeInput);
+      iframeInput.focus();
+      const blurSpy = vi.spyOn(iframeInput, 'blur');
+      const term = { input: vi.fn(), textarea: document.createElement('textarea') };
+      setIframeInput(term as any, iframeInput);
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
+      const { startListening } = await import('../../lib/speech-input');
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+      screen.getByTitle('Voice Input').click();
+
+      await vi.waitFor(() => expect(startListening).toHaveBeenCalledTimes(1));
+      expect(blurSpy).toHaveBeenCalledTimes(1);
+      expect(blurSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(startListening).mock.invocationCallOrder[0],
+      );
+      iframeInput.remove();
     });
   });
 
