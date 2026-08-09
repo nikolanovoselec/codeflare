@@ -818,11 +818,11 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
     });
 
-    it('renders OpenAI and Gemini provider rows', () => {
+    it('renders OpenAI and Gemini provider rows after saved-key loading succeeds', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      expect(screen.getByTestId('llm-openai-row')).toBeInTheDocument();
+      expect(await screen.findByTestId('llm-openai-row')).toBeInTheDocument();
       expect(screen.getByTestId('llm-gemini-row')).toBeInTheDocument();
     });
 

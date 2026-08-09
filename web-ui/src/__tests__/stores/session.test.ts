@@ -62,7 +62,12 @@ import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
 import * as vaultCache from '../../lib/vault-cache';
-import { SESSION_LIST_POLL_INTERVAL_MS } from '../../lib/constants';
+import {
+  MAX_STOP_POLL_ATTEMPTS,
+  MAX_STOP_POLL_ERRORS,
+  SESSION_LIST_POLL_INTERVAL_MS,
+  STOP_POLL_INTERVAL_MS,
+} from '../../lib/constants';
 
 // Get typed mocks
 const mockGetSessions = vi.mocked(api.getSessions);
@@ -596,6 +601,36 @@ describe('Session Store', () => {
       // stopSession disposes WebSockets/xterm but preserves tab structure
       // so tiling layout survives restart. Only deleteSession wipes terminal state.
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+    });
+
+    it('keeps the session stopping and terminal live state intact when confirmation times out', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'running', ptyActive: true } },
+        maxSessions: 3,
+      });
+
+      const stopPromise = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(MAX_STOP_POLL_ATTEMPTS * STOP_POLL_INTERVAL_MS);
+      await stopPromise;
+
+      expect(sessionStore.sessions.find((session) => session.id === 'session-1')?.status).toBe('stopping');
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalledWith('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+      expect(sessionStore.error).toMatch(/refresh.*retry/i);
+    });
+
+    it('keeps the session stopping after repeated status errors', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('status unavailable'));
+
+      const stopPromise = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(MAX_STOP_POLL_ERRORS * STOP_POLL_INTERVAL_MS);
+      await stopPromise;
+
+      expect(sessionStore.sessions.find((session) => session.id === 'session-1')?.status).toBe('stopping');
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalledWith('session-1');
+      expect(sessionStore.error).toMatch(/refresh.*retry/i);
     });
 
     it('should clear initialization state if in progress', async () => {
@@ -1249,6 +1284,29 @@ describe('Session Store', () => {
       expect(terminals!.activeTabId).toBe('2');
 
       sessionStore.cleanupTerminalsForSession(uniqueSessionId);
+    });
+  });
+
+  describe('session card details', () => {
+    it('uses tab 1 live process name and current sync metrics', () => {
+      sessionStore.initializeTerminalsForSession('card-session');
+      sessionStore.updateTerminalLabel('card-session', '1', 'codex');
+
+      const metrics = { syncStatus: 'syncing' as const };
+      const details = sessionStore.getSessionCardDetails(
+        { id: 'card-session', name: 'Card', createdAt: '', lastAccessedAt: '', status: 'running', agentType: 'claude-code' },
+        metrics,
+      );
+
+      expect(details).toEqual({ processName: 'codex', syncStatus: 'syncing' });
+      sessionStore.cleanupTerminalsForSession('card-session');
+    });
+
+    it('falls back to the configured agent when tab 1 has no live process', () => {
+      expect(sessionStore.getSessionCardDetails(
+        { id: 'no-live-process', name: 'Card', createdAt: '', lastAccessedAt: '', status: 'stopped', agentType: 'pi' },
+        null,
+      )).toEqual({ processName: 'pi', syncStatus: 'pending' });
     });
   });
 

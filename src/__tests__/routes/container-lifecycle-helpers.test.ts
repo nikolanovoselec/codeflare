@@ -429,6 +429,20 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(body).not.toHaveProperty('geminiApiKey');
     });
 
+    it('DEEP-20-002: sends newly absent deploy credentials as explicit null on restart', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+
+      await configureContainerDO(baseParams);
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      const body = await fetchCall.json() as Record<string, unknown>;
+      expect(body).toMatchObject({
+        githubToken: null,
+        cloudflareApiToken: null,
+        cloudflareAccountId: null,
+      });
+    });
+
     it('includes sessionMode in setBucketName body', async () => {
       mockGetStoredBucketName.mockResolvedValue('old-bucket');
 
