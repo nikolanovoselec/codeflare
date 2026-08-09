@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import handlers from '../../../routes/setup/handlers';
+import setupRoutes from '../../../routes/setup';
+import { upsertStep, type SetupStep } from '../../../routes/setup/shared';
 import type { Env } from '../../../types';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -479,6 +481,80 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       const res = await app.request('/setup/prefill');
       const body = await res.json() as Record<string, unknown>;
       expect(body).not.toHaveProperty('downloadsDisabled');
+    });
+  });
+
+  describe('Wave 5.4 setup progress and group boundaries', () => {
+    it('keeps one immutable ordered status list across running, success, and failure transitions', () => {
+      const empty: SetupStep[] = [];
+      const running = upsertStep(empty, { step: 'get_account', status: 'running' });
+      const firstSuccess = upsertStep(running, { step: 'get_account', status: 'success' });
+      const secondRunning = upsertStep(firstSuccess, { step: 'configure_custom_domain', status: 'running' });
+      const failed = upsertStep(secondRunning, {
+        step: 'configure_custom_domain',
+        status: 'error',
+        error: 'Failed to configure worker route',
+      });
+
+      expect(empty).toEqual([]);
+      expect(running).toEqual([{ step: 'get_account', status: 'running' }]);
+      expect(firstSuccess).toEqual([{ step: 'get_account', status: 'success' }]);
+      expect(failed).toEqual([
+        { step: 'get_account', status: 'success' },
+        { step: 'configure_custom_domain', status: 'error', error: 'Failed to configure worker route' },
+      ]);
+    });
+
+    it.each([
+      ['comma', 'team,admin'],
+      ['carriage return', 'team\radmin'],
+      ['line feed', 'team\nadmin'],
+    ])('rejects a group containing %s before setup starts', async (_label, group) => {
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+        }
+        return c.json({ error: err.message }, 500);
+      });
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          ENTERPRISE_MODE: 'active',
+          CLOUDFLARE_API_TOKEN: 'test-token',
+        } as Env;
+        return next();
+      });
+      app.route('/setup', setupRoutes);
+
+      const res = await app.request('/setup/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customDomain: 'app.example.com',
+          allowedUsers: ['admin@example.com'],
+          adminUsers: ['admin@example.com'],
+          enterpriseAccessGroup: [group],
+          dynamicRoutes: ['development'],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_access_group', expect.anything());
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:dynamic_routes', expect.anything());
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('round-trips trimmed access-group values through prefill', async () => {
+      mockKV._store.set('setup:enterprise_access_group', '  team_a , team_b  ');
+      mockKV._store.set('setup:enterprise_admin_access_group', ' ops_admins ');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { enterpriseAccessGroup?: string[]; adminAccessGroup?: string[] };
+
+      expect(body.enterpriseAccessGroup).toEqual(['team_a', 'team_b']);
+      expect(body.adminAccessGroup).toEqual(['ops_admins']);
     });
   });
 
