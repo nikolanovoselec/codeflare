@@ -726,7 +726,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
   describe('collectMetrics idle-stop behavior', () => {
     // Helper to create a running container instance with KV mocks
-    async function createRunningInstance() {
+    async function createRunningInstance(storedSleepAfter?: string) {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
       const mockKvGet = vi.fn().mockResolvedValue({
         id: 'sess123',
@@ -739,6 +739,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
+        if (key === 'sleepAfter') return storedSleepAfter;
         return null;
       });
 
@@ -782,7 +783,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
 
     it('stops with SIGTERM when lastInputAt exceeds idleTimeoutPref', async () => {
-      const instance = await createRunningInstance();
+      const instance = await createRunningInstance('5m');
       // Set pref to 5m explicitly (class-field default is now 4h fail-safe per
       // REQ-OPS-006 AC8 - so just an idle duration won't do, we need to set
       // the user-configured pref low to exercise the boundary).
@@ -804,7 +805,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
 
     it('stops with SIGTERM when lastInputAt is null and containerStartedAt is old', async () => {
-      const instance = await createRunningInstance();
+      const instance = await createRunningInstance('5m');
       instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 4h default never trips
 
       // Manually age the container's started-at so the fallback reference
@@ -825,7 +826,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
 
     it('honors user-configured idleTimeoutPref (2h) before stopping', async () => {
-      const instance = await createRunningInstance();
+      const instance = await createRunningInstance('2h');
       instance.idleTimeoutPref = '2h'; // public field, no cast needed
       const now = Date.now();
 

@@ -399,14 +399,13 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
 
     it('Pro mode radio is disabled when subscribedMode is default', async () => {
-      const { getUser } = await import('../../api/client');
-      vi.mocked(getUser).mockResolvedValueOnce({
+      mockGetUser.mockResolvedValueOnce({
         email: 'test@example.com',
         authenticated: true,
         bucketName: 'test',
         subscribedMode: 'default',
         hasSubscribed: true,
-      } as Awaited<ReturnType<typeof getUser>>);
+      });
 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));

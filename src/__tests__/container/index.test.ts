@@ -1073,6 +1073,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('REQ-SESSION-011/#516: attempts the final-sync drain on delete even when container.running reads transiently false, and persists a durable audit marker', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       // The transient: container reports not-running at teardown start.
@@ -1112,6 +1113,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
@@ -1152,7 +1154,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // swallowed completion) while destroy still proceeds. Also covers a transient
     // not-running reading where the port fetch simply fails.
     it('#516: persists outcome "errored" and still completes destroy when the drain fetch is aborted/rejected (DO AbortSignal ceiling)', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
+        return null;
+      });
       mockContainerRuntime.running = false;
       const abortErr = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
       mockTcpPortFetch.mockRejectedValue(abortErr);

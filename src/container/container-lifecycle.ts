@@ -279,12 +279,21 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  const syncResult = await withinDeadline(drainFinalSyncAudited(
-    host,
-    Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
-    auditAuthToken,
-  ));
-  await withinDeadline(recordFinalSyncAudit(host, syncResult, auditSessionId));
+  let syncResult: FinalSyncResult;
+  try {
+    syncResult = await withinDeadline(drainFinalSyncAudited(
+      host,
+      Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
+      auditAuthToken,
+    ));
+  } catch (err) {
+    syncResult = { outcome: 'errored', reason: toError(err).message };
+  }
+  try {
+    await withinDeadline(recordFinalSyncAudit(host, syncResult, auditSessionId));
+  } catch (err) {
+    host.logger.warn('Final sync audit exceeded teardown deadline', { error: toError(err).message });
+  }
 
   if (host.ctx.container?.running) {
     try {
@@ -311,7 +320,23 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     }
   }
 
-  return withinDeadline(host.superDestroy());
+  // Dispatch the SDK's force-destroy even when earlier stages consumed the
+  // entire budget. When time remains, bound the await to that same deadline;
+  // when it does not, observe the promise in the background so teardown never
+  // escapes or creates an unhandled rejection after the hard ceiling.
+  const superDestroyPromise = host.superDestroy();
+  const remaining = hardKillMs - (Date.now() - start);
+  if (remaining <= 0) {
+    void superDestroyPromise.catch((err) => {
+      host.logger.warn('Forced destroy failed after teardown deadline', { error: toError(err).message });
+    });
+    return;
+  }
+  try {
+    await withinDeadline(superDestroyPromise);
+  } catch (err) {
+    host.logger.warn('Forced destroy exceeded teardown deadline', { error: toError(err).message });
+  }
 }
 
 /** Called when the container stops. */
