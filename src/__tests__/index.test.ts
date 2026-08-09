@@ -547,6 +547,16 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
     expect(response.headers.get('Cache-Control')).not.toBe('public, max-age=31536000, immutable');
   });
 
+  it('rejects an invalid encryption key before an early discoverability route', async () => {
+    const { env, mockAssets } = createMockEnv();
+    env.ENCRYPTION_KEY = 'not-canonical-base64';
+
+    await expect(worker.fetch(
+      new Request('https://example.com/robots.txt'), env, createMockCtx(),
+    )).rejects.toThrow('canonical base64');
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
+  });
+
   it('does NOT mark a non-hashed asset immutable (HTML/other keep the revalidating default)', async () => {
     const { env, mockKV } = createMockEnv();
     mockKV.get.mockResolvedValue('true');

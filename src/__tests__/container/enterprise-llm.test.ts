@@ -382,6 +382,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(callOrder.filter((entry) => entry === 'super.startAndWaitForPorts')).toHaveLength(startsBefore);
     });
 
+    it('fails startup when the mandatory interception API is unavailable', async () => {
+      const ctx = {
+        ...mockCtx,
+        container: undefined,
+        exports: { LlmInterceptor: vi.fn(() => ({ id: 'llm' })) },
+      };
+      const instance = new ContainerClass(ctx as any, {
+        ...mockEnv, ENTERPRISE_MODE: 'active', KV: { get: vi.fn().mockResolvedValue(null) },
+      } as any);
+
+      await expect(instance.startAndWaitForPorts(8080)).rejects.toThrow('Mandatory outbound HTTPS interception is unavailable');
+    });
+
     // REQ-ENTERPRISE-016 / AD86: when the strict Gateway egress toggle is ON, the DO
     // wires a catch-all '*' interceptor to the EgressController (forcing the container's
     // direct-internet egress through env.EGRESS, while the controller itself egresses

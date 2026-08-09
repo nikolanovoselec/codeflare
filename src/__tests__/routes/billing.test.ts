@@ -108,6 +108,21 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it('requires Turnstile for a canceled historical subscriber with subscribedAt', async () => {
+    const { app, mockKV } = createApp({ TURNSTILE_SECRET_KEY: 'turnstile-secret' });
+    mockKV._set('user:user@example.com', {
+      role: 'user', subscribedAt: '2025-01-01T00:00:00Z', billingStatus: 'canceled',
+    });
+
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('returns checkoutUrl for paid tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {

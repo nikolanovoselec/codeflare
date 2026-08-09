@@ -60,7 +60,8 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 
   // Max users cap — block new checkouts when capacity is reached
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-  const isAlreadySubscribed = !!userData?.subscribedAt;
+  const isAlreadySubscribed = userData?.billingStatus === BILLING_STATUS.ACTIVE
+    || userData?.billingStatus === BILLING_STATUS.TRIALING;
   if (!isAlreadySubscribed) {
     const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
     if (maxUsers > 0) {

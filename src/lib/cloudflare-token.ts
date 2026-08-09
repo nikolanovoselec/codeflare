@@ -406,7 +406,8 @@ export async function disconnectCloudflare(env: Env, bucketName: string): Promis
     const provider = await getCloudflareProvider(env);
     // Revoke the refresh token when present — per RFC 7009 that invalidates the whole
     // grant family, not just the short-lived access token.
-    if (provider) await provider.revoke(conn.refreshToken ?? conn.accessToken);
+    if (!provider) throw new Error('Cloudflare provider unavailable; retaining local retry state');
+    await provider.revoke(conn.refreshToken ?? conn.accessToken);
   }
   await clearCloudflareConnection(env, bucketName);
 }

@@ -70,6 +70,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       'http://[::1]/',
       'http://[fc00::1]/',
       'http://[fe80::1]/',
+      'http://[::ffff:7f00:1]/',
     ];
 
     it.each(blocked)('rejects %s before any Browser Run fetch', async (url) => {

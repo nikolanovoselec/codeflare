@@ -237,9 +237,13 @@ function applyInterception(host: InterceptionHost, reg: InterceptorRegistration)
       exports: Record<string, (opts: { props: Record<string, unknown> }) => Fetcher>;
       container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
     };
+    if (!cctx.container?.interceptOutboundHttps) {
+      if (reg.mandatory) throw new Error('Mandatory outbound HTTPS interception is unavailable');
+      return;
+    }
     const interceptor = cctx.exports[reg.entrypoint]({ props: reg.props });
     for (const pattern of reg.hosts) {
-      cctx.container?.interceptOutboundHttps(pattern, interceptor);
+      cctx.container.interceptOutboundHttps(pattern, interceptor);
     }
     if (reg.wiredLogData) {
       host.logger.info(reg.wiredLog, reg.wiredLogData);

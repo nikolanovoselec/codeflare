@@ -11,6 +11,15 @@ import { getBucketOwnerKey, listAllKvKeys, SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('access');
 
+// Internal provenance: only identities produced by successful cryptographic or
+// edge-validated authentication are admitted to JIT provisioning. A WeakSet
+// avoids exposing this trust marker on the public user shape.
+const verifiedIdentities = new WeakSet<AccessUser>();
+function markIdentityVerified(user: AccessUser): AccessUser {
+  verifiedIdentities.add(user);
+  return user;
+}
+
 // Module-level cache for auth config (avoids KV reads on every request)
 const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // CF-149: pre-setup (negative/null) auth config is the spoofable-email trust
@@ -230,7 +239,7 @@ async function validateServiceAuthHeader(request: Request, env?: Env): Promise<A
     // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
     // obviously non-production; the actual auth gate is the worker secret.
     const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
-    return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin'};
+    return markIdentityVerified({ email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin' });
   }
   // timingSafeEqual failed
   return { email: '', authenticated: false};
@@ -261,7 +270,7 @@ async function validateSessionOidc(request: Request, env?: Env): Promise<AccessU
   if (!payload) {
     return { email: '', authenticated: false };
   }
-  return { email: normalizeEmail(payload.email), authenticated: true };
+  return markIdentityVerified({ email: normalizeEmail(payload.email), authenticated: true });
 }
 
 /**
@@ -281,7 +290,7 @@ async function verifyCfAccessJwt(
   for (const expectedAud of config.accessAudList) {
     const verifiedEmail = await verifyAccessJWT(jwtToken, config.authDomain, expectedAud);
     if (verifiedEmail) {
-      return { email: normalizeEmail(verifiedEmail), authenticated: true };
+      return markIdentityVerified({ email: normalizeEmail(verifiedEmail), authenticated: true });
     }
   }
   // JWT verification failed for all expected audiences
@@ -343,7 +352,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     // Service token was validated by CF Access
     // Use SERVICE_TOKEN_EMAIL env var or fall back to a default based on client ID
     const serviceEmail = env?.SERVICE_TOKEN_EMAIL || `service-${serviceTokenClientId.split('.')[0]}@codeflare.local`;
-    return { email: normalizeEmail(serviceEmail), authenticated: true };
+    return markIdentityVerified({ email: normalizeEmail(serviceEmail), authenticated: true });
   }
 
   return { email: '', authenticated: false };
@@ -914,10 +923,7 @@ export async function authenticateRequest(
   // Only cryptographically verified identities may create a new JIT record.
   // The pre-setup email header remains usable for setup and existing allowlisted
   // users, but cannot persist a new identity by itself.
-  const jitIdentityVerified = !!rawUser.role
-    || !!extractAccessJwt(request)
-    || (isSessionOidcMode(env) && !!getCookieValue(request.headers.get('Cookie'), 'codeflare_session'))
-    || (!isSaasModeActive(env.SAAS_MODE) && !!request.headers.get('cf-access-client-id'));
+  const jitIdentityVerified = verifiedIdentities.has(rawUser);
 
   // Service auth users already have a role - skip KV allowlist lookup
   if (rawUser.role) {

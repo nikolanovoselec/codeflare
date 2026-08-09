@@ -393,7 +393,8 @@ export async function disconnectGithub(env: Env, bucketName: string): Promise<vo
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source !== 'pat') {
     const provider = await getGithubProvider(env);
-    if (provider) await provider.revoke(conn.accessToken);
+    if (!provider) throw new Error('GitHub provider unavailable; retaining local retry state');
+    await provider.revoke(conn.accessToken);
   }
   await clearGithubConnection(env, bucketName);
 }

@@ -62,8 +62,13 @@ export function initialTargetError(rawUrl: string): string | null {
   if (host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host)) {
     return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
   }
-  if (host.startsWith('::ffff:') && isBlockedIpv4(host.slice(7))) {
-    return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
+  if (host.startsWith('::ffff:')) {
+    const tail = host.slice(7);
+    const words = tail.split(':');
+    const mapped = tail.includes('.') ? tail : words.length === 2
+      ? `${parseInt(words[0], 16) >> 8}.${parseInt(words[0], 16) & 255}.${parseInt(words[1], 16) >> 8}.${parseInt(words[1], 16) & 255}`
+      : '';
+    if (!mapped || isBlockedIpv4(mapped)) return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
   }
   return null;
 }

@@ -122,7 +122,6 @@ app.use('*', async (c, next) => {
 
   // CF-017: Warn on first request if credentials will be stored as plaintext
   warnIfNoEncryptionKey(c.env.ENCRYPTION_KEY);
-  if (c.env.ENCRYPTION_KEY) await getOrImportKey(c.env);
 
   const clientId = c.req.header('X-Request-ID');
   const requestId = (clientId && REQUEST_ID_PATTERN.test(clientId))
@@ -328,6 +327,7 @@ export default {
     if (env.LOG_LEVEL) {
       setLogLevel(env.LOG_LEVEL as LogLevel);
     }
+    if (env.ENCRYPTION_KEY) await getOrImportKey(env);
 
     const url = new URL(request.url);
     const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);

@@ -274,10 +274,13 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       } as Env;
     }
 
-    it('rejects JIT persistence from the unverified pre-setup email header', async () => {
+    it('rejects JIT persistence from an invalid JWT plus spoofed pre-setup email header', async () => {
       const req = new Request('https://app.example.com/api/user', {
         method: 'GET',
-        headers: { 'cf-access-authenticated-user-email': 'fresh@example.com' },
+        headers: {
+          'cf-access-authenticated-user-email': 'fresh@example.com',
+          'cf-access-jwt-assertion': 'invalid.jwt.value',
+        },
       });
 
       await expect(authenticateRequest(req, enterpriseEnv())).rejects.toThrow('Verified identity required');
