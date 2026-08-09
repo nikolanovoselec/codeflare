@@ -45,6 +45,47 @@ vi.mock('../../lib/access', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 let mockKV: ReturnType<typeof createMockKV>;
 let env: Env;
+let applyAfterGuardDelay: Promise<void> | undefined;
+let onApplyGuardReached: (() => void) | undefined;
+
+function createBillingCoordinator(kv: ReturnType<typeof createMockKV>): DurableObjectNamespace {
+  let token = 0;
+  let lock = Promise.resolve();
+  const stub = {
+    fetch(request: Request): Promise<Response> {
+      const run = lock.then(async () => {
+        const body = await request.json() as {
+          userEmail: string;
+          token?: number;
+          patch?: Record<string, unknown>;
+        };
+        if (new URL(request.url).pathname === '/billing-sync/start') {
+          token += 1;
+          return Response.json({ token });
+        }
+        if (body.token !== token) return Response.json({ applied: false });
+        onApplyGuardReached?.();
+        await applyAfterGuardDelay;
+        const existing = await kv.get(`user:${body.userEmail}`, 'json') as Record<string, unknown> | null;
+        await kv.put(`user:${body.userEmail}`, JSON.stringify({ ...(existing ?? {}), ...body.patch }));
+        return Response.json({
+          applied: true,
+          previous: {
+            ...((existing?.subscribedMode) ? { subscribedMode: existing.subscribedMode } : {}),
+            ...((existing?.subscriptionTier) ? { subscriptionTier: existing.subscriptionTier } : {}),
+            ...((existing?.accessTier) ? { accessTier: existing.accessTier } : {}),
+          },
+        });
+      });
+      lock = run.then(() => undefined, () => undefined);
+      return run;
+    },
+  };
+  return {
+    idFromName: vi.fn((name: string) => name),
+    get: vi.fn(() => stub),
+  } as unknown as DurableObjectNamespace;
+}
 
 function makeSnapshot(overrides: Partial<StripeSubscriptionSnapshot> = {}): StripeSubscriptionSnapshot {
   return {
@@ -67,8 +108,11 @@ function makeSnapshot(overrides: Partial<StripeSubscriptionSnapshot> = {}): Stri
 beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
+  applyAfterGuardDelay = undefined;
+  onApplyGuardReached = undefined;
   env = {
     KV: mockKV as unknown as KVNamespace,
+    TIMEKEEPER: createBillingCoordinator(mockKV),
     STRIPE_SECRET_KEY: 'sk_test_123',
     STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
   } as Env;
@@ -103,25 +147,6 @@ describe('syncSubscriptionState', () => {
     expect(user.onboardingComplete).toBe(true);
   });
 
-  it('skips write when KV lastSyncedAt is newer than current timestamp', async () => {
-    const futureSync = new Date(Date.now() + 60_000).toISOString();
-    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
-    mockKV._set('user:sync@example.com', {
-      subscriptionTier: 'standard',
-      accessTier: 'standard',
-      billingStatus: 'active',
-      lastSyncedAt: futureSync,
-    });
-
-    vi.mocked(fetchSubscription).mockResolvedValue(makeSnapshot({ tier: 'max' }));
-
-    await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
-
-    // Should NOT have been overwritten — still standard
-    const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
-    expect(user.subscriptionTier).toBe('standard');
-  });
-
   it('DEEP-22-002: an older in-flight provider result cannot overwrite a later-started sync', async () => {
     mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
     mockKV._set('user:sync@example.com', {
@@ -129,18 +154,23 @@ describe('syncSubscriptionState', () => {
     });
 
     let resolveOlder!: (snapshot: StripeSubscriptionSnapshot) => void;
+    let markOlderFetchStarted!: () => void;
+    const olderFetchStarted = new Promise<void>((resolve) => { markOlderFetchStarted = resolve; });
     vi.mocked(fetchSubscription)
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve; }))
+      .mockImplementationOnce(() => {
+        markOlderFetchStarted();
+        return new Promise((resolve) => { resolveOlder = resolve; });
+      })
       .mockResolvedValueOnce(makeSnapshot({ tier: 'max' }));
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     try {
       const olderSync = syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
-      await Promise.resolve();
-      await Promise.resolve();
+      await olderFetchStarted;
 
-      vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+      // Both starts occur in the same millisecond; monotonic coordinator tokens,
+      // rather than timestamps, must still order them.
       await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
 
       resolveOlder(makeSnapshot({ tier: 'advanced' }));
@@ -148,10 +178,36 @@ describe('syncSubscriptionState', () => {
 
       const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
       expect(user.subscriptionTier).toBe('max');
-      expect(user.lastSyncedAt).toBe('2026-01-01T00:00:01.000Z');
+      expect(user.lastSyncedAt).toBe('2026-01-01T00:00:00.000Z');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('serializes a newer sync while an older apply is delayed after its guard', async () => {
+    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
+    mockKV._set('user:sync@example.com', {
+      subscriptionTier: 'standard', accessTier: 'standard', billingStatus: 'active',
+    });
+    vi.mocked(fetchSubscription)
+      .mockResolvedValueOnce(makeSnapshot({ tier: 'advanced' }))
+      .mockResolvedValueOnce(makeSnapshot({ tier: 'max' }));
+
+    let releaseApply!: () => void;
+    applyAfterGuardDelay = new Promise<void>((resolve) => { releaseApply = resolve; });
+    let guardReached!: () => void;
+    const reached = new Promise<void>((resolve) => { guardReached = resolve; });
+    onApplyGuardReached = guardReached;
+
+    const olderSync = syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+    await reached;
+    const newerSync = syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+    releaseApply();
+    applyAfterGuardDelay = undefined;
+    await Promise.all([olderSync, newerSync]);
+
+    const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
+    expect(user.subscriptionTier).toBe('max');
   });
 
   it('overwrites when no lastSyncedAt in KV', async () => {

@@ -8,6 +8,7 @@
  * latest state from the Stripe API. KV is a read cache, not the source of truth.
  */
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { Env } from '../types';
 import { BILLING_STATUS } from '../types';
 import { ValidationError, toError } from '../lib/error-types';
@@ -37,6 +38,32 @@ const app = new Hono<{ Bindings: Env }>();
 
 /** Dedupe TTL: 72 hours in seconds */
 const DEDUPE_TTL_SECONDS = 72 * 60 * 60;
+
+const BillingSyncStartResponseSchema = z.object({ token: z.number().int().positive().safe() });
+const BillingSyncApplyResponseSchema = z.object({
+  applied: z.boolean(),
+  previous: z.object({
+    subscribedMode: z.string().optional(),
+    subscriptionTier: z.string().optional(),
+    accessTier: z.string().optional(),
+  }).optional(),
+});
+
+async function getBillingSyncCoordinator(email: string, env: Env): Promise<DurableObjectStub> {
+  if (!env.TIMEKEEPER) throw new Error('TIMEKEEPER binding is required for billing sync');
+  const bucketName = await resolveBucketName(env, email);
+  return env.TIMEKEEPER.get(env.TIMEKEEPER.idFromName(bucketName));
+}
+
+async function postBillingSync<T>(stub: DurableObjectStub, path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+  const response = await stub.fetch(new Request(`https://timekeeper${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+  if (!response.ok) throw new Error(`Billing sync coordinator rejected ${path}: ${response.status}`);
+  return schema.parse(await response.json());
+}
 
 // CF-010: Rate limit webhook endpoint to prevent volume-based attacks.
 // CF-012: This limiter runs before signature verification and keys on a spoofable
@@ -320,7 +347,7 @@ async function handleSubscriptionDeleted(
 
 /**
  * Fetch subscription state from Stripe API and write a complete snapshot to KV.
- * Timestamp-guarded: skips write if KV's lastSyncedAt is newer.
+ * Monotonic-token guarded by the per-user Timekeeper coordinator.
  * Preserves existing KV fields (addedBy, onboardingComplete, etc.).
  * Preserves tier/mode when price metadata is null (avoids blanking).
  */
@@ -336,13 +363,18 @@ export async function syncSubscriptionState(
     return;
   }
 
-  // 2. Fetch subscription from Stripe API
+  // 2. Issue a strongly ordered start token before fetching from Stripe.
   if (!env.STRIPE_SECRET_KEY) {
     logger.warn('syncSubscriptionState: STRIPE_SECRET_KEY not configured', { subscriptionId });
     return;
   }
-  // Capture ordering before the provider fetch. A slower, older fetch must not
-  // receive a newer completion timestamp and overwrite a sync that started later.
+  const coordinator = await getBillingSyncCoordinator(email, env);
+  const { token } = await postBillingSync(
+    coordinator,
+    '/billing-sync/start',
+    { userEmail: email },
+    BillingSyncStartResponseSchema,
+  );
   const syncStartedAt = new Date().toISOString();
   const snapshot = await fetchSubscription(subscriptionId, env.STRIPE_SECRET_KEY);
   if (!snapshot) {
@@ -350,18 +382,7 @@ export async function syncSubscriptionState(
     return;
   }
 
-  // 3. Start-version guard: skip when a later-started sync already persisted.
-  // Strict ordering intentionally permits an equal token, preserving the AC's
-  // equal-timestamp behavior.
-  const existing = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
-  if (existing?.lastSyncedAt && existing.lastSyncedAt > syncStartedAt) {
-    logger.info('syncSubscriptionState: skipped (KV lastSyncedAt is newer)', {
-      email, kvLastSynced: existing.lastSyncedAt,
-    });
-    return;
-  }
-
-  // 4. Build patch from snapshot - only set tier/mode if not null (preserve existing)
+  // 3. Build patch from snapshot - only set tier/mode if not null (preserve existing)
   const patch: Record<string, unknown> = {
     stripeSubscriptionId: snapshot.subscriptionId,
     stripeCustomerId: snapshot.customerId,
@@ -402,10 +423,21 @@ export async function syncSubscriptionState(
     patch.trialUsed = true;
   }
 
-  // 5. Write via updateUserRecord (preserves existing fields)
-  await updateUserRecord(env.KV, email, patch);
+  // 4. Apply through the same coordinator. Its token check and KV merge/write
+  // are one serialized operation, so a newer start invalidates every older apply.
+  const apply = await postBillingSync(
+    coordinator,
+    '/billing-sync/apply',
+    { userEmail: email, token, patch },
+    BillingSyncApplyResponseSchema,
+  );
+  if (!apply.applied) {
+    logger.info('syncSubscriptionState: skipped (newer sync started)', { email, token });
+    return;
+  }
+  const existing = apply.previous;
 
-  // 6. Auto-reconcile on mode change: if subscribedMode changed between
+  // 5. Auto-reconcile on mode change: if subscribedMode changed between
   // advanced and default in either direction, reconcile R2 preseed files
   // so the next session picks up the correct skills/agents/rules.
   const previousMode = existing?.subscribedMode ?? 'default';
