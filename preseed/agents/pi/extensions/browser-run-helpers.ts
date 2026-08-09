@@ -39,6 +39,35 @@ export function gotoOptions(waitUntil?: string): Record<string, unknown> {
   return waitUntil ? { gotoOptions: { waitUntil } } : {};
 }
 
+function isBlockedIpv4(host: string): boolean {
+  const parts = host.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part) || Number(part) > 255)) return false;
+  const [a, b] = parts.map(Number);
+  return a === 0 || a === 10 || a === 127
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168);
+}
+
+/** Validate only the initial literal target; redirects and DNS are provider-owned. */
+export function initialTargetError(rawUrl: string): string | null {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return 'Browser Run target must be an absolute public HTTP(S) URL'; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'Browser Run target must use HTTP(S)';
+  if (url.username || url.password) return 'Browser Run target must not contain credentials';
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return 'Browser Run target must not be localhost';
+  if (isBlockedIpv4(host)) return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
+  if (host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host)) {
+    return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
+  }
+  if (host.startsWith('::ffff:') && isBlockedIpv4(host.slice(7))) {
+    return 'Browser Run target must not be a private, loopback, link-local, or unspecified address';
+  }
+  return null;
+}
+
 // A successful-but-empty render is usually a JS-heavy page that had not painted
 // by capture time. The hint is actionable text, not a thrown error.
 export function emptyRenderText(url: string): string {
@@ -94,6 +123,8 @@ export async function executeBrowserAction(opts: {
   fetchImpl?: FetchLike;
 }): Promise<BrowserActionOutcome> {
   const { tool, params, accountId, token, signal, fetchImpl } = opts;
+  const targetError = initialTargetError(params.url);
+  if (targetError) return { text: targetError, isError: true, details: {} };
   if (tool === "browser_scrape") {
     const elements = (params.selectors ?? []).map((selector) => ({ selector }));
     const r = await runQuickAction({

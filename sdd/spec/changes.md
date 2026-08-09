@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Browser Run read tools now reject unsafe initial targets before fetch** ([REQ-BROWSER-003](browser-run.md#req-browser-003-pi-native-browser-run-wrapper) AC3 and [REQ-BROWSER-005](browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) AC3 clarified; both remain Implemented). Claude and Pi share a parity-tested matrix for malformed URLs, credentials, non-HTTP(S), localhost, and private/loopback/link-local/unspecified literal addresses; redirect and DNS-rebinding protection are not claimed.
+
 - **Authentication ordering and accepted bypass diagnostics are fail-closed** ([REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation) AC1 and [REQ-AUTH-007](authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) AC1 clarified; [REQ-SEC-019](security.md#req-sec-019-websocket-connection-rate-limiting) AC5 remains Implemented). Valid service auth resolves before KV configuration reads; unverified pre-setup headers cannot create JIT identities; SaaS stress misconfiguration receives security headers; accepted HTTP/WebSocket stress bypasses share one warning.
 
 - **Enterprise LLM interception is now a mandatory pre-start boundary** ([REQ-ENTERPRISE-011](enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) AC3 added; status remains Implemented). Provider hosts are registered even without Gateway configuration so requests fail closed with 503, and registration exceptions abort startup instead of permitting direct provider egress.
