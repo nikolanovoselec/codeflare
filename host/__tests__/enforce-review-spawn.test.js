@@ -434,17 +434,39 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
 });
 
 describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
-  it('exits 0 and deletes the sentinel file (one-shot)', () => {
+  it('exits 0 and deletes the sentinel for an eligible open head (one-shot)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const bypassFile = join(cwd, 'review-bypass');
     writeFileSync(bypassFile, '');
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    const r = runHook(cwd, { transcriptPath: t, bypassFile });
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('OPEN', 'unackedSHA')),
+    });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.equal(existsSync(bypassFile), false,
-      'sentinel must be deleted on use (one-shot semantics)');
+      'sentinel must be deleted when it bypasses an eligible head');
+  });
+
+  it('preserves the sentinel when no PR exists for the current branch', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghNoPR()),
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), true,
+      'an ineligible boundary must not waste the user-owned one-shot bypass');
   });
 });
 
@@ -457,6 +479,53 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  it('reports a merged unacknowledged head without consuming the bypass sentinel', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', 'mergedSHA')),
+    });
+    const notice = JSON.parse(r.stdout);
+
+    assert.equal(r.status, 0);
+    assert.match(notice.systemMessage, /acknowledgement missing/i);
+    assert.match(notice.systemMessage, /PR state: MERGED/);
+    assert.equal(existsSync(bypassFile), true);
+    assert.equal(existsSync(join(cwd, '.git/sdd-review-ack-pr-42')), false,
+      'visibility must not fabricate acknowledgement after merge');
+
+    const repeated = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', 'mergedSHA')),
+    });
+    assert.equal(repeated.stdout, '', 'the same closed head emits its visibility notice only once');
+  });
+
+  it('keeps an acknowledged merged head silent and preserves the bypass sentinel', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    writeFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), `${headSha}\n`);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', headSha)),
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), true);
   });
 
   it('blocks when open PR targets develop with un-acked HEAD and no agents spawned', () => {

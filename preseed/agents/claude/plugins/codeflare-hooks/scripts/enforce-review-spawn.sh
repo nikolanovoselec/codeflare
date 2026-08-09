@@ -311,41 +311,10 @@ if grep -q '^transition:[[:space:]]*true' "$_config_file" 2>/dev/null \
 fi
 
 # ---------------------------------------------------------------------------
-# Bypass 1: sentinel file (one-shot, auto-delete).
-#
-# Ordering: runs AFTER the vibe-coding gate and transition gate so a
-# routine Stop event on a vibe-coding project (no sdd/) or during SDD
-# transition does NOT consume the user's one-shot /tmp/review-bypass
-# sentinel - that bypass is reserved for skipping enforcement on the
-# next gate-active Stop event.
-#
-# Sentinel path is overridable via REVIEW_BYPASS_FILE for hermetic
-# tests; production reads /tmp/review-bypass. Codeflare runs a
-# single-user container, so /tmp scoping is sufficient - multi-user
-# hosts should set REVIEW_BYPASS_FILE per user.
-# ---------------------------------------------------------------------------
-BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
-if [ -f "$BYPASS_FILE" ]; then
-  rm -f "$BYPASS_FILE" 2>/dev/null || true
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Bypass 2: magic phrase in user messages since candidate push line.
-#
-# Ordering note: SINCE_PUSH only includes transcript content from the
-# push line forward. A user message saying "skip review for the next
-# push" sent BEFORE the assistant ran git push won't bypass - only
-# messages between the push line and the Stop event are scanned.
-# Users who need pre-emptive bypass should use the sentinel file
-# (`touch /tmp/review-bypass`), which fires first via Bypass 1.
-# ---------------------------------------------------------------------------
-if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
 # Authoritative checked-out branch state
+#
+# Bypasses are evaluated only after this state is validated. An absent,
+# acknowledged, closed, or merged PR cannot spend the user's one-shot sentinel.
 # ---------------------------------------------------------------------------
 [ -d .git ] || exit 0
 GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
@@ -359,13 +328,14 @@ PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 BASE_REF=$(printf '%s' "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 PR_NUMBER=$(printf '%s' "$PR_INFO" | jq -r '.number // empty' 2>/dev/null)
-[ "$PR_STATE" = "OPEN" ] || exit 0
+case "$PR_STATE" in OPEN|CLOSED|MERGED) ;; *) exit 0 ;; esac
 case "$BASE_REF" in main|master|develop) ;; *) exit 0 ;; esac
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 COUNT_FILE="$GIT_DIR/sdd-review-count-pr-$PR_NUMBER"
+CLOSED_NOTICE_FILE="$GIT_DIR/sdd-review-closed-notified-pr-$PR_NUMBER"
 LEGACY_ACK="$GIT_DIR/sdd-last-ack-pr-head"
 LAST_ACK_PR_HEAD=""
 if [ -f "$ACK_FILE" ]; then
@@ -377,7 +347,36 @@ case "$LAST_ACK_PR_HEAD" in
   *[!0-9a-f]*|"") LAST_ACK_PR_HEAD="" ;;
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
+
+if [ "$PR_STATE" != "OPEN" ]; then
+  if [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] \
+     && [ "$(cat "$CLOSED_NOTICE_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ]; then
+    printf '%s\n' "$CURRENT_PR_HEAD" > "$CLOSED_NOTICE_FILE" 2>/dev/null || true
+    CLOSED_NOTICE="PR review - acknowledgement missing
+Head: $CURRENT_PR_HEAD
+PR state: $PR_STATE
+Acknowledgement written: no
+Review completion was not proven before the PR closed. This notice is visibility only; review the head manually if required."
+    jq -n --arg message "$CLOSED_NOTICE" '{systemMessage:$message}' 2>/dev/null
+  fi
+  exit 0
+fi
+
 [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+
+# Bypass 1: a user-created one-shot sentinel applies only to this validated,
+# open, unacknowledged PR head. The path is overridable for hermetic tests.
+BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
+if [ -f "$BYPASS_FILE" ]; then
+  rm -f "$BYPASS_FILE" 2>/dev/null || true
+  exit 0
+fi
+
+# Bypass 2: only a finalized user message after the latest candidate can skip
+# enforcement. Unlike the sentinel, this path has no persistent state to spend.
+if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Retroactive ack scan (v7) -- handles the fix-push cascade pattern.

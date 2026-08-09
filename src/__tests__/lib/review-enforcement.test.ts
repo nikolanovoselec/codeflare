@@ -2664,6 +2664,37 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(true);
   });
 
+  it('REQ-AGENT-058/REQ-AGENT-098: keeps an acknowledged head silent after its PR is merged', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-acknowledged', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-acknowledged', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-acknowledged'));
+    appendSession(fixture.sessionFile,
+      assistantTool('code-acknowledged', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-acknowledged', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-acknowledged', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-acknowledged'),
+      notification('spec-acknowledged'),
+      notification('doc-acknowledged'),
+      triageMessage(),
+    );
+
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
+    harness.sent.splice(0);
+    fixture.pr.state = 'MERGED';
+
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
   it('REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes', async () => {
     const fixture = makeReviewFixture({ child: true });
     const harness = await registerFixture(fixture);

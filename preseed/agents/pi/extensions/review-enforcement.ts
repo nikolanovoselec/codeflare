@@ -1074,7 +1074,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
     if (review.pr.state !== "OPEN") {
       await releaseReviewGoalPause(pi, ctx, review.pr.headRefOid);
-      if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
+      if (reviewEnabled(review.repo)
+        && ackHead !== review.pr.headRefOid
+        && !facts.closedNotified
+        && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
         pi.sendMessage({
           customType: "pr-boundary-review-closed-unacknowledged",
           content: [
