@@ -903,7 +903,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const CloudflareBrowserInterceptor = vi.fn(() => ({ fetch: vi.fn() }));
       const ctx = {
         ...mockCtx,
-        exports: { CloudflareBrowserInterceptor },
+        exports: {
+          CloudflareBrowserInterceptor,
+          LlmInterceptor: vi.fn(() => ({ fetch: vi.fn() })),
+        },
         container: { ...mockContainerRuntime, interceptOutboundHttps },
       };
       return { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor };
@@ -926,7 +929,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       (instance as any)._cloudflareApiToken = 'codeflare-oauth';
       (instance as any)._bucketName = 'user-bucket';
       await instance.startAndWaitForPorts(8080);
-      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+      expect(interceptOutboundHttps).not.toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', expect.anything());
     });
 
     it('does NOT wire when the container token is not the OAuth placeholder (PAT / real-token session)', async () => {

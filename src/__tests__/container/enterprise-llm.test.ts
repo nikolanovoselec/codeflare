@@ -346,7 +346,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = new ContainerClass(ctx as any, {
         ...mockEnv,
         ENTERPRISE_MODE: 'active',
-        KV: { get: vi.fn().mockResolvedValue('inactive') },
+        KV: { get: vi.fn(async (key: string) => key === 'setup:strict_egress' ? 'inactive' : null) },
       } as any);
       // Wait for userEmail (loaded after bucketName) so _bucketName is set before wiring.
       await vi.waitFor(() => {
@@ -377,8 +377,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         KV: { get: vi.fn().mockResolvedValue(null) },
       } as any);
 
+      const startsBefore = callOrder.filter((entry) => entry === 'super.startAndWaitForPorts').length;
       await expect(instance.startAndWaitForPorts(8080)).rejects.toThrow('registration failed');
-      expect(callOrder).not.toContain('super.startAndWaitForPorts');
+      expect(callOrder.filter((entry) => entry === 'super.startAndWaitForPorts')).toHaveLength(startsBefore);
     });
 
     // REQ-ENTERPRISE-016 / AD86: when the strict Gateway egress toggle is ON, the DO
