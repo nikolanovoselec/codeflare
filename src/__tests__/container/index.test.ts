@@ -97,6 +97,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     deleteAll: ReturnType<typeof vi.fn>;
     setAlarm: ReturnType<typeof vi.fn>;
     deleteAlarm: ReturnType<typeof vi.fn>;
+    transaction: ReturnType<typeof vi.fn>;
   };
   let mockTcpPortFetch: ReturnType<typeof vi.fn>;
   let mockContainerRuntime: {
@@ -123,6 +124,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       deleteAll: vi.fn().mockResolvedValue(undefined),
       setAlarm: vi.fn().mockResolvedValue(undefined),
       deleteAlarm: vi.fn().mockResolvedValue(undefined),
+      transaction: vi.fn(async (fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put }) => Promise<unknown>) =>
+        fn({ get: mockStorage.get, put: mockStorage.put })),
     };
     mockTcpPortFetch = vi.fn();
     mockContainerRuntime = {
@@ -238,6 +241,29 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   // every read until container.destroy() wipes storage. The key is
   // injected by the Worker into SilverBullet's /.config response so
   // SB encrypts IndexedDB without prompting the user.
+  describe('claimBucketOwner / REQ-STOR-001 tenant isolation', () => {
+    it('atomically preserves the first allowed owner and rejects a colliding identity', async () => {
+      let owner: string | undefined;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketOwnerEmail' ? owner : null);
+      mockStorage.put.mockImplementation(async (key: string, value: string) => {
+        if (key === 'bucketOwnerEmail') owner = value;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      await expect(instance.claimBucketOwner('ab@example.com', true)).resolves.toBe('owned');
+      await expect(instance.claimBucketOwner('a+b@example.com', true)).resolves.toBe('conflict');
+      expect(owner).toBe('ab@example.com');
+      expect(mockStorage.transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses an ambiguous first claim without persisting an owner', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      await expect(instance.claimBucketOwner('ab@example.com', false)).resolves.toBe('ambiguous');
+      expect(mockStorage.put).not.toHaveBeenCalledWith('bucketOwnerEmail', expect.anything());
+    });
+  });
+
   describe('ensureVaultKey (REQ-VAULT-008 AC1)', () => {
     it('generates a 32-byte vault key on first call and persists it', async () => {
       // Fresh DO -- no key in storage. ensureVaultKey() must generate

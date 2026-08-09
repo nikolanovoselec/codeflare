@@ -19,7 +19,7 @@ vi.mock('../../lib/access', () => ({
   // requireAdmin calls this for the enterprise admin-by-group path; default to no
   // matched group so non-admin users are still rejected (REQ-ENTERPRISE-014).
   resolveAdminAccessGroup: vi.fn(async () => []),
-  getBucketName: vi.fn((email: string, workerName?: string) => {
+  resolveBucketName: vi.fn(async (_env: Env, email: string, workerName?: string) => {
     const sanitized = email
       .toLowerCase()
       .trim()

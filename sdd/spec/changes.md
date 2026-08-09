@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
-- **Bucket identity collisions now fail closed or receive an owned v2 identity** ([REQ-AUTH-006](authentication.md#req-auth-006-user-email-normalized) AC3 and [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC1/AC3 remain Implemented). Authentication records unambiguous legacy ownership, assigns a digest-suffixed bucket to later colliding identities, and denies pre-existing ambiguous collisions rather than selecting a shared bucket.
+- **Bucket identity collisions now fail closed or receive an owned v2 identity** ([REQ-AUTH-006](authentication.md#req-auth-006-user-email-normalized) AC3 and [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC1/AC3 remain Implemented). Authentication serializes unambiguous legacy ownership in Durable Object storage, projects it to KV for observability, assigns a digest-suffixed bucket to later colliding identities, and denies pre-existing ambiguous collisions rather than selecting a shared bucket.
 
 - **Vault bootstrap success now requires browser encryption state to persist** ([REQ-VAULT-024](vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1/AC2 remain Implemented). A rejected `localStorage` write now enters the existing visible bootstrap failure path; the page emits neither its completion cookie nor its shell redirect, so a later attempt can retry instead of entering SilverBullet after falsely marking encryption setup complete.
 

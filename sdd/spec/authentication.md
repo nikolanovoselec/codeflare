@@ -180,7 +180,7 @@ None. Authentication is foundational; other domains depend on it.
 
 1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
 2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
-3. User storage resources resolve through an explicit ownership record: unambiguous legacy names are retained, later collisions receive a deterministic digest-suffixed name, and ambiguous legacy collisions are denied. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
+3. User storage resources resolve through a strongly consistent Durable Object ownership claim: unambiguous legacy names are retained, later collisions receive a deterministic digest-suffixed name, and ambiguous legacy collisions are denied. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 
 **Constraints:**
 

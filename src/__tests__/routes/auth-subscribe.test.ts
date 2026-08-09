@@ -20,6 +20,7 @@ vi.mock('../../lib/access', () => ({
     }
     return { ...mockAuthResult, user: { ...mockAuthResult.user } };
   }),
+  resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
 }));
 
 // Import after mock

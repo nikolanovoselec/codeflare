@@ -6,7 +6,7 @@
  * user-deletion code paths.
  */
 import type { Env, Session } from '../types';
-import { getBucketName } from './access';
+import { resolveBucketName } from './access';
 import { getSessionPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
@@ -32,9 +32,9 @@ function normalizeCleanupEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Resolve the user's R2 bucket name from their normalized email. */
-function resolveCleanupBucket(normalizedEmail: string, env: Env): string {
-  return getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+/** Resolve verified ownership before any destructive user cleanup. */
+async function resolveCleanupBucket(normalizedEmail: string, env: Env): Promise<string> {
+  return resolveBucketName(env, normalizedEmail);
 }
 
 /**
@@ -186,7 +186,7 @@ async function deleteR2Bucket(
  */
 export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
   const normalizedEmail = normalizeCleanupEmail(email);
-  const bucketName = resolveCleanupBucket(normalizedEmail, env);
+  const bucketName = await resolveCleanupBucket(normalizedEmail, env);
 
   // --- Block A: Session + Container cleanup ---
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);

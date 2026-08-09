@@ -13,7 +13,7 @@ import { isSaasModeActive, isSessionOidcMode } from '../lib/onboarding';
 import { isEnterpriseMode } from '../lib/subscription';
 import { parseJsonBody } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
-import { getBucketName } from '../lib/access';
+import { resolveBucketName } from '../lib/access';
 import { updateUserRecord } from '../lib/user-record';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 
@@ -167,7 +167,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.
   if (newTier === 'advanced' || newTier === 'max' || newTier === 'unlimited') {
-    const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(c.env, email);
     const prefsKey = getPreferencesKey(bucketName);
     const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
     if (!existingPrefs?.sessionMode) {

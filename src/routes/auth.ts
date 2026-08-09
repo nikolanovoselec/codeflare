@@ -11,7 +11,7 @@ import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
-import { getBucketName } from '../lib/access';
+import { resolveBucketName } from '../lib/access';
 import { updateUserRecord } from '../lib/user-record';
 import { parseJsonBody } from '../lib/request-helpers';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
@@ -82,7 +82,7 @@ app.get('/status', requireIdentity, async (c) => {
   // Parallelize independent KV reads: user data, turnstile key, and session preferences
   let prefsKey: string | null = null;
   try {
-    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(c.env, user.email);
     prefsKey = getPreferencesKey(bucketName);
   } catch { /* getBucketName may not be available in test mocks */ }
 
@@ -310,7 +310,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   // Read current mode from preferences (used for idempotency check + email previousMode)
   let previousMode = 'default';
   try {
-    const bkt = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    const bkt = await resolveBucketName(c.env, user.email);
     const p = await c.env.KV.get(getPreferencesKey(bkt), 'json') as Record<string, unknown> | null;
     if (p?.sessionMode === 'advanced') previousMode = 'advanced';
   } catch { /* non-fatal */ }
@@ -353,7 +353,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   // Save session mode preference when subscribing/switching (non-fatal)
   try {
     if (body.mode) {
-      const subBucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+      const subBucketName = await resolveBucketName(c.env, user.email);
       const prefsKey = getPreferencesKey(subBucketName);
       const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
       await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: body.mode }));

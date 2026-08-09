@@ -29,9 +29,32 @@ import { createMockKV } from '../helpers/mock-kv';
 
 describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
+  let bucketOwners: Map<string, string>;
+
+  function makeEnv(overrides: Partial<Env> = {}): Env {
+    const containerNamespace = {
+      idFromName: (name: string) => name,
+      get: (id: string) => ({
+        claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+          const owner = bucketOwners.get(id);
+          if (owner === email) return 'owned' as const;
+          if (owner) return 'conflict' as const;
+          if (!allowInitialClaim) return 'ambiguous' as const;
+          bucketOwners.set(id, email);
+          return 'owned' as const;
+        },
+      }),
+    };
+    return {
+      KV: mockKV as unknown as KVNamespace,
+      CONTAINER: containerNamespace,
+      ...overrides,
+    } as unknown as Env;
+  }
 
   beforeEach(() => {
     mockKV = createMockKV();
+    bucketOwners = new Map();
     vi.clearAllMocks();
     resetAuthConfigCache();
   });
@@ -196,7 +219,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
     it('migrates an unambiguous legacy identity without renaming its bucket', async () => {
       mockKV._set('user:ab@example.com', { role: 'user' });
 
-      const result = await resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com');
+      const result = await resolveBucketName(makeEnv(), 'ab@example.com');
 
       expect(result).toBe('codeflare-ab-example-com');
       expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
@@ -207,10 +230,10 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
     it('uses a digest-suffixed bucket for a later identity that collides with an owned legacy bucket', async () => {
       mockKV._set('user:ab@example.com', { role: 'user' });
-      await resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com');
+      await resolveBucketName(makeEnv(), 'ab@example.com');
       mockKV._set('user:a+b@example.com', { role: 'user' });
 
-      const versioned = await resolveBucketName(mockKV as unknown as KVNamespace, 'a+b@example.com');
+      const versioned = await resolveBucketName(makeEnv(), 'a+b@example.com');
 
       expect(versioned).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
       expect(versioned).not.toBe('codeflare-ab-example-com');
@@ -220,11 +243,23 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       });
     });
 
+    it('serializes concurrent claims so colliding identities never share the legacy bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const [first, second] = await Promise.all([
+        resolveBucketName(makeEnv(), 'ab@example.com'),
+        resolveBucketName(makeEnv(), 'a+b@example.com'),
+      ]);
+
+      expect(new Set([first, second]).size).toBe(2);
+      expect([first, second].filter((name) => name === 'codeflare-ab-example-com')).toHaveLength(1);
+    });
+
     it('denies access when multiple legacy identities collide before ownership is known', async () => {
       mockKV._set('user:ab@example.com', { role: 'user' });
       mockKV._set('user:a+b@example.com', { role: 'user' });
 
-      await expect(resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com'))
+      await expect(resolveBucketName(makeEnv(), 'ab@example.com'))
         .rejects.toThrow('Ambiguous legacy bucket ownership');
       expect(mockKV._store.has('bucket-owner:codeflare-ab-example-com')).toBe(false);
     });
@@ -234,13 +269,6 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
   // authenticateRequest() tests (Q23)
   // ===========================================================================
   describe('authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)', () => {
-    function makeEnv(overrides: Partial<Env> = {}): Env {
-      return {
-        KV: mockKV as unknown as KVNamespace,
-        ...overrides,
-      } as Env;
-    }
-
     it('throws AuthError when request has no auth headers', async () => {
       const request = new Request('http://localhost/test');
 

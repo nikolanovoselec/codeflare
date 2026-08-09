@@ -6,7 +6,7 @@ import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
-import { getBucketName } from '../../lib/access';
+import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -370,7 +370,7 @@ app.post('/configure', async (c) => {
       // Auto-set advanced session mode for admin users so their first
       // session seeds advanced skills and agent rules.
       const adminPrefsWrites = normalizedAdmins.map(async (email) => {
-        const bucketName = getBucketName(email, workerName);
+        const bucketName = await resolveBucketName(c.env, email, workerName);
         const prefsKey = getPreferencesKey(bucketName);
         const existingPrefs = await c.env.KV.get(prefsKey, 'json');
         if (!existingPrefs) {
