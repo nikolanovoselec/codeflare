@@ -931,9 +931,20 @@ function bound(out) {
     }
   }
 
+  // Shed every other reproducible field before compact dispositions. Sort by
+  // emitted byte size so each omission makes deterministic maximum progress.
+  const protectedFields = new Set(['lane', 'range', 'base', 'config', 'pending', 'omitted', 'resolutionCounts']);
+  const remainingFields = Object.keys(out)
+    .filter((field) => !protectedFields.has(field))
+    .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
+      - Buffer.byteLength(JSON.stringify(out[left])));
+  for (const field of remainingFields) {
+    if (omit(field) && size() <= MAX_TOTAL) return out;
+  }
+
   // Config and pending carry dispositions that should survive when compact, but
-  // either may itself exceed the transport cap. Shed the larger value first so
-  // a compact sibling remains available, and name every omission.
+  // either may itself exceed the transport cap. Shed them last, larger first,
+  // and name every omission.
   const dispositionFields = ['config', 'pending']
     .filter((field) => out[field] !== undefined && out[field] !== null)
     .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
@@ -941,7 +952,15 @@ function bound(out) {
   for (const field of dispositionFields) {
     if (omit(field) && size() <= MAX_TOTAL) return out;
   }
-  return out;
+
+  // External input can make even identity metadata pathological. Never emit an
+  // over-cap block: return one bounded failure marker so the lane gathers its
+  // own evidence instead of treating truncation as a clean result.
+  return {
+    lane: typeof out.lane === 'string' ? out.lane.slice(0, 64) : null,
+    error: 'evidence exceeded rendered UTF-8 byte budget',
+    omitted: ['evidence:oversized'],
+  };
 }
 
 try {

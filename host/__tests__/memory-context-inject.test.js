@@ -137,7 +137,8 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
   it('REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget', () => {
     const sessionsDir = join(mkdtempSync(join(baseTmp, 'recall-budget-')), '会话'.repeat(40));
     mkdirSync(sessionsDir, { recursive: true });
-    writeFileSync(join(sessionsDir, '2026-07-03T10-00-00+0200-a.md'), [
+    const sourcePath = join(sessionsDir, '2026-07-03T10-00-00+0200-a.md');
+    writeFileSync(sourcePath, [
       `# ${'é'.repeat(300)}`,
       '## Context',
       '界'.repeat(1000),
@@ -154,6 +155,20 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     const block = context.match(/### [\s\S]*?(?=\n\nFull extracts live in)/)?.[0] ?? '';
     assert.ok(Buffer.byteLength(block, 'utf8') <= 500);
     assert.ok(!block.includes('�'));
+    assert.ok(block.includes(`Source: ${sourcePath}`), 'long multibyte path must remain byte-exact');
+  });
+
+  it('REQ-MEM-019 AC4: omits a recall block when its exact Source metadata cannot fit', () => {
+    const sessionsDir = join(mkdtempSync(join(baseTmp, 'recall-no-metadata-')), '路'.repeat(80));
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, '2026-07-03T10-00-00+0200-a.md'), '# title\n\n## Context\nretained\n');
+    const result = spawnSync('bash', [RECALL_HOOK], {
+      encoding: 'utf8',
+      input: JSON.stringify({ source: 'compact' }),
+      env: { ...process.env, POST_COMPACT_SESSIONS_DIR: sessionsDir, POST_COMPACT_PER_FILE_BYTES: '100' },
+    });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, '');
   });
 
   it('AC3: fires at most once per session (sentinel directory prevents re-fire)', () => {

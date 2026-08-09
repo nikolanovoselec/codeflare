@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
-- **Memory capture and recall now share correlated authorization and rendered-byte truth** ([memory](memory.md) contracts clarified; all remain Implemented). Capture authorization belongs to one exact spawned child and rejects replay or unrelated callers; `USER_TIMEZONE` precedes `TZ`; success is retained only after graph merge and global publication; and Claude/Pi context labels, titles, paths, bodies, and markers all consume deterministic UTF-8 byte budgets.
+- **Memory capture and recall now share correlated authorization and rendered-byte truth** ([memory](memory.md) contracts clarified; all remain Implemented). Claude binds the harness-supplied spawn identity atomically to the exact child and rejects unrelated-first claims, replay, concurrency, missing identity, and timeout; one locked command removes retry state only after cumulative merge and global publication; `USER_TIMEZONE` precedes `TZ`; and Claude/Pi recall reserves exact Source metadata inside deterministic UTF-8 budgets or omits the block.
 
 - **Review and CI enforcement now validates structure before authority** ([REQ-AGENT-045](agents.md#req-agent-045-import-mode-triage-queue-and-transition-state), review-lane, boundary, evidence, and CI contracts clarified; all remain Implemented). Malformed or placeholder triage cannot suppress review, lane launches require bounded ranges and timeout support, CI provider rows are schema-checked, evidence shedding is explicit, structural shell parsing covers composed Git commands, transition/history selection is exact, and provider-less starts remove only Codeflare-owned consult-LLM state.
 

@@ -398,8 +398,9 @@ prose-transformed lane.
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
-memory-capture-block.sh, memory-agent-prompt.md, prefilter-transcript.sh,
-assert-iso-ts.sh, memory-context-inject.sh, post-compaction-recall.sh),
+memory-capture-block.sh, publish-memory-capture.sh, memory-agent-prompt.md,
+prefilter-transcript.sh, assert-iso-ts.sh, memory-context-inject.sh,
+post-compaction-recall.sh),
 codeflare-vault (plugin.json,
 vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py), and
 codeflare-hooks (plugin.json, block-attributed-commits.sh, block-local-builds.sh,

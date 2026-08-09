@@ -1000,13 +1000,16 @@ describe('rendered capture byte budget', () => {
     expect(Buffer.byteLength(injection, 'utf8')).toBeLessThanOrEqual(4096);
     expect(injection).not.toContain(String.fromCharCode(0xfffd));
 
+    const sourcePath = `/Vault/${'路'.repeat(100)}.md`;
     const recall = recallBlock(
-      `/Vault/${'路'.repeat(100)}.md`,
+      sourcePath,
       `# ${'é'.repeat(300)}\n\n## Context\n${'界'.repeat(1000)}\n\n## Decisions\n- retained`,
       500,
     )!;
     expect(Buffer.byteLength(recall, 'utf8')).toBeLessThanOrEqual(500);
     expect(recall).not.toContain(String.fromCharCode(0xfffd));
+    expect(recall).toContain(`Source: ${sourcePath}`);
+    expect(recallBlock(sourcePath, '## Context\nretained', 100)).toBeNull();
   });
 
   it('charges role headings, separators, and multibyte text to one byte budget', () => {

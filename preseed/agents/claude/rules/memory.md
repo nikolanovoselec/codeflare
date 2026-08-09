@@ -20,7 +20,7 @@ For "take a note" / "note this down" / "save this" / similar phrases, [vault-not
 
 `memory-capture.sh` (UserPromptSubmit hook) fires every 15 user messages and emits a directive pointing at a `.vars` file.
 
-- If the `.vars` file exists -> spawn a background `subagent_type: memory-capture` (sonnet) with the hook's instructions. The subagent's first step deletes the `.vars` file (dedup gate).
+- If the `.vars` file exists -> spawn a background `subagent_type: memory-capture` (sonnet) with the hook's instructions. The carrier remains until one locked command merges the cumulative graph, publishes `user_vault`, and then removes it; any failure leaves it retryable.
 - If it does not exist -> do nothing.
 
 Sonnet (not haiku) because capture must cite REQ IDs / ADRs / commit SHAs verbatim; haiku confabulated adjacent IDs in benchmarking. See AD58 for rationale.

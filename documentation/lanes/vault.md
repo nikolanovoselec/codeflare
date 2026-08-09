@@ -103,13 +103,13 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 
 On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
 
-1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
+1. Reads and retains the `.vars` retry carrier while work is in flight.
 2. Reads the new transcript range.
 3. Identifies decisions, observations, references, and a short topic phrase.
 4. Writes `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
-5. Acts as the LLM extractor for the captured file and merges the resulting graph into the global vault entry.
+5. Acts as the LLM extractor for the captured file, then invokes one locked helper that merges the cumulative graph, publishes `user_vault`, and removes `.vars` only after both succeed.
 
-The extraction emits chunk JSON matching graphify's schema: nodes, edges, hyperedges, and `[[wikilinks]]` as `file_type:concept` nodes with `source_file: null`. Graphify's `external_labels` dedup in `global_add` then unifies those concepts across vault and per-repo graphs by label. The agent calls `graphify.build.build_from_json`, `graphify.cluster.cluster`, and `graphify.export.to_json` from the Python API to produce `graph.json`, then runs `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`. No LLM provider key is needed; codeflare ships none, and the agent itself is the extractor, matching the `/graphify` skill's parallel-subagent pattern.
+The extraction emits chunk JSON matching graphify's schema: nodes, edges, hyperedges, and `[[wikilinks]]` as `file_type:concept` nodes with `source_file: null`. Graphify's `external_labels` dedup in `global_add` then unifies those concepts across vault and per-repo graphs by label. `publish-memory-capture.sh` runs the canonical cumulative merge and `graphify global add ... --as user_vault` under one lock; merge or publication failure exits before carrier removal. No LLM provider key is needed; codeflare ships none, and the agent itself is the extractor, matching the `/graphify` skill's parallel-subagent pattern.
 
 On Pi, the worker writes the session note and the deterministic graph builder derives its graph identity afterward. The document label comes from the note H1, its ID comes from the Vault-relative path, repeated concept labels share one canonical ID, and exact duplicate evidence edges collapse before cumulative merge ([REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic)). <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph -->
 
@@ -513,15 +513,16 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
    - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - The `memory-capture-block.sh` PreToolUse guard blocks tool calls until that launch.
+   - The `memory-capture-block.sh` PreToolUse guard atomically binds the harness's spawn identity to the exact child identity; unrelated capture children, replay, concurrency, missing identity, and timeout fail closed.
    - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
-The capture agent deletes the `.vars` file as its first step (dedup
-gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,
-slash-command wrappers, and meta records - 76x size reduction on a
-typical transcript), splits the clean NDJSON into chunks, processes each
-chunk into a scratchpad, then synthesises the final vault note and merges
-into the global graph. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
+The capture agent retains the `.vars` retry carrier, runs
+`prefilter-transcript.sh` (jq filter that strips tool I/O, slash-command
+wrappers, and meta records - 76x size reduction on a typical transcript),
+splits the clean NDJSON into chunks, processes each chunk into a scratchpad,
+then synthesises the final vault note. One locked fail-closed command merges
+the cumulative graph, publishes `user_vault`, and only then removes the
+carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet).
 
@@ -546,7 +547,7 @@ Pi reads real-user messages from the durable root session and snapshots only pro
 
 Under [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), launches are medium-reasoning, four-turn public background requests with inherited context disabled. Root JSONL determines missing/running/failed/success state and reminders zero through five. The worker exposes note/chunk only after graph publication; GIVEUP remains latched until fifteen later real prompts produce a replacement request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
-The memory agent writes the note and invokes `scripts/build-memory-graph.py` to derive a deterministic graph from the H1 title and canonical concept IDs. It performs the required locked merge/publication but never changes counters or delivery files.
+The memory agent writes the note and invokes `scripts/build-memory-graph.py` to derive a deterministic graph from the H1 title and canonical concept IDs. It performs the required locked merge/publication but never changes counters or delivery files. Claude's corresponding publication helper keeps merge, global publication, and success-only carrier removal inside one locked command.
 
 The shared merge deduplicates only identical `(source, target, relation, source_file)` evidence, preserves distinct evidence between the same nodes across persisted/prior/new inputs, and keeps `vault-graph.json` and `graph.json` byte-identical. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence -->
 
@@ -568,7 +569,7 @@ resume detection. No bisync filter is required because `/tmp` is not
 synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
 the default for hermetic tests; production never sets it.
 
-On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the high-water count and `<sessionId>.vars` for the active request pointer.
+On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the high-water count and `<sessionId>.vars` for the active request pointer. Post-compaction recall in both runtimes reserves each exact `Source:` path before spending its per-extract UTF-8 budget on title or body; a block is omitted if that metadata cannot fit.
 
 The immutable execution snapshot is home-backed at `~/.cache/codeflare-hooks/memory-capture.<sessionId>.<requestId>.vars`; the [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns child visibility and legacy migration. The pointer exists only for reload discovery and is never passed to the background agent.
 

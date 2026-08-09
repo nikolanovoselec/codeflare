@@ -325,14 +325,13 @@ replace-semantics now publishes the cumulative vault state on every run
 instead of clobbering it.
 
 ```bash
-flock -w 300 /tmp/graphify-global.lock bash -c '
-  /root/.local/share/uv/tools/graphifyy/bin/python \
-    /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py &&
-  /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/vault-graph.json --as user_vault
-'
-rm -f {VARS_FILE}
+bash /home/user/.claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh "{VARS_FILE}"
 ```
+
+The helper holds the shared lock while it runs the cumulative merge, publishes
+that exact cumulative graph as `user_vault`, and removes the carrier. Those
+three operations are one fail-closed shell command: merge or publication
+failure exits non-zero and cannot reach carrier removal.
 
 `graphify global add` is hash-keyed and idempotent. The internal
 `external_labels` pass dedupes concept nodes (those with

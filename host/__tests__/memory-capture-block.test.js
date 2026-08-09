@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -37,6 +37,20 @@ function runHook({ home, counterDir }, payload) {
     input: JSON.stringify(payload),
     encoding: 'utf-8',
     env: { ...process.env, HOME: home, MEMCAP_COUNTER_DIR: counterDir },
+  });
+}
+
+function runHookAsync({ home, counterDir }, payload) {
+  return new Promise((resolveResult) => {
+    const child = spawn('bash', [HOOK], {
+      env: { ...process.env, HOME: home, MEMCAP_COUNTER_DIR: counterDir },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (status) => resolveResult({ status, stderr }));
+    child.stdin.end(JSON.stringify(payload));
   });
 }
 
@@ -143,6 +157,7 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
     const r = runHook(fx, {
       session_id: sid,
       tool_name: 'Task',
+      tool_use_id: 'task-spawn-id',
       tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
     });
     assert.equal(r.status, 0);
@@ -175,8 +190,8 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
 });
 
 // REQ-MEM-012 AC4 (no bypass: every non-allowed tool call blocks while .vars
-// exists, no in-hook escape, block clears only when subagent runs and deletes
-// .vars). Stop-hook semantics same as the review-agent enforcement hook.
+// exists, no in-hook escape, block clears only after the correlated subagent's
+// publish transaction removes .vars). Stop-hook semantics match review enforcement.
 describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012 AC3+AC4', () => {
   it('permits only the correlated capture child while keeping parent and unrelated children blocked', () => {
     const fx = makeFixture();
@@ -191,9 +206,20 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
     });
     assert.equal(spawn.status, 0);
 
+    // An unrelated capture child arriving first cannot steal the claim.
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'other-capture',
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 2);
+
+    // Claude's harness supplies the parent tool_use_id as the spawned child's
+    // agent_id. Only that exact identity can atomically claim the authorization.
     const accepted = runHook(fx, {
       session_id: sessionId,
-      agent_id: 'capture-child-private-id',
+      agent_id: 'spawn-private-id',
       agent_type: 'memory-capture',
       tool_name: 'Read',
       tool_input: {},
@@ -205,17 +231,16 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
       { tool_name: 'Bash', tool_input: {} },
       { agent_id: 'other-child', agent_type: 'general-purpose', tool_name: 'Read', tool_input: {} },
       { agent_id: 'other-capture', agent_type: 'memory-capture', tool_name: 'Read', tool_input: {} },
-      { tool_name: 'Agent', tool_input: { subagent_type: 'memory-capture', prompt: 'replay' } },
+      { tool_name: 'Agent', tool_use_id: 'replay-id', tool_input: { subagent_type: 'memory-capture', prompt: 'replay' } },
     ]) {
       const result = runHook(fx, { session_id: sessionId, ...payload });
       assert.equal(result.status, 2);
-      assert.ok(!result.stderr.includes('capture-child-private-id'));
       assert.ok(!result.stderr.includes('spawn-private-id'));
     }
 
     const acceptedAgain = runHook(fx, {
       session_id: sessionId,
-      agent_id: 'capture-child-private-id',
+      agent_id: 'spawn-private-id',
       agent_type: 'memory-capture',
       tool_name: 'Write',
       tool_input: {},
@@ -238,6 +263,7 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
     assert.equal(runHook(expired, {
       session_id: 'sess-expired',
       tool_name: 'Agent',
+      tool_use_id: 'late-child',
       tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
     }).status, 0);
     const authorization = join(expired.counterDir, 'sess-expired.capture-auth');
@@ -260,14 +286,46 @@ describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012
     const result = runHook(fx, {
       session_id: 'sess-local',
       tool_name: 'Agent',
+      tool_use_id: 'harness-spawn-id',
       tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
     });
     assert.equal(result.status, 0);
     const authorization = join(fx.counterDir, 'sess-local.capture-auth');
     assert.ok(existsSync(authorization));
-    assert.match(readFileSync(authorization, 'utf8'), /^pending\n$/);
+    assert.match(readFileSync(authorization, 'utf8'), /^pending:harness-spawn-id\n$/);
     assert.equal(result.stdout, '');
     assert.equal(result.stderr, '');
+  });
+
+  it('allows only one of two concurrent harness spawn identities', async () => {
+    const fx = makeFixture();
+    const sessionId = 'sess-concurrent';
+    writeVars(fx, sessionId);
+    const results = await Promise.all(['spawn-a', 'spawn-b'].map((toolUseId) => runHookAsync(fx, {
+      session_id: sessionId,
+      tool_name: 'Agent',
+      tool_use_id: toolUseId,
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    })));
+    assert.deepEqual(results.map((result) => result.status).sort(), [0, 2]);
+    const authorization = readFileSync(join(fx.counterDir, `${sessionId}.capture-auth`), 'utf8');
+    const winner = authorization.match(/^pending:(spawn-[ab])\n$/)?.[1];
+    assert.ok(winner);
+    const loser = winner === 'spawn-a' ? 'spawn-b' : 'spawn-a';
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: loser,
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 2);
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      agent_id: winner,
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 0);
   });
 });
 

@@ -154,6 +154,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/publish-memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
     "modes": [
       "advanced"
@@ -664,6 +669,11 @@
     ]
   },
   "skills/spec-enforce/scripts/round-limit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/scripts/validate-import-triage.mjs": {
     "modes": [
       "advanced"
     ]

@@ -807,6 +807,23 @@ describe('lane-evidence.mjs — the block bounds itself', () => {
       'resolutions are the part that removes turns and must survive the shed');
   });
 
+  it('never emits an over-cap block when a non-disposition field dominates', () => {
+    const { cwd, base } = makeRepo();
+    const adrs = Array.from({ length: 200 }, (_, i) =>
+      `### AD${String(i).padStart(3, '0')}: ${'界'.repeat(500)}\n\n**Status:** Accepted\n`,
+    );
+    write(cwd, 'documentation/decisions/README.md', `${adrs.join('\n')}\n`);
+    write(cwd, 'documentation/architecture.md', '# Architecture\n');
+    const head = commit(cwd, 'docs: oversized accepted decisions');
+
+    const out = run(cwd, 'doc-updater', `${base}..${head}`);
+
+    assert.ok(Buffer.byteLength(JSON.stringify(out, null, 1)) <= 65536,
+      'every emitted shape must obey the rendered UTF-8 byte cap');
+    assert.ok(out.omitted?.includes('adrs') || out.omitted?.includes('evidence:oversized'),
+      'the dominant field or bounded fallback must name its omission');
+  });
+
   // A busy day reached 35 entries and 39 KB -- 72% of the spec lane's block, and
   // still growing. Drift detection asks whether THIS diff got an entry.
   it('caps the changelog by entry count, not just by date', () => {

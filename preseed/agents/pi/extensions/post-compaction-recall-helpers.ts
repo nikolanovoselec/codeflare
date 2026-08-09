@@ -14,6 +14,7 @@ import { capRenderedBytes } from "./memory-vault-helpers";
 export const RECALL_EXTRACT_COUNT = 5;
 export const RECALL_PER_FILE_BYTES = 2600;
 const RECALL_TRUNCATION_MARKER = "... (truncated - read the file for the rest)";
+const RECALL_TITLE_MAX_BYTES = 256;
 
 const WANTED_SECTIONS = ["## Context", "## Decisions"] as const;
 const STAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)/;
@@ -131,7 +132,24 @@ export function recallBlock(path: string, text: string, cap: number): string | n
     .join("\n\n")
     .trim();
   if (body === "") return null;
-  return capBytes(`### ${title}\nSource: ${path}\n\n${body}`, cap);
+
+  const sourceLine = `Source: ${path}`;
+  const minimumMetadata = `### …\n${sourceLine}`;
+  if (Buffer.byteLength(minimumMetadata, "utf8") > cap) return null;
+
+  // Reserve the exact Source line before spending any bytes on title/body.
+  // A long title may be shortened; a path may never be made unusable.
+  const fixedMetadataBytes = Buffer.byteLength(`### \n${sourceLine}`, "utf8");
+  const titleBudget = Math.min(RECALL_TITLE_MAX_BYTES, Math.max(0, cap - fixedMetadataBytes));
+  const titleBytes = Buffer.from(title, "utf8");
+  const renderedTitle = titleBytes.length <= titleBudget
+    ? title
+    : `${new TextDecoder("utf8").decode(titleBytes.subarray(0, Math.max(0, titleBudget - Buffer.byteLength("…", "utf8")))).replace(/�$/u, "").trimEnd()}…`;
+  const metadata = `### ${renderedTitle}\n${sourceLine}`;
+  const bodyBudget = cap - Buffer.byteLength(metadata, "utf8") - Buffer.byteLength("\n\n", "utf8");
+  if (bodyBudget <= 0) return metadata;
+  const renderedBody = capBytes(body, bodyBudget);
+  return `${metadata}\n\n${renderedBody}`;
 }
 
 /**
