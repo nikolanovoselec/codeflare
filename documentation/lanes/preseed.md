@@ -280,14 +280,13 @@ Generated reviewer system prompts embed their canonical scope and enforcement sk
 
 Cross-lane packet inputs carry exact old/new hunk ranges. Reviewers resolve an anchored implementation symbol or named test block and follow it only when that range intersects a changed hunk; sharing a changed file is not direct invalidation. Reviewers consolidate deterministic checks, emit failures rather than successful manifests, and verify generated seed through canonical preseed plus one identity check. The direct Bash/Node packet path preserves the declared scope, evidence, and dispositions.
 
-Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
+Claude CI monitoring remains bounded to eligible PR-boundary plans, explicit user requests, and fresh deploy/merge gates ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)). Routine non-boundary pushes do not start it; at a PR boundary, CI launches after reviewers and remains independent of review completion or acknowledgement. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
 Bash loops, deploy-status waits, or foreground polling
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). The discipline triad (`spec-discipline`, `documentation-discipline`,
-`tdd-discipline`) is advanced-only and points to the SDD workflow status,
-severity, and skill families.
+`tdd-discipline`) is advanced-only. Claude receives those rules in ambient instructions; Pi receives the same canonical policy through its grouped native skills, without duplicate ambient rule copies.
 
 `memory` is advanced-only and carries folded vault trigger/route content. It
 references Claude-specific `mcp__graphify__*` tools and the vault hook system.
@@ -888,13 +887,13 @@ same ownership boundary without adding agent types: its existing `refactor-clean
 binding override of their normal write/output behavior. Claude and Pi review
 subagents return every phase report; the root writes those artifacts and owns
 external verification, triage history, ADR updates, issue creation, and approved
-fixes. This implements [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review),
+fixes. Doc-updater remains report-only; the root may retain a substantive coverage record in the applicable commit body or lazily create `documentation/.doc-coverage.md`, but no scaffold placeholder is created. This implements [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review),
 [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill),
 and [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn. Generated-only `graphify-out/` diffs require no review lanes and are auto-acked with a durable audit event; generated artifacts never suppress review for mixed diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn `spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
 
-A source delta the shared `inert-source-delta.mjs` prover proves is comments and whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/` lane the same diff independently earns; the code lane is never dropped, and any file the prover cannot decide keeps all three. Non-SDD projects fire no review agents.
+A source delta the shared `inert-source-delta.mjs` prover proves is comments and whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/` lane the same diff independently earns. When source cannot be proved inert, the code lane remains required; prover uncertainty does not invent spec or documentation ownership. Non-SDD projects fire no review agents.
 
 Each tool-gated hook is registered on two matcher entries covering three
 tool names: the `Bash` matcher (with `Bash(git *)` and `Bash(gh *)`
@@ -1212,7 +1211,7 @@ An in-session subagent cannot be made cheap. Claude Code injects CLAUDE.md, ever
 
 A lane that owns no changed file in the range short-circuits before the model is invoked, costing zero tokens; the same ownership question the classifier already answers is simply asked again for free. Any uncertainty — unreadable range, missing classifier — falls through to a full review rather than silently skipping one.
 
-The round is user-visible and blocking. The directive requires the root session to print an overview before the lanes run, naming which lanes are about to run, why the others were excluded, and the exact range. It then issues the lane calls and **ends its turn**, doing nothing else until every lane has returned. Only then does it publish the fixed triage table; a fully clean round still gets one row per required lane with the runner's clean verdict and telemetry. That tool-free response ends the turn. The Stop hook acknowledges the head and injects the separate FIX directive for the following turn.
+The round is user-visible and blocking. The directive requires the root session to print an overview before the lanes run, naming which lanes are about to run, why the others were excluded, and the exact range. It then issues the lane calls and **ends its turn**, doing nothing else until every lane has returned. Only then does it publish the fixed triage table with one row per finding across all lanes. A fully clean round publishes the header and divider without synthetic clean-lane rows. That tool-free response ends the turn. The Stop hook acknowledges the head and injects the separate FIX directive for the following turn.
 
 The directive previously required the opposite: `[silent]`, "Do NOT mention these lanes to the user". That contradicted the constitution's review-result handoff gate, which has always required a user-facing summary, and it made an autofix arrive as an unexplained edit. The end-of-turn is what keeps the round legible — a lane result landing in the middle of unrelated work gets interleaved with it, and the reader loses the thread of what was actually reviewed.
 

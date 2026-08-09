@@ -331,7 +331,7 @@ The SaaS and onboarding activation flags, identity-provider settings, email cred
 
 ## Header User Dropdown
 
-The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. Clicking it opens a dropdown in non-enterprise modes only.
+The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. A successful Gravatar lookup renders the image; a miss renders the account-shield icon in both surfaces. Clicking it opens a dropdown in non-enterprise modes only.
 
 **Enterprise mode:** the avatar trigger's `onClick` is inert. `Dashboard.tsx` uses an early-return guard (`if (sessionStore.enterpriseMode) return;`); `Header.tsx` uses the equivalent inverted guard (`if (!sessionStore.enterpriseMode) setShowUserMenu(...)`). Either way no dropdown opens — the avatar element itself stays present and styled normally.
 

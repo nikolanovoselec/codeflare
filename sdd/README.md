@@ -12,7 +12,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 4. **Mobile-first** -- Strongly optimized for phone and tablet use. Touch input, virtual keyboard handling, swipe gestures for arrow key navigation, scroll stability fixes for Samsung/Android quirks. The best commits happen from places without desks.
 
-5. **Scale to zero** -- Containers hibernate after configurable idle timeout (15m-4h, input-aware). No sessions means no bill. Cost scales linearly with actual compute usage, not provisioned capacity.
+5. **Scale Container metering down** -- Containers stop after a configurable idle timeout (15m-4h, input-aware). Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
 
 6. **Agent-agnostic, Claude-optimized** -- Multiple agents supported with identical container infrastructure. Pro mode features (knowledge graph memory, curated skills, advanced workflows) are designed for Claude Code; other agents receive rules and definitions but may not support all capabilities.
 
@@ -73,7 +73,7 @@ One support file lives at the `sdd/` root (the path is the `/review` skill's tri
 - **Local execution** -- Codeflare does not run on the user's machine. No desktop app, no Electron wrapper, no local Docker mode.
 - **Custom container images** -- All sessions use the same Dockerfile. Users cannot bring their own base image or install system packages that persist across sessions (though they can install packages within a session).
 - **Database hosting** -- No managed PostgreSQL, MySQL, or MongoDB. KV and D1 are available via Cloudflare integration, but Codeflare itself uses KV only.
-- **Long-running services** -- Containers are for interactive coding sessions, not for hosting web servers or background workers. They hibernate on idle and stop on inactivity.
+- **Long-running services** -- Containers are for interactive coding sessions, not for hosting web servers or background workers. They stop and go to sleep on inactivity; persistent files come back from R2 rather than local-disk hibernation.
 - **Node.js APIs in the Worker** -- The Worker runs on Cloudflare's web-standard runtime. No `fs`, `child_process`, `net`, or other Node.js-specific APIs (except via `nodejs_compat` flag for specific modules).
 
 ## How This Spec Works

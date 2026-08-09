@@ -34,7 +34,7 @@ Do not modify `VARS_FILE`, pointers, manifests, `vault-extract.last`, or counter
 
 ## First Bash call: read each frozen file once
 
-Validate the snapshot and emit each listed file once. For text files (`.md`, `.txt`, `.json`, `.yaml`, `.yml`), consume that one output directly. For PDF/binary files, inspect only filename/type metadata and emit a bare document node. Record an unreadable file and continue; do not search for a replacement copy.
+Validate the snapshot and emit each listed file once. For text files (`.md`, `.txt`, `.json`, `.yaml`, `.yml`), consume that one output directly. Pi has no bounded PDF page reader: for PDF/binary files, inspect only filename/type metadata and emit a bare document node. Do not infer visible PDF content, content-derived concepts, citation parity, or a prompt-only reader. Record an unreadable file and continue; do not search for a replacement copy.
 
 Extract a compact graph, not a token inventory:
 

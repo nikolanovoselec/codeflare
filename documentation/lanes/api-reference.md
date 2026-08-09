@@ -65,8 +65,10 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Delete session and destroy container |
 | POST | `/api/sessions/:id/touch` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Stop session (KV 'stopped' + container.destroy()) |
-| GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Get session and container status |
-| GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode); optional query param `includePreseedCheck=true` adds `preseedNeedsUpgrade: boolean` (omitted otherwise; hash mismatch OR, under enterprise, stored sessionMode not yet advanced) for auto-upgrade detection on initial dashboard load |
+| GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) | Get session and container status |
+| GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode); optional query param `includePreseedCheck=true` adds `preseedNeedsUpgrade: boolean` (omitted otherwise; hash mismatch OR, under enterprise, stored sessionMode not yet advanced) for auto-upgrade detection on initial dashboard load |
+
+A successful stop ends Container vCPU, provisioned-memory, and local-disk metering once the Container sleeps. Local disk is ephemeral rather than hibernated state; a later start restores durable files from R2. This endpoint contract makes no zero-total-platform-cost claim: Workers, Durable Objects, R2, requests, logs, storage, and network usage may still be billable.
 
 ## Container Lifecycle
 
@@ -365,7 +367,7 @@ Each runs only when its field is present in the request body, so unrelated recon
 - `configure_access_groups` — persists the user/admin Access-group name lists (CSV-joined; an empty list clears the key). [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)
 - `configure_model_routing` — persists the dynamic-route catalog, default route, per-route context windows, and per-group routing (JSON; empty maps cleared). [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes)
 - `configure_ai_gateway` — persists the AI Gateway URL (plain) and token (encrypted at rest, no-clobber on blank). [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)
-- `configure_browser_rendering` — persists the admin Browser Rendering account id and token (encrypted at rest, no-clobber on blank). [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
+- `configure_browser_rendering` — persists the admin Browser Rendering account id and token (encrypted when `ENCRYPTION_KEY` is configured, AD32 plaintext fallback otherwise; presence-only prefill and no-clobber on blank, with no masked-save sentinel). [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 - `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
 - `configure_r2_sse` — writes `setup:r2_sse_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 - `configure_downloads_disabled` — writes `setup:downloads_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)
@@ -374,6 +376,8 @@ Each runs only when its field is present in the request body, so unrelated recon
 **Step 7 -- `finalize`**
 
 Writes final KV state and marks setup as complete.
+
+These are canonical provisioning slots, not a promise that every mode emits seven placeholder rows. Conditional Turnstile, cleanup, Access, and enterprise extension steps appear only when applicable, while streamed attempted steps retain source order.
 
 ### NDJSON Stream Contract
 
@@ -714,7 +718,7 @@ Both endpoints return the same JSON body:
 - [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) - User management admin panel
 - [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) - User identity and account-status API
 - [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) - Conversation context automatically captured to vault
-- [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) - Idle containers hibernate and cost zero
+- [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) - Idle containers stop metered Container resources
 - [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) - Rate-limiting infrastructure
 - [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) - Content-Disposition hardening on downloads
 - [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) - Session creation with name and agent type

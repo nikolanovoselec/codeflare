@@ -206,6 +206,13 @@ const TRIAGE_LINE = () =>
       ],
     },
   });
+const CLEAN_TRIAGE_LINE = () =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|` }],
+    },
+  });
 
 // A background call that exits non-zero. Same envelope, terminal status
 // `failed`: the lane ENDED, but produced nothing the gate may credit.
@@ -286,9 +293,15 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     }
   });
 
-  it('allows once the triage table is published after the last completion', () => {
+  it('allows once a finding triage table is published after the last completion', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('accepts a fully clean table without synthetic lane rows', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), CLEAN_TRIAGE_LINE()]);
     assert.equal(pretool(cwd, t, 'Edit').status, 0);
   });
 

@@ -218,16 +218,15 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     assert.equal(repeated.stdout, '');
   });
 
-  it('requires the structural triage table for a fully clean review round', () => {
+  it('requires an empty finding table without synthetic lane rows for a fully clean round', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
     const directive = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
 
-    assert.match(directive, /fully clean round gets one row per required lane/i);
+    assert.match(directive, /fully clean round publishes the header and divider with no synthetic clean-lane rows/i);
     assert.match(directive, /\| FINDING \| VALIDITY \| PROPOSED FIX \| PROPORTIONALITY \| MINIMAL DECISION \|/);
-    assert.doesNotMatch(directive, /do not publish an empty table/i,
-      'telling a clean round to omit the table contradicts the Stop hook acknowledgement gate');
+    assert.doesNotMatch(directive, /one row per required lane/i);
   });
 
   it('stays inert when the authoritative PR head is already acknowledged', () => {

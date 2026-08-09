@@ -155,17 +155,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-006: Idle containers hibernate and cost zero
+### REQ-OPS-006: Idle containers stop metered container resources
 
-**Intent:** Containers that are not actively in use must hibernate and incur zero compute cost. The cost model anchors the entire pricing strategy, so the hibernation guarantee is operator-facing.
+**Intent:** Containers that are not actively in use must stop and go to sleep so Container vCPU, provisioned-memory, and local-disk metering ends. The cost model is operator-facing and distinguishes Container metering from the rest of the Cloudflare platform.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, settable range 15 minutes to 4 hours; a legacy `5m` value is still accepted for a pre-existing stored preference but is no longer offered in the picker). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
-2. Hibernated containers consume zero CPU, memory, and disk cost. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-3. Active-container cost is approximately $11/user/month for a typical workload on the default tier. <!-- @manual -->
+1. Containers stop after a configurable idle period of no user input (default 30 minutes, settable range 15 minutes to 4 hours; a legacy `5m` value is still accepted for a pre-existing stored preference but is no longer offered in the picker). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
+2. After Codeflare's stop completes and the Container goes to sleep, Container vCPU, provisioned-memory, and local-disk metering stops. This is not state-preserving hibernation: local disk is ephemeral and a later Container starts fresh before R2 restore. Workers, Durable Objects, R2, requests, logs, storage, and network usage may still incur charges. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+3. As a dated `2026-08-09` example, one account with one 160-hour active session under the documented 1 vCPU, 3 GiB memory, 6 GB local-disk, and 20% average CPU assumptions totals approximately `$11.14`. The `$5` Workers Paid minimum and Container inclusions are account-level and shared, so this is neither a universal per-user figure nor a complete platform-cost estimate. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
 
 **Constraints:**
 
@@ -316,7 +316,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim). <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011: Container base image is Debian bookworm-slim) --> <!-- @manual -->
-2. Every agent CLI selected for the deployment starts without crashes. <!-- @manual: Build the selected image and start each offered agent. -->
+2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
 3. Essential developer tools for terminal-based workflows are pre-installed. <!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -429,7 +429,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
+**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources)
 
 **Verification:** Automated test
 
@@ -456,7 +456,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
+**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
 **Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
@@ -658,10 +658,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. A zizmor security audit runs on every pull request or push touching workflow files. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
+1. The standalone zizmor SARIF audit runs on every pull request touching workflow files and on workflow-touching pushes to `main`; the required `workflow-audit` lane separately enforces the merge gate through PR Checks. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (workflow hardening) -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
-4. The audit is merge-blocking: it runs inside the required status context and fails on any surviving finding, while a separate workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
+4. The merge-blocking audit runs inside the required status context and fails on any surviving finding, while the branch-filtered standalone workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 
 **Constraints:**
 
@@ -986,8 +986,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. An environment-scoped deployment value selects a non-empty subset of supported coding agents. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
-2. An absent selection preserves the full supported coding-agent set. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
-3. Empty or unknown selections fail before image construction. <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
+2. An absent or empty environment-scoped deployment value preserves the full supported coding-agent set; deployment normalizes that case before invoking the selector. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (passes the environment-scoped selection through deployment and image identity) -->
+3. An explicitly empty selector input or any unknown selection fails before image construction. <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
 4. Equivalent selections produce one canonical image identity. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
 5. Different selected sets produce different image identities. <!-- @impl: .github/workflows/container-image.yml::hash --> <!-- @test: host/__tests__/container-image-input-hash.test.js (deployment container image input hash) -->
 
@@ -1169,7 +1169,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. An affected PR Checks run completes within three minutes. <!-- @manual: Confirm the exact-head PR Checks run completes in under three minutes. -->
+1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `31314628668` completed the affected gate in 90 seconds and the workflow in 91 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
 2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
 3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
 

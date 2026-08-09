@@ -29,13 +29,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
 
-**Intent:** All protected surfaces (`/app`, `/api`, `/setup` post-first-configure) must deny access to unauthenticated users with an appropriate HTTP response.
+**Intent:** Protected data and mutation boundaries (`/api` and post-first-configure setup APIs) must deny unauthenticated access. The static SPA shell may remain publicly deliverable; it exposes no protected data and its API calls still authenticate.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Unauthenticated requests to protected paths (application pages, API endpoints, post-setup-completion setup endpoints) receive 401, 302, or 403 responses. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+1. Unauthenticated requests to protected API and post-setup configuration endpoints receive 401, 302, or 403 responses. Static application routes may return the public SPA shell, but protected data is unavailable until its API requests authenticate. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 2. In CF Access mode, requests without a valid CF Access session credential are rejected. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 3. In SaaS mode, requests without a valid SaaS session credential are rejected. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->

@@ -699,8 +699,8 @@ spawn_completion_line() {
 # and a model restating a required format ("I'll publish <header> over
 # <divider>") writes them too -- so a substring test acknowledges a head on a
 # message that contains no verdict at all, inverting the gate. The header must
-# be its own line, the divider the line immediately after it, and at least one
-# data row must follow: that shape is a published table and nothing else is.
+# be its own line and the divider the line immediately after it. Finding rows
+# follow when findings exist; a fully clean round has no synthetic lane rows.
 #
 # The canonical flow is Pi's: the table is a TOOL-FREE message that ends the
 # turn, which the harness always persists; the Stop hook then acknowledges it
@@ -709,14 +709,14 @@ spawn_completion_line() {
 # counts when it persisted, because refusing it could only wedge the session.
 # Only text blocks are extracted below, so nothing inside a tool_use envelope
 # can fake the shape.
-# The canonical stacked shape on stdin: header, divider, and a data row on
-# consecutive lines.
+# The canonical stacked shape on stdin: header and divider on consecutive
+# lines, followed only by actual finding rows when the round has findings.
 stacked_table_in_stream() {
   awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
     { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
     END {
       for (i = 1; i <= n; i++) {
-        if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+        if (rows[i] == h && rows[i + 1] == d) exit 0
       }
       exit 1
     }'
@@ -1346,7 +1346,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned with no triage verdict published. First verify every finding against the reviewers' evidence - finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then, in a TOOL-FREE response (no tool calls - end the turn immediately, make no file or Git changes), publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' (a fully clean round gets one row per lane stating the runner's clean verdict). VALIDITY records whether the finding is real (a rejected row states its cause there - never a deferral), PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. The fix directive follows in the next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned with no triage verdict published. First verify every finding against the reviewers' evidence - finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then, in a TOOL-FREE response (no tool calls - end the turn immediately, make no file or Git changes), publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real (a rejected row states its cause there - never a deferral), PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. The fix directive follows in the next turn once this head is acknowledged."
 fi
 
 exit 0

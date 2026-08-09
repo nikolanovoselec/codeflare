@@ -447,19 +447,19 @@ None.
 
 ### REQ-AUTH-016: Header user dropdown
 
-**Intent:** Quick access to account actions from any page.
+**Intent:** Quick access to deployment-mode-appropriate account actions from any page without exposing inert or unsupported billing surfaces.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+1. Outside enterprise mode, clicking avatar/username opens the account dropdown. SaaS shows Subscription, Usage, Guided Setup, and Logout; onboarding/default shows Guided Setup and Logout. Enterprise keeps the identity visible but the dropdown trigger is inert. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows Guided Setup and Logout outside enterprise mode) -->
 2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 
 **Constraints:**
 
-- In Enterprise Mode the dropdown does not open — the avatar/username stays visible but its click is inert — per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; This REQ describes the non-enterprise dropdown.
+- In Enterprise Mode the dropdown does not open—the avatar/username stays visible but its click is inert—per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; AC1 restates that exception only to make the complete mode matrix explicit.
 
 **Priority:** P2
 
@@ -480,7 +480,7 @@ None.
 **Acceptance Criteria:**
 
 1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-2. Falls back to outline icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (uses d=404 fallback so the caller can detect "no Gravatar" via image error and render the outline-icon fallback (REQ-AUTH-017 AC2)) -->
+2. Falls back to the account-shield icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: Use an address with no Gravatar and confirm both Header and Dashboard render the account-shield fallback. -->
 3. The hashed normalized email is used for the Gravatar lookup. <!-- @impl: web-ui/src/lib/gravatar.ts::getGravatarUrl --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (getGravatarUrl / REQ-AUTH-017 AC3 (MD5 of email used for Gravatar lookup)) -->
 
 **Constraints:**

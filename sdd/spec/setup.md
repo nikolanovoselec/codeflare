@@ -65,8 +65,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. The request body includes the custom domain, the user allowlist, the admin allowlist (subset of users), and an optional origin allowlist. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC1: request body requires customDomain (valid domain), allowedUsers (non-empty email array), adminUsers (non-empty email array, subset of allowedUsers)) -->
 2. All fields are validated synchronously before streaming starts; invalid input is rejected with a 400 error. <!-- @impl: src/lib/request-helpers.ts::parseJsonBody --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
-3. Setup executes 7 sequential steps and streams per-step progress; the per-step contract for each step and its observable effect lives in [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence). <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::withSetupRetry --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) -->
-4. All persistent state written by setup lives under a dedicated setup namespace. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
+3. Setup executes applicable steps in canonical slot order and streams each attempted transition. Deployment-mode and reconfiguration-only slots may be omitted, and enterprise configuration may add named extension steps; the slot contract and observable effects live in [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence). <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::withSetupRetry --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) -->
+4. Setup configuration state lives under the dedicated setup namespace. Application user records and per-user preferences created as setup outputs retain their canonical user/bucket namespaces. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
 5. The response stream ends with exactly one terminal completion object. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC5: response stream ends with exactly one object containing done: true) -->
 
 **Constraints:**
@@ -181,7 +181,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. The response uses NDJSON as its content type. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure response is NDJSON with Content-Type application/x-ndjson) -->
 2. Each line is a self-contained JSON object terminated by a newline. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) --> <!-- @manual: Inspect a configure response body and confirm every JSON object, including the terminal object, ends with a newline. -->
-3. Progress messages identify the step and report one of: running, succeeded, or failed. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) -->
+3. Progress messages identify the step and report one of `running`, `success`, or `error`. <!-- @impl: src/routes/setup/shared.ts::SetupStep --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) -->
 4. Failure messages include a human-readable error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (configure error with steps) -->
 5. Every stream ends with exactly one terminal completion object that carries the overall success flag. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC5: response stream ends with exactly one object containing done: true) -->
 
@@ -343,7 +343,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-012: Setup wizard step sequence
 
-**Intent:** The setup wizard's 7-step pipeline must run in a fixed order, each step has a stable identifier the NDJSON stream emits, and the per-step observable effect is enforced as a separate contract so a regression in one step does not silently break the next.
+**Intent:** The setup wizard's canonical provisioning slots run in stable order when applicable. Each attempted slot has a stable NDJSON identifier and independently enforced observable effect; mode-specific omission or extension does not fabricate placeholder frontend steps.
 
 **Applies To:** Admin
 
@@ -355,11 +355,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 4. On reconfigure, stale users removed from the allowlist are cleaned up before continuing. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC4: step cleanup_stale_users runs only on reconfigure when users removed from allowlist) -->
 5. Step 4 configures the custom domain by upserting the DNS record and Worker route. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC5: step configure_custom_domain creates CNAME DNS record and Worker route) -->
 6. Step 5 upserts the CF Access application, groups, and policies; this step is bypassed when an OAuth client ID is configured (the SaaS OAuth path per AD38), not unconditionally in SaaS mode. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC6: step create_access_app creates CF Access application and is skipped in GitHub OIDC mode) -->
-7. Step 6 provisions a Turnstile widget when onboarding or SaaS mode is active; Step 7 writes final state and marks setup complete. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
+7. The Turnstile slot runs when onboarding or SaaS mode is active, and the finalization slot writes final state and marks setup complete. Inapplicable slots are omitted rather than emitted as synthetic successes; named cleanup and enterprise configuration extensions retain their source order around these canonical slots. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
 
 **Constraints:**
 
-- Step ordering is fixed; steps may not be reordered without a spec change.
+- Canonical slot ordering is fixed; conditional slots may be absent, and named extension steps may not reorder the applicable canonical slots.
 
 **Priority:** P0
 

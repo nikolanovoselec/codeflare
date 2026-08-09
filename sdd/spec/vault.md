@@ -122,7 +122,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - The hook creates the sentinel on emission; the agent removes it as its final step.
 - Claude: the vault-extract subagent is pinned to sonnet at the definition level per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), with reasoning effort pinned at medium.
 - Pi: the provider-neutral model lever is optional; [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) fixes reasoning effort at medium.
-- PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).
+- PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-handles-pdfs-by-runtime-capability).
 - AC3–AC5 describe the Claude hook/agent delivery path; Pi's root-owned transactional delivery and high-water promotion are specified separately in [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional).
 
 **Priority:** P0
@@ -343,22 +343,23 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-### REQ-VAULT-011: Vault-extract ingests PDF files
+### REQ-VAULT-011: Vault-extract handles PDFs by runtime capability
 
-**Intent:** PDFs dropped into the vault (typically under `Raw/Pasted/`) must be ingested into the global graph as first-class content, not skipped as binary. The agent reads each PDF, emits a `document` node plus extracted `concept` nodes, and links to sibling notes that wikilink the same file. Corrupt or unreadable PDFs must not block ingestion of healthy files.
+**Intent:** PDF extraction remains truthful to each runtime's available reader. Claude can render bounded PDF pages and derive content/citations; Pi has no PDF page reader and emits metadata-only document evidence. Neither path may pretend parity or let one unreadable PDF block healthy files.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. PDF files in the changed-files list are ingested as content, not skipped as opaque binary. <!-- @manual -->
-2. The vault-extract agent reads each PDF (capped at a bounded page count for large files), emits a document-type node for the PDF itself plus concept-type nodes for visible title text, headings, named entities, and diagrams. <!-- @manual -->
-3. When a sibling markdown note wikilinks the same PDF, a citation edge connects the document node to the wikilink concept so the global graph unifies them. <!-- @manual -->
-4. Read failures on PDFs (corrupt, password-protected, unsupported encoding) emit the bare document node only; the manifest still commits so a single unreadable PDF does not block ingestion of other changed files. <!-- @manual -->
+1. On Claude, a changed PDF is read as rendered content with a bounded page cap rather than skipped as opaque binary. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::claude-vault-pdf-handling --> <!-- @manual: Run the Claude PDF-ingestion checklist in the Vault lane. -->
+2. Claude emits a document node plus concept nodes for visible title text, headings, named entities, and diagrams. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::claude-vault-pdf-handling --> <!-- @manual: Confirm content-derived nodes from a healthy text or scanned PDF on Claude. -->
+3. On Claude, when a sibling Markdown note wikilinks the same PDF, a `cites` edge connects the PDF document node to the wikilink concept. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::claude-vault-pdf-handling --> <!-- @manual: Confirm the citation edge in the Claude output graph. -->
+4. On Pi, PDF/binary input is metadata-only and produces a bare document node because Pi has no bounded PDF page reader. Unreadable PDFs on either path do not block healthy changed files or successful manifest advancement. <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::pi-vault-extraction-contract --> <!-- @manual: Confirm a Pi PDF produces only path/type document metadata while a healthy sibling file still ingests. -->
 
 **Constraints:**
 
-- The page cap is a Read-tool limit; PDFs longer than the cap are partially ingested rather than rejected.
+- Claude's page cap is a Read-tool limit; longer PDFs are partially ingested rather than rejected.
+- Pi does not gain a prompt-only PDF reader, content-derived PDF concepts, shader-like internal test, or cross-runtime parity claim.
 
 **Priority:** P1
 
@@ -379,7 +380,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-2. Clicking the Vault control opens the current session's proxied editor. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
 3. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. The dashboard links to the README near the top. <!-- @manual -->
 5. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @manual -->
@@ -496,7 +497,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- Pi prompt assertions verify canonical chunk output, graph merging, and the publish step; cluster-only rendering and copy remain manual checks like [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).
+- Pi prompt assertions verify canonical chunk output, graph merging, and the publish step; cluster-only rendering and copy remain manual checks like [REQ-VAULT-011](#req-vault-011-vault-extract-handles-pdfs-by-runtime-capability).
 
 **Priority:** P0
 
@@ -512,7 +513,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @cites: REQ-VAULT-013 (split-prose: the native-service-worker contract foreshadowed in REQ-VAULT-013's Intent - registration short-circuit, key delivery, precache - is specified here) -->
 
-**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the SilverBullet 2.10.0 native worker body locked to the Dockerfile-pinned binary, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves without reusing stale browser HTTP-cache entries. The per-session encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1). The served worker's runtime behavior (log suppression, destructive-sync guard, key-flush neutering) is [REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft).
+**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the SilverBullet 2.10.0 native worker body locked to the Dockerfile-pinned binary, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves without reusing stale browser HTTP-cache entries. The bucket-stable vault encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1). The served worker's runtime behavior (log suppression, destructive-sync guard, key-flush neutering) is [REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft).
 
 **Applies To:** User
 
@@ -522,7 +523,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The short-circuit selector requires GET method, exact path match for the service-worker script, and the browser-only `Service-Worker` request header (a Fetch-spec forbidden header not settable from page JavaScript); cookie presence is not checked and does not affect the match. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerRegistration --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector)) -->
 3. The native service worker's verbatim upstream bytes are guarded by a pinned integrity digest. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SW_SHA256 --> <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SW_VERBATIM --> <!-- @test: src/__tests__/routes/vault.test.ts (T9: the drift guard hashes the VERBATIM upstream worker) -->
 4. The native worker's install precache bypasses stale browser HTTP-cache entries so stale assets cannot satisfy installation. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017 AC4: install precaching bypasses stale browser cache entries) -->
-5. The bootstrap hop supplies the per-session encryption key to the native worker by postMessage without putting the key in the worker script body. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @test: src/__tests__/routes/vault.test.ts (injectVaultBootstrapHopHtml (REQ-VAULT-024 AC1/AC2)) -->
+5. The bootstrap hop supplies the bucket-stable vault encryption key to the native worker by postMessage without putting the key in the worker script body. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @test: src/__tests__/routes/vault.test.ts (injectVaultBootstrapHopHtml (REQ-VAULT-024 AC1/AC2)) -->
 6. The native worker precaches the shell `/` during installation. The shell-path redirect is suppressed for Service-Worker-context fetches (`Sec-Fetch-Mode` present and not `navigate`), so the precache resolves against the real shell instead of a 302. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC6/AC7, AD69)) -->
 7. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the bootstrap-hop redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerContextFetch / REQ-VAULT-017 AC6/AC7 (SW precache vs navigation)) -->
 
@@ -611,7 +612,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. A full prewarm proof records a persistent per-browser marker; on a later load, if the marker is set and live local readiness still holds, the bootstrap iframe is skipped and the control arms (green) directly with no click. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::markVaultFullyPrewarmed --> <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::hasVaultFullyPrewarmed --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 3. If the readiness probe does not settle or the marker is absent, the reload-skip is ineligible and the control stays 'available' for an on-demand click rather than auto-mounting onto an unbuilt index. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC3: a reload with local DBs/SW but no full prewarm proof stays available until click) -->
 4. The control shows available, accent preparation with focus warning, then green readiness with five-second confirmation; the second click opens instantly. Reduced motion keeps state colors without animation. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-5. A top-level vault with active worker but no first-paint controller reloads once through a loop-safe session marker; prewarm, first boot, non-vault scope, unsupported workers, or missing prewarm ID remain inert. <!-- @impl: src/lib/vault-view.ts::installVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::injectVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (injectVaultControlledReload (REQ-VAULT-018 open-path safety net)) -->
+5. A top-level vault with an active worker but no first-paint controller reloads once through a loop-safe session marker. A present valid prewarm ID identifies the hidden prewarm path and remains inert; first boot, non-vault scope, and unsupported workers also remain inert. <!-- @impl: src/lib/vault-view.ts::installVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::injectVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (injectVaultControlledReload (REQ-VAULT-018 open-path safety net)) -->
 6. Once armed, the control stays green for the rest of the session, gated solely on the prewarm readiness proof (`pw === 'ready'`, [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC6) rather than an open/settle latch, identically on mobile, tablet, and desktop, including under a sticky touch-device `:hover`. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: stays green (armed) after the open click and on subsequent opens — ready means green, always) -->
 7. The ready tooltip auto-surfaces only on the genuine preparing->armed transition, never on a fresh already-armed mount, so a warm reload or return from the vault tab does not re-pop it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed mount (warm reload / return from the vault tab) does NOT re-pop the ready tooltip) -->
 
