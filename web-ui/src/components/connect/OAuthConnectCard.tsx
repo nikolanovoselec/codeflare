@@ -21,6 +21,8 @@ export interface OAuthAccountOption {
 }
 
 interface OAuthConnectCardProps {
+  /** Optional surface-specific chrome; connect/disconnect behavior stays shared. */
+  class?: string;
   /** 'github' | 'cloudflare' — scopes every data-testid so a page with both is unambiguous. */
   provider: string;
   /** mdi icon path. */
@@ -56,7 +58,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
   };
 
   return (
-    <div class="oauth-connect-card" data-testid={`${props.provider}-connect-card`} data-status={props.status}>
+    <div class={`oauth-connect-card${props.class ? ` ${props.class}` : ''}`} data-testid={`${props.provider}-connect-card`} data-status={props.status}>
       <div class="oauth-connect-head">
         <Icon path={props.icon} size={28} class="oauth-connect-icon" />
         <span class="oauth-connect-name">{props.name}</span>

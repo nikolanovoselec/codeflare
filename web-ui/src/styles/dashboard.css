@@ -333,10 +333,9 @@
        repos — collapses instead of reserving the whole column; overflow scrolls
        inside the list (.github-repo-rows / .storage-drop-zone). flex:0 0 auto stops
        the column from stretching the panel to fill the viewport when it is short.
-       ONE shared cap for both faces: mobile is a flip (only one face is visible at a
-       time), so GitHub and Storage must cap identically — otherwise flipping would
-       resize the panel. The face stays content-sized below the cap and scrolls its
-       inner list above it. */
+       ONE shared used height for both faces is measured from the taller natural face
+       and capped to this viewport limit. That keeps short pairs compact while an
+       unequal GitHub/Storage pair cannot resize the panel when flipped. */
     flex: 0 0 auto;
     min-height: 0;
     max-height: 75vh;

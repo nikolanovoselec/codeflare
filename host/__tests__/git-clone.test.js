@@ -27,10 +27,16 @@ describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
     assert.equal(r.ref, undefined);
   });
 
-  it('strips a trailing .git from the computed repo name + dir', () => {
+  it('preserves a trailing .git in the validated repository basename', () => {
     const r = resolveGitClone('octo/hello-world.git', undefined, WS);
     assert.equal(r.ok, true);
-    assert.equal(r.repoName, 'hello-world');
+    assert.equal(r.repoName, 'hello-world.git');
+    assert.equal(r.dir, '/home/user/workspace/hello-world.git');
+  });
+
+  it('normalizes the workspace root and keeps the target as its direct child', () => {
+    const r = resolveGitClone('octo/hello-world', undefined, `${WS}/nested/..`);
+    assert.equal(r.ok, true);
     assert.equal(r.dir, '/home/user/workspace/hello-world');
   });
 
@@ -48,12 +54,13 @@ describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
     assert.equal(resolveGitClone('octo/../../etc', undefined, WS).ok, false);
   });
 
-  it('rejects a single-segment .. / . repo name that would escape the workspace dir', () => {
-    // These pass the owner/name regex but their dir would escape via path.join:
-    // octo/.. -> <ws>/.., octo/. -> <ws>, a/..git -> (after .git strip) <ws>/.
+  it('rejects dot segments but preserves a safe dot-prefixed basename verbatim', () => {
     assert.equal(resolveGitClone('octo/..', undefined, WS).ok, false);
     assert.equal(resolveGitClone('octo/.', undefined, WS).ok, false);
-    assert.equal(resolveGitClone('a/..git', undefined, WS).ok, false);
+    const safe = resolveGitClone('a/..git', undefined, WS);
+    assert.equal(safe.ok, true);
+    assert.equal(safe.repoName, '..git');
+    assert.equal(safe.dir, '/home/user/workspace/..git');
   });
 
   it('rejects a non-string repo', () => {

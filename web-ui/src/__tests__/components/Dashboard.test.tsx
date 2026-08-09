@@ -736,6 +736,37 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
+  it('REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column', () => {
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const origGBCR = HTMLElement.prototype.getBoundingClientRect;
+    const realInnerWidth = window.innerWidth;
+    const realInnerHeight = window.innerHeight;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    (window as any).innerWidth = 500;
+    (window as any).innerHeight = 400;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList?.contains('panel-flip-face--github') ? 180
+        : this.classList?.contains('panel-flip-face--storage') ? 420 : 0;
+      return { height, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
+      expect(right.style.height).toBe('300px');
+      fireEvent.click(screen.getByTestId('gh-stub-flip'));
+      expect(right.style.height).toBe('300px');
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+      (window as any).innerWidth = realInnerWidth;
+      (window as any).innerHeight = realInnerHeight;
+    }
+  });
+
   // === Expansion Tests ===
 
   it('adds dashboard-floating-panel--expanded class when viewState is expanding', () => {

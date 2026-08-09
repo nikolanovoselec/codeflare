@@ -39,9 +39,9 @@ export type GitCloneResolution =
  *  - Present-but-invalid ref       -> { ok:false }.
  *  - Valid                         -> { ok:true, repoName, dir }.
  *
- * `repoName` is the part after the slash with a trailing `.git` stripped; `dir`
- * is `<workspace>/<repoName>`. The caller decides the workspace root and whether
- * `dir` already exists (collision refuse).
+ * `repoName` is the validated part after the slash, preserved verbatim; `dir`
+ * is its direct child under the normalized workspace root. The caller refuses
+ * an existing `dir` before cloning.
  */
 export function resolveGitClone(
   repo: unknown,
@@ -56,14 +56,18 @@ export function resolveGitClone(
       return { ok: false, error: 'invalid ref' };
     }
   }
-  const repoName = repo.split('/')[1].replace(/\.git$/, '');
-  // REPO_PATTERN permits `.` / `..` as the name segment (e.g. `octo/..`, or
-  // `a/..git` which becomes `.` after the .git strip), which would make `dir`
-  // escape the workspace via path.join. No real repo is named ``/`.`/`..`.
+  const repoName = repo.split('/')[1];
+  // REPO_PATTERN permits `.` / `..` as the name segment. Resolve the workspace
+  // first and require the destination to remain its direct child as an explicit
+  // containment check, even though the validated basename contains no separators.
   if (repoName === '' || repoName === '.' || repoName === '..') {
     return { ok: false, error: 'invalid repo' };
   }
-  const dir = path.join(workspace, repoName);
+  const workspaceRoot = path.resolve(workspace);
+  const dir = path.resolve(workspaceRoot, repoName);
+  if (path.dirname(dir) !== workspaceRoot) {
+    return { ok: false, error: 'invalid repo' };
+  }
   const resolution: GitCloneResolution = { ok: true, repo, repoName, dir };
   if (typeof ref === 'string') resolution.ref = ref;
   return resolution;

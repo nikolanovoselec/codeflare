@@ -86,6 +86,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
+  const [flipHeight, setFlipHeight] = createSignal<number | null>(null);
 
   // Measure a face's TRUE natural height — what it wants with all its content shown
   // and nothing constraining it — as a fixed point that never depends on the column
@@ -108,12 +109,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!face) return null;
     const prevMaxH = face.style.maxHeight;
     const prevFlex = face.style.flex;
+    const prevDisplay = face.style.display;
     face.style.maxHeight = 'none';
     face.style.flex = '0 0 auto';
+    face.style.display = 'flex';
     const scroller = face.querySelector<HTMLElement>(scrollSel);
     const natural = scroller
       ? Math.max(0, face.getBoundingClientRect().height - scroller.getBoundingClientRect().height) + scroller.scrollHeight
       : face.getBoundingClientRect().height;
+    face.style.display = prevDisplay;
     face.style.flex = prevFlex;
     face.style.maxHeight = prevMaxH;
     return Math.ceil(natural);
@@ -127,17 +131,26 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // layout caps that small, so it would wrongly flip every tablet/laptop.
     const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
-    // Measured caps only make sense for the TWO-panel split. In flip mode, or when
-    // GitHub is disabled (Storage is the sole face — the GitHub face is not rendered),
-    // there is no second panel to balance — clear the caps so the single face just
-    // fills the column instead of capping to its content and leaving empty space.
-    if (mode === 'flip' || !githubStore.enabled) {
+    // A sole Storage face needs no shared geometry. In flip mode, measure both
+    // faces (including the hidden one) and apply one viewport-capped used height;
+    // swapping unequal faces then cannot resize the column.
+    if (!githubStore.enabled) {
       setGithubMaxH(null);
       setStorageMaxH(null);
+      setFlipHeight(null);
       return;
     }
     const gh = measureNatural(githubFaceRef, '.github-repo-rows');
     const st = measureNatural(storageFaceRef, '.storage-drop-zone');
+    if (mode === 'flip') {
+      setGithubMaxH(null);
+      setStorageMaxH(null);
+      const natural = Math.max(gh ?? 0, st ?? 0);
+      const capped = Math.min(natural, Math.floor(window.innerHeight * 0.75));
+      setFlipHeight((p) => (p === capped ? p : capped));
+      return;
+    }
+    setFlipHeight(null);
     // Idempotent write: a redundant trigger that re-measures the same value is a no-op.
     setGithubMaxH((p) => (p === gh ? p : gh));
     setStorageMaxH((p) => (p === st ? p : st));
@@ -466,6 +479,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             data-face={effectiveFace()}
             data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
             ref={rightColRef}
+            style={layoutMode() === 'flip' && flipHeight() != null ? { height: `${flipHeight()}px` } : undefined}
           >
             <Show when={githubStore.enabled}>
               <div
