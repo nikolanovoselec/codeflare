@@ -36,9 +36,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The bucket name is derived deterministically from the authenticated user's email so the same user always resolves to the same bucket. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)) -->
+1. The bucket identity is resolved deterministically from the normalized email and an explicit ownership record; unambiguous legacy assignments remain stable and later sanitization collisions use a digest-suffixed v2 name. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 2. The bucket is auto-created via the Cloudflare API on first container start when it does not already exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC2 (createBucketIfNotExists is idempotent and race-safe)) -->
-3. No API endpoint may return objects from a bucket the authenticated user does not own. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)) -->
+3. No API endpoint may return objects from a bucket the authenticated user does not own; unresolved legacy collisions fail closed instead of selecting a shared sanitized name. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 
 **Constraints:**
 

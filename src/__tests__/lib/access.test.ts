@@ -20,7 +20,7 @@ vi.mock('../../lib/email', () => ({
   sendWelcomeEmail: mockSendWelcomeEmail,
 }));
 
-import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
+import { resolveUserFromKV, getBucketName, resolveBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -189,6 +189,44 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
     it('defaults to codeflare- when workerName is undefined', () => {
       const name = getBucketName('test@example.com', undefined);
       expect(name).toBe('codeflare-test-example-com');
+    });
+  });
+
+  describe('resolveBucketName / REQ-AUTH-006 tenant isolation', () => {
+    it('migrates an unambiguous legacy identity without renaming its bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const result = await resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com');
+
+      expect(result).toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
+        email: 'ab@example.com',
+        version: 1,
+      });
+    });
+
+    it('uses a digest-suffixed bucket for a later identity that collides with an owned legacy bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+      await resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com');
+      mockKV._set('user:a+b@example.com', { role: 'user' });
+
+      const versioned = await resolveBucketName(mockKV as unknown as KVNamespace, 'a+b@example.com');
+
+      expect(versioned).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
+      expect(versioned).not.toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get(`bucket-owner:${versioned}`)!)).toEqual({
+        email: 'a+b@example.com',
+        version: 2,
+      });
+    });
+
+    it('denies access when multiple legacy identities collide before ownership is known', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+      mockKV._set('user:a+b@example.com', { role: 'user' });
+
+      await expect(resolveBucketName(mockKV as unknown as KVNamespace, 'ab@example.com'))
+        .rejects.toThrow('Ambiguous legacy bucket ownership');
+      expect(mockKV._store.has('bucket-owner:codeflare-ab-example-com')).toBe(false);
     });
   });
 

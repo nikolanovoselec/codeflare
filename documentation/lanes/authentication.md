@@ -166,7 +166,7 @@ User visits protected URL (/app, /api/*, /setup)
   -> Worker extracts email, normalizes, resolves user from KV
 ```
 
-**Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket name derivation.
+**Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket identity resolution. Bucket ownership is recorded explicitly: an unambiguous legacy owner retains its bucket, a later sanitization collision receives a digest-suffixed v2 bucket, and pre-existing ambiguous collisions fail closed.
 
 **Enterprise mode:** When `ENTERPRISE_MODE=active`, an authenticated CF Access request enters `resolveOrProvisionEnterpriseUser()` **before** the SaaS path. Existing users (admin or prior JIT) are returned unchanged; unknown emails are JIT-provisioned to `unlimited` tier (subject to an optional access-group gate). The SaaS subscribe/onboarding path is never reached. See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
 

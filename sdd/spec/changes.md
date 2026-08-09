@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Bucket identity collisions now fail closed or receive an owned v2 identity** ([REQ-AUTH-006](authentication.md#req-auth-006-user-email-normalized) AC3 and [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC1/AC3 remain Implemented). Authentication records unambiguous legacy ownership, assigns a digest-suffixed bucket to later colliding identities, and denies pre-existing ambiguous collisions rather than selecting a shared bucket.
+
 - **Vault bootstrap success now requires browser encryption state to persist** ([REQ-VAULT-024](vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1/AC2 remain Implemented). A rejected `localStorage` write now enters the existing visible bootstrap failure path; the page emits neither its completion cookie nor its shell redirect, so a later attempt can retry instead of entering SilverBullet after falsely marking encryption setup complete.
 
 - **Unconfirmed session destruction no longer reports success or erases retry state** ([REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC2/AC5 remain Implemented). Stop now records `stopped` only after `destroy()` confirms graceful teardown and final sync. Delete retains the session record when destruction fails, so operators and users keep a retry handle instead of losing the only durable reference to a possibly running, unsynced container.

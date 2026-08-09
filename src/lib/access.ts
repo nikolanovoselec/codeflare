@@ -7,7 +7,7 @@ import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
-import { SETUP_KEYS } from './kv-keys';
+import { getBucketOwnerKey, listAllKvKeys, SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('access');
 
@@ -383,6 +383,64 @@ export function getBucketName(email: string, workerName?: string): string {
   // Uses iterative trim instead of regex to satisfy CodeQL ReDoS analysis.
   const truncated = trimTrailingHyphens(sanitized.substring(0, Math.max(0, maxSanitizedLength)));
   return trimTrailingHyphens(`${prefix}${truncated}`);
+}
+
+interface BucketOwnerRecord {
+  email: string;
+  version: 1 | 2;
+}
+
+function parseBucketOwnerRecord(value: unknown): BucketOwnerRecord | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.email !== 'string' || (record.version !== 1 && record.version !== 2)) return null;
+  return { email: normalizeEmail(record.email), version: record.version };
+}
+
+async function getVersionedBucketName(email: string, workerName?: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizeEmail(email))));
+  const suffix = `-v2-${Array.from(digest.slice(0, 10), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  const legacy = getBucketName(email, workerName);
+  return `${trimTrailingHyphens(legacy.substring(0, 63 - suffix.length))}${suffix}`;
+}
+
+async function writeBucketOwner(kv: KVNamespace, bucketName: string, owner: BucketOwnerRecord): Promise<void> {
+  await kv.put(getBucketOwnerKey(bucketName), JSON.stringify(owner));
+}
+
+/**
+ * Resolve a collision-safe bucket identity while preserving unambiguous legacy
+ * assignments. An existing owner keeps the legacy name; a later colliding
+ * identity receives a digest-suffixed v2 name. If multiple legacy identities
+ * already collide before ownership is recorded, access is denied because the
+ * stored objects cannot be attributed safely.
+ */
+export async function resolveBucketName(kv: KVNamespace, email: string, workerName?: string): Promise<string> {
+  const normalizedEmail = normalizeEmail(email);
+  const legacy = getBucketName(normalizedEmail, workerName);
+  const legacyOwner = parseBucketOwnerRecord(await kv.get(getBucketOwnerKey(legacy), 'json'));
+
+  if (legacyOwner?.email === normalizedEmail) return legacy;
+  if (legacyOwner) {
+    const versioned = await getVersionedBucketName(normalizedEmail, workerName);
+    const versionedOwner = parseBucketOwnerRecord(await kv.get(getBucketOwnerKey(versioned), 'json'));
+    if (versionedOwner && versionedOwner.email !== normalizedEmail) {
+      throw new ForbiddenError('Bucket ownership conflict');
+    }
+    if (!versionedOwner) await writeBucketOwner(kv, versioned, { email: normalizedEmail, version: 2 });
+    return versioned;
+  }
+
+  const userKeys = await listAllKvKeys(kv, 'user:');
+  const collidingEmails = userKeys
+    .map(({ name }) => normalizeEmail(name.substring('user:'.length)))
+    .filter((candidate) => getBucketName(candidate, workerName) === legacy);
+  if (new Set(collidingEmails).size > 1) {
+    throw new ForbiddenError('Ambiguous legacy bucket ownership');
+  }
+
+  await writeBucketOwner(kv, legacy, { email: normalizedEmail, version: 1 });
+  return legacy;
 }
 
 /**
@@ -845,7 +903,7 @@ export async function authenticateRequest(
   }
   // Service auth users already have a role - skip KV allowlist lookup
   if (rawUser.role) {
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(env.KV, normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail }, bucketName };
   }
 
@@ -857,14 +915,14 @@ export async function authenticateRequest(
     const accessToken = extractAccessJwt(request);
     const { authDomain } = await loadAuthConfig(env);
     const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionEnterpriseUser(env.KV, normalizedEmail, accessToken, authDomain);
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(env.KV, normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
   if (isSaasModeActive(env.SAAS_MODE)) {
     const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(env.KV, normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
@@ -874,6 +932,6 @@ export async function authenticateRequest(
     throw new ForbiddenError('User not in allowlist');
   }
   const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = kvEntry;
-  const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+  const bucketName = await resolveBucketName(env.KV, normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
   return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
 }
