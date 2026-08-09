@@ -549,7 +549,7 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
 
   it('rejects an invalid encryption key before an early discoverability route', async () => {
     const { env, mockAssets } = createMockEnv();
-    env.ENCRYPTION_KEY = 'not-canonical-base64';
+    env.ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64').replace(/=$/, '');
 
     await expect(worker.fetch(
       new Request('https://example.com/robots.txt'), env, createMockCtx(),

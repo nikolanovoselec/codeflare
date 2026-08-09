@@ -389,6 +389,7 @@ describe('Auth Middleware', () => {
     it('elevates a non-admin who is in a configured admin group to admin (200)', async () => {
       mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
       mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      mockKV._set('user:groupadmin@example.com', { role: 'user', addedBy: 'setup', addedAt: '2026-01-01' });
       const spy = mockGetIdentity([{ name: 'ops_admins' }]);
 
       const app = createAdminApp();
