@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-09
+
+- **Merged-head review notices now reflect the exact acknowledgement checkpoint** ([REQ-AGENT-041](agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-058](agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-098](agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-104](agents.md#req-agent-104-review-acknowledgement-requires-a-published-verdict), and [REQ-AGENT-120](agents.md#req-agent-120-claude-authoritative-branch-review-boundary); all remain Implemented). Pi and Claude stay silent when a merged head was already acknowledged, while a genuinely unacknowledged closed head receives one visibility notice without consuming the one-shot bypass. Clean review rounds still publish one gate-matching triage row per required lane, so acknowledgement has structural evidence instead of depending on prose.
+
 ## 2026-08-06
 
 - **Reviewed agent extensions advance with their shadow pins and owned guidance intact** ([REQ-OPS-020](operations.md#req-ops-020-agent-toolchain-shadow-pin-freshness) and [REQ-OPS-033](operations.md#req-ops-033-generated-seed-and-prewarm-lock-integrity) remain Implemented). Pi Web Access 0.17 removes its duplicate librarian while Codeflare's owned librarian remains seeded; MCP Adapter 2.16 adds JSONC, elicitation, and direct-tool cleanup; the rpiv 2.2 releases add transient empty-advisor retry, lazy todo rendering, recoverable todo update guidance, and multiline/external-editor questionnaire input. Graphify 0.9.34–0.9.35 fixes directed paths, callflow, pruning, merge integrity, and Java resolution; the owned Graphify query references now state that paths are directed by default. Copilot 1.0.77 is additive. Impeccable 4.0.4 remains current. No other owned skill contract changes are required.
