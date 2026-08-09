@@ -36,6 +36,14 @@ function currentHead(cwd) {
   return spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf-8' }).stdout.trim();
 }
 
+function ackOf(cwd) {
+  const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd, encoding: 'utf-8',
+  }).stdout.trim();
+  const ackFile = join(cwd, gitCommonDir, 'sdd-review-ack-pr-42');
+  return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
+}
+
 function withSdd(cwd) {
   mkdirSync(join(cwd, 'sdd'), { recursive: true });
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
@@ -771,14 +779,6 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
 // REQ-AGENT-102: reviewer lanes run as headless subprocesses. The gate accepts
 // either transport, so migrating a lane cannot narrow what counts as reviewed.
 describe('enforce-review-spawn.sh — headless lane transport', () => {
-  const ackOf = (cwd) => {
-    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
-      cwd, encoding: 'utf-8',
-    }).stdout.trim();
-    const ackFile = join(cwd, gitCommonDir, 'sdd-review-ack-pr-42');
-    return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
-  };
-
   it('acks when every lane ran as a run-review-lane.sh Bash call', () => {
     const cwd = makeFixture();
     withSdd(cwd);
