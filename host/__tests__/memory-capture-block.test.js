@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +177,100 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
 // REQ-MEM-012 AC4 (no bypass: every non-allowed tool call blocks while .vars
 // exists, no in-hook escape, block clears only when subagent runs and deletes
 // .vars). Stop-hook semantics same as the review-agent enforcement hook.
+describe('memory-capture-block.sh - child-correlated authorization / REQ-MEM-012 AC3+AC4', () => {
+  it('permits only the correlated capture child while keeping parent and unrelated children blocked', () => {
+    const fx = makeFixture();
+    const sessionId = 'sess-correlated';
+    writeVars(fx, sessionId);
+
+    const spawn = runHook(fx, {
+      session_id: sessionId,
+      tool_name: 'Agent',
+      tool_use_id: 'spawn-private-id',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    });
+    assert.equal(spawn.status, 0);
+
+    const accepted = runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'capture-child-private-id',
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    });
+    assert.equal(accepted.status, 0);
+    assert.equal(accepted.stderr, '');
+
+    for (const payload of [
+      { tool_name: 'Bash', tool_input: {} },
+      { agent_id: 'other-child', agent_type: 'general-purpose', tool_name: 'Read', tool_input: {} },
+      { agent_id: 'other-capture', agent_type: 'memory-capture', tool_name: 'Read', tool_input: {} },
+      { tool_name: 'Agent', tool_input: { subagent_type: 'memory-capture', prompt: 'replay' } },
+    ]) {
+      const result = runHook(fx, { session_id: sessionId, ...payload });
+      assert.equal(result.status, 2);
+      assert.ok(!result.stderr.includes('capture-child-private-id'));
+      assert.ok(!result.stderr.includes('spawn-private-id'));
+    }
+
+    const acceptedAgain = runHook(fx, {
+      session_id: sessionId,
+      agent_id: 'capture-child-private-id',
+      agent_type: 'memory-capture',
+      tool_name: 'Write',
+      tool_input: {},
+    });
+    assert.equal(acceptedAgain.status, 0);
+  });
+
+  it('rejects missing child correlation and expired unclaimed authorization', () => {
+    const missing = makeFixture();
+    writeVars(missing, 'sess-missing');
+    assert.equal(runHook(missing, {
+      session_id: 'sess-missing',
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 2);
+
+    const expired = makeFixture();
+    writeVars(expired, 'sess-expired');
+    assert.equal(runHook(expired, {
+      session_id: 'sess-expired',
+      tool_name: 'Agent',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    }).status, 0);
+    const authorization = join(expired.counterDir, 'sess-expired.capture-auth');
+    assert.ok(existsSync(authorization));
+    const old = new Date(Date.now() - 601_000);
+    utimesSync(authorization, old, old);
+    assert.equal(runHook(expired, {
+      session_id: 'sess-expired',
+      agent_id: 'late-child',
+      agent_type: 'memory-capture',
+      tool_name: 'Read',
+      tool_input: {},
+    }).status, 2);
+    assert.equal(existsSync(authorization), false);
+  });
+
+  it('stores correlation only in the session-local authorization file', () => {
+    const fx = makeFixture();
+    writeVars(fx, 'sess-local');
+    const result = runHook(fx, {
+      session_id: 'sess-local',
+      tool_name: 'Agent',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    });
+    assert.equal(result.status, 0);
+    const authorization = join(fx.counterDir, 'sess-local.capture-auth');
+    assert.ok(existsSync(authorization));
+    assert.match(readFileSync(authorization, 'utf8'), /^pending\n$/);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, '');
+  });
+});
+
 describe('memory-capture-block.sh - no bypass / REQ-MEM-012 AC4 stop-hook', () => {
   it('blocks every non-Task-memory-capture call unconditionally while .vars exists', () => {
     const fx = makeFixture();

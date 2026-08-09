@@ -141,25 +141,22 @@ for name in names:
     joined = "\n\n".join(body).strip()
     if not joined:
         continue
-    # Cap on encoded bytes, not characters: len() on a str counts code points, so
-    # multibyte content would overrun the declared budget several times over.
-    # The marker is spent from the same budget rather than added on top of it, so
-    # a capped block never exceeds the bound it advertises. A cap too small to
-    # hold the marker drops the marker rather than the content: the bound is the
-    # guarantee, the notice is not.
-    encoded = joined.encode("utf-8")
+    # One rendered-byte budget covers the complete contribution: title, source
+    # path, body and truncation marker. Metadata is part of model context too,
+    # and slicing encoded bytes must never emit a partial multibyte sequence.
+    block = "### " + title.lstrip("# ").strip() + "\nSource: " + path + "\n\n" + joined
+    encoded = block.encode("utf-8")
     if len(encoded) > cap:
         marker_bytes = len(MARKER.encode("utf-8")) + 1
         marked = cap > marker_bytes
         # Floored: a negative slice bound counts from the end of the buffer and
-        # would return nearly the whole text - the inverse of the bound - and
-        # the cap comes from the environment.
+        # would return nearly the whole text - the inverse of the bound.
         budget = max(0, cap - marker_bytes if marked else cap)
-        joined = encoded[:budget].decode("utf-8", "ignore").rstrip()
+        block = encoded[:budget].decode("utf-8", "ignore").rstrip()
         if marked:
-            joined += "\n" + MARKER
+            block += "\n" + MARKER
 
-    blocks.append("### " + title.lstrip("# ").strip() + "\nSource: " + path + "\n\n" + joined)
+    blocks.append(block)
 
 if not blocks:
     sys.exit(0)

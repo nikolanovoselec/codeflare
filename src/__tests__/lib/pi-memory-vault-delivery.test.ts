@@ -23,7 +23,9 @@ import {
   type ExtractionJob,
   type PublicExtractionRequest,
   capTurn,
+  compactMessages,
   MEMORY_CAPTURE_MAX_RESCUED_REFS,
+  MEMORY_CAPTURE_MAX_TOTAL_CHARS,
   MEMORY_CAPTURE_MAX_TURN_CHARS,
 } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
@@ -32,6 +34,8 @@ import {
   type MemoryVaultPi,
 } from '../../../preseed/agents/pi/extensions/memory-vault';
 import { readVaultManifest } from '../../../preseed/agents/pi/extensions/vault-manifest-fs';
+import { renderInjection } from '../../../preseed/agents/pi/extensions/memory-inject-helpers';
+import { recallBlock } from '../../../preseed/agents/pi/extensions/post-compaction-recall-helpers';
 
 const NOW = Date.parse('2026-07-14T10:00:00.000Z');
 const UUIDS = [
@@ -348,6 +352,7 @@ async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<
 
 afterEach(() => {
   delete process.env.CODEFLARE_MEMORY_MODEL;
+  delete process.env.USER_TIMEZONE;
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -491,6 +496,24 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
 });
 
 describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => {
+  it('prefers USER_TIMEZONE over TZ when both are present', async () => {
+    const priorTz = process.env.TZ;
+    process.env.USER_TIMEZONE = 'America/New_York';
+    process.env.TZ = 'UTC';
+    try {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+      writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+      for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+
+      expect(readJson(activeExecutionPath(harness, 'memory-capture')).captureTimestamp).toMatch(/-0400$/);
+    } finally {
+      if (priorTz === undefined) delete process.env.TZ;
+      else process.env.TZ = priorTz;
+    }
+  });
+
   it('creates work on the fifteenth real prompt and emits a visible reminder without private spawn', async () => {
     const harness = makeHarness();
     let privateSpawnCalls = 0;
@@ -964,6 +987,36 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
     expect(existsSync(vaultPointerPath(harness))).toBe(false);
+  });
+});
+
+describe('rendered capture byte budget', () => {
+  it('bounds complete Pi injection and recall output with multibyte metadata', () => {
+    const injection = renderInjection(Array.from({ length: 10 }, () => ({
+      label: `vault${'é'.repeat(1500)}`,
+      source: `Vault/${'路'.repeat(1500)}.md`,
+      description: `vault ${'界'.repeat(100)}`,
+    })))!;
+    expect(Buffer.byteLength(injection, 'utf8')).toBeLessThanOrEqual(4096);
+    expect(injection).not.toContain(String.fromCharCode(0xfffd));
+
+    const recall = recallBlock(
+      `/Vault/${'路'.repeat(100)}.md`,
+      `# ${'é'.repeat(300)}\n\n## Context\n${'界'.repeat(1000)}\n\n## Decisions\n- retained`,
+      500,
+    )!;
+    expect(Buffer.byteLength(recall, 'utf8')).toBeLessThanOrEqual(500);
+    expect(recall).not.toContain(String.fromCharCode(0xfffd));
+  });
+
+  it('charges role headings, separators, and multibyte text to one byte budget', () => {
+    const rendered = compactMessages([
+      { role: 'user', content: '界'.repeat(MEMORY_CAPTURE_MAX_TOTAL_CHARS) },
+      { role: 'assistant', content: 'é'.repeat(MEMORY_CAPTURE_MAX_TOTAL_CHARS) },
+    ]);
+
+    expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(MEMORY_CAPTURE_MAX_TOTAL_CHARS);
+    expect(rendered).not.toContain(String.fromCharCode(0xfffd));
   });
 });
 

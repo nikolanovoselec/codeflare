@@ -5,6 +5,21 @@ export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
 
+const UTF8_REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
+
+/** Bound a complete rendered value in UTF-8 bytes, including marker overhead. */
+export function capRenderedBytes(text: string, maxBytes: number, marker = "... (truncated)"): string {
+  const encoded = Buffer.from(text, "utf8");
+  if (encoded.length <= maxBytes) return text;
+  const marked = `\n${marker}`;
+  const markerBytes = Buffer.byteLength(marked, "utf8");
+  const includeMarker = maxBytes > markerBytes;
+  const budget = Math.max(0, includeMarker ? maxBytes - markerBytes : maxBytes);
+  const decoded = new TextDecoder("utf8").decode(encoded.subarray(0, budget));
+  const kept = decoded.endsWith(UTF8_REPLACEMENT_CHARACTER) ? decoded.slice(0, -1) : decoded;
+  return includeMarker ? `${kept.trimEnd()}${marked}` : kept;
+}
+
 export type ExtractionJob = "memory-capture" | "vault-extract";
 export type ExtractionState = "missing" | "running" | "succeeded" | "failed";
 
@@ -486,7 +501,10 @@ export function selectTurns<T extends { role: string; text: string }>(
   for (const role of ["user", "assistant"]) {
     for (let index = turns.length - 1; index >= 0; index--) {
       if (turns[index].role !== role) continue;
-      const cost = turns[index].text.length;
+      // Charge the exact rendered unit, including its role heading and the
+      // separator compactMessages emits. Buffer.byteLength closes the
+      // multibyte bypass left by UTF-16 string length.
+      const cost = Buffer.byteLength(`## ${turns[index].role}\n${turns[index].text}\n\n`, "utf8");
       if (spent + cost > budget) break;
       spent += cost;
       keep.add(index);

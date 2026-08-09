@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOOK = resolve(__dirname, '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh');
+const RECALL_HOOK = resolve(__dirname, '../../preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh');
+const RENDERED_BUDGET = 4096;
 
 function makeGraph(dir, nodes) {
   mkdirSync(dir, { recursive: true });
@@ -109,6 +111,49 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     const matches = ctx.match(/VaultHandler\d+/g) || [];
     assert.ok(matches.length <= 10, `budget cap: expected at most 10 matched nodes, got ${matches.length}`);
     assert.ok(matches.length >= 1, 'at least one node must match');
+  });
+
+  it('AC2: bounds the complete rendered context in UTF-8 bytes', () => {
+    const counterDir = mkdtempSync(join(baseTmp, 'ac2-bytes-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'ac2-bytes-home-'));
+    makeGraph(join(homeDir, '.graphify'), Array.from({ length: 10 }, (_, index) => ({
+      id: String(index),
+      label: `vault${'é'.repeat(1500)}`,
+      source: `Vault/${'路'.repeat(1500)}/${index}.md`,
+      description: `vault ${'é'.repeat(100)}`,
+    })));
+
+    const { json } = runHook({
+      counterDir,
+      home: homeDir,
+      prompt: 'check the vault memory context and matching notes now',
+    });
+    const context = json?.hookSpecificOutput?.additionalContext ?? '';
+    assert.ok(context.includes('Prior context matching your query'));
+    assert.ok(Buffer.byteLength(context, 'utf8') <= RENDERED_BUDGET);
+    assert.ok(!context.includes('�'));
+  });
+
+  it('REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget', () => {
+    const sessionsDir = join(mkdtempSync(join(baseTmp, 'recall-budget-')), '会话'.repeat(40));
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, '2026-07-03T10-00-00+0200-a.md'), [
+      `# ${'é'.repeat(300)}`,
+      '## Context',
+      '界'.repeat(1000),
+      '## Decisions',
+      '- retained decision',
+    ].join('\n'));
+    const result = spawnSync('bash', [RECALL_HOOK], {
+      encoding: 'utf8',
+      input: JSON.stringify({ source: 'compact' }),
+      env: { ...process.env, POST_COMPACT_SESSIONS_DIR: sessionsDir, POST_COMPACT_PER_FILE_BYTES: '500' },
+    });
+    assert.equal(result.status, 0);
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    const block = context.match(/### [\s\S]*?(?=\n\nFull extracts live in)/)?.[0] ?? '';
+    assert.ok(Buffer.byteLength(block, 'utf8') <= 500);
+    assert.ok(!block.includes('�'));
   });
 
   it('AC3: fires at most once per session (sentinel directory prevents re-fire)', () => {

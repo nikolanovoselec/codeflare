@@ -42,6 +42,13 @@ describe('assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7', () => {
     assert.match(r.stdout, /^RESOLVED_TZ=Europe\/Zurich$/m);
   });
 
+  it('AC5 prefers USER_TIMEZONE when USER_TIMEZONE and TZ disagree', () => {
+    const r = run({ TZ: 'UTC', USER_TIMEZONE: 'America/New_York', ASSERT_ISO_TS_OVERRIDE: '' });
+    assert.equal(r.status, 0, `exit non-zero: ${r.stderr}`);
+    assert.match(r.stdout, /^RESOLVED_TZ=America\/New_York$/m);
+    assert.match(r.stdout, /^ISO_TS=.*-0[45]00$/m);
+  });
+
   it('AC5 offset-shape: ISO_TS lacking [+-]NNNN suffix rejected', () => {
     const r = run({ TZ: 'UTC', ASSERT_ISO_TS_OVERRIDE: '2026-05-23T12-00-00' });
     assert.equal(r.status, 1);

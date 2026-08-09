@@ -9,12 +9,12 @@
  * filesystem and the delivery, this file owns the decisions.
  */
 import { basename } from "node:path";
+import { capRenderedBytes } from "./memory-vault-helpers";
 
 export const RECALL_EXTRACT_COUNT = 5;
 export const RECALL_PER_FILE_BYTES = 2600;
 const RECALL_TRUNCATION_MARKER = "... (truncated - read the file for the rest)";
 
-const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
 const WANTED_SECTIONS = ["## Context", "## Decisions"] as const;
 const STAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)/;
 const FENCE = /^(`{3,})(.*)$/;
@@ -110,17 +110,7 @@ export function sections(text: string): Map<string, string> {
  * guarantee, the notice is not.
  */
 export function capBytes(text: string, cap: number): string {
-  const encoded = Buffer.from(text, "utf-8");
-  if (encoded.length <= cap) return text;
-  const markerBytes = Buffer.byteLength(RECALL_TRUNCATION_MARKER, "utf-8") + 1;
-  const marked = cap > markerBytes;
-  // Floored, because subarray counts a negative end from the far end of the
-  // buffer: a negative cap would return nearly the whole text - the inverse of
-  // the bound - and the cap is caller-supplied.
-  const budget = Math.max(0, marked ? cap - markerBytes : cap);
-  const decoded = new TextDecoder("utf-8").decode(encoded.subarray(0, budget));
-  const kept = decoded.endsWith(REPLACEMENT_CHARACTER) ? decoded.slice(0, -1) : decoded;
-  return marked ? `${kept.trimEnd()}\n${RECALL_TRUNCATION_MARKER}` : kept;
+  return capRenderedBytes(text, cap, RECALL_TRUNCATION_MARKER);
 }
 
 /**
@@ -141,7 +131,7 @@ export function recallBlock(path: string, text: string, cap: number): string | n
     .join("\n\n")
     .trim();
   if (body === "") return null;
-  return `### ${title}\nSource: ${path}\n\n${capBytes(body, cap)}`;
+  return capBytes(`### ${title}\nSource: ${path}\n\n${body}`, cap);
 }
 
 /**

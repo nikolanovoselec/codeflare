@@ -633,7 +633,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
           promptCount: currentCount,
           afterPromptCount: lastCount,
           messages,
-          timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
+          timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
         });
         if (replacement) {
           safeUnlink(active.executionPath);
@@ -657,7 +657,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       promptCount: currentCount,
       afterPromptCount: lastCount,
       messages,
-      timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
+      timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
     });
   });
 

@@ -15,7 +15,7 @@ can query it via `mcp__graphify__*` tools.
 - `CURRENT_COUNT`: user message count to write to counter
 - `TOTAL_LINES`: transcript line count to write to counter (inclusive)
 - `COUNTER_FILE`: path to the counter file
-- `VARS_FILE`: path to the vars file (delete after processing)
+- `VARS_FILE`: path to the retry carrier (delete only after merge and publication succeed)
 
 You will also derive:
 
@@ -33,19 +33,14 @@ You will also derive:
 
 ## Steps
 
-### 1. Read vars, delete vars
+### 1. Read and retain vars
 
-Read the vars file with the Read tool to get all variable values.
-Then IMMEDIATELY delete it -- this is the deduplication gate. The main
-agent checks this file before spawning; deleting it prevents a second
-spawn. The hook owns the counter; the agent must NOT rewrite it (see
-note below `rm` for the race rationale).
-
-```bash
-rm -f {VARS_FILE}
-```
-
-The hook (`memory-capture.sh`) already advanced the counter at `{COUNTER_FILE}` before emitting this directive, so do not rewrite it here — a stale rewrite under concurrent 15-message batches would move the counter backwards and cause the next hook to over-count.
+Read the vars file with the Read tool to get all variable values. Keep it in
+place as the retry handle until the cumulative merge and global publication
+both succeed. The child-correlated block prevents duplicate work while this
+capture runs. The hook owns the counter; the agent must NOT rewrite it — a
+stale rewrite under concurrent 15-message batches would move the counter
+backwards and cause the next hook to over-count.
 
 ### 1.5. Derive ISO_TS via Bash (MANDATORY - do not skip, do not improvise)
 
@@ -310,21 +305,17 @@ missing), nx.compose the new chunk's nodes/edges into it via hash-keyed
 union, re-cluster, and write it back. The persistent graph is then what
 `graphify global add` consumes in step 7.
 
-```bash
-( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || true
-```
+Run the merge and publication from Step 7 in one fail-closed locked command;
+do not run this step separately.
 
 The script (`merge-vault-graph.py`, REQ-MEM-009 AC1+AC2+AC4) does the load +
 compose + cluster + persist. It defaults to the standard vault layout (chunk
 at `/home/user/Vault/graphify-out/.graphify_chunk_01.json`, persistent graph
 at `vault-graph.json`, per-run output at `graph.json`) so the invocation
 above takes no arguments. The capture agent wrote the chunk to that exact
-path in step 5, so the defaults apply verbatim. The `( ... ) || true` wrapper
-matches the precedent in `graphify-active-repo.sh` -- a 5s lock-acquire
-timeout exits cleanly and the markdown file remains on disk; the next
-15-message batch retries the merge. The `flock` lock is shared with
-`graphify global add` in step 7 and the vault-extract agent, so concurrent
-writers never stomp the manifest.
+path in step 5, so the defaults apply verbatim. The lock is shared with `graphify global add` and the vault-extract agent, so
+concurrent writers never stomp the manifest. A lock or merge failure fails the
+capture and leaves `VARS_FILE` available for retry.
 
 ### 7. Merge the cumulative vault graph into the unified global graph
 
@@ -334,8 +325,13 @@ replace-semantics now publishes the cumulative vault state on every run
 instead of clobbering it.
 
 ```bash
-( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
+flock -w 300 /tmp/graphify-global.lock bash -c '
+  /root/.local/share/uv/tools/graphifyy/bin/python \
+    /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py &&
+  /usr/local/bin/graphify global add \
+    /home/user/Vault/graphify-out/vault-graph.json --as user_vault
+'
+rm -f {VARS_FILE}
 ```
 
 `graphify global add` is hash-keyed and idempotent. The internal
@@ -344,13 +340,10 @@ instead of clobbering it.
 `[[GraphifyGlobalAdd]]` mentioned here unifies with the same-labeled
 node from any per-repo graph.
 
-If any of steps 5-7 fail (transient I/O, malformed JSON, flock timeout),
-log it and continue -- the markdown file stays on disk for the user to
-read. The vault-monitor daemon explicitly excludes `Raw/Sessions/` from
-its `find` (per `entrypoint.sh start_vault_monitor_daemon`), so a failed
-graph merge is NOT retried by the vault-extract pipeline. Re-running the
-capture by triggering another 15-message batch is the recovery path. Do
-not delete the markdown file.
+If any of steps 5-7 fail (transient I/O, malformed JSON, lock timeout), halt
+without reporting success and leave `VARS_FILE` in place so delivery remains
+retryable. Delete the carrier only after the cumulative merge and `user_vault`
+publication both complete. Do not delete the markdown file.
 
 ### 8. Re-render the vault viz HTML
 

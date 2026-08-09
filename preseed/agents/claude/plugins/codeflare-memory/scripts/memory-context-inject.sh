@@ -71,6 +71,7 @@ KEYWORDS=$(printf '%s' "$PROMPT_TEXT" | head -c 200 \
 # rejects on length alone rather than inspecting the leading digit, and no
 # plausible byte count comes near either bound.
 MAX_GRAPH_BYTES="${MEMORY_INJECT_MAX_GRAPH_BYTES:-104857600}"
+MAX_RENDERED_BYTES=4096
 case "$MAX_GRAPH_BYTES" in
   ''|*[!0-9]*) MAX_GRAPH_BYTES=104857600 ;;
   ??????????????????*) MAX_GRAPH_BYTES=104857600 ;;
@@ -88,7 +89,7 @@ GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || exit 0
 [ "$GRAPH_SIZE" -gt "$MAX_GRAPH_BYTES" ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
+MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" MAX_RENDERED_BYTES="$MAX_RENDERED_BYTES" timeout 8 python3 -c "
 import json, sys, os
 
 try:
@@ -137,10 +138,19 @@ try:
 
     vault_hits = [n for _, n in top if 'vault/' in (n.get('source', '') or '').lower()]
 
-    print('Prior context matching your query:')
-    print(chr(10).join(lines))
+    rendered = ['Prior context matching your query:', *lines]
     if vault_hits:
-        print(f'({len(vault_hits)} vault note(s) matched - consider reading them for detailed context)')
+        rendered.append(f'({len(vault_hits)} vault note(s) matched - consider reading them for detailed context)')
+    rendered.extend(['', 'Use mcp__graphify__query_graph or mcp__graphify__get_node to drill into any of these for more detail.'])
+    text = chr(10).join(rendered)
+    budget = int(os.environ['MAX_RENDERED_BYTES'])
+    encoded = text.encode('utf-8')
+    if len(encoded) > budget:
+        marker = chr(10) + '... (truncated)'
+        marker_bytes = marker.encode('utf-8')
+        kept = encoded[:max(0, budget - len(marker_bytes))].decode('utf-8', 'ignore').rstrip()
+        text = kept + marker
+    print(text)
 
 except Exception as e:
     print(f'memory-inject-failed: {e}', file=sys.stderr)
@@ -155,9 +165,7 @@ except Exception as e:
 mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 
 # Inject as additionalContext - the agent sees this before responding.
-CONTEXT="$MATCHED_CONTEXT
-
-Use mcp__graphify__query_graph or mcp__graphify__get_node to drill into any of these for more detail."
+CONTEXT="$MATCHED_CONTEXT"
 
 jq -n --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {
