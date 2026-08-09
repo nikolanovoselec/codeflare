@@ -233,6 +233,11 @@ describe('containsUserInput', () => {
       assert.equal(containsUserInput('\x1bP1$r\x1b\\'), false);
     });
 
+    it('returns false for SGR mouse motion reports (button bit 32)', () => {
+      assert.equal(containsUserInput('\x1b[<32;10;20M'), false);
+      assert.equal(containsUserInput('\x1b[<35;10;20M'), false);
+    });
+
     it('returns false for SGR mouse release (ends with m)', () => {
       assert.equal(containsUserInput('\x1b[<0;10;20m'), false);
     });
