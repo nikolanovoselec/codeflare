@@ -33,7 +33,7 @@ import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
-import { warnIfNoEncryptionKey } from './lib/kv-crypto';
+import { getOrImportKey, warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './lib/onboarding';
 import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt } from './lib/seo';
 import { isActiveUser } from './lib/access-tier';
@@ -122,6 +122,7 @@ app.use('*', async (c, next) => {
 
   // CF-017: Warn on first request if credentials will be stored as plaintext
   warnIfNoEncryptionKey(c.env.ENCRYPTION_KEY);
+  if (c.env.ENCRYPTION_KEY) await getOrImportKey(c.env);
 
   const clientId = c.req.header('X-Request-ID');
   const requestId = (clientId && REQUEST_ID_PATTERN.test(clientId))

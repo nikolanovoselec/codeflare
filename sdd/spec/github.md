@@ -152,9 +152,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry, removing the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) -->
+1. `POST /api/github/disconnect` requires a successful GitHub revocation for App/OAuth sources before clearing github fields; provider/network failure retains deploy-keys for retry. A successful clear removes the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) -->
 2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
-3. User offboarding revokes and clears the GitHub token on the same cleanup path as the scoped R2 token. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: revokes the GitHub token at GitHub, then deletes the deploy-keys entry) -->
+3. User offboarding revokes GitHub and Cloudflare OAuth grants before deleting local credentials; any provider failure aborts local credential deletion so retry state remains. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: revokes the GitHub token at GitHub, then deletes the deploy-keys entry) -->
 
 **Constraints:**
 

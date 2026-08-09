@@ -242,7 +242,7 @@ class CloudflareOAuthProvider implements CloudflareOAuthProviderInterface {
 
   async revoke(accessToken: string): Promise<void> {
     try {
-      await fetch(OAUTH_REVOKE_URL, {
+      const response = await fetch(OAUTH_REVOKE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -252,8 +252,10 @@ class CloudflareOAuthProvider implements CloudflareOAuthProviderInterface {
         }).toString(),
         signal: AbortSignal.timeout(8000),
       });
+      if (!response.ok) throw new Error(`Cloudflare token revocation failed with HTTP ${response.status}`);
     } catch (err) {
-      logger.warn('Cloudflare token revoke failed (continuing)', { err: String(err) });
+      logger.warn('Cloudflare token revoke failed; retaining local retry state', { err: String(err) });
+      throw err;
     }
   }
 }

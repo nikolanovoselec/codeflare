@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-09
 
+- **Credential revocation and encryption-key validation now fail closed** ([REQ-GITHUB-005](github.md#req-github-005-disconnect-and-offboarding-revocation) and credential-at-rest contracts remain Implemented). GitHub/Cloudflare non-success revocations retain local retry state; offboarding aborts before credential deletion, deletes only the resolved bucket's regime state, and canonical 32-byte base64 encryption keys are validated on the isolate's first request.
+
 - **Paid checkout now verifies Turnstile before Stripe** ([REQ-SETUP-009](setup.md#req-setup-009-saas-subscription-flow-and-ui) AC3 clarified; status remains Implemented). Pending users pass the existing challenge token to `/billing/checkout`; missing or rejected tokens make no Stripe call or user mutation, while active-subscriber plan switches retain their exemption.
 
 - **Browser Run read tools now reject unsafe initial targets before fetch** ([REQ-BROWSER-003](browser-run.md#req-browser-003-pi-native-browser-run-wrapper) AC3 and [REQ-BROWSER-005](browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) AC3 clarified; both remain Implemented). Claude and Pi share a parity-tested matrix for malformed URLs, credentials, non-HTTP(S), localhost, and private/loopback/link-local/unspecified literal addresses; redirect and DNS-rebinding protection are not claimed.

@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { resolveBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -18,6 +18,7 @@ import { createLogger } from './logger';
 import { toError } from './error-types';
 import { getAndDecrypt, getOrImportKey } from './kv-crypto';
 import { disconnectGithub } from './github-token';
+import { disconnectCloudflare } from './cloudflare-token';
 
 const logger = createLogger('user-cleanup');
 
@@ -78,6 +79,7 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
     env.KV.delete(getLlmKeysKey(bucketName)),
     env.KV.delete(getDeployKeysKey(bucketName)),
     env.KV.delete(getTimekeeperKey(bucketName)),
+    env.KV.delete(getRegimeStateKey(bucketName)),
   ]);
 }
 
@@ -191,18 +193,10 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Block A: Session + Container cleanup ---
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
 
-  // --- Block A2: GitHub token revoke (REQ-GITHUB-005 offboarding) ---
-  // Revoke the user's GitHub token AT GitHub (for app/oauth sources) BEFORE the
-  // deploy-keys KV entry that holds it is deleted in Block B2 below. Offboarding
-  // applies the same revoke+clear contract as POST /api/github/disconnect, so a
-  // leaked-but-not-yet-deleted token cannot outlive the account. Best-effort:
-  // disconnectGithub already swallows GitHub-side revoke errors, and this guard
-  // ensures a decrypt/lookup failure never blocks account deletion.
-  try {
-    await disconnectGithub(env, bucketName);
-  } catch (err) {
-    logger.warn('Failed to revoke GitHub token during user deletion', { email, error: String(err) });
-  }
+  // --- Block A2: provider revocation before local credential deletion ---
+  // Provider failures abort cleanup so deploy-keys remains available for retry.
+  await disconnectGithub(env, bucketName);
+  await disconnectCloudflare(env, bucketName);
 
   // --- Blocks B + B2: User + bucket-keyed KV deletion ---
   await deleteUserKvEntries(normalizedEmail, bucketName, env);

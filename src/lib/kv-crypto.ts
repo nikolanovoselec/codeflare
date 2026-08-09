@@ -34,11 +34,17 @@ const V1_PREFIX = 'v1:';
  * Decode a base64 string strictly, validating format and length.
  */
 function decodeBase64Key(base64: string): Uint8Array {
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(base64)) {
+    throw new Error('ENCRYPTION_KEY must be canonical base64');
+  }
   let raw: Uint8Array;
   try {
     raw = new Uint8Array(Buffer.from(base64, 'base64'));
   } catch {
     throw new Error('ENCRYPTION_KEY must be valid base64');
+  }
+  if (Buffer.from(raw).toString('base64') !== base64) {
+    throw new Error('ENCRYPTION_KEY must be canonical base64');
   }
   if (raw.byteLength !== 32) {
     throw new Error(`ENCRYPTION_KEY must decode to exactly 32 bytes, got ${raw.byteLength}`);

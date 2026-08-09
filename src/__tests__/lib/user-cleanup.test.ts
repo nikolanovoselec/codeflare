@@ -8,6 +8,10 @@ vi.mock('../../lib/access', () => ({
 }));
 
 const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/cloudflare-token', () => ({
+  disconnectCloudflare: vi.fn(async () => undefined),
+}));
+
 vi.mock('../../lib/r2-admin', () => ({
   deleteScopedR2Token: mockDeleteScopedR2Token,
 }));
