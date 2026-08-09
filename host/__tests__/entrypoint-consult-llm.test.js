@@ -2,8 +2,8 @@
 // MCP server, prefers the Codex subscription over the API key for OpenAI,
 // configures Pi through the lazy mcp proxy, and is fully disabled in enterprise mode.
 //
-// "Run the real thing" per tdd-discipline.md: we extract the two bash functions
-// from entrypoint.sh and execute them against fixture filesystems. A regression
+// "Run the real thing" per tdd-discipline.md: we extract the consult-llm bash
+// functions from entrypoint.sh and execute them against fixture filesystems. A regression
 // in backend selection, key isolation, or the enterprise gate flips the emitted
 // JSON or the on-disk skill dirs, which these assertions catch.
 import { describe, it, before } from 'node:test';
@@ -17,8 +17,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
-// Pull both function definitions (_merge_consult_llm_mcp + configure_consult_llm)
-// but NOT the trailing `configure_consult_llm || echo ...` auto-call, so the
+// Pull the consult-llm function definitions but NOT the trailing
+// `configure_consult_llm || echo ...` auto-call, so the
 // harness controls the env and invokes the function itself.
 function extractConsultLlmBlock() {
   const start = entrypoint.indexOf('_merge_consult_llm_mcp() {');
@@ -185,6 +185,42 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.equal(h.piSkillExists, false, 'Pi consult-llm skill dir removed');
     assert.match(h.stdout, /no usable provider/);
   });
+
+  for (const [mode, options] of [
+    ['provider-less', {}],
+    ['enterprise', { enterprise: true }],
+  ]) {
+    it(`${mode} start removes only stale owned consult-llm MCP entries`, () => {
+      const unrelatedClaudeServer = { command: 'user-claude-mcp', args: ['--keep'] };
+      const unrelatedPiServer = { command: 'user-pi-mcp', args: ['--keep'], lifecycle: 'lazy' };
+      const h = buildHarness(baseTmp, {
+        ...options,
+        claudeJsonInitial: JSON.stringify({
+          theme: 'dark',
+          mcpServers: {
+            'user-server': unrelatedClaudeServer,
+            'consult-llm': { command: 'old-consult', env: { STALE_SECRET: 'claude' } },
+          },
+        }),
+        piMcpInitial: JSON.stringify({
+          userSetting: true,
+          mcpServers: {
+            'user-server': unrelatedPiServer,
+            'consult-llm': { command: 'old-consult', env: { STALE_SECRET: 'pi' } },
+          },
+        }),
+      });
+
+      assert.deepEqual(h.claudeJson, {
+        theme: 'dark',
+        mcpServers: { 'user-server': unrelatedClaudeServer },
+      });
+      assert.deepEqual(h.piMcp, {
+        userSetting: true,
+        mcpServers: { 'user-server': unrelatedPiServer },
+      });
+    });
+  }
 
   // AC1/AC4: merge replaces only Codeflare's owned consult-llm entry and preserves user MCP servers.
   it('replaces only the owned consult-llm entry and stays idempotent across starts', () => {

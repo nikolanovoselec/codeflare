@@ -2522,10 +2522,31 @@ _merge_consult_llm_mcp() {
     echo "[entrypoint] consult-llm MCP server configured for $label"
 }
 
+_remove_consult_llm_mcp() {
+    # $1 target json, $2 human label
+    local target="$1" label="$2" tmp
+    [ -f "$target" ] || return 0
+
+    tmp=$(mktemp)
+    if jq 'del(.mcpServers["consult-llm"])' "$target" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$target"
+        echo "[entrypoint] stale consult-llm MCP server removed for $label"
+    else
+        echo "[entrypoint] WARNING: could not remove consult-llm MCP config from $target (malformed?)"
+        rm -f "$tmp"
+    fi
+}
+
+_remove_disabled_consult_llm() {
+    _remove_consult_llm_mcp "$USER_CLAUDE_JSON" "Claude Code"
+    _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" "Pi"
+    rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+}
+
 configure_consult_llm() {
     if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
-        # No per-user LLM keys in enterprise; ensure the skill is absent for all agents.
-        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        # No per-user LLM keys in enterprise; remove only Codeflare-owned consult-llm state.
+        _remove_disabled_consult_llm
         echo "[entrypoint] Enterprise Mode: consult-llm disabled (no per-user LLM keys)"
         return 0
     fi
@@ -2551,10 +2572,9 @@ configure_consult_llm() {
         echo "[entrypoint] consult-llm: Gemini -> API key"
     fi
     if [ "$ok" != "1" ]; then
-        # No usable provider: strip the consult-llm skill so the agent is not left
-        # holding a skill for an MCP server that was never registered. Mirrors the
-        # enterprise branch above and the browser-run skill gate.
-        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        # No usable provider: remove only Codeflare-owned consult-llm state so the
+        # agent cannot retain a stale server or a skill that points to one.
+        _remove_disabled_consult_llm
         echo "[entrypoint] consult-llm: no usable provider; skipping (skill not seeded)"
         return 0
     fi
