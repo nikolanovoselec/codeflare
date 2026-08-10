@@ -590,13 +590,14 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
   pi.on("session_start", (_event, ctx) => {
     if (isChildSession(ctx)) return;
+    const vaultExisted = existsSync(paths.vaultRoot);
     ensureDirs(paths);
     bestEffortMergeGraphs(paths);
     // Entrypoint owns production first initialization. The fallback below keeps
     // the extension independently usable in tests/development, while the durable
     // marker prevents a later missing or corrupt R2 restore from being rebaselined.
     if (!existsSync(paths.vaultInitializationFile)) {
-      if (!existsSync(paths.vaultManifestFile)) commitVaultManifest(paths);
+      if (!vaultExisted && !existsSync(paths.vaultManifestFile)) commitVaultManifest(paths);
       writeFileSync(paths.vaultInitializationFile, "1\n", "utf8");
     }
   });

@@ -200,7 +200,7 @@ function launchEntry(
   };
 }
 
-function makeHarness(options: { child?: boolean } = {}): Harness {
+function makeHarness(options: { child?: boolean; existingVault?: boolean } = {}): Harness {
   const root = mkdtempSync(join(tmpdir(), 'pi-memory-vault-'));
   roots.push(root);
   const vaultRoot = join(root, 'Vault');
@@ -219,7 +219,7 @@ function makeHarness(options: { child?: boolean } = {}): Harness {
     vaultInitializationFile: join(vaultRoot, 'graphify-out', 'vault-extract-initialized'),
     vaultMarkerFile: join(cacheDir, 'vault-extract.last'),
   };
-  mkdirSync(join(vaultRoot, 'Notes'), { recursive: true });
+  if (options.existingVault) mkdirSync(join(vaultRoot, 'Notes'), { recursive: true });
   mkdirSync(promptsDir, { recursive: true });
   writeFileSync(paths.memoryPromptFile, '# memory fixture\n', 'utf8');
   writeFileSync(paths.vaultPromptFile, '# vault fixture\n', 'utf8');
@@ -862,6 +862,17 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       expect(existsSync(vaultPointerPath(harness))).toBe(true);
       expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
     }
+  });
+
+  it('keeps an existing marker-less Vault full-delta eligible during Pi fallback initialization (REQ-VAULT-026 AC7)', async () => {
+    const harness = makeHarness({ existingVault: true });
+    const existing = join(harness.paths.vaultRoot, 'Notes', 'pre-marker.md');
+    writeFileSync(existing, 'unextracted on an older release\n', 'utf8');
+
+    await harness.emit('session_start');
+
+    expect(readFileSync(harness.paths.vaultInitializationFile, 'utf8')).toBe('1\n');
+    expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
   });
 
   it('treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes', async () => {
