@@ -2307,12 +2307,97 @@ fi
 
 configure_pi_goal_defaults() {
     local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
-    if [ -e "$goal_config" ]; then
-        return 0
-    fi
-    mkdir -p "$(dirname "$goal_config")"
-    printf '{\n  "toolVisibility": "after-first-goal"\n}\n' > "$goal_config"
-    echo "[entrypoint] Pi Goal configured for capability-filtered tool activation"
+    PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_GOAL_STARTUP_CONFIG;
+const hasOwn = (value, key) => Object.hasOwn(value, key);
+const ownRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+const validContinuationLimit = (value) =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+
+function validSettings(value) {
+  if (!ownRecord(value)) return false;
+  if (
+    hasOwn(value, 'toolVisibility') &&
+    value.toolVisibility !== 'always' &&
+    value.toolVisibility !== 'after-first-goal'
+  ) return false;
+
+  if (hasOwn(value, 'experimental')) {
+    const experimental = ownRecord(value.experimental);
+    if (!experimental || (hasOwn(experimental, 'goals') && typeof experimental.goals !== 'boolean')) {
+      return false;
+    }
+  }
+  if (hasOwn(value, 'rpc')) {
+    const rpc = ownRecord(value.rpc);
+    if (!rpc || (hasOwn(rpc, 'enabled') && typeof rpc.enabled !== 'boolean')) return false;
+  }
+  if (hasOwn(value, 'continuationLimits')) {
+    const limits = ownRecord(value.continuationLimits);
+    if (!limits) return false;
+    if (hasOwn(limits, 'automaticTurns') && !validContinuationLimit(limits.automaticTurns)) {
+      return false;
+    }
+    if (hasOwn(limits, 'noProgressTurns') && !validContinuationLimit(limits.noProgressTurns)) {
+      return false;
+    }
+    if (
+      hasOwn(limits, 'minIntervalMs') &&
+      !(typeof limits.minIntervalMs === 'number' &&
+        Number.isSafeInteger(limits.minIntervalMs) &&
+        limits.minIntervalMs >= 0)
+    ) return false;
+  }
+  return true;
+} // validSettings
+
+function configure() {
+  let settings = {};
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      settings = {};
+    } else {
+      return;
+    }
+  }
+  if (!validSettings(settings)) return;
+
+  const limits = ownRecord(settings.continuationLimits) ?? {};
+  const missingVisibility = !hasOwn(settings, 'toolVisibility');
+  const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
+  const missingMinInterval = !hasOwn(limits, 'minIntervalMs');
+  if (!missingVisibility && !missingAutomaticTurns && !missingMinInterval) return;
+
+  const nextLimits = {
+    ...limits,
+    ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
+    ...(missingMinInterval ? { minIntervalMs: 60_000 } : {}),
+  };
+  const nextSettings = {
+    ...settings,
+    ...(missingVisibility ? { toolVisibility: 'after-first-goal' } : {}),
+    continuationLimits: nextLimits,
+  };
+
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, { flag: 'wx' });
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+  console.log('[entrypoint] Pi Goal startup defaults configured');
+} // configure
+
+configure();
+NODE
 }
 
 warm_pi_npm_dependencies() {
