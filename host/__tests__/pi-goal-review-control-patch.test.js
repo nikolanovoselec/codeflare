@@ -465,7 +465,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(promptCalls, [[{ session: 'user' }, 'resumed-goal', 'resumed-goal:paused']]);
   });
 
-  it('REQ-AGENT-129 AC5: waits the configured 60 seconds before continuation dispatch', () => {
+  it('REQ-AGENT-130 AC2: waits the configured 60 seconds before continuation dispatch', () => {
     const { runtime, scheduler, messages, ctx } = runtimeHarness(60_000);
 
     assert.equal(runtime.dispatchContinuationIfSettled(ctx), false);
@@ -477,7 +477,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-129 AC5: safely re-arms delays beyond the Node timer maximum', () => {
+  it('REQ-AGENT-130 AC3: safely re-arms delays beyond the Node timer maximum', () => {
     const delay = 2_147_483_648;
     const { runtime, scheduler, messages, ctx } = runtimeHarness(delay);
 
@@ -493,7 +493,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-129 AC6: keeps repeated settled events single-flight', () => {
+  it('REQ-AGENT-130 AC4: keeps repeated settled events single-flight', () => {
     const { runtime, scheduler, messages, ctx } = runtimeHarness(60_000);
 
     runtime.dispatchContinuationIfSettled(ctx);
@@ -508,7 +508,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(scheduler.pendingCount(), 0);
   });
 
-  it('REQ-AGENT-129 AC6: cancellation prevents a delayed continuation', () => {
+  it('REQ-AGENT-130 AC5: cancellation prevents a delayed continuation', () => {
     const cancelled = runtimeHarness(60_000);
     cancelled.runtime.dispatchContinuationIfSettled(cancelled.ctx);
     cancelled.runtime.cancelContinuationWork();
@@ -524,7 +524,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(cleared.scheduler.pendingCount(), 0);
   });
 
-  it('REQ-AGENT-129 AC5: zero delay dispatches immediately', () => {
+  it('REQ-AGENT-130 AC1: zero delay dispatches immediately', () => {
     const { runtime, scheduler, messages, ctx } = runtimeHarness(0);
 
     assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
@@ -534,7 +534,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(scheduler.pendingCount(), 0);
   });
 
-  it('REQ-AGENT-129 AC7: stale menu, marker, and replacement-goal timers cannot dispatch', () => {
+  it('REQ-AGENT-130 AC6: stale menu, marker, and replacement-goal timers cannot dispatch', () => {
     const replaced = runtimeHarness(60_000);
     replaced.runtime.dispatchContinuationIfSettled(replaced.ctx);
     replaced.runtime.activeGoal = { id: 'goal-b', status: 'active' };
@@ -566,7 +566,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-129 AC7: a busy timer retains intent for the next settled boundary', () => {
+  it('REQ-AGENT-130 AC7: a busy timer retains intent for the next settled boundary', () => {
     const { runtime, scheduler, messages, state, ctx } = runtimeHarness(60_000);
     runtime.dispatchContinuationIfSettled(ctx);
     state.idle = false;
@@ -584,7 +584,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-129 AC4: rejects invalid minIntervalMs values', () => {
+  it('REQ-AGENT-129 AC5: rejects invalid minIntervalMs values', () => {
     const { normalizeGoalSettings } = executablePatchedSettings();
     for (const minIntervalMs of [null, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
       assert.equal(
@@ -595,16 +595,16 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     }
   });
 
-  it('REQ-AGENT-129 AC4: defaults a missing delay to zero and saves it without dropping unknown fields', () => {
-    const { normalizeGoalSettings, buildSavedGoalSettings } = executablePatchedSettings();
-    const normalized = normalizeGoalSettings({
-      unknownRoot: 'keep',
-      continuationLimits: { unknownLimit: 'keep' },
-    });
+  it('REQ-AGENT-129 AC6: defaults a missing delay to zero', () => {
+    const { normalizeGoalSettings } = executablePatchedSettings();
+    const normalized = normalizeGoalSettings({ continuationLimits: {} });
     assert.deepEqual(normalized, {
       continuationLimits: { automaticTurns: null, noProgressTurns: 3, minIntervalMs: 0 },
     });
+  });
 
+  it('REQ-AGENT-129 AC7: saves the delay without dropping unknown fields', () => {
+    const { normalizeGoalSettings, buildSavedGoalSettings } = executablePatchedSettings();
     const saved = buildSavedGoalSettings(
       { continuationLimits: { automaticTurns: 10, noProgressTurns: null, minIntervalMs: 60_000 } },
       { unknownRoot: 'keep', continuationLimits: { unknownLimit: 'keep' } },

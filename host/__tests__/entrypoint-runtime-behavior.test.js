@@ -55,7 +55,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(existsSync(conflictingPath), false);
   });
 
-  it('REQ-AGENT-129 AC2: adds only missing owned Goal values and preserves explicit preferences', () => {
+  it('REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
     const env = { USER_HOME: fixture };
@@ -100,7 +100,7 @@ describe('entrypoint production helpers', () => {
     });
   });
 
-  it('REQ-AGENT-129 AC3: preserves malformed Goal config byte-for-byte', () => {
+  it('REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-malformed-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
     const env = { USER_HOME: fixture };
