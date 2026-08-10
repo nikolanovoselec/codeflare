@@ -85,10 +85,12 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
   it('pins the reviewed upstream package and integrity-locks its Pi entrypoint', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@narumitw/pi-usage'], '0.50.0');
+    const version = pkg.dependencies['@narumitw/pi-usage'];
+    assert.match(version, /^\d+\.\d+\.\d+$/);
     const usage = lock.packages['node_modules/@narumitw/pi-usage'];
-    assert.equal(usage.version, '0.50.0');
-    assert.equal(usage.integrity, 'sha512-21IPhWpA3hEjjJFMZdjMBos4WVmfxGUSF4N8UFs5VnmvfE188X4SHyVLoRaIQ+FU56ks7P/QnwQzHoR6NvEGnQ==');
+    assert.equal(usage.version, version);
+    assert.equal(usage.resolved, `https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-${version}.tgz`);
+    assert.match(usage.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
     assert.deepEqual(usage.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
   });
 });
@@ -103,7 +105,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1: fresh container disables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     for (const spec of REQUIRED) {

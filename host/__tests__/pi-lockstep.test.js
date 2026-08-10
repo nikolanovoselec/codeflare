@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,10 +8,23 @@ import { createHash, getFips } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 const script = fileURLToPath(new URL('../../scripts/verify-pi-lockstep.mjs', import.meta.url));
-const dockerfile = readFileSync(new URL('../../Dockerfile', import.meta.url), 'utf8');
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function resolveCachePath(sourcePath, cacheDirectory) {
+  const result = spawnSync(
+    process.execPath,
+    [script, '--jiti-cache-path', sourcePath, cacheDirectory],
+    { encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function readArgs(path) {
+  return readFileSync(path, 'utf8').trim().split('\n');
 }
 
 describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
@@ -69,23 +82,70 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
 });
 
 describe('REQ-AGENT-131: pi-usage JITI warm-cache contract', () => {
-  it('explicitly warms and fail-closed verifies the installed pi-usage entrypoint', () => {
-    const start = dockerfile.indexOf('# Pi extension warm-up:');
-    const end = dockerfile.indexOf('# Pre-initialize OpenCode', start);
-    assert.notEqual(start, -1, 'Pi warm-up block must exist');
-    assert.notEqual(end, -1, 'Pi warm-up block must have a stable end marker');
-    const warmup = dockerfile.slice(start, end);
+  it('warms every requested entrypoint and fails when Usage produces no cache artifact', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-usage-cache-'));
+    try {
+      const cacheDirectory = join(directory, 'cache');
+      const goalSource = join(directory, 'goal/src/index.ts');
+      const usageSource = join(directory, 'usage/src/index.ts');
+      mkdirSync(join(directory, 'goal/src'), { recursive: true });
+      mkdirSync(join(directory, 'usage/src'), { recursive: true });
+      writeFileSync(goalSource, 'export default function goal() {}\n');
+      writeFileSync(usageSource, 'export default function usage() {}\n');
 
-    assert.match(
-      warmup,
-      /usage_source="\/opt\/codeflare\/pi-agent\/npm\/node_modules\/@narumitw\/pi-usage\/src\/index\.ts"/,
-    );
-    assert.match(warmup, /--extension "\$goal_source" --extension "\$usage_source"/);
-    assert.match(
-      warmup,
-      /usage_hit="\$\(node \/opt\/codeflare\/scripts\/verify-pi-lockstep\.mjs --verify-jiti-cache "\$usage_source" \/opt\/codeflare\/jiti-cache\)"/,
-    );
-    assert.match(warmup, /jiti warm cache verified: local extensions, Goal, and Usage are baked/);
+      const argsLog = join(directory, 'args.log');
+      const fakePi = join(directory, 'pi');
+      writeFileSync(fakePi, `#!/bin/sh
+printf '%s\\n' "$@" > "$ARGS_LOG"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--extension" ]; then
+    shift
+    artifact="$(node "$VERIFY_SCRIPT" --jiti-cache-path "$1" "$CACHE_DIR")"
+    mkdir -p "$(dirname "$artifact")"
+    printf 'compiled\\n' > "$artifact"
+  fi
+  shift
+done
+`);
+      chmodSync(fakePi, 0o755);
+
+      const success = spawnSync(
+        process.execPath,
+        [script, '--warm-jiti-entrypoints', fakePi, cacheDirectory, goalSource, usageSource],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, ARGS_LOG: argsLog, VERIFY_SCRIPT: script, CACHE_DIR: cacheDirectory },
+        },
+      );
+      assert.equal(success.status, 0, success.stderr);
+      assert.deepEqual(success.stdout.trim().split('\n'), [
+        resolveCachePath(goalSource, cacheDirectory),
+        resolveCachePath(usageSource, cacheDirectory),
+      ]);
+      assert.deepEqual(
+        readArgs(argsLog),
+        ['--no-extensions', '--extension', goalSource, '--extension', usageSource, '-p', 'warm'],
+      );
+
+      rmSync(cacheDirectory, { recursive: true });
+      mkdirSync(cacheDirectory);
+      writeFileSync(resolveCachePath(goalSource, cacheDirectory), 'compiled\n');
+      const noArtifactPi = join(directory, 'pi-no-artifact');
+      writeFileSync(noArtifactPi, '#!/bin/sh\nexit 0\n');
+      chmodSync(noArtifactPi, 0o755);
+      const missing = spawnSync(
+        process.execPath,
+        [script, '--warm-jiti-entrypoints', noArtifactPi, cacheDirectory, goalSource, usageSource],
+        { encoding: 'utf8' },
+      );
+      assert.notEqual(missing.status, 0);
+      assert.equal(
+        missing.stderr,
+        `jiti cache artifact is missing at ${resolveCachePath(usageSource, cacheDirectory)}\n`,
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

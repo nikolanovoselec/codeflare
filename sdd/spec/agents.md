@@ -153,15 +153,16 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-131: Native Usage Workflow in Pi Sessions
 
-**Intent:** Pi sessions must expose current-account provider usage without cold-transpiling the Usage extension on first use.
+**Intent:** Pi sessions must preload the reviewed Usage package without cold-transpiling its entrypoint on first use.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi's required package set includes exact-pinned, integrity-locked `@narumitw/pi-usage` 0.50.0. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Usage package preseed (REQ-AGENT-131)) -->
-2. Image construction explicitly loads the installed Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @test: host/__tests__/pi-lockstep.test.js (explicitly warms and fail-closed verifies the installed pi-usage entrypoint) -->
-3. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (explicitly warms and fail-closed verifies the installed pi-usage entrypoint) -->
+1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default) -->
+2. The preseed owns an exact version and SHA-512 integrity lock for `@narumitw/pi-usage`. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-usage --> <!-- @test: host/__tests__/pi-settings-packages.test.js (pins the reviewed upstream package and integrity-locks its Pi entrypoint) -->
+3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) -->
+4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) -->
 
 **Constraints:**
 

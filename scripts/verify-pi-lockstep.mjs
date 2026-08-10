@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 
@@ -24,6 +25,19 @@ export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
     throw new Error(`jiti cache artifact is missing at ${artifactPath}`);
   }
   return artifactPath;
+}
+
+export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths) {
+  if (!piBinary || !cacheDirectory || sourcePaths.length === 0) {
+    throw new Error('Pi binary, cache directory, and at least one entrypoint are required');
+  }
+  const extensionArgs = sourcePaths.flatMap((sourcePath) => ['--extension', sourcePath]);
+  spawnSync(
+    piBinary,
+    ['--no-extensions', ...extensionArgs, '-p', 'warm'],
+    { encoding: 'utf8', env: process.env, timeout: 240_000 },
+  );
+  return sourcePaths.map((sourcePath) => verifyJitiCacheArtifact(sourcePath, cacheDirectory));
 }
 
 export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, installedPackagePath) {
@@ -60,6 +74,10 @@ try {
       ? verifyJitiCacheArtifact(sourcePath, cacheDirectory)
       : resolveJitiCachePath(sourcePath, cacheDirectory);
     process.stdout.write(`${artifactPath}\n`);
+  } else if (args[0] === '--warm-jiti-entrypoints') {
+    const [, piBinary, cacheDirectory, ...sourcePaths] = args;
+    const artifacts = warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths);
+    process.stdout.write(`${artifacts.join('\n')}\n`);
   } else {
     const [runtimeManifestPath, prewarmManifestPath, installedPackagePath] = args;
     if (!runtimeManifestPath || !prewarmManifestPath) {
