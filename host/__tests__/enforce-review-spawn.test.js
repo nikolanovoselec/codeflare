@@ -476,6 +476,11 @@ describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
     assert.equal(r.stdout, '');
     assert.equal(existsSync(bypassFile), false,
       'sentinel must be deleted when it bypasses an eligible head');
+    assert.equal(
+      readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
+      spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+      'eligible bypass must acknowledge the exact validated PR head',
+    );
   });
 
   it('preserves the sentinel when no PR exists for the current branch', () => {

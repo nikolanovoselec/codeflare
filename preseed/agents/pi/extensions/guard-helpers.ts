@@ -196,7 +196,7 @@ export function shellCommandExecutable(words: string[]): string | undefined {
   return undefined;
 }
 
-function operationAfterGlobalOptions(words: string[], executable: "git" | "gh"): string | undefined {
+export function shellCommandArguments(words: string[], executable: "git" | "gh"): string[] {
   const executableIndex = words.findIndex((word, index) => word === executable
     && shellCommandExecutable(words.slice(0, index + 1)) === executable);
   let index = executableIndex + 1;
@@ -205,12 +205,16 @@ function operationAfterGlobalOptions(words: string[], executable: "git" | "gh"):
     : new Set(["-R", "--repo", "--hostname", "--config"]);
   while (executableIndex >= 0 && index > 0 && index < words.length) {
     const value = words[index] ?? "";
-    if (value === "--") return words[index + 1];
-    if (!value.startsWith("-")) return value;
+    if (value === "--") return words.slice(index + 1);
+    if (!value.startsWith("-")) return words.slice(index);
     if (takesValue.has(value) && !value.includes("=")) index += 1;
     index += 1;
   }
-  return undefined;
+  return [];
+}
+
+function operationAfterGlobalOptions(words: string[], executable: "git" | "gh"): string | undefined {
+  return shellCommandArguments(words, executable)[0];
 }
 
 export function attributionBlockReason(command: string): string | undefined {

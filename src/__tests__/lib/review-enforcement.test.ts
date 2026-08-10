@@ -25,7 +25,7 @@ type TestContext = {
   hasUI: boolean;
   isIdle(): boolean;
   sessionManager: { getSessionFile(): string; getEntries(): Record<string, unknown>[] };
-  ui: { notify(message: string): void; setStatus(): void; clearStatus(): void };
+  ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(message: string): void; setStatus(): void; clearStatus(): void };
 };
 type PlannedReviewEnforcement = {
   PR_LOOKUP_FAILED: symbol;
@@ -318,6 +318,8 @@ function makeHarness(repo: string, sessionFile: string): {
   goalControlRequests: Array<{ action: string; goalId: string }>;
   notifications: string[];
   operations: string[];
+  reviewPrompts: Array<{ title: string; options: string[] }>;
+  setReviewDecision(decision: 'launch' | 'acknowledge' | undefined): void;
   setGoalControlAvailable(available: boolean): void;
   setGoalPauseResponseSucceeds(succeeds: boolean): void;
   setGoalResumeRaceActive(goalId: string | undefined): void;
@@ -335,7 +337,9 @@ function makeHarness(repo: string, sessionFile: string): {
   const goalControlRequests: Array<{ action: string; goalId: string }> = [];
   const notifications: string[] = [];
   const operations: string[] = [];
+  const reviewPrompts: Array<{ title: string; options: string[] }> = [];
   const deferredGoalPauses: Array<() => void | Promise<void>> = [];
+  let reviewDecision: 'launch' | 'acknowledge' | undefined = 'launch';
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
   let goalPauseResponseSucceeds = true;
@@ -414,7 +418,7 @@ function makeHarness(repo: string, sessionFile: string): {
   };
   const ctx: TestContext = {
     cwd: repo,
-    hasUI: false,
+    hasUI: true,
     isIdle: () => true,
     sessionManager: {
       getSessionFile: () => sessionFile,
@@ -428,6 +432,12 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     ui: {
+      select: async (title, options) => {
+        reviewPrompts.push({ title, options });
+        if (reviewDecision === 'launch') return options[0];
+        if (reviewDecision === 'acknowledge') return options[1];
+        return undefined;
+      },
       notify: (message) => { notifications.push(message); },
       setStatus: () => undefined,
       clearStatus: () => undefined,
@@ -440,6 +450,8 @@ function makeHarness(repo: string, sessionFile: string): {
     goalControlRequests,
     notifications,
     operations,
+    reviewPrompts,
+    setReviewDecision: (decision) => { reviewDecision = decision; },
     setGoalControlAvailable: (available) => { goalControlAvailable = available; },
     setGoalPauseResponseSucceeds: (succeeds) => { goalPauseResponseSucceeds = succeeds; },
     setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
@@ -612,6 +624,105 @@ describe('Pi review reminder and settled enforcement', () => {
       '### 3. Triage and acknowledge before fixing',
     ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.reviewPrompts).toEqual([]);
+  });
+
+  it('REQ-AGENT-120/REQ-AGENT-121: asks before reviewing an existing PR and acknowledges the exact head when declined', async () => {
+    const fixture = makeReviewFixture();
+    let queries = 0;
+    const harness = await registerFixture(fixture, fixture.repo, () => { queries += 1; });
+    harness.setReviewDecision('acknowledge');
+    appendSession(fixture.sessionFile,
+      assistantTool('switch-existing', 'bash', { command: 'git switch pi' }),
+      toolResult('switch-existing', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git switch pi', 'switch-existing'));
+
+    expect(harness.reviewPrompts).toEqual([{
+      title: `PR #${fixture.pr.number} (${fixture.pr.headRefName} at ${fixture.head})`,
+      options: ['Launch review and CI', 'Acknowledge without review'],
+    }]);
+    expect(harness.sent).toEqual([]);
+    expect(queries).toBe(2);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+
+    appendSession(fixture.sessionFile,
+      assistantTool('status-after-no', 'bash', { command: 'git status --short' }),
+      toolResult('status-after-no', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-after-no'));
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent).toEqual([]);
+
+    write(fixture.repo, 'src/review.ts', 'export const changed = true;\n');
+    write(fixture.repo, 'sdd/spec/boundary.md', '# changed boundary\n');
+    git(fixture.repo, 'add', '--', 'src/review.ts', 'sdd/spec/boundary.md');
+    git(fixture.repo, 'commit', '-m', 'new pushed head');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = fixture.head;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-after-no', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-after-no', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-after-no'));
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      ackHead: git(fixture.repo, 'rev-parse', 'HEAD^'),
+      head: fixture.head,
+      ciEvent: 'push',
+    }));
+  });
+
+  it('REQ-AGENT-120/REQ-AGENT-121: leaves acknowledgement unchanged when the review question is cancelled', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    harness.setReviewDecision(undefined);
+    appendSession(fixture.sessionFile,
+      assistantTool('switch-cancelled', 'bash', { command: 'git switch pi' }),
+      toolResult('switch-cancelled', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git switch pi', 'switch-cancelled'));
+
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-120/REQ-AGENT-121: launches the existing review and CI plan when confirmation is accepted', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('switch-review', 'bash', { command: 'git switch pi' }),
+      toolResult('switch-review', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git switch pi', 'switch-review'));
+
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      head: fixture.head,
+      ciEvent: 'push',
+    }));
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-120/REQ-AGENT-121: automatically launches after PR creation without prompting', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('pr-create', 'bash', { command: 'gh pr create --base develop --title review --body body' }),
+      toolResult('pr-create', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('gh pr create --base develop --title review --body body', 'pr-create'));
+
+    expect(harness.reviewPrompts).toEqual([]);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      head: fixture.head,
+      ciEvent: 'pr-create',
+    }));
   });
 
   it('REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command', async () => {

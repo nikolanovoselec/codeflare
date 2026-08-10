@@ -2,14 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { executableShellCommands, shellCommandExecutable } from "./guard-helpers.js";
+import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from "./guard-helpers.js";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |";
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push";
+export type ReviewBoundaryEvent = "push" | "pr-create";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
@@ -30,6 +30,7 @@ export type TranscriptFacts = {
   reviewPrNumber?: number;
   reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
+  reviewCiEvent?: ReviewBoundaryEvent;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
@@ -170,12 +171,18 @@ export function shellSegments(command: string): string[] {
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  const candidate = executableShellCommands(command).some((words) => {
+  let candidate = false;
+  let event: ReviewBoundaryEvent | undefined;
+  for (const words of executableShellCommands(command)) {
     const executable = shellCommandExecutable(words);
-    return executable === "git" || executable === "gh";
-  });
+    if (executable !== "git" && executable !== "gh") continue;
+    candidate = true;
+    const args = shellCommandArguments(words, executable);
+    if (executable === "git" && args[0] === "push") event = "push";
+    if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
+  }
   return candidate
-    ? { reminder: true, settled: true, event: "push" }
+    ? { reminder: true, settled: true, ...(event ? { event } : {}) }
     : { reminder: false, settled: false };
 }
 
@@ -459,6 +466,7 @@ type ReviewWindow = {
   prNumber?: number;
   base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
+  ciEvent?: ReviewBoundaryEvent;
 };
 
 function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
@@ -481,7 +489,10 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
     ? entry.details.boundaryToolUseId
     : undefined;
-  return { head, range, repo, branch, prNumber, base, boundaryToolUseId };
+  const ciEvent = entry.details?.ciEvent === "push" || entry.details?.ciEvent === "pr-create"
+    ? entry.details.ciEvent
+    : undefined;
+  return { head, range, repo, branch, prNumber, base, boundaryToolUseId, ciEvent };
 }
 
 export function reviewTranscriptFacts(input: {
@@ -657,6 +668,7 @@ export function reviewTranscriptFacts(input: {
     reviewPrNumber: window?.prNumber,
     reviewBase: window?.base,
     reviewBoundaryToolUseId: window?.boundaryToolUseId,
+    reviewCiEvent: window?.ciEvent,
     bypassed,
     ciLaunched,
     triageComplete,

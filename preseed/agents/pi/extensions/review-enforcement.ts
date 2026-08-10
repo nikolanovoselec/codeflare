@@ -49,13 +49,17 @@ type Dependencies = {
 
 type ReviewContext = {
   cwd: string;
+  hasUI: boolean;
   sessionManager: {
     getSessionFile(): string | undefined;
     getBranch?(): Record<string, any>[];
     getEntries?(): Record<string, any>[];
     getHeader?(): { parentSession?: string } | undefined;
   };
-  ui?: { notify(message: string, level?: "info" | "warning" | "error"): void };
+  ui?: {
+    select(title: string, options: string[]): Promise<string | undefined>;
+    notify(message: string, level?: "info" | "warning" | "error"): void;
+  };
 };
 
 type ReviewPi = ToolActivationPi & {
@@ -505,7 +509,7 @@ async function currentReview(
   return undefined;
 }
 
-type CiBoundaryEvent = "push";
+type CiBoundaryEvent = ReviewBoundaryEvent;
 
 type CiLaunchIdentity = {
   repo: string;
@@ -526,7 +530,7 @@ type LaunchMessage = {
 };
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
-  return event === "push" ? "push" : undefined;
+  return event;
 }
 
 function ciLaunchIdentity(event: any): CiLaunchIdentity | undefined {
@@ -597,6 +601,28 @@ async function launchBoundaryPlan(
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
     if (!boundary.classification.settled) consumeBypassSentinel();
   }
+  let confirmedEvent = boundary.classification.event;
+  if (reviewsEnabled && !skipReview && !confirmedEvent) {
+    if (!ctx.hasUI || !ctx.ui) return undefined;
+    const decision = await ctx.ui.select(
+      `PR #${review.pr.number} (${review.pr.headRefName} at ${review.pr.headRefOid})`,
+      ["Launch review and CI", "Acknowledge without review"],
+    );
+    const refreshed = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
+    if (!refreshed
+      || refreshed.repo !== review.repo
+      || refreshed.pr.number !== review.pr.number
+      || refreshed.pr.baseRefName !== review.pr.baseRefName
+      || refreshed.pr.headRefName !== review.pr.headRefName
+      || refreshed.pr.headRefOid !== review.pr.headRefOid) return undefined;
+    if (readAck(review.repo, review.pr.number) === review.pr.headRefOid) return undefined;
+    if (decision === "Acknowledge without review") {
+      acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
+      return undefined;
+    }
+    if (decision !== "Launch review and CI") return undefined;
+    confirmedEvent = "push";
+  }
   const ackHead = readAck(review.repo, review.pr.number);
   const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
   const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
@@ -612,7 +638,7 @@ async function launchBoundaryPlan(
     : [];
   const ciEvent = readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
     ? undefined
-    : ciBoundaryEvent(boundary.classification.event);
+    : ciBoundaryEvent(confirmedEvent);
   if (requiredLanes.length === 0 && !ciEvent) return undefined;
 
   sendLaunchMessage(pi, {
@@ -936,7 +962,7 @@ async function acknowledgeCompletedReview(
 
   if (reviewedFacts.ciLaunched) checkpointCi(context.repo, reviewedPr.number, reviewedHead);
   if (!acknowledge(context.repo, reviewedPr.number, reviewedHead)) return false;
-  const ciEvent = ciBoundaryEvent(classification.event);
+  const ciEvent = reviewedFacts.reviewCiEvent ?? ciBoundaryEvent(classification.event);
   if (!reviewedFacts.ciLaunched && ciEvent) {
     sendLaunchMessage(pi, {
       phase: "follow-up",
@@ -1099,7 +1125,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const ciEvent = facts.ciLaunched
       || readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
       ? undefined
-      : ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
+      : facts.reviewCiEvent ?? ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
     if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
 
     if (shouldReview && requiredLanes.length > 0

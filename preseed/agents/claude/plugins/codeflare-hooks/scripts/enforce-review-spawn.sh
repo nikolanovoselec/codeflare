@@ -465,6 +465,7 @@ fi
 # open, unacknowledged PR head. The path is overridable for hermetic tests.
 BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
 if [ -f "$BYPASS_FILE" ]; then
+  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || exit 0
   rm -f "$BYPASS_FILE" 2>/dev/null || true
   exit 0
 fi

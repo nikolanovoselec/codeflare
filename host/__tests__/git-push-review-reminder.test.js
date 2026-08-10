@@ -204,6 +204,25 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     });
   }
 
+  it('asks before review for non-delivery Git activity but auto-launches after push or PR creation', () => {
+    const statusRepo = makeFixture();
+    withSdd(statusRepo);
+    const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
+    assert.match(status.stdout, /FIRST use AskUserQuestion/);
+    assert.match(status.stdout, /Acknowledge without review/);
+
+    for (const command of [
+      'git push origin HEAD',
+      'gh pr create --base main --title review --body body',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const automatic = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.doesNotMatch(automatic.stdout, /FIRST use AskUserQuestion/);
+      assert.match(automatic.stdout, /Execute NOW/);
+    }
+  });
+
   it('does not repeat the launch reminder for the same unacknowledged head', () => {
     const cwd = makeFixture();
     withSdd(cwd);

@@ -3,6 +3,8 @@
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
 # Trigger model: every executable `git` or `gh` command is a cheap candidate.
+# The existing structural tokenizer marks `git push` and `gh pr create` for
+# automatic delivery; other commands require explicit user confirmation.
 # Eligibility comes only from authoritative state: the normal checkout's current
 # branch must have an open main/master/develop PR whose full head equals local
 # HEAD and differs from that PR's checkpoint. Detached HEAD, nonstandard
@@ -61,7 +63,7 @@ COMMAND=$(echo "$INPUT" | jq -r '
 
 # Any structurally executable git or gh command is a candidate. Command syntax
 # never decides eligibility; the checked-out branch and GitHub PR state do.
-if ! node - "$COMMAND" <<'NODE'
+BOUNDARY_KIND=$(node - "$COMMAND" <<'NODE'
 const text = process.argv[2];
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
 const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
@@ -115,17 +117,46 @@ function stripHeredocs(value) {
   return out.join('\n');
 }
 let found = false;
+let kind = 'none';
+function classify(tool, args) {
+  const takesValue = tool === 'git'
+    ? new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix'])
+    : new Set(['-R', '--repo', '--hostname', '--config']);
+  let index = 0;
+  while (index < args.length) {
+    const value = args[index] || '';
+    if (value === '--') { index++; break; }
+    if (!value.startsWith('-')) break;
+    if (takesValue.has(value) && !value.includes('=')) index++;
+    index++;
+  }
+  const command = args.slice(index);
+  const next = tool === 'git' && command[0] === 'push'
+    ? 'push'
+    : tool === 'gh' && command[0] === 'pr' && command[1] === 'create'
+      ? 'pr-create'
+      : 'prompt';
+  if (next !== 'prompt' || kind === 'none') kind = next;
+}
 function scan(source) {
-  let word = '', command = true, prefix = false;
+  let word = '', command = true, prefix = false, tool = '', args = [];
   const finish = () => {
     if (!word) return;
     const value = word; word = '';
-    if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
-    if (value === 'git' || value === 'gh') { found = true; command = false; return; }
+    if (!command) {
+      if (tool) args.push(value);
+      return;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
+    if (value === 'git' || value === 'gh') { found = true; tool = value; command = false; return; }
     if (prefix && value.startsWith('-')) return;
     prefix = prefixes.has(value); command = prefix;
   };
-  const boundary = () => { finish(); command = true; prefix = false; };
+  const boundary = () => {
+    finish();
+    if (tool) classify(tool, args);
+    command = true; prefix = false; tool = ''; args = [];
+  };
   function substitution(start) {
     let depth = 1, quote = '', escaped = false;
     for (let i = start; i < source.length; i++) {
@@ -139,7 +170,7 @@ function scan(source) {
     }
     return source.length;
   }
-  for (let i = 0; i < source.length && !found; i++) {
+  for (let i = 0; i < source.length; i++) {
     const c = source[i];
     if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
     if (c === '"') {
@@ -157,14 +188,14 @@ function scan(source) {
     if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
     word += c;
   }
-  finish();
+  boundary();
 }
 scan(stripHeredocs(text));
+console.log(kind);
 process.exit(found ? 0 : 1);
 NODE
-then
-  exit 0
-fi
+) || exit 0
+[ "$BOUNDARY_KIND" != "none" ] || exit 0
 
 [ -d sdd ] && [ -f sdd/README.md ] || exit 0
 [ -d .git ] || exit 0
@@ -243,7 +274,11 @@ case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
 case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
-DIRECTIVE="SDD $CONTEXT detected. Execute NOW, and keep the user informed as described at the end of this directive."
+if [ "$BOUNDARY_KIND" = "prompt" ]; then
+  DIRECTIVE="SDD $CONTEXT detected outside a push or PR creation. FIRST use AskUserQuestion to ask whether the user wants review and CI for PR #$PR_NUMBER at exact head $CURRENT_PR_HEAD. Offer 'Launch review' and 'Acknowledge without review'. If the user chooses acknowledge, create the existing /tmp/review-bypass sentinel and end the turn; the Stop hook will revalidate and acknowledge this exact head. If the user chooses launch, continue with the review instructions below."
+else
+  DIRECTIVE="SDD $CONTEXT detected after $BOUNDARY_KIND. Execute NOW, and keep the user informed as described at the end of this directive."
+fi
 
 # Lane-aware composition. All review lanes are report-only and return findings to the
 # root session, so they run in parallel without shared-file writes or ordering dependency.

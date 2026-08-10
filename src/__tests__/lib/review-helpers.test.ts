@@ -6,15 +6,11 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
-type BoundaryEvent = 'push' | 'pr-create' | 'pr-merge';
+type BoundaryEvent = 'push' | 'pr-create';
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: BoundaryEvent;
-  pushSource?: string;
-  pushTarget?: string;
-  pushRemote?: string;
-  mergeSelector?: string;
 };
 type TranscriptFacts = {
   boundary?: {
@@ -196,28 +192,30 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-116: treats executable git and gh commands as authoritative branch-state candidates', async () => {
+  it('REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies delivery commands for automatic review and other Git activity for confirmation', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const candidate = { reminder: true, settled: true, event: 'push' as const };
+    const push = { reminder: true, settled: true, event: 'push' as const };
+    const prCreate = { reminder: true, settled: true, event: 'pr-create' as const };
+    const confirm = { reminder: true, settled: true };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
-      ['git push origin pi', candidate],
-      ['git push origin 0123456789012345678901234567890123456789:develop', candidate],
-      ['git status --short', candidate],
-      ['git switch develop && git pull --ff-only', candidate],
-      ['gh pr create --base main --title review', candidate],
-      ['gh pr merge 42 --squash', candidate],
-      ['gh pr merge 42 --auto', candidate],
-      ['gh pr view 42', candidate],
-      ['CI=1 git push origin pi', candidate],
-      ['env GH_TOKEN=x gh pr view', candidate],
-      ['printf done; git status --short', candidate],
+      ['git push origin pi', push],
+      ['git -C . push origin 0123456789012345678901234567890123456789:develop', push],
+      ['git status --short', confirm],
+      ['git switch develop && git pull --ff-only', confirm],
+      ['gh pr create --base main --title review', prCreate],
+      ['gh --repo owner/repo pr create --base develop --title review', prCreate],
+      ['gh pr merge 42 --squash', confirm],
+      ['gh pr view 42', confirm],
+      ['CI=1 git push origin pi', push],
+      ['env GH_TOKEN=x gh pr view', confirm],
+      ['printf done; git status --short', confirm],
       ["printf '%s' 'git push origin pi'", none],
       ["printf '%s' 'gh pr merge 42'", none],
       ['cat <<EOF\ngit push origin pi\nEOF', none],
       ["cat <<'END-1'\ngit push origin pi\nEND-1", none],
-      ['cat <<ONE <<TWO\ngit push origin pi\nONE\ngh pr merge 42\nTWO\ngit status', candidate],
-      ['cat <<EOF\ngit push origin pi\nEOF\ngit status', candidate],
+      ['cat <<ONE <<TWO\ngit push origin pi\nONE\ngh pr merge 42\nTWO\ngit status', confirm],
+      ['cat <<EOF\ngit push origin pi\nEOF\ngit status', confirm],
       ['printf done', none],
     ];
 
