@@ -5,7 +5,7 @@ import type { Env } from '../types';
 import {
   DESIGN_READY_CSP_HASH,
   DESIGN_READY_SCRIPT,
-} from '../../landing/src/lib/design-ready';
+} from '../lib/design-ready';
 
 // Create a minimal Hono app to use as mock route default export
 const _mockHonoApp = new Hono();
@@ -155,7 +155,12 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     expect(DESIGN_READY_CSP_HASH).toBe(`sha256-${digest}`);
     expect(csp).toContain(`'${DESIGN_READY_CSP_HASH}'`);
-    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    const scriptSrc = csp!
+      .split(';')
+      .map((directive) => directive.trim().split(/\s+/))
+      .find(([name]) => name === 'script-src');
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
   it('REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)', async () => {

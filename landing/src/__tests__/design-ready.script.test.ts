@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DESIGN_READY_SCRIPT } from '../lib/design-ready';
+import { DESIGN_READY_SCRIPT } from '../../../src/lib/design-ready';
 
 type Deferred = { promise: Promise<unknown>; resolve: () => void };
 

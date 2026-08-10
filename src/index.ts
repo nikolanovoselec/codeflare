@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
-import { DESIGN_READY_CSP_HASH } from '../landing/src/lib/design-ready';
+import { DESIGN_READY_CSP_HASH } from './lib/design-ready';
 import type { Env } from './types';
 import userRoutes from './routes/user-profile';
 import containerRoutes from './routes/container/index';

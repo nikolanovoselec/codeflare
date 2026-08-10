@@ -17,7 +17,7 @@ import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
 import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
-import { DESIGN_READY_SCRIPT } from '../lib/design-ready';
+import { DESIGN_READY_SCRIPT } from '../../../src/lib/design-ready';
 import {
   AGENTS,
   COST,
