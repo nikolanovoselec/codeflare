@@ -58,9 +58,107 @@ function laneKind(file) {
   return null;
 }
 
+function fenceMarker(line) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+  return { character: match[1][0], length: match[1].length, rest: match[2] };
+}
+
+function inlineCodeEnd(line, start) {
+  let length = 1;
+  while (line[start + length] === '`') length += 1;
+
+  let index = start + length;
+  while (index < line.length) {
+    const candidate = line.indexOf('`', index);
+    if (candidate === -1) return -1;
+    let candidateLength = 1;
+    while (line[candidate + candidateLength] === '`') candidateLength += 1;
+    if (candidateLength === length) return candidate + candidateLength;
+    index = candidate + candidateLength;
+  }
+  return -1;
+}
+
+function isEscaped(line, index) {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && line[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function commentStartOutsideCode(content) {
+  let fence = null;
+  let inlineCodeUntil = -1;
+  let lineStart = 0;
+
+  while (lineStart < content.length) {
+    const newline = content.indexOf('\n', lineStart);
+    const lineEnd = newline === -1 ? content.length : newline;
+    const line = content.slice(lineStart, lineEnd).replace(/\r$/, '');
+    const marker = fenceMarker(line);
+    let scanStart = null;
+
+    if (inlineCodeUntil > lineStart) {
+      const resumeAt = inlineCodeUntil - lineStart;
+      if (resumeAt < line.length) {
+        scanStart = resumeAt;
+        inlineCodeUntil = -1;
+      }
+    } else if (fence) {
+      if (marker
+        && marker.character === fence.character
+        && marker.length >= fence.length
+        && marker.rest.trim() === '') {
+        fence = null;
+      }
+    } else if (marker && (marker.character === '~' || !marker.rest.includes('`'))) {
+      fence = marker;
+    } else {
+      scanStart = 0;
+    }
+
+    if (scanStart !== null) {
+      let index = scanStart;
+      while (index < line.length) {
+        if (line.startsWith('<!--', index)) return lineStart + index;
+        if (line[index] === '`' && !isEscaped(content, lineStart + index)) {
+          const end = inlineCodeEnd(content, lineStart + index);
+          if (end !== -1) {
+            if (end - lineStart <= line.length) {
+              index = end - lineStart;
+              continue;
+            }
+            inlineCodeUntil = end;
+            break;
+          }
+        }
+        index += 1;
+      }
+    }
+
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
+  return -1;
+}
+
+function stripHtmlComments(content) {
+  let clean = content;
+
+  while (true) {
+    const start = commentStartOutsideCode(clean);
+    if (start === -1) return clean;
+
+    const end = clean.indexOf('-->', start + 4);
+    if (end === -1) return clean.slice(0, start);
+    clean = clean.slice(0, start) + clean.slice(end + 3);
+  }
+}
+
 function plain(value) {
   return value
-    .replace(/<!--.*?-->/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/`/g, '')
     .replace(/[“”"]/g, '')
@@ -130,15 +228,29 @@ function nearestArea(lines, before) {
 
 function scanSections(lines, kind, file, findings, seen) {
   let area = '';
-  let fenced = false;
+  let fence = null;
   const sections = [];
+  const visibleLines = [];
 
   for (let index = 0; index < lines.length; index += 1) {
-    if (/^\s*```/.test(lines[index])) {
-      fenced = !fenced;
+    const marker = fenceMarker(lines[index]);
+    if (fence) {
+      visibleLines.push('');
+      if (marker
+        && marker.character === fence.character
+        && marker.length >= fence.length
+        && marker.rest.trim() === '') {
+        fence = null;
+      }
       continue;
     }
-    if (fenced) continue;
+    if (marker && (marker.character === '~' || !marker.rest.includes('`'))) {
+      visibleLines.push('');
+      fence = marker;
+      continue;
+    }
+
+    visibleLines.push(lines[index]);
     const heading = lines[index].match(/^(#{2,3})\s+(.+)$/);
     if (!heading) continue;
     const level = heading[1].length;
@@ -152,9 +264,9 @@ function scanSections(lines, kind, file, findings, seen) {
 
   for (let index = 0; index < sections.length; index += 1) {
     const section = sections[index];
-    const nextHeading = lines.findIndex((line, lineIndex) => lineIndex >= section.start && /^#{2,3}\s+/.test(line));
-    const end = nextHeading === -1 ? lines.length : nextHeading;
-    const body = lines.slice(section.start, end).join('\n');
+    const nextHeading = visibleLines.findIndex((line, lineIndex) => lineIndex >= section.start && /^#{2,3}\s+/.test(line));
+    const end = nextHeading === -1 ? visibleLines.length : nextHeading;
+    const body = visibleLines.slice(section.start, end).join('\n');
     const labels = new Set(
       [...body.matchAll(/^\*\*([^*:\n]+):\*\*/gm)].map((match) => plain(match[1])),
     );
@@ -221,7 +333,7 @@ export async function checkDocuments(files, { inventory = false } = {}) {
   for (const file of files) {
     const kind = laneKind(file);
     if (!kind) continue;
-    const content = await readFile(file, 'utf8');
+    const content = stripHtmlComments(await readFile(file, 'utf8'));
     const lines = content.split(/\r?\n/);
     scanTables(lines, kind, file, findings, seen);
     scanSections(lines, kind, file, findings, seen);

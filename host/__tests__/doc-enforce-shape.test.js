@@ -130,6 +130,184 @@ describe('doc-enforce shape item traversal', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
+  it('keeps an inline-code comment opener literal and reports a later malformed item', () => {
+    const content = [
+      '# Architecture',
+      '',
+      '## Examples',
+      '',
+      'The literal token `<!--` starts an HTML comment.',
+      '',
+      '## System Components',
+      '',
+      '### Worker',
+      '',
+      '**Responsibility:** Still governed after the inline code.',
+    ].join('\n');
+    const result = runFixture({ 'architecture.md': content });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const [finding] = JSON.parse(result.stdout).findings;
+    assert.equal(finding.item, 'Worker');
+    assert.deepEqual(finding.missing, ['Inputs', 'Outputs', 'Source']);
+  });
+
+  it('keeps a fenced-code comment opener literal and reports a later malformed item', () => {
+    const content = [
+      '# Troubleshooting',
+      '',
+      '## Examples',
+      '',
+      '```markdown',
+      '<!--',
+      '```',
+      '',
+      '## Common Issues',
+      '',
+      '### Chrome in CI',
+      '',
+      '**Symptom:** Still governed after the fenced code.',
+    ].join('\n');
+    const result = runFixture({ 'troubleshooting.md': content });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const [finding] = JSON.parse(result.stdout).findings;
+    assert.equal(finding.item, 'Chrome in CI');
+    assert.deepEqual(finding.missing, ['Cause', 'Fix']);
+  });
+
+  it('ignores headings and shape fields inside tilde fences', () => {
+    const content = [
+      '# Architecture',
+      '',
+      '## System Components',
+      '',
+      '~~~markdown',
+      '### Worker',
+      '',
+      '**Responsibility:** Fenced example only.',
+      '~~~',
+      '',
+      '### Example Item',
+      '',
+      '**Responsibility:** Real malformed item.',
+    ].join('\n');
+    const result = runFixture({ 'architecture.md': content });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const findings = JSON.parse(result.stdout).findings;
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].item, 'Example Item');
+    assert.deepEqual(findings[0].missing, ['Inputs', 'Outputs', 'Source']);
+  });
+
+  it('does not close a four-backtick fence with triple backticks', () => {
+    const content = [
+      '# Troubleshooting',
+      '',
+      '## Common Issues',
+      '',
+      '````markdown',
+      '### Chrome in CI',
+      '',
+      '**Symptom:** Fenced example only.',
+      '```',
+      '### Access Application Not Found',
+      '',
+      '**Symptom:** Still fenced after the shorter delimiter.',
+      '````',
+      '',
+      '### Example Item',
+      '',
+      '**Symptom:** Real malformed item.',
+    ].join('\n');
+    const result = runFixture({ 'troubleshooting.md': content });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const findings = JSON.parse(result.stdout).findings;
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].item, 'Example Item');
+    assert.deepEqual(findings[0].missing, ['Cause', 'Fix']);
+  });
+
+  it('keeps a multiline inline-code comment opener literal and reports later malformed content', () => {
+    const content = [
+      '# Architecture',
+      '',
+      '## Examples',
+      '',
+      'The multiline code span `starts here',
+      '<!--',
+      'and ends here` without opening a comment.',
+      '',
+      '## System Components',
+      '',
+      '### Worker',
+      '',
+      '**Responsibility:** Still governed after the multiline code.',
+    ].join('\n');
+    const result = runFixture({ 'architecture.md': content });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    const findings = JSON.parse(result.stdout).findings;
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].item, 'Worker');
+    assert.deepEqual(findings[0].missing, ['Inputs', 'Outputs', 'Source']);
+  });
+
+  it('ignores multiline HTML comments around recognized items', () => {
+    const content = [
+      '# Architecture',
+      '',
+      '## System Components',
+      '',
+      '<!--',
+      '### Worker',
+      '',
+      '**Responsibility:** Hidden incomplete item.',
+      '-->',
+      '### Example Item',
+      '',
+      ...fields.architecture,
+      '<!--',
+      '### Container DO',
+      '',
+      '**Responsibility:** Another hidden incomplete item.',
+      '-->',
+    ].join('\n');
+    const result = runFixture({ 'architecture.md': content });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('discards an unterminated HTML comment containing hidden malformed content', () => {
+    const content = [
+      '# Troubleshooting',
+      '',
+      '## Common Issues',
+      '',
+      '<!--',
+      '### Chrome in CI',
+      '',
+      '**Symptom:** Hidden failure.',
+    ].join('\n');
+    const result = runFixture({ 'troubleshooting.md': content });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('rescans comment-removal boundaries that form a new unterminated opener', () => {
+    const content = [
+      '# Architecture',
+      '',
+      '## System Components',
+      '',
+      '### Example Item',
+      '',
+      ...fields.architecture,
+      '',
+      '<!<!-- removed -->--',
+      '### Worker',
+      '',
+      '**Responsibility:** Hidden failure.',
+    ].join('\n');
+    const result = runFixture({ 'architecture.md': content });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
   it('reports a malformed item that has only part of its required shape', () => {
     const result = runFixture({
       'troubleshooting.md': perItemFixture('troubleshooting', [fields.troubleshooting[0]]),
