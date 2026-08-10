@@ -263,6 +263,17 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     assert.doesNotMatch(r.stdout, /detected after review-fix continuation/);
   });
 
+  it('does not accept a repository-global legacy acknowledgement for the current PR exact head', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = commitAt(cwd, 'sdd/spec/current.md', '# current\n', 'feat: current PR head');
+    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), headSha);
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.match(r.stdout, /FIRST use AskUserQuestion/,
+      'a legacy repository-global SHA cannot acknowledge this exact PR head');
+  });
+
   it('does not repeat the launch reminder for the same unacknowledged head', () => {
     const cwd = makeFixture();
     withSdd(cwd);

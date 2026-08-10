@@ -240,7 +240,14 @@ case "$LAST_ACK_PR_HEAD" in
   *[!0-9a-f]*|"") LAST_ACK_PR_HEAD="" ;;
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
-[ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+if [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
+  if [ "$ACK_IS_PR_SPECIFIC" = "1" ]; then
+    exit 0
+  fi
+  # Equal legacy state is not this PR's checkpoint and cannot provide a
+  # meaningful review range; fall back to the initial full-PR consent path.
+  LAST_ACK_PR_HEAD=""
+fi
 
 # A reviewed head followed by a synchronized descendant on the SAME PR is the
 # review loop continuing, even if the original push's PostToolUse directive was
