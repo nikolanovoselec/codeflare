@@ -45,7 +45,7 @@ const CF_MINIMAL = [
   'account-settings.read',
   'user-details.read',
   'zone.read',
-  'zone.analytics.read',
+  'analytics.read',
 ];
 const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'zone-access.write', 'access-acct.write'];
 // Advanced tier = a strict superset of Recommended (built from CF_RECOMMENDED) plus the full

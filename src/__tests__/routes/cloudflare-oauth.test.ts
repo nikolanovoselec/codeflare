@@ -79,7 +79,7 @@ describe('GET /api/cloudflare/connect', () => {
     expect((await res.json() as Record<string, unknown>).code).toBe('CLOUDFLARE_NOT_CONFIGURED');
   });
 
-  it('feeds every scope tier into OAuth with Zone Analytics read and offline access', async () => {
+  it('feeds every scope tier into OAuth with Analytics read and offline access', async () => {
     configureClient();
     const locations = await Promise.all(
       ['minimal', 'recommended', 'advanced'].map(async (tier) => new URL(
@@ -89,7 +89,7 @@ describe('GET /api/cloudflare/connect', () => {
 
     for (const location of locations) {
       const scopes = location.searchParams.get('scope')!.split(' ');
-      expect(scopes).toContain('zone.analytics.read');
+      expect(scopes).toContain('analytics.read');
       expect(scopes).toContain('offline_access');
     }
     expect(locations[2].searchParams.get('scope')).toContain('ai.write');

@@ -352,7 +352,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **Account Settings: Read** | `account-settings.read` | yes | yes | yes | Account ID discovery |
 | **User Details: Read** | `user-details.read` | yes | yes | yes | Resolve the connecting account |
 | **Zone: Read** | `zone.read` | yes | yes | yes | Zone ID resolution |
-| **Zone Analytics: Read** | `zone.analytics.read` | yes | yes | yes | Read zone traffic and performance analytics |
+| **Analytics: Read** | `analytics.read` | yes | yes | yes | Read zone traffic and performance analytics |
 | **DNS: Edit** | `dns.write` | - | yes | yes | Manage DNS records for custom domains |
 | **Access: Apps and Policies: Edit** | `zone-access.write` | - | yes | yes | Cloudflare Access apps (combined; advanced also carries the granular scopes below) |
 | **Access: Orgs, IdPs, and Groups: Edit** | `access-acct.write` | - | yes | yes | Access identity (combined; advanced also carries the granular scopes below) |
