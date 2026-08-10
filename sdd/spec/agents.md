@@ -71,20 +71,51 @@ Multi-agent support, preseed system, and session modes.
 1. Pi's required package set includes one exact-pinned, integrity-locked `@narumitw/pi-goal` package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
 2. Image construction warms the installed Goal extension so a new session uses its path-correct transpile cache instead of cold-transpiling it. <!-- @impl: Dockerfile::goal_source --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
-4. Startup adds only missing Codeflare Goal defaults: lazy tool visibility, 10 automatic turns, and a 60000ms continuation delay. Explicit and unknown values remain user-owned; malformed files remain unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4: creates every Codeflare-owned Goal startup default when config is absent) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4: adds only missing owned Goal values and preserves explicit preferences) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4: preserves malformed Goal config byte-for-byte) -->
+4. Starting Goal in a capability-filtered session reveals its terminal tools without adding them to the initial tool set; startup supplies lazy visibility only when that preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
 5. Capability initialization keeps both terminal Goal tools for an unfinished Goal or Goal's already-active `always` policy; absent, cleared, completed, malformed, or lazy fresh state does not independently widen the set. <!-- @impl: preseed/agents/pi/extensions/capability.ts::hasUnfinishedGoal --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
-6. Eligible Goal continuations use the configured non-negative delay and single-flight dispatch. Zero is immediate; existing cancellation owners cancel pending dispatch; expiry revalidates Goal/session ownership and idle state, retaining intent when only idle eligibility changed. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: waits the configured 60 seconds before continuation dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: safely re-arms delays beyond the Node timer maximum) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: keeps repeated settled events single-flight) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: cancellation prevents a delayed continuation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: zero delay dispatches immediately) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: stale menu, marker, and replacement-goal timers cannot dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: a busy timer retains intent for the next settled boundary) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: rejects invalid minIntervalMs values) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC6: defaults a missing delay to zero and saves it without dropping unknown fields) -->
 
 **Constraints:**
 
-- Goal remains the exact-pinned upstream 0.43.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch for the added startup-owned values.
-- A future Goal upgrade must pass normal review, lock regeneration, deployment image verification, and deliberate build-transform anchor review. The weekly upgrade preflight fails until the exact-version contract and anchors are updated; version or package-layout drift fails before any package source is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) -->
+- Goal remains an exact-pinned upstream dependency and must pass normal package review, lock regeneration, and deployment-image verification.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
 **Verification:** Entrypoint runtime behavior test; capability-filtering tests; deployment image verification
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-129: Goal Continuation Pacing and Startup Policy
+
+**Intent:** Codeflare must pace automatic Goal continuations without forking the upstream Goal package or overriding explicit user preferences.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Missing Goal configuration receives lazy tool visibility, 10 automatic turns, and a 60000ms continuation delay. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
+2. Startup adds only missing owned values while preserving explicit and unknown values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2: adds only missing owned Goal values and preserves explicit preferences) -->
+3. Startup leaves malformed Goal configuration byte-for-byte unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC3: preserves malformed Goal config byte-for-byte) -->
+4. `minIntervalMs` accepts non-negative safe integers, defaults to zero when absent, persists normally, and preserves unknown settings. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC4: rejects invalid minIntervalMs values) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC4: defaults a missing delay to zero and saves it without dropping unknown fields) -->
+5. Zero dispatches immediately; positive delays wait fully, including intervals beyond Node's single-timer maximum. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC5: waits the configured 60 seconds before continuation dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC5: safely re-arms delays beyond the Node timer maximum) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC5: zero delay dispatches immediately) -->
+6. Repeated settled events retain one pending timer, and existing continuation cancellation owners remove it. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC6: keeps repeated settled events single-flight) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC6: cancellation prevents a delayed continuation) -->
+7. Timer expiry rejects stale Goal/session ownership and retains intent when only idle eligibility changed. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC7: stale menu, marker, and replacement-goal timers cannot dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC7: a busy timer retains intent for the next settled boundary) -->
+
+**Constraints:**
+
+- Goal remains the exact-pinned upstream 0.43.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
+- A future Goal upgrade requires deliberate review of the exact-version contract and source anchors.
+- The weekly shadow-pin workflow runs the transform against the candidate installation before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) -->
+- Version or layout drift fails before any package source is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
+
+**Verification:** Entrypoint startup tests; executable patch tests; weekly shadow-pin workflow contract
 
 **Status:** Implemented
 
