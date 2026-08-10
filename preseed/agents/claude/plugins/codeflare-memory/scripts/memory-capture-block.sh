@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse hook -- unconditional HARD BLOCK while the memory-capture
-# .vars directive is undrained. The one permitted spawn remains single-flight;
-# its correlated capture child is preferred, while a timed breaker prevents a
-# missing harness correlation signal from permanently deadlocking the session.
+# .vars directive is undrained.
 #
 # Companion to memory-capture.sh (UserPromptSubmit). When that hook fires
 # and delta >= 15 it writes a .vars file at /tmp/.memory-counter/<session>.vars.
 # The main agent MUST spawn `subagent_type: memory-capture` in the
-# background. The normal path correlates that child through Agent PostToolUse;
-# if the harness omits a required signal, a bounded breaker fails open so the
-# publish transaction can still drain .vars.
+# background; the successful publication transaction removes .vars.
 #
 # Pre-this-hook behaviour: if the agent ignored the additionalContext
 # directive, .vars sat undrained and the next 14 user prompts were below
@@ -22,9 +18,8 @@
 # with a clear instruction to spawn the subagent. The agent cannot
 # Read/Write/Edit/Bash/anything else until the deferred capture is drained.
 #
-# No bypass file. The block clears when successful publication removes .vars.
-# Correlation authorization expires after the bounded child-start window. If
-# .vars is stale beyond recovery (e.g. transcript path
+# No bypass file. The block clears naturally when the subagent runs and
+# deletes .vars. If .vars is stale beyond recovery (e.g. transcript path
 # moved), delete it manually: `rm /tmp/.memory-counter/*.vars`. On container
 # recycle /tmp is wiped by Cloudflare Containers contract, so stale .vars
 # cannot survive a session restart.
@@ -38,7 +33,6 @@ COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
 
 INPUT=$(cat)
 
-HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null) || true
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 
@@ -56,122 +50,51 @@ esac
 [[ -z "$SESSION_ID" ]] && exit 0
 
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
-AUTH_FILE="$COUNTER_DIR/${SESSION_ID}.capture-auth"
-AUTH_LOCK="$COUNTER_DIR/${SESSION_ID}.capture-auth.lock"
-BLOCK_LOG="$COUNTER_DIR/${SESSION_ID}.blocklog"
-AUTH_BREAKER_SEC=120
-AUTH_TTL_SEC=600
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null) || true
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null) || true
-TOOL_USE_ID=$(echo "$INPUT" | jq -r '.tool_use_id // empty' 2>/dev/null) || true
-RESPONSE_AGENT_ID=$(echo "$INPUT" | jq -r '.tool_response.agentId // .tool_response.agent_id // empty' 2>/dev/null) || true
+SENTINEL="$COUNTER_DIR/${SESSION_ID}.capture-in-flight"
+SENTINEL_TTL_SEC=600  # 10 min — subagent runtime budget
 
-safe_correlation_id() {
-    local value="$1"
-    case "$value" in
-      *..* | */* | *\\*) return 0 ;;
-    esac
-    if [[ "$value" =~ ^[a-zA-Z0-9_-]+$ ]]; then printf '%s' "$value"; fi
-    return 0
-}
-AGENT_ID=$(safe_correlation_id "$AGENT_ID")
-TOOL_USE_ID=$(safe_correlation_id "$TOOL_USE_ID")
-RESPONSE_AGENT_ID=$(safe_correlation_id "$RESPONSE_AGENT_ID")
-
-# Common case: no deferred capture. Remove only this session's ephemeral
-# authorization; correlation never leaves the session-local counter directory.
+# Common case: no deferred capture, allow the tool call. (Sentinel is moot
+# without a pending .vars; clean it up if it lingered past the previous run.)
 if [[ ! -f "$VARS_FILE" ]]; then
-    rm -f "$AUTH_FILE" "$AUTH_LOCK"
+    [[ -f "$SENTINEL" ]] && rm -f "$SENTINEL"
     exit 0
 fi
 
-# Every create/bind/claim/expiry transition is serialized. PreToolUse records
-# the parent spawn's tool_use_id; PostToolUse for that same invocation binds the
-# actual agentId returned by the Agent tool. No identifier-equality assumption,
-# prompt token, or first-arriving-child guess authorizes a caller.
-exec 9>"$AUTH_LOCK"
-AUTH_LOCKED=0
-flock -w 2 -x 9 || AUTH_LOCKED=$?
-
-write_auth() {
-    local state="$1" temporary="${AUTH_FILE}.tmp.$$"
-    (umask 077; printf '%s\n' "$state" > "$temporary") && mv -f "$temporary" "$AUTH_FILE"
-}
-
-if (( AUTH_LOCKED == 0 )) && [[ -f "$AUTH_FILE" ]]; then
-    AUTH_AGE=$(($(date +%s) - $(stat -c %Y "$AUTH_FILE" 2>/dev/null || echo 0)))
-    if (( AUTH_AGE >= AUTH_TTL_SEC )); then
-        rm -f "$AUTH_FILE"
-    else
-        AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
-        # If the parent spawn was recorded but the PostToolUse bind or child
-        # claim signal never arrives, continued fail-closed enforcement blocks
-        # the only agent that can remove .vars. After a bounded interval, fail
-        # open for this recorded spawn. A missing AUTH_FILE still blocks.
-        if (( AUTH_AGE >= AUTH_BREAKER_SEC )) && [[ "$AUTH_STATE" != claimed:* ]]; then
-            exit 0
-        fi
-    fi
-fi
-
-# Exactly one harness-identified memory-capture spawn may create the pending
-# authorization. Missing identity, replay and concurrent contenders fail closed.
-if (( AUTH_LOCKED == 0 )) && [[ "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent" ]]; then
+# Allow the parent's spawn of the memory-capture subagent. The tool that
+# spawns subagents is called "Task" in the legacy API and "Agent" in the
+# current Claude Code harness -- accept either. Mark sentinel so the
+# subagent's own tool calls (Read/Bash/Write) below are NOT blocked --
+# PreToolUse fires on the subagent's calls too, and without this they'd
+# be hard-blocked by the same hook the spawn just satisfied (the original
+# chicken-and-egg deadlock).
+if [[ "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent" ]]; then
     SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null) || true
-    if [[ "$SUBAGENT_TYPE" == "memory-capture" && -n "$TOOL_USE_ID" && ! -f "$AUTH_FILE" ]]; then
-        write_auth "pending:$TOOL_USE_ID"
+    if [[ "$SUBAGENT_TYPE" == "memory-capture" ]]; then
+        touch "$SENTINEL"
         exit 0
     fi
 fi
 
-# Bind the actual child only from the authoritative Agent tool result. The
-# PostToolUse payload carries the same parent tool_use_id and the independently
-# assigned child `agentId` in tool_response.
-if [[ "$HOOK_EVENT" == "PostToolUse" && ( "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent" ) ]]; then
-    SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null) || true
-    if (( AUTH_LOCKED == 0 )) && [[ "$SUBAGENT_TYPE" == "memory-capture" && -n "$TOOL_USE_ID" && -n "$RESPONSE_AGENT_ID" && -f "$AUTH_FILE" ]]; then
-        AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
-        if [[ "$AUTH_STATE" == "pending:$TOOL_USE_ID" ]]; then
-            write_auth "bound:$RESPONSE_AGENT_ID"
-        fi
-    fi
-    exit 0
-fi
-
-# The child may claim only its exact bound identity. Atomic lock ownership
-# prevents two first calls or an unrelated capture child from racing the
-# transition. Subsequent calls require the exact consumed claim.
-if (( AUTH_LOCKED == 0 )) && [[ -n "$AGENT_ID" && "$AGENT_TYPE" == "memory-capture" && -f "$AUTH_FILE" ]]; then
-    AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
-    if [[ "$AUTH_STATE" == "bound:$AGENT_ID" ]]; then
-        write_auth "claimed:$AGENT_ID"
+# Sentinel hot: a memory-capture subagent has been spawned in this session
+# within the TTL window. Let the subagent's tool calls (and any parent
+# tool calls during background processing) through. The block resumes
+# automatically when .vars is deleted (early-exit above) or when the
+# sentinel ages out below.
+if [[ -f "$SENTINEL" ]]; then
+    SENTINEL_AGE=$(($(date +%s) - $(stat -c %Y "$SENTINEL" 2>/dev/null || echo 0)))
+    if (( SENTINEL_AGE < SENTINEL_TTL_SEC )); then
         exit 0
     fi
-    if [[ "$AUTH_STATE" == "claimed:$AGENT_ID" ]]; then
-        exit 0
-    fi
+    # Stale: subagent never completed -- clear and fall through to block.
+    rm -f "$SENTINEL"
 fi
 
-# Everything else: HARD BLOCK with a directive the agent cannot ignore. Record
-# only harness metadata (never tool input) so a missing correlation field is
-# diagnosable after the session is recovered.
+# Everything else: HARD BLOCK with a directive the agent cannot ignore.
 PROMPT_FILE="$USER_HOME/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md"
 VARS_AGE_SEC=$(($(date +%s) - $(stat -c %Y "$VARS_FILE" 2>/dev/null || echo 0)))
-AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || printf 'none')
-(umask 077; jq -cn \
-    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg tool "$TOOL_NAME" \
-    --arg event "$HOOK_EVENT" \
-    --arg agent_id "$AGENT_ID" \
-    --arg agent_type "$AGENT_TYPE" \
-    --arg tool_use_id "$TOOL_USE_ID" \
-    --arg response_agent_id "$RESPONSE_AGENT_ID" \
-    --arg auth_state "$AUTH_STATE" \
-    '{timestamp:$timestamp,tool:$tool,event:$event,agent_id:$agent_id,agent_type:$agent_type,tool_use_id:$tool_use_id,response_agent_id:$response_agent_id,auth_state:$auth_state}' \
-    >> "$BLOCK_LOG") 2>/dev/null || true
 
 cat >&2 <<EOF
-HARD BLOCK: deferred memory capture is not yet authorized.
+HARD BLOCK: memory-capture subagent has not been spawned.
 
 A deferred memory-capture directive is sitting in $VARS_FILE
 (age: ${VARS_AGE_SEC}s). The UserPromptSubmit hook emitted a spawn directive
@@ -179,9 +102,9 @@ earlier this turn or in a prior turn and the subagent never ran -- so .vars
 has not been drained.
 
 You MUST spawn the memory-capture subagent BEFORE any other tool call.
-There is no bypass file. If a recorded spawn cannot complete its correlation
-handshake, the gate fails open after ${AUTH_BREAKER_SEC}s so the capture agent can
-drain .vars; otherwise it clears after the merge/publication transaction.
+This block is unconditional. There is no bypass file. The block clears
+when the capture spawn opens its bounded in-flight window. The window closes
+after ${SENTINEL_TTL_SEC}s or when successful publication removes .vars.
 
   Task tool:
     subagent_type: "memory-capture"
