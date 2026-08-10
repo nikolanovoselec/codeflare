@@ -124,8 +124,19 @@ done
       ]);
       assert.deepEqual(
         readArgs(argsLog),
-        ['--no-extensions', '--extension', goalSource, '--extension', usageSource, '-p', 'warm'],
+        ['--no-extensions', '--extension', goalSource, '--extension', usageSource, '--list-models'],
       );
+
+      const failingPi = join(directory, 'pi-failing');
+      writeFileSync(failingPi, '#!/bin/sh\nexit 7\n');
+      chmodSync(failingPi, 0o755);
+      const failedWarm = spawnSync(
+        process.execPath,
+        [script, '--warm-jiti-entrypoints', failingPi, cacheDirectory, goalSource, usageSource],
+        { encoding: 'utf8' },
+      );
+      assert.notEqual(failedWarm.status, 0);
+      assert.equal(failedWarm.stderr, 'Pi JITI warm exited 7\n');
 
       rmSync(cacheDirectory, { recursive: true });
       mkdirSync(cacheDirectory);

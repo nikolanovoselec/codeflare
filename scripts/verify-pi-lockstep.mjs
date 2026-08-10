@@ -32,11 +32,14 @@ export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePat
     throw new Error('Pi binary, cache directory, and at least one entrypoint are required');
   }
   const extensionArgs = sourcePaths.flatMap((sourcePath) => ['--extension', sourcePath]);
-  spawnSync(
+  const result = spawnSync(
     piBinary,
-    ['--no-extensions', ...extensionArgs, '-p', 'warm'],
+    ['--no-extensions', ...extensionArgs, '--list-models'],
     { encoding: 'utf8', env: process.env, timeout: 240_000 },
   );
+  if (result.error) throw new Error(`Pi JITI warm failed: ${result.error.message}`);
+  if (result.signal) throw new Error(`Pi JITI warm terminated by ${result.signal}`);
+  if (result.status !== 0) throw new Error(`Pi JITI warm exited ${result.status}`);
   return sourcePaths.map((sourcePath) => verifyJitiCacheArtifact(sourcePath, cacheDirectory));
 }
 
