@@ -24,3 +24,31 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
     });
   }
 });
+
+describe('REQ-OPS-021: workflow-file static analysis', () => {
+  it('REQ-OPS-021 AC1: audits workflow changes on pull requests and main pushes and gates merges through workflow-audit', () => {
+    const zizmor = readWorkflow('zizmor.yml');
+    const prChecks = readWorkflow('test.yml');
+    const workflowPaths = [
+      '.github/workflows/**',
+      '.github/actions/**',
+      '.github/workflow-tool-pins.json',
+      'scripts/ci/workflow-tool-pins.mjs',
+    ];
+
+    assert.deepEqual(zizmor.on.pull_request, { paths: workflowPaths });
+    assert.deepEqual(zizmor.on.push, { branches: ['main'], paths: workflowPaths });
+    assert.deepEqual(prChecks.on.pull_request.branches, ['main', 'develop']);
+
+    const audit = prChecks.jobs['workflow-audit'];
+    assert.match(audit.if, /needs\.changes\.outputs\.workflows == 'true'/);
+    assert.ok(audit.steps.some((candidate) => candidate.name?.startsWith('Run zizmor')));
+
+    const requiredCheck = prChecks.jobs.summary;
+    assert.equal(requiredCheck.name, 'test');
+    assert.ok(requiredCheck.needs.includes('workflow-audit'));
+    const aggregate = requiredCheck.steps.find((candidate) => candidate.name === 'Aggregate lane results');
+    assert.equal(aggregate.env.RESULTS, '${{ toJSON(needs) }}');
+    assert.match(aggregate.run, /result == "failure"/);
+  });
+});

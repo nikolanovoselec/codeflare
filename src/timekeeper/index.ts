@@ -270,7 +270,7 @@ export class Timekeeper {
       }
 
       const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json'));
-      await this.env.KV.put(`user:${userEmail}`, JSON.stringify({ ...(existing ?? {}), ...patch }));
+      await this.env.KV.put(`user:${userEmail}`, JSON.stringify({ ...existing, ...patch }));
       response = Response.json({
         applied: true,
         previous: {

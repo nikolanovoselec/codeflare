@@ -452,6 +452,53 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Mobile right-column flip face (REQ-GITHUB-010) ===
 
+  it('REQ-GITHUB-002 AC5: flips one GitHub/storage face on mobile and stacks both faces on tablet and desktop', () => {
+    let resize: () => void = () => {};
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const realInnerWidth = window.innerWidth;
+    class CapRO { constructor(cb: () => void) { resize = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    (window as any).innerWidth = 500;
+    try {
+      viewportMock.setViewport?.('mobile');
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+
+      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
+      const githubFace = right.querySelector('.panel-flip-face--github')!;
+      const storageFace = right.querySelector('.panel-flip-face--storage')!;
+      expect(right.getAttribute('data-layout')).toBe('flip');
+      expect(githubFace.getAttribute('data-active')).toBe('true');
+      expect(storageFace.getAttribute('data-active')).toBe('false');
+
+      fireEvent.click(screen.getByTestId('gh-stub-flip'));
+      expect(githubFace.getAttribute('data-active')).toBe('false');
+      expect(storageFace.getAttribute('data-active')).toBe('true');
+
+      for (const [viewport, width, height] of [
+        ['tablet', 768, 700],
+        ['desktop', 1280, 900],
+      ] as const) {
+        viewportMock.setViewport?.(viewport);
+        (window as any).innerWidth = width;
+        Object.defineProperty(right, 'clientHeight', { configurable: true, value: height });
+        resize();
+        expect(right.getAttribute('data-layout')).toBeNull();
+        expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
+        expect(right.querySelector('.panel-flip-face--storage')).not.toBeNull();
+      }
+    } finally {
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+      (window as any).innerWidth = realInnerWidth;
+    }
+  });
+
   it('REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2', () => {
     (githubStore as any)._setEnabled(false);
     render(() => <Dashboard {...defaultProps} />);

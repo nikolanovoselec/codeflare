@@ -658,7 +658,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The standalone zizmor SARIF audit runs on every pull request touching workflow files and on workflow-touching pushes to `main`; the required `workflow-audit` lane separately enforces the merge gate through PR Checks. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @test: host/__tests__/zizmor-version-lockstep.test.js (zizmor pin manifest) -->
+1. The standalone zizmor SARIF audit runs on every pull request touching workflow files and on workflow-touching pushes to `main`; the required `workflow-audit` lane separately enforces the merge gate through PR Checks. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-021 AC1: audits workflow changes on pull requests and main pushes and gates merges through workflow-audit) -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 4. The merge-blocking audit runs inside the required status context and fails on any surviving finding, while the branch-filtered standalone workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->

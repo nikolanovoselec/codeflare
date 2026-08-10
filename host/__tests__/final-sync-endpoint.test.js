@@ -15,9 +15,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateFinalSync } from '../dist/final-sync.js';
@@ -98,7 +98,9 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
   });
 });
 
+const PID_FILE = '/tmp/sync-daemon.pid';
 const STATUS_FILE = '/tmp/sync-status.json';
+const STATUS_TEMP_FILE = '/tmp/sync-status.final-sync-test.tmp';
 
 function requestRouterDeps(overrides = {}) {
   return {
@@ -167,6 +169,66 @@ function finalSyncHarness(statuses, pollAdvanceMs = 1, signalError = false) {
   };
 }
 
+async function startProductionStatusDaemon() {
+  const script = `
+    write_status() {
+      now=$(date +%s%3N)
+      printf '{"status":"%s","ts":%s}\\n' "$1" "$now" > ${STATUS_TEMP_FILE}
+      mv ${STATUS_TEMP_FILE} ${STATUS_FILE}
+    }
+    on_usr1() {
+      printf 'SIGUSR1\\n'
+      sleep 0.02
+      write_status syncing
+      (sleep 0.65; write_status success) &
+    }
+    trap on_usr1 USR1
+    printf 'READY\\n'
+    while :; do sleep 0.05; done
+  `;
+  const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { output += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+
+  try {
+    await new Promise((resolveReady, rejectReady) => {
+      const timeout = setTimeout(() => rejectReady(new Error(`status daemon startup timed out: ${stderr}`)), 2_000);
+      const onData = () => {
+        if (!output.includes('READY\n')) return;
+        clearTimeout(timeout);
+        child.stdout.off('data', onData);
+        resolveReady();
+      };
+      child.stdout.on('data', onData);
+      child.once('exit', (code, signal) => {
+        clearTimeout(timeout);
+        rejectReady(new Error(`status daemon exited before ready (${code ?? signal}): ${stderr}`));
+      });
+    });
+  } catch (error) {
+    child.kill('SIGKILL');
+    throw error;
+  }
+
+  writeFileSync(PID_FILE, String(child.pid));
+  return { child, output: () => output };
+}
+
+async function stopStatusDaemon(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise((resolveExit) => {
+    const timeout = setTimeout(resolveExit, 1_000);
+    timeout.unref();
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolveExit();
+    });
+    child.kill('SIGKILL');
+  });
+}
+
 function extractShellFunction(name) {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
   const lines = entrypoint.split('\n');
@@ -177,7 +239,9 @@ function extractShellFunction(name) {
 }
 
 function cleanupSyncFixtures() {
+  rmSync(PID_FILE, { force: true });
   rmSync(STATUS_FILE, { force: true });
+  rmSync(STATUS_TEMP_FILE, { force: true });
 }
 
 describe('REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)', () => {
@@ -212,6 +276,34 @@ describe('REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)', () => {
     } finally {
       if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
       else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    }
+  });
+
+  it('REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200', { timeout: 7_000 }, async () => {
+    cleanupSyncFixtures();
+    const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+    const realNow = Date.now;
+    let daemon;
+    process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+    try {
+      daemon = await startProductionStatusDaemon();
+      const failFastAt = realNow() + 3_000;
+      // Fail fast if the production path stops observing the daemon status instead
+      // of waiting for its 125-second internal deadline.
+      Date.now = () => realNow() + (realNow() >= failFastAt ? FINAL_SYNC_INTERNAL_TIMEOUT_MS + 1 : 0);
+      const response = await withRouter({}, postFinalSync);
+
+      assert.equal(readFileSync(PID_FILE, 'utf8'), String(daemon.child.pid));
+      assert.match(daemon.output(), /(?:^|\n)SIGUSR1\n/);
+      assert.equal(JSON.parse(readFileSync(STATUS_FILE, 'utf8')).status, 'success');
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body, { synced: true });
+    } finally {
+      Date.now = realNow;
+      if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+      else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+      await stopStatusDaemon(daemon?.child);
+      cleanupSyncFixtures();
     }
   });
 
