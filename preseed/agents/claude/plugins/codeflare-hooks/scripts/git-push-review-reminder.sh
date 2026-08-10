@@ -4,7 +4,9 @@
 #
 # Trigger model: every executable `git` or `gh` command is a cheap candidate.
 # The existing structural tokenizer marks `git push` and `gh pr create` for
-# automatic delivery; other commands require explicit user confirmation.
+# automatic delivery. Other commands require explicit user confirmation unless
+# the same PR has an acknowledged ancestor: that synchronized descendant is an
+# active review-fix continuation and resumes the loop automatically.
 # Eligibility comes only from authoritative state: the normal checkout's current
 # branch must have an open main/master/develop PR whose full head equals local
 # HEAD and differs from that PR's checkpoint. Detached HEAD, nonstandard
@@ -235,6 +237,16 @@ case "$LAST_ACK_PR_HEAD" in
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
 [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+
+# A reviewed head followed by a synchronized descendant on the SAME PR is the
+# review loop continuing, even if the original push's PostToolUse directive was
+# missed and a later `git status` or `gh run view` is what exposes it. Treat that
+# as delivery instead of asking whether to stop because one prior lane was clean.
+if [ "$BOUNDARY_KIND" = "prompt" ] && [ -n "$LAST_ACK_PR_HEAD" ] \
+    && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
+  BOUNDARY_KIND="review-fix continuation"
+fi
+
 PLAN_FILE="$GIT_DIR/sdd-review-plan-pr-$PR_NUMBER"
 [ "$(cat "$PLAN_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ] || exit 0
 
@@ -275,9 +287,9 @@ case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
 if [ "$BOUNDARY_KIND" = "prompt" ]; then
-  DIRECTIVE="SDD $CONTEXT detected outside a push or PR creation. FIRST use AskUserQuestion to ask whether the user wants review and CI for PR #$PR_NUMBER at exact head $CURRENT_PR_HEAD. Offer 'Launch review' and 'Acknowledge without review'. If the question is cancelled, ask it again until the user explicitly chooses; cancellation neither launches nor acknowledges. If the user chooses acknowledge, create the existing /tmp/review-bypass sentinel and end the turn; the Stop hook will revalidate and acknowledge this exact head. If the user chooses launch, continue with the review instructions below."
+  DIRECTIVE="SDD $CONTEXT detected outside a push, PR creation, or acknowledged review-fix continuation. FIRST use AskUserQuestion to ask whether the user wants review and CI for PR #$PR_NUMBER at exact head $CURRENT_PR_HEAD. Offer 'Launch review' and 'Acknowledge without review' as neutral choices: do not recommend either choice, and self-verification never substitutes for required review. If the question is cancelled, ask it again until the user explicitly chooses; cancellation neither launches nor acknowledges. If the user chooses acknowledge, create the existing /tmp/review-bypass sentinel and end the turn; the Stop hook will revalidate and acknowledge this exact head. If the user chooses launch, continue with the review instructions below."
 else
-  DIRECTIVE="SDD $CONTEXT detected after $BOUNDARY_KIND. Execute NOW, and keep the user informed as described at the end of this directive. A successful push or PR creation is a delivery boundary: auto-launch review and CI and never ask the user for renewed consent."
+  DIRECTIVE="SDD $CONTEXT detected after $BOUNDARY_KIND. Execute NOW, and keep the user informed as described at the end of this directive. A successful push, PR creation, or acknowledged review-fix continuation is a delivery boundary: auto-launch review and CI and never ask the user for renewed consent."
 fi
 
 # Lane-aware composition. All review lanes are report-only and return findings to the

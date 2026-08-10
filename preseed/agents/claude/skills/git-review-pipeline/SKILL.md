@@ -19,7 +19,7 @@ Review fires on PRs that target `main`, `master`, or `develop`. PRs into any oth
 | No open protected-base PR, detached HEAD, nonstandard worktree, or remote head not synchronized locally | Nothing |
 | After a merge, switch to and synchronize the merge-target branch; its open protected-base PR now has a new exact local head | Required review lanes and independent CI |
 
-The cost model is per protected-base PR head: each authoritative head is reviewed once, independent of the Git or GitHub CLI syntax that exposed it. Successful `git push` and `gh pr create` delivery boundaries launch review and CI automatically; non-delivery Git/GitHub activity alone requires consent.
+The cost model is per protected-base PR head: each authoritative head is reviewed once, independent of the Git or GitHub CLI syntax that exposed it. Successful `git push` and `gh pr create` delivery boundaries launch review and CI automatically. If their directive is missed, a later candidate command auto-recovers a synchronized same-PR descendant of its acknowledged review head; unrelated non-delivery Git/GitHub activity requires a neutral consent choice, never an agent-recommended bypass.
 
 ## Recommended workflow
 

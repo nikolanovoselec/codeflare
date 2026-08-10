@@ -210,12 +210,17 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
     assert.match(status.stdout, /FIRST use AskUserQuestion/);
     assert.match(status.stdout, /Acknowledge without review/);
+    assert.match(status.stdout, /Do not recommend either choice/,
+      'the agent must present the user-only bypass neutrally');
+    assert.match(status.stdout, /self-verification never substitutes/i,
+      'the agent may not recommend bypass because it considers the diff already verified');
     assert.match(status.stdout, /If the question is cancelled, ask it again/);
     assert.match(status.stdout, /ci-monitoring skill exactly once/);
     assert.match(status.stdout, /Issue the lane calls in that same message\. Immediately after those calls, launch CI as the final launch\. Once CI is launched, END YOUR TURN\./);
 
     for (const command of [
       'git push origin HEAD',
+      'gh run list --branch review | xargs -r gh run cancel; echo stale-runs-handled; git push 2>&1 | tail -4',
       'gh pr create --base main --title review --body body',
     ]) {
       const cwd = makeFixture();
@@ -229,6 +234,20 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
         'scope correction must not create a duplicate reviewer wave');
       assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
     }
+  });
+
+  it('auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: reviewed base');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: review finding');
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.doesNotMatch(r.stdout, /FIRST use AskUserQuestion/);
+    assert.match(r.stdout, /review-fix continuation/i);
+    assert.match(r.stdout, /Execute NOW/);
+    assert.match(r.stdout, new RegExp(`--range ${ackSha}\\.\\.${headSha}`));
   });
 
   it('does not repeat the launch reminder for the same unacknowledged head', () => {
