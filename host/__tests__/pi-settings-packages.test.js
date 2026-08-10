@@ -63,7 +63,7 @@ const REQUIRED = [
   'npm:@juicesharp/rpiv-todo@2.2.0',
   'npm:pi-web-access@0.17.0',
   'npm:pi-mcp-adapter@2.16.0',
-  'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-goal@0.46.0',
 ];
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
