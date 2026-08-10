@@ -11,7 +11,7 @@
     "@narumitw/pi-goal": "0.43.0",
     "context-mode": "1.0.169",
     "pi-mcp-adapter": "2.16.0",
-    "pi-web-access": "0.17.0"
+    "pi-web-access": "0.18.0"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "0.83.0",
