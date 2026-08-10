@@ -142,7 +142,7 @@ The exclusion set — `Raw/Sessions/`, `Raw/Graphs/`, `graphify-out/`, `Library/
 
 A mismatch re-triggers a spurious extraction cycle on the extractor's own output (observed live 2026-07-02 for `Raw/Graphs/vault-graph.html`). It also excludes the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, but content-hash detection ignores an unchanged page regardless, and the by-name exclusion keeps even a genuinely-rewritten page from counting as a user edit ([REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) AC1).
 
-On the first session for a vault (no manifest yet), `init_user_vault()` baselines the manifest from current content before the daemon starts, so the restored/preseed vault is recorded as known and the first tick finds nothing. On every later boot the manifest is restored from R2 and never re-baselined, so genuine changes — including a prior session's unextracted files — are still detected. This replaces the old preseed-page marker-bump: content-hash detection already ignores an unchanged page, so no per-boot bump is needed.
+On the first durable initialization of a newly created vault, `init_user_vault()` baselines the manifest from current content before the daemon starts, then writes `graphify-out/vault-extract-initialized`; the first tick therefore finds nothing. An existing or restored vault without that marker is a migration, not a first initialization: init writes the marker but never baselines current content. If its manifest is absent, or later goes missing after initialization, all eligible files remain full-delta candidates. On ordinary later boots the manifest is restored from R2 and never re-baselined, so prior-session unextracted edits are still detected.
 
 `vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` instructing the main agent to dispatch the **vault-extract** named subagent (Task tool with `subagent_type="vault-extract"`). The subagent's frontmatter (`preseed/agents/claude/agents/vault-extract.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override.
 
@@ -468,7 +468,7 @@ The second click then opens synchronously inside the gesture, and on the reload-
 
 Visual confirmation that the preseed theme is wired correctly: the editor renders on a zinc-950 base (`#09090b`), wikilinks and modal selection use a blue-500 accent (`hsl(217, 91%, 60%)`), body type is Inter and code spans are JetBrains Mono. If the editor shows SilverBullet's default white/cream palette, `STYLES.md` is missing or targeting variables SB does not consume (the previous `--cf-*`-only regression).
 
-The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: on a first session `init_user_vault()` baselines the content-hash manifest from the current vault, and the manifest excludes the four preseed-managed pages by name, so even a genuinely-rewritten page is never treated as a user edit. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
+The vault-monitor daemon does not fire a spurious extraction when a newly created vault completes its first durable initialization: `init_user_vault()` baselines the content-hash manifest, then writes `vault-extract-initialized`. A preseed update alone also does not fire it because the four managed pages are excluded by name. Existing or restored vault migration is deliberately different: init records the durable marker without baselining, and a missing manifest remains full-delta eligible. The five-prompt, zero-hook expectation applies to a new untouched vault and to a returning vault whose manifest was restored, not to a vault whose durable high-water state is missing.
 
 ## Attachment Cost Caveat (REQ-VAULT-011 AC1)
 
@@ -480,8 +480,8 @@ Manual verification for runtime-specific PDF handling. Claude's content/vision/c
 
 1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, wait one 60s daemon tick, then confirm content-derived graph nodes.
 2. Claude AC3 - citation edge: add a sibling Markdown note that wikilinks the same PDF, tick again, and confirm the edge.
-3. Pi AC4 - submit a PDF beside a healthy text file and confirm the PDF produces only a metadata document node while the text file ingests.
-4. Failure isolation - drop a corrupt or password-protected PDF alongside a healthy changed file and confirm one unreadable PDF does not block the batch or manifest advancement.
+3. Pi AC4 - submit a PDF and confirm it produces only a metadata document node.
+4. AC5 failure isolation - drop a corrupt or password-protected PDF alongside a healthy changed file and confirm one unreadable PDF does not block the batch or manifest advancement.
 
 On Claude, the global graph should gain a `document` node plus concepts for visible titles, headings, and named entities; a sibling wikilink should receive a citation edge. On Pi, no visible PDF content or citation edge is inferred. A corrupt PDF emits only a bare document node while healthy sibling input still ingests.
 

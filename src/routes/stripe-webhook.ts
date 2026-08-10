@@ -10,7 +10,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { BILLING_STATUS } from '../types';
 import { ValidationError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -29,7 +28,7 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { getAdminEmails } from '../lib/access-policy';
 import { sendSubscriptionAdminNotification, sendSubscriptionEmail } from '../lib/email';
 import { getBaseUrl } from '../lib/kv-keys';
-import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode, withoutBillingState } from '../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import { resolveUserFromKV } from '../lib/access';
 
 const logger = createLogger('stripe-webhook');
@@ -282,7 +281,7 @@ async function handleSubscriptionUpdated(
 
 /**
  * customer.subscription.deleted - subscription canceled/expired.
- * Writes directly (can't fetch a deleted subscription from Stripe API).
+ * Applies the canceled/free reset through the per-user Timekeeper coordinator.
  */
 async function handleSubscriptionDeleted(
   event: { id: string; type: string; data: { object: Record<string, unknown> } },
@@ -301,16 +300,35 @@ async function handleSubscriptionDeleted(
   }
 
   // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access.
-  // Also reset subscribedMode to 'default' so code reading subscribedMode from KV
-  // doesn't see stale 'advanced' after the subscription is gone.
-  const currentUser = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  await env.KV.put(`user:${email}`, JSON.stringify({
-    ...withoutBillingState(currentUser ?? {}),
-    billingStatus: BILLING_STATUS.CANCELED,
-    subscriptionTier: 'free',
-    accessTier: 'free',
-    subscribedMode: 'default',
-  }));
+  // The same per-user token guard used by subscription updates ensures an older
+  // in-flight apply cannot restore billing fields after this cleanup.
+  const coordinator = await getBillingSyncCoordinator(email, env);
+  const { token } = await postBillingSync(
+    coordinator,
+    '/billing-sync/start',
+    { userEmail: email },
+    BillingSyncStartResponseSchema,
+  );
+  const deletion = await postBillingSync(
+    coordinator,
+    '/billing-sync/apply',
+    {
+      userEmail: email,
+      token,
+      patch: {
+        cleanupBillingState: true,
+        billingStatus: 'canceled',
+        subscriptionTier: 'free',
+        accessTier: 'free',
+        subscribedMode: 'default',
+      },
+    },
+    BillingSyncApplyResponseSchema,
+  );
+  if (!deletion.applied) {
+    logger.info('subscription.deleted: skipped stale deletion', { email, token });
+    return;
+  }
 
   // Auto-reconcile preseed to default mode - subscription actually terminated
   // (period ended after cancel, or immediate revocation). This does NOT fire

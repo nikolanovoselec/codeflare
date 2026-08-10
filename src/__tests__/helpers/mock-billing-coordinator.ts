@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import { withoutBillingState } from '../../lib/subscription';
 import { createMockKV } from './mock-kv';
 
 export function createMockBillingCoordinator(
@@ -35,7 +36,17 @@ export function createMockBillingCoordinator(
             }
             if (body.token !== token) return Response.json({ applied: false });
             const existing = await kv.get(`user:${body.userEmail}`, 'json') as Record<string, unknown> | null;
-            await kv.put(`user:${body.userEmail}`, JSON.stringify({ ...existing, ...body.patch }));
+            const patch = body.patch ?? {};
+            const updated = patch.cleanupBillingState === true
+              ? {
+                  ...withoutBillingState(existing ?? {}),
+                  billingStatus: patch.billingStatus,
+                  subscriptionTier: patch.subscriptionTier,
+                  accessTier: patch.accessTier,
+                  subscribedMode: patch.subscribedMode,
+                }
+              : { ...existing, ...patch };
+            await kv.put(`user:${body.userEmail}`, JSON.stringify(updated));
             return Response.json({
               applied: true,
               previous: {

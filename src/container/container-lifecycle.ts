@@ -322,20 +322,23 @@ export async function destroy(host: LifecycleHost): Promise<void> {
 
   // Dispatch the SDK's force-destroy even when earlier stages consumed the
   // entire budget. When time remains, bound the await to that same deadline;
-  // when it does not, observe the promise in the background so teardown never
-  // escapes or creates an unhandled rejection after the hard ceiling.
+  // when it does not, observe the promise in the background so a later provider
+  // rejection is handled, then reject the teardown as unconfirmed.
   const superDestroyPromise = host.superDestroy();
   const remaining = hardKillMs - (Date.now() - start);
   if (remaining <= 0) {
     void superDestroyPromise.catch((err) => {
       host.logger.warn('Forced destroy failed after teardown deadline', { error: toError(err).message });
     });
-    return;
+    const deadlineError = new Error('teardown deadline exceeded');
+    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { error: deadlineError.message });
+    throw deadlineError;
   }
   try {
     await withinDeadline(superDestroyPromise);
   } catch (err) {
-    host.logger.warn('Forced destroy exceeded teardown deadline', { error: toError(err).message });
+    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { error: toError(err).message });
+    throw err;
   }
 }
 

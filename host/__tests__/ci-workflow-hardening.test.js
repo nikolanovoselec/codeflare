@@ -282,26 +282,73 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
   });
 
   it('REQ-OPS-022 AC5/AC6: runs affected package coverage on pull requests with package-specific changed-line floors', () => {
-    for (const [jobName, changedArea, packageRoot, threshold] of [
-      ['coverage-backend', 'backend', '.', '80'],
-      ['coverage-frontend', 'webui', 'web-ui', '70'],
+    for (const [jobName, expectedIf, inputs] of [
+      ['coverage-backend', "needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true'", {
+        'working-directory': '.',
+        'key-prefix': 'root',
+        slug: 'backend',
+        'tolerate-pool-crash': 'true',
+        'changed-base': '${{ github.event.pull_request.base.sha }}',
+        'changed-line-threshold': '80',
+      }],
+      ['coverage-frontend', "needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true'", {
+        'working-directory': 'web-ui',
+        'key-prefix': 'webui',
+        slug: 'frontend',
+        'changed-base': '${{ github.event.pull_request.base.sha }}',
+        'changed-line-threshold': '70',
+      }],
     ]) {
       const job = prChecks.jobs[jobName];
-      assert.doesNotMatch(job.if, /event_name != 'pull_request'/);
-      assert.match(job.if, new RegExp(`needs\\.changes\\.outputs\\.${changedArea} == 'true'`));
-      const coverage = job.steps.find((candidate) => candidate.uses === './.github/actions/coverage-suite');
-      assert.equal(coverage.with['working-directory'], packageRoot);
-      assert.equal(coverage.with['changed-base'], '${{ github.event.pull_request.base.sha }}');
-      assert.equal(coverage.with['changed-line-threshold'], threshold);
+      assert.equal(job.if, expectedIf);
+      assert.deepEqual(
+        job.steps.filter((candidate) => candidate.uses === './.github/actions/coverage-suite'),
+        [{ uses: './.github/actions/coverage-suite', with: inputs }],
+      );
     }
 
-    const fetchBase = coverageAction.runs.steps.find((candidate) => candidate.name === 'Fetch changed-line base commit');
-    const runCoverage = coverageAction.runs.steps.find((candidate) => candidate.name === 'Run suite with coverage');
-    assert.equal(fetchBase.if, "inputs.changed-base != ''");
-    assert.match(fetchBase.run, /git fetch --no-tags --depth=1 origin "\$CHANGED_BASE"/);
-    assert.match(runCoverage.run, /coverage\/lcov\.info/);
-    assert.match(runCoverage.run, /check-coverage-result\.mjs/);
-    assert.match(runCoverage.run, /CHANGED_LINE_THRESHOLD/);
+    assert.deepEqual(coverageAction.runs.steps.slice(3, 5), [
+      {
+        name: 'Fetch changed-line base commit',
+        if: "inputs.changed-base != ''",
+        shell: 'bash',
+        env: { CHANGED_BASE: '${{ inputs.changed-base }}' },
+        run: `set -euo pipefail
+[[ "$CHANGED_BASE" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "::error::changed-base must be a full commit SHA"; exit 1; }
+git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \\
+  || git fetch --no-tags --depth=1 origin "$CHANGED_BASE"
+git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \\
+  || { echo "::error::unable to resolve the exact changed-base commit"; exit 1; }
+`,
+      },
+      {
+        name: 'Run suite with coverage',
+        shell: 'bash',
+        'working-directory': '${{ inputs.working-directory }}',
+        env: {
+          NO_COLOR: '1',
+          TOLERATE_POOL_CRASH: '${{ inputs.tolerate-pool-crash }}',
+          CHANGED_BASE: '${{ inputs.changed-base }}',
+          CHANGED_LINE_THRESHOLD: '${{ inputs.changed-line-threshold }}',
+          PACKAGE_ROOT: '${{ inputs.working-directory }}',
+        },
+        run: `set -o pipefail
+status=0
+npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
+
+args=(/tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH")
+if [ -n "$CHANGED_BASE" ]; then
+  args+=(
+    "$GITHUB_WORKSPACE/$PACKAGE_ROOT/coverage/lcov.info"
+    "$CHANGED_BASE"
+    "$PACKAGE_ROOT"
+    "$CHANGED_LINE_THRESHOLD"
+  )
+fi
+node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" "\${args[@]}"
+`,
+      },
+    ]);
   });
 });
 

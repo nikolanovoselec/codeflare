@@ -4,7 +4,7 @@
  * Tests the three webhook handlers:
  *   1. checkout.session.completed - maps email→customer, writes checkout fields, calls syncSubscriptionState
  *   2. customer.subscription.updated - delegates to syncSubscriptionState
- *   3. customer.subscription.deleted - writes canceled/free directly (CF-004)
+ *   3. customer.subscription.deleted - applies canceled/free through Timekeeper (CF-004)
  *
  * Also tests: syncSubscriptionState integration through webhook handlers.
  *
@@ -400,9 +400,55 @@ describe('handleSubscriptionUpdated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// customer.subscription.deleted - direct write (CF-004)
+// customer.subscription.deleted - ordered canceled/free apply (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
+  it('REQ-SUB-015 AC3: a deletion prevents an older in-flight update from restoring entitlements', async () => {
+    seedCustomer('cus_del_ordered', 'ordered-delete@example.com', {
+      subscriptionTier: 'advanced', accessTier: 'advanced', subscribedMode: 'advanced',
+      stripeSubscriptionId: 'sub_del_ordered', stripePriceId: 'price_advanced',
+    });
+
+    let resolveOlderUpdate!: (snapshot: ReturnType<typeof mockSubscriptionSnapshot>) => void;
+    let markOlderFetchStarted!: () => void;
+    const olderFetchStarted = new Promise<void>((resolve) => { markOlderFetchStarted = resolve; });
+    vi.mocked(fetchSubscription).mockImplementationOnce(() => {
+      markOlderFetchStarted();
+      return new Promise((resolve) => { resolveOlderUpdate = resolve; });
+    });
+
+    const app = createApp();
+    const olderUpdate = postWebhook(app, JSON.stringify({
+      id: 'evt_older_update',
+      type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_del_ordered', customer: 'cus_del_ordered' } },
+    }));
+    await olderFetchStarted;
+
+    const deletion = await postWebhook(app, JSON.stringify({
+      id: 'evt_newer_deletion',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: 'sub_del_ordered', customer: 'cus_del_ordered' } },
+    }));
+    expect(deletion.status).toBe(200);
+
+    resolveOlderUpdate(mockSubscriptionSnapshot({
+      subscriptionId: 'sub_del_ordered', customerId: 'cus_del_ordered',
+      tier: 'advanced', mode: 'advanced', status: 'active',
+    }));
+    expect((await olderUpdate).status).toBe(200);
+
+    const user = await mockKV.get('user:ordered-delete@example.com', 'json') as Record<string, unknown>;
+    expect(user).toEqual(expect.objectContaining({
+      billingStatus: 'canceled',
+      subscriptionTier: 'free',
+      accessTier: 'free',
+      subscribedMode: 'default',
+    }));
+    expect(user.stripeSubscriptionId).toBeUndefined();
+    expect(user.stripePriceId).toBeUndefined();
+  });
+
   it('resets tiers and removes stale provider fields on deletion', async () => {
     seedCustomer('cus_del_1', 'del@example.com', {
       subscriptionTier: 'advanced', accessTier: 'advanced',

@@ -1169,31 +1169,53 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((auditPut![1] as { outcome: string }).outcome).toBe('errored');
     });
 
-    it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
+    it('REQ-SESSION-006 AC2: rejects after logging when forced SDK destroy rejects', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const forcedError = new Error('provider force-destroy failed');
+      const superDestroySpy = vi.spyOn(instance, 'superDestroy').mockRejectedValue(forcedError);
+      const loggerWarn = (instance as any).logger.warn as ReturnType<typeof vi.fn>;
+
+      await expect(instance.destroy()).rejects.toBe(forcedError);
+
+      expect(superDestroySpy).toHaveBeenCalled();
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Forced destroy failed or exceeded teardown deadline',
+        { error: forcedError.message },
+      );
+    });
+
+    it('REQ-SESSION-011 AC5: rejects at the entry-to-exit deadline and observes a later forced-destroy rejection', async () => {
       vi.useFakeTimers();
       try {
-        mockStorage.get.mockImplementation(async (key: string) => {
-          if (key === 'bucketName') return 'test-bucket';
-          return null;
-        });
         mockContainerRuntime.running = true;
-
         const instance = new ContainerClass(mockCtx as any, mockEnv);
-
-        // SIGTERM is delivered but the container never exits
         const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+        const loggerWarn = (instance as any).logger.warn as ReturnType<typeof vi.fn>;
+        let rejectForcedDestroy!: (error: Error) => void;
+        const forcedDestroy = new Promise<void>((_, reject) => {
+          rejectForcedDestroy = reject;
+        });
+        const superDestroySpy = vi.spyOn(instance, 'superDestroy').mockReturnValue(forcedDestroy);
 
         const destroyPromise = instance.destroy();
-        // Advance just past the 135s timeout so the polling loop exits via
-        // the wall-clock branch, not the running=false branch. 135s pairs
-        // with the entrypoint.sh shutdown bisync 120s budget plus a 15s
-        // clean-exit buffer. See AD57.
+        const deadlineRejection = expect(destroyPromise).rejects.toThrow('teardown deadline exceeded');
         await vi.advanceTimersByTimeAsync(136_000);
-        await destroyPromise;
+        await deadlineRejection;
 
         expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-        // Container is still "running" — polling timed out, super.destroy() ran anyway
         expect(mockContainerRuntime.running).toBe(true);
+        expect(superDestroySpy).toHaveBeenCalled();
+        expect(loggerWarn).toHaveBeenCalledWith(
+          'Forced destroy failed or exceeded teardown deadline',
+          { error: 'teardown deadline exceeded' },
+        );
+
+        rejectForcedDestroy(new Error('late provider rejection'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(loggerWarn).toHaveBeenCalledWith(
+          'Forced destroy failed after teardown deadline',
+          { error: 'late provider rejection' },
+        );
       } finally {
         vi.useRealTimers();
       }

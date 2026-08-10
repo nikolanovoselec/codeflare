@@ -13,7 +13,13 @@ import { z } from 'zod';
 import type { Env, UsageRecord } from '../types';
 import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
-import { getUserTier, getTierConfig, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
+import {
+  getUserTier,
+  getTierConfig,
+  getEffectiveTier,
+  isEnterpriseMode,
+  withoutBillingState,
+} from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
@@ -69,19 +75,28 @@ const BillingSyncStartBodySchema = z.object({
   userEmail: z.string().email(),
 }).strict();
 
-const BillingSyncPatchSchema = z.object({
-  stripeSubscriptionId: z.string().min(1),
-  stripeCustomerId: z.string().min(1),
-  billingStatus: z.string().min(1),
-  cancelAtPeriodEnd: z.boolean(),
-  lastSyncedAt: z.string().datetime(),
-  subscriptionTier: z.string().min(1).optional(),
-  accessTier: z.string().min(1).optional(),
-  subscribedMode: z.enum(['default', 'advanced']).optional(),
-  stripePriceId: z.string().min(1).optional(),
-  billingPeriodEnd: z.string().datetime().optional(),
-  trialUsed: z.literal(true).optional(),
-}).strict();
+const BillingSyncPatchSchema = z.union([
+  z.object({
+    stripeSubscriptionId: z.string().min(1),
+    stripeCustomerId: z.string().min(1),
+    billingStatus: z.string().min(1),
+    cancelAtPeriodEnd: z.boolean(),
+    lastSyncedAt: z.string().datetime(),
+    subscriptionTier: z.string().min(1).optional(),
+    accessTier: z.string().min(1).optional(),
+    subscribedMode: z.enum(['default', 'advanced']).optional(),
+    stripePriceId: z.string().min(1).optional(),
+    billingPeriodEnd: z.string().datetime().optional(),
+    trialUsed: z.literal(true).optional(),
+  }).strict(),
+  z.object({
+    cleanupBillingState: z.literal(true),
+    billingStatus: z.literal(BILLING_STATUS.CANCELED),
+    subscriptionTier: z.literal('free'),
+    accessTier: z.literal('free'),
+    subscribedMode: z.literal('default'),
+  }).strict(),
+]);
 
 const BillingSyncApplyBodySchema = z.object({
   userEmail: z.string().email(),
@@ -270,7 +285,16 @@ export class Timekeeper {
       }
 
       const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json'));
-      await this.env.KV.put(`user:${userEmail}`, JSON.stringify({ ...existing, ...patch }));
+      const updated = 'cleanupBillingState' in patch
+        ? {
+            ...withoutBillingState(existing ?? {}),
+            billingStatus: patch.billingStatus,
+            subscriptionTier: patch.subscriptionTier,
+            accessTier: patch.accessTier,
+            subscribedMode: patch.subscribedMode,
+          }
+        : { ...existing, ...patch };
+      await this.env.KV.put(`user:${userEmail}`, JSON.stringify(updated));
       response = Response.json({
         applied: true,
         previous: {
