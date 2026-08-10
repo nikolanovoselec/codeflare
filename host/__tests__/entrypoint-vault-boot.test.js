@@ -437,7 +437,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
     }
   });
 
-  it('baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4)', () => {
+  it('baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)', () => {
     const root = mkTmp('vault-manifest-init-');
     const userHome = join(root, 'home');
     const preseedDir = join(root, 'preseed');

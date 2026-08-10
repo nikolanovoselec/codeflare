@@ -122,6 +122,7 @@ function ensureDirs(paths: MemoryVaultPaths): void {
   mkdirSync(paths.cacheDir, { recursive: true });
   mkdirSync(paths.memoryCounterDir, { recursive: true });
   mkdirSync(join(paths.vaultRoot, "Raw", "Sessions"), { recursive: true });
+  mkdirSync(join(paths.vaultRoot, "Notes"), { recursive: true });
   mkdirSync(join(paths.vaultRoot, "graphify-out"), { recursive: true });
 }
 
