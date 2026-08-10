@@ -63,7 +63,11 @@ describe('PR lane selection', () => {
   it('REQ-OPS-003 AC8: runs landing verification when the shared design-ready gate changes', () => {
     const filterStep = prChecks.jobs.changes.steps.find((candidate) => candidate.id === 'filter');
     const filters = parseYaml(filterStep.with.filters);
-    assert.ok(filters.landing.flat(Infinity).includes('src/lib/design-ready.ts'));
+    const source = 'src/lib/design-ready.ts';
+    const matchesSource = (pattern) => pattern === source
+      || (pattern.endsWith('/**') && source.startsWith(pattern.slice(0, -2)));
+    assert.ok(filters.backend.flat(Infinity).some(matchesSource));
+    assert.ok(filters.landing.flat(Infinity).some(matchesSource));
   });
 });
 
