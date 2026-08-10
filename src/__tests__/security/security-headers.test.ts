@@ -13,8 +13,13 @@
  *   REQ-SEC-008 AC6  — Permissions-Policy is set
  *   REQ-SEC-008 AC7  — X-Powered-By is absent
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import {
+  DESIGN_READY_CSP_HASH,
+  DESIGN_READY_SCRIPT,
+} from '../../../landing/src/lib/design-ready';
 
 // Mock all heavy route modules so import of index.ts is fast and side-effect-free
 vi.mock('../../routes/terminal', () => ({
@@ -74,11 +79,14 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     expect(hsts).toContain('includeSubDomains');
   });
 
-  it('REQ-SEC-008 AC2: Content-Security-Policy is set', async () => {
+  it('REQ-SEC-008 AC2/REQ-LANDING-004 AC4: CSP permits only the integrity-pinned design-ready inline script', async () => {
     const res = await fetchHealth();
     const csp = res.headers.get('Content-Security-Policy');
+    const digest = createHash('sha256').update(DESIGN_READY_SCRIPT).digest('base64');
+    expect(DESIGN_READY_CSP_HASH).toBe(`sha256-${digest}`);
     expect(csp).not.toBeNull();
-    expect(csp!.length).toBeGreaterThan(0);
+    expect(csp).toContain(`'${DESIGN_READY_CSP_HASH}'`);
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
   it('REQ-SEC-008 AC3: X-Content-Type-Options is "nosniff"', async () => {

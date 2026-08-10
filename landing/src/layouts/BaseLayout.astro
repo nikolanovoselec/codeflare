@@ -5,6 +5,7 @@
 import '../styles/global.css';
 import interLatinFont from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
 import jetbrainsMonoLatinFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import { DESIGN_READY_SCRIPT } from '../lib/design-ready';
 
 interface Props {
   title?: string;
@@ -84,7 +85,8 @@ const structuredData = {
         expose a light navigation canvas between documents), and painting body
         too closes the gap before global.css sets body's background. */}
     <meta name="color-scheme" content="dark" />
-    <style is:inline>html{color-scheme:dark only;background-color:#0a0a0c}body{background-color:#0a0a0c}</style>
+    <style is:inline>html{color-scheme:dark only;background-color:#0a0a0c}body{background-color:#0a0a0c}html.design-loading body{visibility:hidden}</style>
+    <script is:inline data-design-ready set:html={DESIGN_READY_SCRIPT} />
     <title>{title}</title>
     <meta name="description" content={description} />
     {robots && <meta name="robots" content={robots} />}

@@ -567,6 +567,7 @@ None.
 2. The landing-built `/login` page uses the shared landing design tokens, preloaded fonts, and login nav chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
 3. The landing-built `/login` page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
 4. In SaaS mode, `/login` is unchanged and continues to serve the SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+5. The landing-built login remains on the dark canvas until its shared stylesheet and critical fonts are ready. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) -->
 
 **Constraints:**
 
@@ -574,7 +575,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving)
+**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
 **Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [wrangler control-plane test](../../host/__tests__/wrangler-run-worker-first.test.js))
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
+import { DESIGN_READY_CSP_HASH } from '../landing/src/lib/design-ready';
 import type { Env } from './types';
 import userRoutes from './routes/user-profile';
 import containerRoutes from './routes/container/index';
@@ -514,7 +515,7 @@ export default {
     // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
     // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
   }
