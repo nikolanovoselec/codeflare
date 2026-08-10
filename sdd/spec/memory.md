@@ -49,7 +49,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - The hook runs in approximately 150ms.
 - Memory capture requires advanced mode; only that mode receives the hook, plugin, and rule.
-- Claude uses Sonnet with medium reasoning per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad). Pi retains its provider-neutral model lever and medium reasoning per [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
+- Claude uses Sonnet with medium reasoning per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
+- Pi uses its provider-neutral model lever with medium reasoning per [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 - Capture agents produce graph output directly; the headless extraction CLI is not invoked.
 - Claude keeps its scratchpad and retry carrier until cumulative merge and global publication succeed.
 - Pi requires an exact successful call plus post-commit note and graph-chunk artifacts before advancing its root-owned counter.
@@ -239,7 +240,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path rather than editing `graph.json` in place.
+- Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path.
 - Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 - Missing or unreadable graph files retain the established fresh-graph recovery path.
 - No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
@@ -323,8 +324,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - common path / REQ-MEM-012 AC1) -->
 2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking. <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - input gating / REQ-MEM-012 AC2) --> <!-- @manual -->
-3. When capture is deferred, the hook blocks parent and unrelated-child tools before and after spawn. PreToolUse records the parent atomically; matching PostToolUse binds the assigned child ID. Only that exact child may claim and use tools. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::AUTH_FILE --> <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - child-correlated authorization / REQ-MEM-012 AC3+AC4) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
-4. One memory-capture invocation may atomically create the authorization. Replay, concurrent spawn, timeout, missing child identity, and a different or unrelated capture child fail closed; correlation identifiers remain in the ephemeral session directory and are never emitted. The block clears when successful publication removes the carrier. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::AUTH_TTL_SEC --> <!-- @test: host/__tests__/memory-capture-block.test.js (allows only one of two concurrent harness spawn identities) -->
+3. Deferred capture authorizes only the exact correlated capture child, atomically binding its assigned identity while blocking parent and unrelated-child tools before and after spawn. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::AUTH_FILE --> <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - child-correlated authorization / REQ-MEM-012 AC3+AC4) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
+4. Authorization is single-use, ephemeral, fail-closed for replay, concurrency, timeout, and missing or mismatched child identity, and clears only after successful publication. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::AUTH_TTL_SEC --> <!-- @test: host/__tests__/memory-capture-block.test.js (allows only one of two concurrent harness spawn identities) -->
 
 **Constraints:**
 

@@ -203,7 +203,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- Pi context is capped at 1 MiB and treats editor content as untrusted data rather than instructions.
+- Pi context is capped at 1 MiB and treats editor content as untrusted data.
 - Anthropic's IDE MCP is limited to `127.0.0.1`, a random port, and a fresh token in the isolated mode-0700 config directory, with no Codeflare-owned relay or public listener (owner-approved exception in [AD114](../../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)).
 - Pi, official Claude, and terminal tab 1 remain separate conversations and processes.
 

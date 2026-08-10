@@ -467,7 +467,7 @@ Multi-agent support, preseed system, and session modes.
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
 4. The UI defaults to the agent type used in the user's most recent session. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
-5. When `agentType` is omitted and Claude Code is installed, a sparse record with no `agentType` means Claude Code to existing consumers. When Claude Code is unavailable, creation records the first selectable coding agent or Bash. Enterprise policy remains governed by [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC3. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC5: session created without agentType has no agentType field in response) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent) -->
+5. When `agentType` is omitted, creation leaves a sparse record for installed Claude Code and otherwise records the first selectable coding agent or Bash. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC5: session created without agentType has no agentType field in response) --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC5: an omitted agentType falls back to the first installed coding agent) -->
 6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (Agent type selection) -->
 7. Session creation rejects a valid agent type whose shared launcher is omitted from the deployment image. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (REQ-AGENT-002 AC7: omitted agentType '%s' is rejected) -->
 
@@ -475,6 +475,7 @@ Multi-agent support, preseed system, and session modes.
 
 - Agent type is immutable after session creation (a new session is required to switch agents).
 - The `bash` agent type provides a plain terminal without an AI agent.
+- Enterprise session selection follows [REQ-ENTERPRISE-003](enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode).
 
 **Priority:** P0
 
@@ -2977,7 +2978,7 @@ None.
 
 - One resolver serves every runtime, under one bound; a transport may not change what it can deliver.
 - Resolution answers whether a name still names something, never which file it named.
-- Outside `package.json`, dependency manifests are tokenised rather than parsed by grammar; a manifest setting resolving alongside a real package is the accepted cost (rationale: `sdd/spec/changes.md`, 2026-07-27).
+- Outside `package.json`, dependency manifests are tokenised; a manifest setting may resolve alongside a real package (rationale: `sdd/spec/changes.md`, 2026-07-27).
 - The resolver is seeded into every repository `/sdd` bootstraps, so nothing in it may assume the language the repository is written in or the package manager it uses; a stack it does not recognise indexes no declarations and reports a consistent tree as entirely stale.
 
 **Priority:** P1
@@ -3332,7 +3333,7 @@ None.
 
 **Constraints:**
 
-- Both the packet and the triage block inlined into a lane's prompt are byte-capped; an oversized block degrades to a normal review rather than a skipped one.
+- The packet and inlined triage block are byte-capped; over-cap blocks degrade to normal review.
 - Triage answers the SDD questions only; documentation scaffolding is not among them and the doc lane still checks its own index.
 - Lane ownership stays with the shell classifier and is passed in, never reimplemented in triage.
 - The no-op decision is read as a field; matching it anywhere in the serialised document would drop a required review.

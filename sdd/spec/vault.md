@@ -360,7 +360,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- Claude's page cap is a Read-tool limit; longer PDFs are partially ingested rather than rejected.
+- Claude partially ingests PDFs beyond the Read-tool page cap.
 - Pi does not gain a prompt-only PDF reader, content-derived PDF concepts, shader-like internal test, or cross-runtime parity claim.
 
 **Priority:** P1
@@ -472,7 +472,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - The library-manager mirror is the editor's own runtime-managed clone tree; the user does not curate it directly; The editor's internal config directory is dot-prefixed and hidden by the editor's default behavior; it requires no explicit rule.
-- The cleanup/sweep helpers operate exclusively on localStorage markers and never call the browser's databases-listing API or `deleteDatabase`; After the [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) reconciliation they do not touch IndexedDB at all, which makes the historical "live session's IDB nuked on every dashboard mount" regression structurally impossible.
+- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) reconciliation they do not touch IndexedDB.
 
 **Priority:** P0
 
@@ -560,7 +560,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- The grafts are string transforms over the served output only; `VAULT_NATIVE_SW_VERBATIM` and its SHA-256 drift guard are unchanged, and a SilverBullet version bump that moves a graft anchor throws rather than silently shipping a regressed worker.
+- `VAULT_NATIVE_SW_VERBATIM` and its SHA-256 drift guard remain unchanged; a SilverBullet version bump with moved graft anchors fails closed.
 
 **Priority:** P0
 

@@ -318,7 +318,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Constraints:**
 
-- Screen readers consume the complete semantic sessions rather than character-by-character visual updates.
+- Screen readers consume the complete semantic sessions.
 - Reduced-motion visitors retain both complete Hero-scale terminal viewports.
 
 **Priority:** P1

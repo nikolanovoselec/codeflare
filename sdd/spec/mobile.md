@@ -187,7 +187,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Constraints:**
 
-- Normal scrollback scrolls xterm's buffer service directly rather than the public viewport-relative scroll API ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
+- Normal scrollback uses xterm's buffer service directly ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
 - Alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
 
 **Priority:** P1

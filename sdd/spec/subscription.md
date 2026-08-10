@@ -456,7 +456,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Sync ordering uses per-user monotonic tokens rather than wall-clock timestamps, including for starts in the same millisecond.
+- Sync ordering uses per-user monotonic tokens, including for starts in the same millisecond.
 - Auto-reconcile failure is non-fatal: a reconciliation error does not block the webhook from acknowledging.
 - Cancellation scheduled for the end of the billing period does not trigger reconciliation; only the actual termination event does, so users retain Pro configs through the end of their paid period.
 
@@ -509,7 +509,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The subscribe page shows a contact-style call-to-action for the Custom tier in place of a checkout button. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC1: selecting the Custom tier renders a contact CTA, not a checkout button) -->
-2. Activating the call-to-action sends an inquiry through the dedicated contact-team endpoint, which returns success only after the admin notification provider accepts delivery. <!-- @impl: src/routes/auth.ts --> <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC2: returns { success: true } and calls sendAccessRequestNotification) -->
+2. Activating the call-to-action sends an inquiry through the dedicated contact-team endpoint, which returns success only after the admin notification provider accepts delivery. <!-- @impl: src/routes/auth.ts::app --> <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC2: returns { success: true } and calls sendAccessRequestNotification) -->
 3. The frontend awaits the endpoint response and switches to a disabled confirmation state only on success; non-2xx or network failure retains an actionable retry state. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3: confirms and disables only after successful delivery) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3/AC5: non-2xx delivery keeps an actionable retry state) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3/AC5: network failure keeps the inquiry retryable) -->
 4. The endpoint is rate-limited to one inquiry per hour per user. <!-- @impl: src/routes/auth.ts::contactTeamRateLimiter --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC4: returns 429 on second request within rate-limit window) -->
 5. Provider rejection, missing provider configuration, or provider failure returns a retryable non-2xx response and never reports inquiry success. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC5: returns retryable failure when notification is rejected) --> <!-- @test: src/__tests__/routes/contact-team.test.ts (REQ-SUB-017 AC5: returns retryable failure when notification throws) -->

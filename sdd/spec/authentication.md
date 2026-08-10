@@ -453,7 +453,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Outside enterprise mode, clicking avatar/username opens the account dropdown. SaaS shows Subscription, Usage, Guided Setup, and Logout; onboarding/default shows Guided Setup and Logout. Enterprise keeps the identity visible but the dropdown trigger is inert. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows Guided Setup and Logout outside enterprise mode) -->
+1. The visible account identity opens a dropdown with Subscription, Usage, Guided Setup, and Logout in SaaS, Guided Setup and Logout in onboarding/default, and an inert trigger in enterprise. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows Guided Setup and Logout outside enterprise mode) -->
 2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 

@@ -105,7 +105,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-8. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-003 AC8: runs landing verification when the shared design-ready gate changes) -->
 
 **Constraints:**
 
@@ -165,8 +164,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Containers stop after a configurable idle period of no user input (default 30 minutes, settable range 15 minutes to 4 hours; a legacy `5m` value is still accepted for a pre-existing stored preference but is no longer offered in the picker). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
-2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. Local disk is ephemeral and restart restores from R2. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-3. Using dated `2026-08-09` assumptions—one account, one 160-hour active session, 1 vCPU, 3 GiB memory, 6 GB disk, and 20% average CPU—the estimate is `$11.14`. The shared account-level `$5` Workers minimum and Container inclusions make this neither per-user nor complete platform cost. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
+2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+3. Local disk is ephemeral and restart restores durable files from R2. <!-- @manual -->
+4. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @manual -->
+5. Using dated `2026-08-09` assumptions—one account, one 160-hour active session, 1 vCPU, 3 GiB memory, 6 GB disk, and 20% average CPU—the estimate is `$11.14`. The shared account-level `$5` Workers minimum and Container inclusions make this neither per-user nor complete platform cost. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
 
 **Constraints:**
 
@@ -667,7 +668,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 
 - The zizmor audit runs offline; its online known-vulnerable-actions audit fails fatally on advisory-API outages.
-- Findings that are correct as written carry an inline suppression stating the reason, so they stop masking new findings; the auditor's own version is pinned rather than tracking latest.
+- Correct findings carry reasoned inline suppressions, and the auditor version is pinned.
 - actionlint runs with its shellcheck integration enabled at `--severity=error` (syntax/error class only) to catch unparseable workflow `run:` scripts; its pyflakes integration stays disabled — deeper script hygiene is zizmor's concern.
 - The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
@@ -694,13 +695,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: runs affected coverage lanes on pull requests) -->
-6. On pull requests, affected packages check changed LCOV production lines against sub-100% floors. Renames use destination paths; deletions and test-only changes need no evidence. Missing or malformed reports and unreported changed production files fail closed. Diff and LCOV processing are bounded. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
+6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
 
 **Constraints:**
 
 - The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
 - `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
+- Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
 
 **Priority:** P1
 
@@ -1175,6 +1177,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `31314628668` completed the affected gate in 90 seconds and the workflow in 91 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
 2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
 3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
+4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-003 AC8: runs landing verification when the shared design-ready gate changes) -->
 
 **Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 

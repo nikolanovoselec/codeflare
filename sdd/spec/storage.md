@@ -72,7 +72,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - R2 is the durable store; the local filesystem is ephemeral.
 - Persistence depends on at least one successful sync completing before container shutdown.
-- R2 carries object content and modification time but not POSIX modes, so an attribute the store cannot round-trip is re-established locally after every sync rather than assumed to have survived it.
+- R2 round-trips content and modification time only; each sync re-establishes local executable modes.
 
 **Priority:** P0
 
@@ -560,7 +560,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
 - A key the seed once shipped is never appended to the by-name list; the marker identifies it instead.
 - The list grows only for a product-generated file that was never a seeded key at all.
-- Deletion always requires positive evidence — a marker, or membership of the by-name list, whose entries are each shown to be product-generated rather than user-authored before being added — and anything unproven is kept.
+- Deletion requires a provenance marker or by-name membership that positively identifies product-generated content; all unproven content is kept.
 - The preseed content hash covers the by-name list, so shipping the list triggers the upgrade that applies it.
 - The generator refuses to emit a by-name list naming a key the current build still seeds.
 - Paths the agent runtime writes and owns are excluded from the sweep before the candidate cap is counted.
