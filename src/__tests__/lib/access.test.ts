@@ -246,6 +246,20 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       });
     });
 
+    it('REQ-AUTH-006 AC3: keeps the legacy bucket for a pre-existing colliding identity when the requester resolves first', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const requesterBucket = await resolveBucketName(makeEnv(), 'a+b@example.com');
+      const existingBucket = await resolveBucketName(makeEnv(), 'ab@example.com');
+
+      expect(requesterBucket).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
+      expect(existingBucket).toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
+        email: 'ab@example.com',
+        version: 1,
+      });
+    });
+
     it('serializes concurrent claims so colliding identities never share the legacy bucket', async () => {
       mockKV._set('user:ab@example.com', { role: 'user' });
 
@@ -651,13 +665,15 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       mockSendWelcomeEmail.mockResolvedValue(true);
     });
 
-    it('routes a JIT user welcome through that user bucket\'s existing Timekeeper', async () => {
-      const requests: Promise<Response>[] = [];
+    it('REQ-AUTH-012 AC1: awaits the existing Timekeeper delivery claim before JIT provisioning resolves', async () => {
+      let releaseClaim!: (response: Response) => void;
+      let markClaimStarted!: () => void;
+      const claimStarted = new Promise<void>((resolve) => { markClaimStarted = resolve; });
+      const deliveryClaim = new Promise<Response>((resolve) => { releaseClaim = resolve; });
       const timekeeperStub = {
-        fetch: vi.fn((request: Request) => {
-          const response = Promise.resolve(new Response(null, { status: 202 }));
-          requests.push(response);
-          return response;
+        fetch: vi.fn((_request: Request) => {
+          markClaimStarted();
+          return deliveryClaim;
         }),
       };
       const timekeeperNamespace = {
@@ -670,19 +686,53 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
         TIMEKEEPER: timekeeperNamespace,
       } as unknown as Env;
 
-      await resolveOrProvisionUser(
+      let provisioningResolved = false;
+      const provisioning = resolveOrProvisionUser(
+        mockKV as unknown as KVNamespace,
+        'new@example.com',
+        env,
+        'codeflare-new-example-com',
+      ).then((result) => {
+        provisioningResolved = true;
+        return result;
+      });
+      await claimStarted;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(provisioningResolved).toBe(false);
+      releaseClaim(new Response(null, { status: 202 }));
+      await provisioning;
+
+      expect(timekeeperNamespace.idFromName).toHaveBeenCalledWith('codeflare-new-example-com');
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      const body = await timekeeperStub.fetch.mock.calls[0][0].json();
+      expect(body).toEqual({ userEmail: 'new@example.com' });
+      expect(mockKV._store.has('welcome-sent:new@example.com')).toBe(false);
+    });
+
+    it('REQ-AUTH-012 AC2: logs a resolved Timekeeper 503 without failing JIT provisioning', async () => {
+      const timekeeperStub = {
+        fetch: vi.fn(async () => new Response(null, { status: 503 })),
+      };
+      const env = {
+        SAAS_MODE: 'active',
+        KV: mockKV,
+        TIMEKEEPER: {
+          idFromName: vi.fn((name: string) => name),
+          get: vi.fn(() => timekeeperStub),
+        },
+      } as unknown as Env;
+
+      const result = await resolveOrProvisionUser(
         mockKV as unknown as KVNamespace,
         'new@example.com',
         env,
         'codeflare-new-example-com',
       );
-      await Promise.all(requests);
 
-      expect(timekeeperNamespace.idFromName).toHaveBeenCalledWith('codeflare-new-example-com');
-      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
-      const body = await (timekeeperStub.fetch.mock.calls[0][0] as Request).json();
-      expect(body).toEqual({ userEmail: 'new@example.com' });
-      expect(mockKV._store.has('welcome-sent:new@example.com')).toBe(false);
+      expect(result).toMatchObject({ role: 'user', accessTier: 'pending', subscriptionTier: 'pending' });
+      expect(mockKV._store.has('user:new@example.com')).toBe(true);
+      expect(mockLoggerWarn).toHaveBeenCalledWith('Welcome email claim failed', { status: 503 });
     });
 
     it('serializes concurrent claims and never sends again after provider acceptance', async () => {
@@ -715,7 +765,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
     });
 
     it('forwards the deterministic idempotency key to the email provider', async () => {
-      const providerFetch = vi.fn(async () => new Response(null, { status: 202 }));
+      const providerFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 202 }));
       vi.stubGlobal('fetch', providerFetch);
 
       try {
@@ -730,8 +780,8 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
         vi.unstubAllGlobals();
       }
 
-      const request = providerFetch.mock.calls[0][1] as RequestInit;
-      expect(request.headers).toMatchObject({
+      const request = providerFetch.mock.calls[0]?.[1];
+      expect(request?.headers).toMatchObject({
         'Idempotency-Key': `codeflare-welcome-v1-${'a'.repeat(64)}`,
       });
     });

@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockBillingCoordinator } from '../helpers/mock-billing-coordinator';
 import { resetTierConfigCache } from '../../lib/subscription';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
@@ -65,9 +66,11 @@ let mockKV: ReturnType<typeof createMockKV>;
 
 function createApp(envOverrides: Partial<Env> = {}) {
   const app = new Hono<{ Bindings: Env }>();
+  const mockTimekeeper = createMockBillingCoordinator(mockKV);
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      TIMEKEEPER: mockTimekeeper,
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
       ...envOverrides,

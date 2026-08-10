@@ -67,7 +67,7 @@ function createBillingCoordinator(kv: ReturnType<typeof createMockKV>): DurableO
         onApplyGuardReached?.();
         await applyAfterGuardDelay;
         const existing = await kv.get(`user:${body.userEmail}`, 'json') as Record<string, unknown> | null;
-        await kv.put(`user:${body.userEmail}`, JSON.stringify({ ...(existing ?? {}), ...body.patch }));
+        await kv.put(`user:${body.userEmail}`, JSON.stringify({ ...existing, ...body.patch }));
         return Response.json({
           applied: true,
           previous: {

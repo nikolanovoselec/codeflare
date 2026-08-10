@@ -235,7 +235,7 @@ describe('Claude-equivalent review boundary helpers', () => {
     const nested = tempRoot('pi-review-transition-nested-');
     write(nested, 'sdd/README.md', '# fixture\n');
     write(nested, 'sdd/spec/config.yml', 'transition: true\n');
-    write(nested, 'sdd/spec/.review-queue.md', '## TRIAGE-002\n**Status:** open\n');
+    write(nested, 'sdd/spec/.init-triage.md', '## TRIAGE-002\n**Status:** open\n');
 
     expect(isReviewTransitionSuspended(root)).toBe(true);
     expect(isReviewTransitionSuspended(nested)).toBe(true);

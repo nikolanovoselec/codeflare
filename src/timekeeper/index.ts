@@ -269,14 +269,14 @@ export class Timekeeper {
         return;
       }
 
-      const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json')) ?? {};
-      await this.env.KV.put(`user:${userEmail}`, JSON.stringify({ ...existing, ...patch }));
+      const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json'));
+      await this.env.KV.put(`user:${userEmail}`, JSON.stringify({ ...(existing ?? {}), ...patch }));
       response = Response.json({
         applied: true,
         previous: {
-          ...(existing.subscribedMode ? { subscribedMode: existing.subscribedMode } : {}),
-          ...(existing.subscriptionTier ? { subscriptionTier: existing.subscriptionTier } : {}),
-          ...(existing.accessTier ? { accessTier: existing.accessTier } : {}),
+          ...(existing?.subscribedMode ? { subscribedMode: existing.subscribedMode } : {}),
+          ...(existing?.subscriptionTier ? { subscriptionTier: existing.subscriptionTier } : {}),
+          ...(existing?.accessTier ? { accessTier: existing.accessTier } : {}),
         },
       });
     });

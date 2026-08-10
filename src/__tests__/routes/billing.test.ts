@@ -5,6 +5,7 @@ import type { Env, AccessUser } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockBillingCoordinator } from '../helpers/mock-billing-coordinator';
 import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
 // ---------------------------------------------------------------------------
@@ -60,11 +61,13 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return t;
   });
   mockKV._set('tiers:config', tiersWithPrices);
+  const mockTimekeeper = createMockBillingCoordinator(mockKV);
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      TIMEKEEPER: mockTimekeeper,
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
       ...envOverrides,
@@ -287,6 +290,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
 
 describe('DEEP-22-004: enterprise billing guards precede action limiters', () => {
   it('keeps checkout, portal, and switch at 403 beyond their SaaS limiter budgets', async () => {
+    vi.clearAllMocks();
     const { app } = createApp({ ENTERPRISE_MODE: 'active' });
     for (const path of ['/billing/checkout', '/billing/portal', '/billing/switch']) {
       for (let attempt = 0; attempt < 6; attempt++) {

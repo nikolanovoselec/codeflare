@@ -1,0 +1,41 @@
+import { vi } from 'vitest';
+import { createMockKV } from './mock-kv';
+
+export function createMockBillingCoordinator(
+  kv: ReturnType<typeof createMockKV>,
+): DurableObjectNamespace {
+  let token = 0;
+  let lock = Promise.resolve();
+  const stub = {
+    fetch(request: Request): Promise<Response> {
+      const run = lock.then(async () => {
+        const body = await request.json() as {
+          userEmail: string;
+          token?: number;
+          patch?: Record<string, unknown>;
+        };
+        if (new URL(request.url).pathname === '/billing-sync/start') {
+          token += 1;
+          return Response.json({ token });
+        }
+        if (body.token !== token) return Response.json({ applied: false });
+        const existing = await kv.get(`user:${body.userEmail}`, 'json') as Record<string, unknown> | null;
+        await kv.put(`user:${body.userEmail}`, JSON.stringify({ ...existing, ...body.patch }));
+        return Response.json({
+          applied: true,
+          previous: {
+            ...((existing?.subscribedMode) ? { subscribedMode: existing.subscribedMode } : {}),
+            ...((existing?.subscriptionTier) ? { subscriptionTier: existing.subscriptionTier } : {}),
+            ...((existing?.accessTier) ? { accessTier: existing.accessTier } : {}),
+          },
+        });
+      });
+      lock = run.then(() => undefined, () => undefined);
+      return run;
+    },
+  };
+  return {
+    idFromName: vi.fn((name: string) => name),
+    get: vi.fn(() => stub),
+  } as unknown as DurableObjectNamespace;
+}

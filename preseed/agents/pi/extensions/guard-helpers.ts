@@ -75,7 +75,7 @@ function withoutHeredocBodies(command: string): string {
 }
 
 const COMMAND_PREFIXES = new Set(["command", "builtin", "exec", "sudo", "time", "env"]);
-const CONTROL_WORDS = new Set(["if", "then", "elif", "else", "while", "until", "do", "!", "{"]);
+const CONTROL_WORDS = new Set(["if", "then", "elif", "else", "fi", "while", "until", "do", "!", "{"]);
 
 /**
  * Returns argv for syntactically executable shell commands. Quoted arguments and

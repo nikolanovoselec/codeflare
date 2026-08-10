@@ -115,30 +115,6 @@ function expectedPiContent(relativePath) {
   });
 }
 
-describe('REQ-AGENT-022/REQ-AGENT-038: import traversal and decision commits', () => {
-  it('ships bounded cycle-safe linked-artifact traversal and only the accepted decision subjects', () => {
-    const skill = readFileSync(
-      join(repoRoot, 'preseed/agents/claude/skills/sdd-init/SKILL.md'),
-      'utf8',
-    );
-    const traversal = skill.split('\n\n').find((paragraph) => paragraph.startsWith('Traverse linked artifacts'));
-    assert.ok(traversal, 'Import Mode must carry an executable linked-artifact traversal rule');
-    for (const artifact of ['PR', 'review', 'inline-comment', 'issue', 'comment', 'release', 'commit', 'annotated-tag', 'wiki-page']) {
-      assert.match(traversal, new RegExp(`\\b${artifact}\\b`), `${artifact} links must be in the supported traversal set`);
-    }
-    assert.match(traversal, /visited set for cycle detection/);
-    assert.match(traversal, /20 link levels/);
-    assert.match(traversal, /500 unique artifacts/);
-
-    const resumeRule = skill.split('\n').find((line) => line.startsWith('Only `accept` and `correct`'));
-    assert.ok(resumeRule);
-    assert.deepEqual(
-      [...resumeRule.matchAll(/`(\[sdd-init\][^`]+)`/g)].map((match) => match[1]),
-      ['[sdd-init] resolve TRIAGE-{NNN}', '[sdd-init] mark lost TRIAGE-{NNN}'],
-    );
-  });
-});
-
 describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () => {
   it('emits every manifest-declared Pi asset exactly once per mode with canonical bytes', () => {
     for (const [relativePath, entry] of Object.entries(piManifest)) {

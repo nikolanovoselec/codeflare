@@ -15,9 +15,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateFinalSync } from '../dist/final-sync.js';
@@ -98,7 +98,6 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
   });
 });
 
-const PID_FILE = '/tmp/sync-daemon.pid';
 const STATUS_FILE = '/tmp/sync-status.json';
 
 function requestRouterDeps(overrides = {}) {
@@ -145,25 +144,27 @@ function postFinalSync(port) {
   });
 }
 
-async function startStatusDaemon(terminalStatus) {
-  const terminalWrite = terminalStatus
-    ? `sleep 0.03\n  now=$(date +%s%3N)\n  printf '{"status":"${terminalStatus}","ts":%s}\\n' "$now" > ${STATUS_FILE}`
-    : ':';
-  const script = [
-    'on_usr1() {',
-    '  sleep 0.03',
-    '  now=$(date +%s%3N)',
-    `  printf '{"status":"syncing","ts":%s}\\n' "$now" > ${STATUS_FILE}`,
-    `  ${terminalWrite}`,
-    '}',
-    'trap on_usr1 USR1',
-    'printf "READY\\n"',
-    'while :; do sleep 1; done',
-  ].join('\n');
-  const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
-  await once(child.stdout, 'data');
-  writeFileSync(PID_FILE, String(child.pid));
-  return child;
+function finalSyncHarness(statuses, pollAdvanceMs = 1, signalError = false) {
+  let now = TRIGGER;
+  let readIndex = 0;
+  let signalCount = 0;
+  const pollDelays = [];
+  return {
+    runtime: {
+      now: () => now,
+      readStatus: () => statuses[readIndex++] ?? statuses.at(-1) ?? {},
+      signalDaemon: () => {
+        signalCount += 1;
+        if (signalError) throw new Error('daemon unavailable');
+      },
+      poll: async (delayMs) => {
+        pollDelays.push(delayMs);
+        now += pollAdvanceMs;
+      },
+    },
+    signalCount: () => signalCount,
+    pollDelays,
+  };
 }
 
 function extractShellFunction(name) {
@@ -175,74 +176,70 @@ function extractShellFunction(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
-function cleanupSyncFixtures(child) {
-  if (child && !child.killed) child.kill('SIGKILL');
-  rmSync(PID_FILE, { force: true });
+function cleanupSyncFixtures() {
   rmSync(STATUS_FILE, { force: true });
 }
 
 describe('REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)', () => {
   it('REQ-SESSION-011 AC2: returns 503 when no daemon is running', async () => {
-    cleanupSyncFixtures();
     const savedToken = process.env.CONTAINER_AUTH_TOKEN;
     process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+    const harness = finalSyncHarness([], 1, true);
     try {
-      const response = await withRouter({}, postFinalSync);
+      const response = await withRouter({ finalSync: harness.runtime }, postFinalSync);
       assert.equal(response.status, 503);
       assert.deepEqual(response.body, { synced: false, reason: 'daemon-not-running' });
+      assert.equal(harness.signalCount(), 1);
     } finally {
       if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
       else process.env.CONTAINER_AUTH_TOKEN = savedToken;
-      cleanupSyncFixtures();
     }
   });
 
   it('REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200', async () => {
-    cleanupSyncFixtures();
     const savedToken = process.env.CONTAINER_AUTH_TOKEN;
     process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
-    const daemon = await startStatusDaemon('success');
+    const harness = finalSyncHarness([
+      { status: 'syncing', ts: TRIGGER + 1 },
+      { status: 'success', ts: TRIGGER + 2 },
+    ]);
     try {
-      const response = await withRouter({}, postFinalSync);
+      const response = await withRouter({ finalSync: harness.runtime }, postFinalSync);
       assert.equal(response.status, 200);
       assert.deepEqual(response.body, { synced: true });
-      assert.equal(JSON.parse(readFileSync(STATUS_FILE, 'utf8')).status, 'success');
+      assert.equal(harness.signalCount(), 1);
+      assert.deepEqual(harness.pollDelays, [500]);
     } finally {
       if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
       else process.env.CONTAINER_AUTH_TOKEN = savedToken;
-      cleanupSyncFixtures(daemon);
     }
   });
 
   it('REQ-SESSION-011 AC2: maps failed to 500 and a nonterminal run to bounded 504', async () => {
-    cleanupSyncFixtures();
     const savedToken = process.env.CONTAINER_AUTH_TOKEN;
     process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
-    let daemon = await startStatusDaemon('failed');
+    const failedHarness = finalSyncHarness([
+      { status: 'syncing', ts: TRIGGER + 1 },
+      { status: 'failed', ts: TRIGGER + 2 },
+    ]);
+    const timeoutHarness = finalSyncHarness(
+      [{ status: 'syncing', ts: TRIGGER + 1 }],
+      FINAL_SYNC_INTERNAL_TIMEOUT_MS + 1,
+    );
     try {
-      const failed = await withRouter({}, postFinalSync);
+      const failed = await withRouter({ finalSync: failedHarness.runtime }, postFinalSync);
       assert.equal(failed.status, 500);
       assert.deepEqual(failed.body, { synced: false, reason: 'bisync-failed' });
-      cleanupSyncFixtures(daemon);
+      assert.equal(failedHarness.signalCount(), 1);
 
-      daemon = await startStatusDaemon(null);
-      const realNow = Date.now;
-      let syntheticNow = realNow();
-      Date.now = () => {
-        syntheticNow += FINAL_SYNC_INTERNAL_TIMEOUT_MS + 1;
-        return syntheticNow;
-      };
-      try {
-        const timedOut = await withRouter({}, postFinalSync);
-        assert.equal(timedOut.status, 504);
-        assert.deepEqual(timedOut.body, { synced: false, reason: 'timeout' });
-      } finally {
-        Date.now = realNow;
-      }
+      const timedOut = await withRouter({ finalSync: timeoutHarness.runtime }, postFinalSync);
+      assert.equal(timedOut.status, 504);
+      assert.deepEqual(timedOut.body, { synced: false, reason: 'timeout' });
+      assert.equal(timeoutHarness.signalCount(), 1);
+      assert.deepEqual(timeoutHarness.pollDelays, [500]);
     } finally {
       if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
       else process.env.CONTAINER_AUTH_TOKEN = savedToken;
-      cleanupSyncFixtures(daemon);
     }
   });
 

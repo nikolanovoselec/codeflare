@@ -446,11 +446,21 @@ export async function resolveBucketName(env: Env, email: string, workerName = en
   }
 
   const userKeys = await listAllKvKeys(env.KV, 'user:');
-  const collidingEmails = userKeys
+  const collidingEmails = [...new Set(userKeys
     .map(({ name }) => normalizeEmail(name.substring('user:'.length)))
-    .filter((candidate) => getBucketName(candidate, workerName) === legacy);
-  if (new Set(collidingEmails).size > 1) {
+    .filter((candidate) => getBucketName(candidate, workerName) === legacy))];
+  if (collidingEmails.length > 1) {
     throw new ForbiddenError('Ambiguous legacy bucket ownership');
+  }
+
+  const existingIdentity = collidingEmails[0];
+  if (existingIdentity && existingIdentity !== normalizedEmail) {
+    const legacyClaim = await legacyStub.claimBucketOwner(existingIdentity, true);
+    if (legacyClaim !== 'owned') {
+      throw new ForbiddenError('Ambiguous legacy bucket ownership');
+    }
+    await writeBucketOwner(env.KV, legacy, { email: existingIdentity, version: 1 });
+    return claimVersionedBucket(env, normalizedEmail, workerName);
   }
 
   const claim = await legacyStub.claimBucketOwner(normalizedEmail, true);
@@ -506,13 +516,18 @@ async function queueWelcomeEmail(
   };
   const id = env.TIMEKEEPER.idFromName(bucketName);
   const timekeeper = env.TIMEKEEPER.get(id);
-  void timekeeper.fetch(new Request('https://timekeeper/welcome', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })).catch((err) => {
+  try {
+    const response = await timekeeper.fetch(new Request('https://timekeeper/welcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    if (!response.ok) {
+      logger.warn('Welcome email claim failed', { status: response.status });
+    }
+  } catch (err) {
     logger.warn('Welcome email claim failed', { error: err instanceof Error ? err.message : String(err) });
-  });
+  }
 }
 
 /**
@@ -556,7 +571,7 @@ export async function resolveOrProvisionUser(
       subscriptionTier: 'pending',
     }));
 
-    // Provider delivery remains non-blocking for login. The existing per-user
+    // The caller awaits the existing per-user Timekeeper delivery claim; the
     // Timekeeper serializes acceptance and retries rejected sends on later login.
     await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
 

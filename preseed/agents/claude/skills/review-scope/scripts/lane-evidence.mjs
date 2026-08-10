@@ -931,9 +931,11 @@ function bound(out) {
     }
   }
 
-  // Shed every other reproducible field before compact dispositions. Sort by
-  // emitted byte size so each omission makes deterministic maximum progress.
-  const protectedFields = new Set(['lane', 'range', 'base', 'config', 'pending', 'omitted', 'resolutionCounts']);
+  // Shed every other reproducible field before required decision evidence. Sort
+  // by emitted byte size so each omission makes deterministic maximum progress.
+  const protectedFields = new Set([
+    'lane', 'range', 'base', 'adrs', 'config', 'pending', 'omitted', 'resolutionCounts',
+  ]);
   const remainingFields = Object.keys(out)
     .filter((field) => !protectedFields.has(field))
     .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
@@ -942,14 +944,14 @@ function bound(out) {
     if (omit(field) && size() <= MAX_TOTAL) return out;
   }
 
-  // Config and pending carry dispositions that should survive when compact, but
-  // either may itself exceed the transport cap. Shed them last, larger first,
-  // and name every omission.
-  const dispositionFields = ['config', 'pending']
+  // ADRs, config and pending carry the source and dispositions for settled
+  // decisions. Keep compact siblings, but shed an individually oversized field
+  // last, larger first, and name every omission.
+  const decisionFields = ['adrs', 'config', 'pending']
     .filter((field) => out[field] !== undefined && out[field] !== null)
     .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
       - Buffer.byteLength(JSON.stringify(out[left])));
-  for (const field of dispositionFields) {
+  for (const field of decisionFields) {
     if (omit(field) && size() <= MAX_TOTAL) return out;
   }
 
