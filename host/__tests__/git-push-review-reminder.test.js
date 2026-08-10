@@ -212,6 +212,7 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     assert.match(status.stdout, /Acknowledge without review/);
     assert.match(status.stdout, /If the question is cancelled, ask it again/);
     assert.match(status.stdout, /ci-monitoring skill exactly once/);
+    assert.match(status.stdout, /Issue the lane calls in that same message\. Immediately after those calls, launch CI as the final launch\. Once CI is launched, END YOUR TURN\./);
 
     for (const command of [
       'git push origin HEAD',

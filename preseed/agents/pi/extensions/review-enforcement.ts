@@ -489,22 +489,33 @@ async function currentReview(
   target: string | undefined,
   revision = "HEAD",
   preferredRepo?: string,
+  markRetryable?: () => void,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx, preferredRepo);
   if (!context || !gitMetadataDirectory(context.repo)) return undefined;
   let branch = target;
   if (!branch) branch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
-  if (!branch) return undefined;
+  if (!branch) {
+    markRetryable?.();
+    return undefined;
+  }
   const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
-  if (!head) return undefined;
-  const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
+  if (!head) {
+    markRetryable?.();
+    return undefined;
+  }
+  const delays = dependencies.headRetryDelaysMs ?? [0];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, branch);
-    if (pr === PR_LOOKUP_FAILED) continue;
+    if (pr === PR_LOOKUP_FAILED) {
+      markRetryable?.();
+      continue;
+    }
     if (!isProtectedPr(pr) || pr.headRefName !== branch) return undefined;
     if (head === pr.headRefOid) return { ...context, pr };
+    markRetryable?.();
   }
   return undefined;
 }
@@ -580,6 +591,7 @@ async function checkpointCiLaunch(
 }
 
 type BoundaryLaunch = { head: string; pauseGoal: boolean };
+type BoundaryLaunchResult = BoundaryLaunch | "retry";
 
 async function launchBoundaryPlan(
   pi: ReviewPi,
@@ -587,11 +599,20 @@ async function launchBoundaryPlan(
   dependencies: Dependencies,
   boundary: ClassifiedBoundary,
   recoverExistingPlan = false,
-): Promise<BoundaryLaunch | undefined> {
+): Promise<BoundaryLaunchResult | undefined> {
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
-  const review = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
-  if (!review || !isEnforcedPr(review.pr)) return undefined;
+  let retryable = false;
+  const review = await currentReview(
+    ctx,
+    dependencies,
+    undefined,
+    "HEAD",
+    eventRepo,
+    () => { retryable = true; },
+  );
+  if (!review) return retryable ? "retry" : undefined;
+  if (!isEnforcedPr(review.pr)) return undefined;
 
   const reviewsEnabled = reviewEnabled(review.repo);
   const priorAckHead = readAck(review.repo, review.pr.number);
@@ -613,10 +634,13 @@ async function launchBoundaryPlan(
   let confirmedEvent = boundary.classification.event;
   if (reviewsEnabled && !skipReview && !confirmedEvent) {
     if (!ctx.hasUI || !ctx.ui) return undefined;
-    const decision = await ctx.ui.select(
-      `PR #${review.pr.number} (${review.pr.headRefName} at ${review.pr.headRefOid})`,
-      ["Launch review and CI", "Acknowledge without review"],
-    );
+    let decision: string | undefined;
+    while (decision !== "Launch review and CI" && decision !== "Acknowledge without review") {
+      decision = await ctx.ui.select(
+        `PR #${review.pr.number} (${review.pr.headRefName} at ${review.pr.headRefOid})`,
+        ["Launch review and CI", "Acknowledge without review"],
+      );
+    }
     const refreshed = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
     if (!refreshed
       || refreshed.repo !== review.repo
@@ -983,11 +1007,26 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
+  let pendingAutomaticBoundary: ClassifiedBoundary | undefined;
+
+  const retryPendingAutomaticBoundary = async (ctx: ReviewContext): Promise<void> => {
+    const boundary = pendingAutomaticBoundary;
+    if (!boundary) return;
+    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+    if (launch === "retry") return;
+    pendingAutomaticBoundary = undefined;
+    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+    if (!launch) return;
+    resumedWithoutBoundary = false;
+    if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+    deferredSettledRecoveryHead = launch.head;
+  };
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
+    pendingAutomaticBoundary = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -997,14 +1036,19 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, resumedWithoutBoundary);
+    if (launch === "retry" && boundary.classification.event) {
+      pendingAutomaticBoundary = boundary;
+      return;
+    }
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-    if (!launch) return;
+    if (!launch || launch === "retry") return;
     resumedWithoutBoundary = false;
     if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
     deferredSettledRecoveryHead = launch.head;
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    await retryPendingAutomaticBoundary(ctx);
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
     const goal = currentGoal(ctx);
@@ -1026,6 +1070,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    await retryPendingAutomaticBoundary(ctx);
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
@@ -1036,7 +1081,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         const launch = boundary
           ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)
           : undefined;
+        if (launch === "retry") {
+          pendingAutomaticBoundary = boundary;
+          return;
+        }
         if (launch) {
+          pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
           resumedWithoutBoundary = false;
           if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
           deferredSettledRecoveryHead = launch.head;

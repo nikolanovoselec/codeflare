@@ -320,6 +320,7 @@ function makeHarness(repo: string, sessionFile: string): {
   operations: string[];
   reviewPrompts: Array<{ title: string; options: string[] }>;
   setReviewDecision(decision: 'launch' | 'acknowledge' | undefined): void;
+  setReviewDecisions(decisions: Array<'launch' | 'acknowledge' | undefined>): void;
   setGoalControlAvailable(available: boolean): void;
   setGoalPauseResponseSucceeds(succeeds: boolean): void;
   setGoalResumeRaceActive(goalId: string | undefined): void;
@@ -339,7 +340,7 @@ function makeHarness(repo: string, sessionFile: string): {
   const operations: string[] = [];
   const reviewPrompts: Array<{ title: string; options: string[] }> = [];
   const deferredGoalPauses: Array<() => void | Promise<void>> = [];
-  let reviewDecision: 'launch' | 'acknowledge' | undefined = 'launch';
+  let reviewDecisions: Array<'launch' | 'acknowledge' | undefined> = ['launch'];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
   let goalPauseResponseSucceeds = true;
@@ -434,8 +435,9 @@ function makeHarness(repo: string, sessionFile: string): {
     ui: {
       select: async (title, options) => {
         reviewPrompts.push({ title, options });
-        if (reviewDecision === 'launch') return options[0];
-        if (reviewDecision === 'acknowledge') return options[1];
+        const decision = reviewDecisions.length > 1 ? reviewDecisions.shift() : reviewDecisions[0];
+        if (decision === 'launch') return options[0];
+        if (decision === 'acknowledge') return options[1];
         return undefined;
       },
       notify: (message) => { notifications.push(message); },
@@ -451,7 +453,8 @@ function makeHarness(repo: string, sessionFile: string): {
     notifications,
     operations,
     reviewPrompts,
-    setReviewDecision: (decision) => { reviewDecision = decision; },
+    setReviewDecision: (decision) => { reviewDecisions = [decision]; },
+    setReviewDecisions: (decisions) => { reviewDecisions = [...decisions]; },
     setGoalControlAvailable: (available) => { goalControlAvailable = available; },
     setGoalPauseResponseSucceeds: (succeeds) => { goalPauseResponseSucceeds = succeeds; },
     setGoalResumeRaceActive: (goalId) => { goalResumeRaceActive = goalId; },
@@ -674,10 +677,10 @@ describe('Pi review reminder and settled enforcement', () => {
     }));
   });
 
-  it('REQ-AGENT-120/REQ-AGENT-121: leaves acknowledgement unchanged when the review question is cancelled', async () => {
+  it('REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: repeats a cancelled review question until the user launches', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
-    harness.setReviewDecision(undefined);
+    harness.setReviewDecisions([undefined, 'launch']);
     appendSession(fixture.sessionFile,
       assistantTool('switch-cancelled', 'bash', { command: 'git switch pi' }),
       toolResult('switch-cancelled', 'bash'),
@@ -685,8 +688,11 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git switch pi', 'switch-cancelled'));
 
-    expect(harness.reviewPrompts).toHaveLength(1);
-    expect(harness.sent).toEqual([]);
+    expect(harness.reviewPrompts).toHaveLength(2);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      head: fixture.head,
+      ciEvent: 'push',
+    }));
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -2155,6 +2161,44 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(queries).toBe(1);
     expect(delays).toEqual([]);
     expect(harness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-058/REQ-AGENT-132: preserves a temporarily stale pushed boundary until lifecycle recovery launches it', async () => {
+    const fixture = makeReviewFixture();
+    const staleHead = fixture.head;
+    write(fixture.repo, 'src/review-recovery.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/review-recovery.ts');
+    git(fixture.repo, 'commit', '-m', 'recovery boundary');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    registerReviewEnforcement(harness.pi, {
+      queryPr: async () => ({
+        ...fixture.pr,
+        headRefOid: ++queries === 1 ? staleHead : fixture.head,
+      }),
+      queryHead: async () => fixture.head,
+      headRetryDelaysMs: [0],
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('push-recovery', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-recovery', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-recovery'));
+
+    expect(harness.sent).toEqual([]);
+    expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
+
+    await harness.emit('agent_end');
+
+    expect(queries).toBe(2);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      head: fixture.head,
+      ciEvent: 'push',
+    }));
+    expect(readFileSync(fixture.sessionFile, 'utf8')).toContain('pr-boundary-evaluated');
   });
 
   it('REQ-AGENT-058 + REQ-AGENT-080 AC6: an eligible pushed boundary emits one authoritative launch plan', async () => {
