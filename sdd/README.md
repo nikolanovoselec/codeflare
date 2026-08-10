@@ -57,6 +57,7 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [glossary.md](spec/glossary.md) | Canonical terminology |
 | [changes.md](spec/changes.md) | Current product changelog (user-facing spec changes) |
 | [changes-archive-2026-07.md](spec/changes-archive-2026-07.md) | Archived product changelog through 2026-07-17 |
+| [changes-archive-2026-08.md](spec/changes-archive-2026-08.md) | Safety backup before the 2026-08 SDD cleanup |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
 
