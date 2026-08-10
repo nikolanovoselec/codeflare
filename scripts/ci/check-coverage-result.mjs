@@ -251,7 +251,7 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
   const repoRoot = rootResult.stdout.trim();
   const diffResult = spawnSync(
     'git',
-    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}...HEAD`, '--'],
+    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--'],
     { encoding: 'utf8', maxBuffer: CHANGED_COVERAGE_LIMITS.maxDiffBytes + 1 },
   );
   if (diffResult.status !== 0 || diffResult.error) {

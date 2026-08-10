@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -181,6 +183,102 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
 
     assert.equal(evaluateChangedLineCoverage({ diff, lcov: report, packageRoot: '.', threshold: 80, maxDiffBytes: 100 }).ok, false);
     assert.equal(evaluateChangedLineCoverage({ diff: productionDiff('src/example.ts'), lcov: report, packageRoot: '.', threshold: 80, maxLcovBytes: 100 }).ok, false);
+  });
+
+  it('REQ-OPS-022 AC6: checks the exact base tree in a shallow checkout without a merge base', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'coverage-shallow-'));
+    const source = join(fixture, 'source');
+    const origin = join(fixture, 'origin.git');
+    const checkout = join(fixture, 'checkout');
+    const git = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+
+    try {
+      mkdirSync(join(source, 'src'), { recursive: true });
+      assert.equal(git(source, ['init', '--initial-branch=review']).status, 0);
+      assert.equal(git(source, ['config', 'user.name', 'Coverage Test']).status, 0);
+      assert.equal(git(source, ['config', 'user.email', 'coverage@example.invalid']).status, 0);
+      writeFileSync(join(source, 'src/example.ts'), 'export const value = 1;\n');
+      assert.equal(git(source, ['add', 'src/example.ts']).status, 0);
+      assert.equal(git(source, ['commit', '-m', 'base']).status, 0);
+      const base = git(source, ['rev-parse', 'HEAD']).stdout.trim();
+
+      writeFileSync(join(source, 'src/example.ts'), 'export const value = 2;\n');
+      assert.equal(git(source, ['commit', '-am', 'head']).status, 0);
+      assert.equal(git(fixture, ['init', '--bare', origin]).status, 0);
+      assert.equal(git(source, ['remote', 'add', 'origin', origin]).status, 0);
+      assert.equal(git(source, ['push', 'origin', 'HEAD:refs/heads/review']).status, 0);
+      assert.equal(git(fixture, ['clone', '--depth=1', '--branch=review', `file://${origin}`, checkout]).status, 0);
+      assert.notEqual(git(checkout, ['cat-file', '-e', `${base}^{commit}`]).status, 0);
+
+      const fetchBase = coverageAction.runs.steps.find((candidate) => candidate.name === 'Fetch changed-line base commit');
+      const fetched = spawnSync('bash', ['-c', fetchBase.run], {
+        cwd: checkout,
+        encoding: 'utf8',
+        env: { ...process.env, CHANGED_BASE: base },
+      });
+      assert.equal(fetched.status, 0, fetched.stderr);
+      assert.equal(git(checkout, ['cat-file', '-e', `${base}^{commit}`]).status, 0);
+      assert.notEqual(git(checkout, ['merge-base', base, 'HEAD']).status, 0);
+
+      const log = join(checkout, 'coverage.log');
+      const report = join(checkout, 'lcov.info');
+      writeFileSync(log, 'All files | 100 | 100 | 100 | 100 |\n');
+      writeFileSync(report, 'SF:src/example.ts\nDA:1,1\nend_of_record\n');
+      const checked = spawnSync(
+        process.execPath,
+        [join(ROOT, 'scripts/ci/check-coverage-result.mjs'), log, '0', 'false', report, base, '.', '80'],
+        { cwd: checkout, encoding: 'utf8' },
+      );
+
+      assert.equal(checked.status, 0, checked.stderr);
+      assert.match(checked.stdout, /changed production line coverage 100%/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-022 AC6: fails when fetch succeeds without resolving the exact base commit', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'coverage-unresolved-base-'));
+    const fakeBin = join(fixture, 'bin');
+    const gitLog = join(fixture, 'git.log');
+    const base = '0123456789abcdef0123456789abcdef01234567';
+
+    try {
+      mkdirSync(fakeBin);
+      const fakeGit = join(fakeBin, 'git');
+      writeFileSync(fakeGit, [
+        '#!/bin/sh',
+        'printf "%s\\n" "$*" >> "$FAKE_GIT_LOG"',
+        '[ "$1" = "fetch" ] && exit 0',
+        '[ "$1" = "cat-file" ] && exit 1',
+        'exit 99',
+        '',
+      ].join('\n'));
+      chmodSync(fakeGit, 0o755);
+
+      const fetchBase = coverageAction.runs.steps.find((candidate) => candidate.name === 'Fetch changed-line base commit');
+      const fetched = spawnSync('/bin/bash', ['-c', fetchBase.run], {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CHANGED_BASE: base,
+          FAKE_GIT_LOG: gitLog,
+          PATH: `${fakeBin}:${process.env.PATH}`,
+        },
+      });
+
+      assert.equal(fetched.status, 1);
+      assert.equal(fetched.stdout, '::error::unable to resolve the exact changed-base commit\n');
+      assert.equal(fetched.stderr, '');
+      assert.deepEqual(readFileSync(gitLog, 'utf8').trim().split('\n'), [
+        `cat-file -e ${base}^{commit}`,
+        `fetch --no-tags --depth=1 origin ${base}`,
+        `cat-file -e ${base}^{commit}`,
+      ]);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('REQ-OPS-022 AC5/AC6: runs affected package coverage on pull requests with package-specific changed-line floors', () => {

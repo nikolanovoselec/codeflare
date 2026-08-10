@@ -48,6 +48,8 @@ runs:
         [[ "$CHANGED_BASE" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "::error::changed-base must be a full commit SHA"; exit 1; }
         git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \
           || git fetch --no-tags --depth=1 origin "$CHANGED_BASE"
+        git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \
+          || { echo "::error::unable to resolve the exact changed-base commit"; exit 1; }
 
     - name: Run suite with coverage
       shell: bash
