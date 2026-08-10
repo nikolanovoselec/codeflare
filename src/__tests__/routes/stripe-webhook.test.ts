@@ -12,12 +12,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockBillingCoordinator } from '../helpers/mock-billing-coordinator';
 import { resetTierConfigCache } from '../../lib/subscription';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
+import { AppError } from '../../lib/error-types';
 
 // ---------------------------------------------------------------------------
 // Mock stripe lib
@@ -78,6 +80,12 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return next();
   });
   app.route('/', stripeWebhookRoute);
+  app.onError((err, c) => {
+    if (err instanceof AppError) {
+      return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+    }
+    return c.json({ error: 'Unexpected error' }, 500);
+  });
   return app;
 }
 

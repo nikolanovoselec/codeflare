@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,15 +41,66 @@ describe('REQ-OPS-021: workflow-file static analysis', () => {
     assert.deepEqual(zizmor.on.push, { branches: ['main'], paths: workflowPaths });
     assert.deepEqual(prChecks.on.pull_request.branches, ['main', 'develop']);
 
+    const sarifAudit = zizmor.jobs.zizmor.steps.find((candidate) =>
+      candidate.uses?.startsWith('zizmorcore/zizmor-action@'),
+    );
+    assert.deepEqual(
+      { uses: sarifAudit?.uses, with: sarifAudit?.with },
+      {
+        uses: 'zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5',
+        with: {
+          'online-audits': false,
+          version: '${{ steps.zizmor-pin.outputs.version }}',
+        },
+      },
+    );
+
     const audit = prChecks.jobs['workflow-audit'];
-    assert.match(audit.if, /needs\.changes\.outputs\.workflows == 'true'/);
-    assert.ok(audit.steps.some((candidate) => candidate.name?.startsWith('Run zizmor')));
+    assert.equal(
+      audit.if,
+      "needs.changes.outputs.full == 'true' || needs.changes.outputs.workflows == 'true'",
+    );
+    const pin = audit.steps.find((candidate) => candidate.id === 'zizmor-pin');
+    assert.equal(
+      pin?.run,
+      'node scripts/ci/workflow-tool-pins.mjs github-output zizmor >> "$GITHUB_OUTPUT"',
+    );
+    const blockingAudit = audit.steps.find(
+      (candidate) => candidate.env?.ZIZMOR_VERSION === '${{ steps.zizmor-pin.outputs.version }}',
+    );
+    assert.deepEqual(blockingAudit?.env, {
+      ZIZMOR_VERSION: '${{ steps.zizmor-pin.outputs.version }}',
+      ZIZMOR_SHA256: '${{ steps.zizmor-pin.outputs.sha256 }}',
+      GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
+    });
+    assert.equal(
+      blockingAudit?.run.trimEnd().split('\n').at(-1).trim(),
+      '/tmp/zizmor --no-online-audits --format plain .github/',
+    );
 
     const requiredCheck = prChecks.jobs.summary;
     assert.equal(requiredCheck.name, 'test');
     assert.ok(requiredCheck.needs.includes('workflow-audit'));
-    const aggregate = requiredCheck.steps.find((candidate) => candidate.name === 'Aggregate lane results');
-    assert.equal(aggregate.env.RESULTS, '${{ toJSON(needs) }}');
-    assert.match(aggregate.run, /result == "failure"/);
+    const aggregate = requiredCheck.steps.find(
+      (candidate) => candidate.env?.RESULTS === '${{ toJSON(needs) }}',
+    );
+    assert.equal(aggregate?.env.FULL, '${{ needs.changes.outputs.full }}');
+    assert.equal(typeof aggregate?.run, 'string');
+    const failedAudit = spawnSync('bash', ['-c', aggregate.run], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        FULL: 'false',
+        RESULTS: JSON.stringify({
+          changes: { result: 'success' },
+          'workflow-audit': { result: 'failure' },
+        }),
+      },
+    });
+    assert.equal(failedAudit.status, 1, failedAudit.stderr || failedAudit.stdout);
+    assert.equal(
+      failedAudit.stdout.trim().split('\n').at(-1),
+      '::error::Failed lanes: workflow-audit',
+    );
   });
 });

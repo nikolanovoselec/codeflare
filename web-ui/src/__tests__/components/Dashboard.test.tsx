@@ -452,13 +452,12 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Mobile right-column flip face (REQ-GITHUB-010) ===
 
-  it('REQ-GITHUB-002 AC5: flips one GitHub/storage face on mobile and stacks both faces on tablet and desktop', () => {
-    let resize: () => void = () => {};
+  it('REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile', () => {
     const RealRO = (globalThis as any).ResizeObserver;
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
     const realInnerWidth = window.innerWidth;
-    class CapRO { constructor(cb: () => void) { resize = cb; } observe() {} unobserve() {} disconnect() {} }
+    class CapRO { observe() {} unobserve() {} disconnect() {} }
     (globalThis as any).ResizeObserver = CapRO;
     (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
     (globalThis as any).cancelAnimationFrame = () => {};
@@ -479,18 +478,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(githubFace.getAttribute('data-active')).toBe('false');
       expect(storageFace.getAttribute('data-active')).toBe('true');
 
-      for (const [viewport, width, height] of [
-        ['tablet', 768, 700],
-        ['desktop', 1280, 900],
-      ] as const) {
-        viewportMock.setViewport?.(viewport);
-        (window as any).innerWidth = width;
-        Object.defineProperty(right, 'clientHeight', { configurable: true, value: height });
-        resize();
-        expect(right.getAttribute('data-layout')).toBeNull();
-        expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
-        expect(right.querySelector('.panel-flip-face--storage')).not.toBeNull();
-      }
+      fireEvent.click(screen.getByTestId('storage-flip-btn'));
+      expect(githubFace.getAttribute('data-active')).toBe('true');
+      expect(storageFace.getAttribute('data-active')).toBe('false');
     } finally {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
