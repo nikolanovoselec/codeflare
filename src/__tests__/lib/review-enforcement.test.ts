@@ -540,7 +540,7 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
-  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110: emits one plan before settled recovery', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -630,7 +630,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.reviewPrompts).toEqual([]);
   });
 
-  it('REQ-AGENT-120/REQ-AGENT-121: asks before reviewing an existing PR and acknowledges the exact head when declined', async () => {
+  it('REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: asks before reviewing an existing PR and acknowledges the exact head when declined', async () => {
     const fixture = makeReviewFixture();
     let queries = 0;
     const harness = await registerFixture(fixture, fixture.repo, () => { queries += 1; });
@@ -2117,16 +2117,13 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: retries transient PR lookup failures', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-058/REQ-AGENT-063: lifecycle recovery preserves a transient non-delivery lookup', async () => {
     const fixture = makeReviewFixture();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
-    const delays: number[] = [];
     let queries = 0;
     const { PR_LOOKUP_FAILED, registerReviewEnforcement } = await plannedEnforcement();
     registerReviewEnforcement(harness.pi, {
       queryPr: async () => (++queries === 1 ? PR_LOOKUP_FAILED : fixture.pr),
-      sleep: async (delayMs) => { delays.push(delayMs); },
-      headRetryDelaysMs: [0, 10, 20],
     });
     appendSession(fixture.sessionFile,
       assistantTool('transient-pr-lookup', 'bash', { command: 'git status --short' }),
@@ -2135,9 +2132,16 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
 
+    expect(queries).toBe(1);
+    expect(harness.sent).toEqual([]);
+    expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
+
+    await harness.emit('agent_end');
+
     expect(queries).toBe(3);
-    expect(delays).toEqual([10]);
+    expect(harness.reviewPrompts).toHaveLength(1);
     expect(harness.sent).toHaveLength(1);
+    expect(readFileSync(fixture.sessionFile, 'utf8')).toContain('pr-boundary-evaluated');
   });
 
   it('REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once', async () => {
@@ -2176,10 +2180,9 @@ describe('Pi review reminder and settled enforcement', () => {
     registerReviewEnforcement(harness.pi, {
       queryPr: async () => ({
         ...fixture.pr,
-        headRefOid: ++queries === 1 ? staleHead : fixture.head,
+        headRefOid: ++queries < 3 ? staleHead : fixture.head,
       }),
       queryHead: async () => fixture.head,
-      headRetryDelaysMs: [0],
     });
     appendSession(fixture.sessionFile,
       assistantTool('push-recovery', 'bash', { command: 'git push origin pi' }),
@@ -2194,6 +2197,12 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_end');
 
     expect(queries).toBe(2);
+    expect(harness.sent).toEqual([]);
+    expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
+
+    await harness.emit('agent_settled');
+
+    expect(queries).toBe(3);
     expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
       head: fixture.head,
       ciEvent: 'push',
