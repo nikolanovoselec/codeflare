@@ -1,12 +1,12 @@
 ---
 name: ci-monitoring
-description: On-demand CI monitoring. Starts one detached GitHub Actions monitor and reports the durable log path only when the user explicitly asks to monitor CI, or when a deploy/merge action requires a fresh CI result.
+description: Starts one detached GitHub Actions monitor for an eligible PR-boundary plan, an explicit user request, or a deploy/merge gate.
 version: 1.3.0
 ---
 
 # On-Demand CI Monitoring
 
-A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, CodeQL, etc.). Do not auto-start this monitor after routine pushes. Start it only when the user explicitly asks to monitor CI, or when you are about to deploy/merge and need a fresh CI result. You MUST wait for ALL workflows for the monitored HEAD to finish before claiming green or deploying.
+A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, CodeQL, etc.). Do not auto-start this monitor after routine pushes. Start it for an eligible protected-base PR-boundary plan, when the user explicitly asks to monitor CI, or when a deploy/merge gate needs a fresh CI result. You MUST wait for ALL workflows for the monitored HEAD to finish before claiming green or deploying.
 
 ## Continuous background monitor pattern
 

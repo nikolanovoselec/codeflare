@@ -601,6 +601,15 @@ async function launchBoundaryPlan(
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
     if (!boundary.classification.settled) consumeBypassSentinel();
   }
+  const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
+  const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
+  if (existing.reviewHead === review.pr.headRefOid
+    && existing.reviewRange === range
+    && existing.reviewRepo === review.repo
+    && existing.reviewBranch === review.pr.headRefName
+    && existing.reviewPrNumber === review.pr.number
+    && existing.reviewBase === review.pr.baseRefName
+    && !recoverExistingPlan) return undefined;
   let confirmedEvent = boundary.classification.event;
   if (reviewsEnabled && !skipReview && !confirmedEvent) {
     if (!ctx.hasUI || !ctx.ui) return undefined;
@@ -624,15 +633,6 @@ async function launchBoundaryPlan(
     confirmedEvent = "push";
   }
   const ackHead = readAck(review.repo, review.pr.number);
-  const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
-  const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
-  if (existing.reviewHead === review.pr.headRefOid
-    && existing.reviewRange === range
-    && existing.reviewRepo === review.repo
-    && existing.reviewBranch === review.pr.headRefName
-    && existing.reviewPrNumber === review.pr.number
-    && existing.reviewBase === review.pr.baseRefName
-    && !recoverExistingPlan) return undefined;
   const requiredLanes = reviewsEnabled && !skipReview
     ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
     : [];

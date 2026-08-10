@@ -740,7 +740,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent(command, toolCallId));
 
-      expect(queried).toEqual(['pi']);
+      expect(queried).toEqual(['pi', 'pi']);
       expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
         prNumber: 42,
         head: fixture.head,
@@ -1540,7 +1540,7 @@ describe('Pi review reminder and settled enforcement', () => {
           scope: diffScope(),
           requiredLanes: ALL_LANES,
           launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'push',
+          ciEvent: 'pr-create',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -1549,11 +1549,11 @@ describe('Pi review reminder and settled enforcement', () => {
 
   it('REQ-AGENT-036/REQ-AGENT-063: resolves fail-fast multiline push and PR-create boundaries', async () => {
     const commands = [
-      'set -euo pipefail\ncd "REPO"\ngit push origin pi',
-      'set -euo pipefail\ncd "REPO"\ngh pr create --base main --head pi --title review',
-    ];
+      { template: 'set -euo pipefail\ncd "REPO"\ngit push origin pi', event: 'push' },
+      { template: 'set -euo pipefail\ncd "REPO"\ngh pr create --base main --head pi --title review', event: 'pr-create' },
+    ] as const;
 
-    for (const [index, template] of commands.entries()) {
+    for (const [index, { template, event }] of commands.entries()) {
       const fixture = makeReviewFixture();
       const sessionRoot = dirname(fixture.repo);
       const queriedRepos: string[] = [];
@@ -1577,7 +1577,7 @@ describe('Pi review reminder and settled enforcement', () => {
         ackHead: fixture.base,
         reviewRange: `${fixture.base}..${fixture.head}`,
         requiredLanes: ALL_LANES,
-        ciEvent: 'push',
+        ciEvent: event,
       });
     }
   });
@@ -1690,7 +1690,10 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent(command, toolUseId));
 
-      expect(queries).toEqual([{ repo: fixture.repo, target: 'pi' }]);
+      expect(queries).toEqual(Array.from(
+        { length: command.startsWith('git push') ? 1 : 2 },
+        () => ({ repo: fixture.repo, target: 'pi' }),
+      ));
       expect(harness.sent).toHaveLength(1);
     }
 
@@ -1817,7 +1820,7 @@ describe('Pi review reminder and settled enforcement', () => {
       isError: false,
     });
 
-    expect(queriedRepos).toEqual([ambient.repo]);
+    expect(queriedRepos).toEqual([ambient.repo, ambient.repo]);
     expect(harness.sent[0]?.message.details).toMatchObject({
       ...boundaryIdentity(ambient, 'batch-cross-repo'),
       head: ambient.head,
@@ -2126,7 +2129,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
 
-    expect(queries).toBe(2);
+    expect(queries).toBe(3);
     expect(delays).toEqual([10]);
     expect(harness.sent).toHaveLength(1);
   });
@@ -2525,7 +2528,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
 
-    expect(prQueries).toBe(1);
+    expect(prQueries).toBe(2);
     expect(resumedHarness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
@@ -2537,11 +2540,11 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
 
     await resumedHarness.emit('tool_result', boundaryEvent('git switch pi', 'switch-1'));
-    expect(prQueries).toBe(1);
+    expect(prQueries).toBe(2);
     expect(resumedHarness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
 
     await resumedHarness.emit('tool_result', boundaryEvent('gh run view 123', 'inspect-2'));
-    expect(prQueries).toBe(2);
+    expect(prQueries).toBe(3);
     expect(resumedHarness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
 
     await resumedHarness.emit('agent_end');
@@ -2611,7 +2614,7 @@ describe('Pi review reminder and settled enforcement', () => {
           scope: diffScope(),
           requiredLanes: [],
           launchWaves: launchWaves([], true),
-          ciEvent: 'push',
+          ciEvent: 'pr-create',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },

@@ -210,6 +210,8 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
     assert.match(status.stdout, /FIRST use AskUserQuestion/);
     assert.match(status.stdout, /Acknowledge without review/);
+    assert.match(status.stdout, /If the question is cancelled, ask it again/);
+    assert.match(status.stdout, /ci-monitoring skill exactly once/);
 
     for (const command of [
       'git push origin HEAD',
@@ -220,6 +222,7 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
       const automatic = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
       assert.doesNotMatch(automatic.stdout, /FIRST use AskUserQuestion/);
       assert.match(automatic.stdout, /Execute NOW/);
+      assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
     }
   });
 

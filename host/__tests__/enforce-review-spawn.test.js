@@ -21,6 +21,10 @@ const HOOK = resolve(
   __dirname,
   '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh',
 );
+const REMINDER_HOOK = resolve(
+  __dirname,
+  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh',
+);
 
 function makeFixture() {
   const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-'));
@@ -100,6 +104,15 @@ function writeTranscript(cwd, lines) {
   const path = join(cwd, 'transcript.jsonl');
   writeFileSync(path, lines.join('\n') + '\n');
   return path;
+}
+
+function runReminder(cwd, command, binDir) {
+  return spawnSync('bash', [REMINDER_HOOK], {
+    cwd,
+    input: JSON.stringify({ tool_input: { command } }),
+    encoding: 'utf-8',
+    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+  });
 }
 
 function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
@@ -480,6 +493,29 @@ describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
       readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
       spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
       'eligible bypass must acknowledge the exact validated PR head',
+    );
+  });
+
+  it('prompts on branch navigation and acknowledges the exact head after the user declines', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA'));
+    const prompt = runReminder(cwd, 'git switch review', binDir);
+    assert.equal(prompt.status, 0);
+    assert.match(prompt.stdout, /FIRST use AskUserQuestion/);
+    assert.match(prompt.stdout, /Acknowledge without review/);
+
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const transcript = writeTranscript(cwd, [COMMAND_LINE('git switch review')]);
+    const declined = runHook(cwd, { transcriptPath: transcript, bypassFile, binDir });
+
+    assert.equal(declined.status, 0);
+    assert.equal(declined.stdout, '');
+    assert.equal(existsSync(bypassFile), false);
+    assert.equal(
+      readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
+      spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
     );
   });
 
