@@ -60,7 +60,7 @@ describe('deployment workflow safety', () => {
 });
 
 describe('PR lane selection', () => {
-  it('REQ-OPS-003 AC8: runs landing verification when the shared design-ready gate changes', () => {
+  it('REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes', () => {
     const filterStep = prChecks.jobs.changes.steps.find((candidate) => candidate.id === 'filter');
     const filters = parseYaml(filterStep.with.filters);
     const source = 'src/lib/design-ready.ts';
