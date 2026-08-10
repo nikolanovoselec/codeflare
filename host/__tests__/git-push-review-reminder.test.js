@@ -223,6 +223,10 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
       const automatic = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
       assert.doesNotMatch(automatic.stdout, /FIRST use AskUserQuestion/);
       assert.match(automatic.stdout, /Execute NOW/);
+      assert.match(automatic.stdout, /delivery boundary.*never ask.*consent/i,
+        'successful delivery must auto-launch review rather than asking again');
+      assert.match(automatic.stdout, /do NOT relaunch a lane while its first call is still in flight/,
+        'scope correction must not create a duplicate reviewer wave');
       assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
     }
   });
@@ -611,6 +615,10 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, new RegExp(`--boundary-pr 42 --range ${ackSha}\\.\\.${headSha}`),
+      'the emitted runner command must bind the acknowledged incremental range to this PR');
+    assert.doesNotMatch(r.stdout, /--base main/,
+      'an acknowledged ancestor must never fall back to the full PR diff');
   });
 
   it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {

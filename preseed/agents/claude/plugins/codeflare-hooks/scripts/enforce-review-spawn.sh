@@ -783,7 +783,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "Review triage required: publish the triage table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) as a TOOL-FREE message ending this turn - the fix directive follows next turn. Read/TaskOutput remain available for lane reports." >&2
+  echo "Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn." >&2
   exit 2
 fi
 
@@ -1005,6 +1005,36 @@ read_count() { read_count_from "$COUNT_FILE"; }
 # FIRST pass -- acknowledging a head whose findings were never triaged, before
 # a single verdict demand had been issued, while claiming five went unanswered.
 VERDICT_COUNT_FILE="$GIT_DIR/sdd-review-verdict-count-pr-$PR_NUMBER"
+
+# Native background completion is appended to the transcript before Claude is
+# guaranteed to receive its task notification. On the first Stop that observes
+# a newly complete round, record the completion line and allow the turn to end;
+# the harness can then deliver every queued report. Only a later Stop may demand
+# triage. Reuse the existing verdict counter file so this adds no new checkpoint.
+completion_delivery_pending() {
+  local completion_line="$1"
+  local state
+  state=$(cat "$VERDICT_COUNT_FILE" 2>/dev/null || true)
+  if [ "$state" = "$CURRENT_PR_HEAD:DELIVERY:$completion_line" ]; then
+    echo "$CURRENT_PR_HEAD:0" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    return 1
+  fi
+  case "$state" in
+    "$CURRENT_PR_HEAD":*) return 1 ;;
+  esac
+  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" > "$VERDICT_COUNT_FILE" 2>/dev/null; then
+    return 0
+  fi
+  # If the barrier cannot be persisted, fail safe toward delivery rather than
+  # forcing a verdict from reports the root may not have received.
+  echo "enforce-review-spawn: cannot persist reviewer-delivery barrier; allowing notification delivery" >&2
+  return 0
+}
+
+write_acknowledgement() {
+  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null \
+    && [ "$(cat "$ACK_FILE" 2>/dev/null)" = "$CURRENT_PR_HEAD" ]
+}
 
 reack_on_repeated_demand() {
   local strikes
@@ -1334,10 +1364,18 @@ fi
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
-    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    if ! write_acknowledgement; then
+      emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
+    fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks, commit and push the checked-out PR branch without asking. That push is a delivery boundary and must start the next incremental review and CI round; end the turn immediately after the push. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
+  fi
+  if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
+    # The terminal records may have landed while the current model request was
+    # already running. Ending this turn is what lets their native notifications
+    # become root-visible before any verdict can be demanded.
+    exit 0
   fi
   # The demand must never cost more than it protects. Five unanswered demands
   # would otherwise leave this head unacked forever, and a wedged checkpoint is
@@ -1347,7 +1385,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned with no triage verdict published. First verify every finding against the reviewers' evidence - finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then, in a TOOL-FREE response (no tool calls - end the turn immediately, make no file or Git changes), publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real (a rejected row states its cause there - never a deferral), PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. The fix directive follows in the next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0

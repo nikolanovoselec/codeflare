@@ -101,14 +101,18 @@ function fakeClaude(cwd, witness) {
   return binDir;
 }
 
-function runLane({ repo, home, hookScripts, binDir, lane, range, env = {} }) {
+function runLane({ repo, home, hookScripts, binDir, lane, range, scopeArgs, env = {} }) {
   // Invoke through the seeded copy so `dirname $0` resolves the classifier.
   const seededRunner = join(hookScripts, 'run-review-lane.sh');
   // readFileSync, not `cat`: a missing source would make cat return empty stdout
   // without throwing, writing a zero-byte "runner" and reporting a confusing
   // symptom instead of the real cause.
   writeFileSync(seededRunner, readFileSync(RUNNER, 'utf-8'));
-  return spawnSync('bash', [seededRunner, '--lane', lane, '--range', range], {
+  return spawnSync('bash', [
+    seededRunner,
+    '--lane', lane,
+    ...(scopeArgs ?? ['--range', range]),
+  ], {
     cwd: repo,
     encoding: 'utf-8',
     env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: home, ...env },
@@ -150,6 +154,25 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
     assert.equal(r.status, 0);
     assert.equal(existsSync(witness), true, 'a lane with owned work must still run a real review');
     assert.match(r.stdout, /## report/);
+  });
+
+  it('normalizes a PR-boundary full-diff request to the acknowledged incremental range', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    const commonDir = git(cwd, 'rev-parse', '--git-common-dir').stdout.trim();
+    writeFileSync(join(cwd, commonDir, 'sdd-review-ack-pr-24'), `${base}\n`);
+
+    const r = runLane({
+      repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer',
+      scopeArgs: ['--boundary-pr', '24', '--base', 'develop'],
+    });
+
+    assert.equal(r.status, 0);
+    assert.match(r.stderr, new RegExp(`normalized PR-boundary scope to ${base}\\.\\.${head}`));
+    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), new RegExp(`incremental diff .*${base}\\.\\.${head}`),
+      'the model must never receive the full PR diff when an acknowledged ancestor exists');
   });
 
   it('reviews rather than skips when the range cannot be resolved', () => {

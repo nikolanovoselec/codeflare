@@ -32,7 +32,7 @@
 # seeded hook scripts are not executable and a bare command path silently
 # no-ops, which reads as "not blocked".
 #
-# Usage: run-review-lane.sh --lane <name> [--range <base>..<head>] [--base <ref>]
+# Usage: run-review-lane.sh --lane <name> [--boundary-pr <number>] [--range <base>..<head>] [--base <ref>]
 #
 # `--lane <name>` is load-bearing beyond argument parsing: enforce-review-spawn.sh
 # matches this exact token in the Bash tool_use envelope to decide that the lane
@@ -42,6 +42,7 @@ set -uo pipefail
 LANE=""
 RANGE=""
 BASE=""
+BOUNDARY_PR=""
 # Set only when the classifier runs below, but referenced afterwards to seed
 # triage and the packet; initialised here because this script runs under `set -u`.
 REQUIRED=""
@@ -55,9 +56,10 @@ need_value() {
 }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --lane)  need_value $# --lane;  LANE="$2";  shift 2 ;;
-    --range) need_value $# --range; RANGE="$2"; shift 2 ;;
-    --base)  need_value $# --base;  BASE="$2";  shift 2 ;;
+    --lane)        need_value $# --lane;        LANE="$2";        shift 2 ;;
+    --range)       need_value $# --range;       RANGE="$2";       shift 2 ;;
+    --base)        need_value $# --base;        BASE="$2";        shift 2 ;;
+    --boundary-pr) need_value $# --boundary-pr; BOUNDARY_PR="$2"; shift 2 ;;
     *) echo "run-review-lane: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -69,6 +71,39 @@ esac
 if [ -z "$RANGE" ] && [ -z "$BASE" ]; then
   echo "run-review-lane: --range or --base is required; refusing an unscoped review" >&2
   exit 2
+fi
+
+# A PR-boundary review never trusts the model to preserve its scope flags. The
+# acknowledged PR checkpoint is authoritative: when it is an ancestor of the
+# current head, every lane is normalized to that exact incremental range even
+# if the caller substituted `--base`. This prevents rejected findings from an
+# earlier round being re-litigated and makes a corrected relaunch unnecessary.
+if [ -n "$BOUNDARY_PR" ]; then
+  case "$BOUNDARY_PR" in *[!0-9]*|"") echo "run-review-lane: --boundary-pr must be numeric" >&2; exit 2 ;; esac
+  BOUNDARY_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  BOUNDARY_GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)
+  BOUNDARY_HEAD=$(git rev-parse HEAD 2>/dev/null || true)
+  if [ -z "$BOUNDARY_ROOT" ] || [ -z "$BOUNDARY_GIT_DIR" ] \
+      || ! printf '%s' "$BOUNDARY_HEAD" | grep -Eq '^[0-9a-f]{40}$'; then
+    echo "run-review-lane: cannot resolve PR-boundary repository identity" >&2
+    exit 2
+  fi
+  BOUNDARY_ACK=$(cat "$BOUNDARY_GIT_DIR/sdd-review-ack-pr-$BOUNDARY_PR" 2>/dev/null || true)
+  if printf '%s' "$BOUNDARY_ACK" | grep -Eq '^[0-9a-f]{40}$' \
+      && git merge-base --is-ancestor "$BOUNDARY_ACK" "$BOUNDARY_HEAD" 2>/dev/null; then
+    if [ "$BOUNDARY_ACK" = "$BOUNDARY_HEAD" ]; then
+      printf '## %s — NO-OP\n\n**Head:** `%s`\n\nThis PR head is already acknowledged; no review lane was launched.\n' \
+        "$LANE" "$BOUNDARY_HEAD"
+      echo "run-review-lane: lane=$LANE head already acknowledged; refusing a duplicate wave" >&2
+      exit 0
+    fi
+    BOUNDARY_RANGE="$BOUNDARY_ACK..$BOUNDARY_HEAD"
+    if [ "$RANGE" != "$BOUNDARY_RANGE" ] || [ -n "$BASE" ]; then
+      echo "run-review-lane: normalized PR-boundary scope to $BOUNDARY_RANGE" >&2
+    fi
+    RANGE="$BOUNDARY_RANGE"
+    BASE=""
+  fi
 fi
 
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"

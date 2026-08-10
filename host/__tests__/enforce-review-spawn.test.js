@@ -935,7 +935,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   // returned into a session that never read them leave findings unacted while
   // the checkpoint advances past them -- so the verdict, not the exit, is what
   // the gate keys on.
-  it('withholds the ack until the triage verdict is published', () => {
+  it('gives native completion notifications one delivery turn before demanding triage', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'notriagesha'));
@@ -947,13 +947,19 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b2'),
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
-      // every lane returned, nothing published
+      // Terminal records may have reached the transcript while the root model
+      // was already running, before their native notifications reached its context.
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.status, 0);
+    assert.equal(deliveryTurn.stdout, '',
+      'first observation must let queued reviewer notifications reach the root');
     assert.notEqual(ackOf(cwd), 'notriagesha',
-      'three exits are not a review; the checkpoint may not advance past unread findings');
-    assert.match(r.stdout, /MINIMAL DECISION/,
-      'the block must demand the verdict in the shape the gate matches');
+      'terminal records alone never acknowledge unread findings');
+
+    const triageTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(triageTurn.stdout, /MINIMAL DECISION/,
+      'only the later turn may demand the verdict in the shape the gate matches');
   });
 
   it('drives the FIX phase once the verdict is published', () => {
@@ -975,6 +981,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.equal(ackOf(cwd), headSha);
     assert.match(r.stdout, /FIX phase/,
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
+    assert.match(r.stdout, /commit and push/i,
+      'accepted fixes must be delivered to the PR rather than left in a local commit');
+    assert.match(r.stdout, /without asking/i,
+      'a fix push is a delivery boundary and does not require renewed consent');
+    assert.match(r.stdout, /do not merge/i,
+      'automatic fix delivery must never become automatic merge');
   });
 
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
@@ -1044,6 +1056,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
 
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.stdout, '',
+      'notification delivery grace must not spend either demand budget');
     for (let i = 0; i < 3; i += 1) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.match(r.stdout, /MINIMAL DECISION/,
@@ -1130,9 +1145,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /MINIMAL DECISION/,
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.status, 0);
+    assert.equal(deliveryTurn.stdout, '',
+      'retroactive completion also needs a notification delivery turn');
+    const triageTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(triageTurn.stdout, /MINIMAL DECISION/,
       'the requirement must be APPLIED here, not merely un-met: a crashed hook also leaves the ack alone');
     assert.notEqual(ackOf(cwd), headSha,
       'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
