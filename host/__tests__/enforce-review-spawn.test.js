@@ -989,6 +989,32 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'automatic fix delivery must never become automatic merge');
   });
 
+  it('blocks FIX when the PR-specific acknowledgement cannot be persisted', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const commonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    mkdirSync(join(cwd, commonDir, 'sdd-review-ack-pr-42'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ]);
+
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(r.stdout, /acknowledgement could not be persisted/);
+    assert.doesNotMatch(r.stdout, /FIX phase/,
+      'a local-only fix cannot start when the next incremental base would be lost');
+  });
+
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
   // would acknowledge this head on the strength of a verdict about another one.
   it('ignores a verdict published before the lanes returned', () => {

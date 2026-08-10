@@ -175,6 +175,25 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
       'the model must never receive the full PR diff when an acknowledged ancestor exists');
   });
 
+  it('does not invoke a model for an already acknowledged PR head', () => {
+    const { cwd, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    const commonDir = git(cwd, 'rev-parse', '--git-common-dir').stdout.trim();
+    writeFileSync(join(cwd, commonDir, 'sdd-review-ack-pr-24'), `${head}\n`);
+
+    const r = runLane({
+      repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer',
+      scopeArgs: ['--boundary-pr', '24', '--base', 'develop'],
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(existsSync(witness), false,
+      'an already acknowledged head must not start a duplicate reviewer wave');
+    assert.match(r.stdout, /already acknowledged/);
+  });
+
   it('reviews rather than skips when the range cannot be resolved', () => {
     const { cwd } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
