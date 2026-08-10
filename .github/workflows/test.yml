@@ -164,6 +164,7 @@ jobs:
             landing:
               - *shared
               - 'landing/**'
+              - 'src/lib/design-ready.ts'
             ide:
               - *shared
               - 'host/package.json'

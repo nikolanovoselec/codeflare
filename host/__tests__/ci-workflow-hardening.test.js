@@ -59,6 +59,14 @@ describe('deployment workflow safety', () => {
   });
 });
 
+describe('PR lane selection', () => {
+  it('runs landing verification when the shared design-ready gate changes', () => {
+    const filterStep = prChecks.jobs.changes.steps.find((candidate) => candidate.id === 'filter');
+    const filters = parseYaml(filterStep.with.filters);
+    assert.ok(filters.landing.flat(Infinity).includes('src/lib/design-ready.ts'));
+  });
+});
+
 describe('least-privilege workflow boundaries', () => {
   it('grants no repository permission to the source-policy check', () => {
     assert.deepEqual(promotion.permissions, {});
