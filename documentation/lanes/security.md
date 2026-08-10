@@ -605,7 +605,7 @@ Image assembly also replaces code-server's semver-compatible root `js-yaml` 4.2.
 
 **Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 
-1. **Impact is contained to the session owner's own privilege boundary** — either unreachable by attacker-controlled input, or reached only via input the session's own user already controls, with worst-case impact confined to that user's own container (see below).
+1. **Impact stays within the session owner's privilege boundary** — either unreachable by attacker-controlled input or reached only through owner-controlled input, with worst-case impact confined to that user's container (see below).
 2. **The fix is not yet applicable** — it exists upstream but the vendored tool or base image has not rebuilt against it.
 
 Unreachable means the vulnerable code path is never reached with attacker-controlled input — typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME. Reached-but-confined means the path may be reached with input the session's own user controls (e.g. a cloned repo's files), but the worst case — including arbitrary-code-execution-class CVEs — is DoS or code-execution/file-write confined to the ephemeral, single-tenant container that user already fully controls via their existing shell, with no container-escape and no cross-tenant primitive, so exploiting it grants no privilege the user does not already hold.

@@ -260,7 +260,9 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). Unpublished local commits are not review heads and never authorize pre-push reviewers. A successful `git push` or `gh pr create` launches automatically only after GitHub confirms that the checked-out branch has an exact-head PR to `main`, `master`, or `develop`. Other successful Git or GitHub activity performs the same authoritative check but asks before launching; declining revalidates and acknowledges that exact head, so clone and branch navigation cannot start review without user consent. On the normal non-bypassed path, an automatic or confirmed boundary makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
+Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). Unpublished local commits are not review heads and never authorize pre-push reviewers. A successful `git push` or `gh pr create` launches automatically only after GitHub confirms that the checked-out branch has an exact-head PR to `main`, `master`, or `develop`. Other successful Git or GitHub activity performs the same authoritative check but asks before launching; declining revalidates and acknowledges that exact head, so clone and branch navigation cannot start review without user consent.
+
+On the normal non-bypassed path, an automatic or confirmed boundary makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> head=<boundary-plan-head> cwd=<absolute-repo-root> reviewState=<launched|not-required>
@@ -885,7 +887,9 @@ suppression remains per lane, so a fresh in-flight lane does not mask missing pe
 Each Claude PR reviewer exposes only `Skill`, Bash, and direct
 `mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
 consultation, and file mutation are unavailable. Reviewers return complete structured
-reports; the root persists triage content and applies fixes. `/review` follows the
+reports; the root persists triage content and applies fixes.
+
+`/review` follows the
 same ownership boundary without adding agent types: its existing `refactor-cleaner`,
 `tdd-guide`, and `deep-reviewer` definitions treat `review_mode=report-only` as a
 binding override of their normal write/output behavior. Claude and Pi review
@@ -1275,7 +1279,9 @@ A chunked scan that fails reports a partial pass rather than contributing silenc
 <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames -->
 <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::laneEvidence -->
 
-Merge commits are followed with their diffs, because a merge carrying lane work would otherwise be invisible to both the count and the reset; a merge is therefore judged by its own subject, so an agent landing a round through one tags the merge. History the script cannot read is never reported as a permissive window: it exits non-zero with a one-line diagnostic and prints no verdict at all.
+Merge commits are followed with their diffs, because a merge carrying lane work would otherwise be invisible to both the count and the reset; a merge is therefore judged by its own subject, so an agent landing a round through one tags the merge.
+
+History the script cannot read is never reported as a permissive window: it exits non-zero with a one-line diagnostic and prints no verdict at all.
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit -->
 <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) -->
