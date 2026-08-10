@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +31,8 @@ export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePat
   if (!piBinary || !cacheDirectory || sourcePaths.length === 0) {
     throw new Error('Pi binary, cache directory, and at least one entrypoint are required');
   }
+  const artifactPaths = sourcePaths.map((sourcePath) => resolveJitiCachePath(sourcePath, cacheDirectory));
+  for (const artifactPath of artifactPaths) rmSync(artifactPath, { force: true, recursive: true });
   const extensionArgs = sourcePaths.flatMap((sourcePath) => ['--extension', sourcePath]);
   const result = spawnSync(
     piBinary,

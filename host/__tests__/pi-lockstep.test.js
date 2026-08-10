@@ -93,7 +93,14 @@ describe('REQ-AGENT-131: pi-usage JITI warm-cache contract', () => {
       writeFileSync(goalSource, 'export default function goal() {}\n');
       writeFileSync(usageSource, 'export default function usage() {}\n');
 
+      const runWarm = (piBinary, env = {}) => spawnSync(
+        process.execPath,
+        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, usageSource],
+        { encoding: 'utf8', env: { ...process.env, ...env } },
+      );
       const argsLog = join(directory, 'args.log');
+      const goalArtifact = resolveCachePath(goalSource, cacheDirectory);
+      const usageArtifact = resolveCachePath(usageSource, cacheDirectory);
       const fakePi = join(directory, 'pi');
       writeFileSync(fakePi, `#!/bin/sh
 printf '%s\\n' "$@" > "$ARGS_LOG"
@@ -109,19 +116,13 @@ done
 `);
       chmodSync(fakePi, 0o755);
 
-      const success = spawnSync(
-        process.execPath,
-        [script, '--warm-jiti-entrypoints', fakePi, cacheDirectory, goalSource, usageSource],
-        {
-          encoding: 'utf8',
-          env: { ...process.env, ARGS_LOG: argsLog, VERIFY_SCRIPT: script, CACHE_DIR: cacheDirectory },
-        },
-      );
+      const success = runWarm(fakePi, {
+        ARGS_LOG: argsLog,
+        VERIFY_SCRIPT: script,
+        CACHE_DIR: cacheDirectory,
+      });
       assert.equal(success.status, 0, success.stderr);
-      assert.deepEqual(success.stdout.trim().split('\n'), [
-        resolveCachePath(goalSource, cacheDirectory),
-        resolveCachePath(usageSource, cacheDirectory),
-      ]);
+      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, usageArtifact]);
       assert.deepEqual(
         readArgs(argsLog),
         ['--no-extensions', '--extension', goalSource, '--extension', usageSource, '--list-models'],
@@ -130,30 +131,37 @@ done
       const failingPi = join(directory, 'pi-failing');
       writeFileSync(failingPi, '#!/bin/sh\nexit 7\n');
       chmodSync(failingPi, 0o755);
-      const failedWarm = spawnSync(
-        process.execPath,
-        [script, '--warm-jiti-entrypoints', failingPi, cacheDirectory, goalSource, usageSource],
-        { encoding: 'utf8' },
-      );
+      const failedWarm = runWarm(failingPi);
       assert.notEqual(failedWarm.status, 0);
       assert.equal(failedWarm.stderr, 'Pi JITI warm exited 7\n');
 
-      rmSync(cacheDirectory, { recursive: true });
-      mkdirSync(cacheDirectory);
-      writeFileSync(resolveCachePath(goalSource, cacheDirectory), 'compiled\n');
+      mkdirSync(cacheDirectory, { recursive: true });
+      writeFileSync(goalArtifact, 'stale\n');
+      writeFileSync(usageArtifact, 'stale\n');
       const noArtifactPi = join(directory, 'pi-no-artifact');
       writeFileSync(noArtifactPi, '#!/bin/sh\nexit 0\n');
       chmodSync(noArtifactPi, 0o755);
-      const missing = spawnSync(
-        process.execPath,
-        [script, '--warm-jiti-entrypoints', noArtifactPi, cacheDirectory, goalSource, usageSource],
-        { encoding: 'utf8' },
-      );
-      assert.notEqual(missing.status, 0);
-      assert.equal(
-        missing.stderr,
-        `jiti cache artifact is missing at ${resolveCachePath(usageSource, cacheDirectory)}\n`,
-      );
+      const stale = runWarm(noArtifactPi);
+      assert.notEqual(stale.status, 0);
+      assert.equal(stale.stderr, `jiti cache artifact is missing at ${goalArtifact}\n`);
+
+      const goalOnlyPi = join(directory, 'pi-goal-only');
+      writeFileSync(goalOnlyPi, '#!/bin/sh\nprintf "compiled\\n" > "$GOAL_ARTIFACT"\n');
+      chmodSync(goalOnlyPi, 0o755);
+      const missingUsage = runWarm(goalOnlyPi, { GOAL_ARTIFACT: goalArtifact });
+      assert.notEqual(missingUsage.status, 0);
+      assert.equal(missingUsage.stderr, `jiti cache artifact is missing at ${usageArtifact}\n`);
+
+      const missingExecutable = runWarm(join(directory, 'does-not-exist'));
+      assert.notEqual(missingExecutable.status, 0);
+      assert.match(missingExecutable.stderr, /Pi JITI warm failed: spawnSync .* ENOENT/);
+
+      const signalingPi = join(directory, 'pi-signaling');
+      writeFileSync(signalingPi, '#!/bin/sh\nkill -TERM $$\n');
+      chmodSync(signalingPi, 0o755);
+      const signaled = runWarm(signalingPi);
+      assert.notEqual(signaled.status, 0);
+      assert.equal(signaled.stderr, 'Pi JITI warm terminated by SIGTERM\n');
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
