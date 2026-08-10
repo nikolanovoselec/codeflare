@@ -514,7 +514,7 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
    - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - `memory-capture-block.sh` records the parent invocation at PreToolUse and atomically binds the independently assigned child identity from the matching Agent PostToolUse `tool_response`; unrelated capture children, replay, concurrency, missing identity, and timeout fail closed.
+   - `memory-capture-block.sh` records the parent invocation at PreToolUse and normally binds the independently assigned child identity from the matching Agent PostToolUse `tool_response`. Parent and unrelated tools stay blocked, but if a recorded spawn remains unclaimed for 120 seconds because the harness omitted a correlation signal, a bounded breaker fails open so the capture agent can drain `.vars`. Each blocked attempt appends the tool, event, agent identifiers/types, tool-use and response identifiers, and authorization state to a session-local `.blocklog`; tool input is never logged.
    - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
 The capture agent retains the `.vars` retry carrier, runs

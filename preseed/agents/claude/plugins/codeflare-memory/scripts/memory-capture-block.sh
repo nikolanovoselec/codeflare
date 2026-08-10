@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # PreToolUse hook -- unconditional HARD BLOCK while the memory-capture
-# .vars directive is undrained. The one permitted spawn authorizes only its
-# capture child; parent and unrelated child tools remain blocked.
+# .vars directive is undrained. The one permitted spawn remains single-flight;
+# its correlated capture child is preferred, while a timed breaker prevents a
+# missing harness correlation signal from permanently deadlocking the session.
 #
 # Companion to memory-capture.sh (UserPromptSubmit). When that hook fires
 # and delta >= 15 it writes a .vars file at /tmp/.memory-counter/<session>.vars.
 # The main agent MUST spawn `subagent_type: memory-capture` in the
-# background; the exact harness-correlated child claims a session-local
-# authorization and the publish transaction removes .vars only after success.
+# background. The normal path correlates that child through Agent PostToolUse;
+# if the harness omits a required signal, a bounded breaker fails open so the
+# publish transaction can still drain .vars.
 #
 # Pre-this-hook behaviour: if the agent ignored the additionalContext
 # directive, .vars sat undrained and the next 14 user prompts were below
@@ -56,6 +58,8 @@ esac
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
 AUTH_FILE="$COUNTER_DIR/${SESSION_ID}.capture-auth"
 AUTH_LOCK="$COUNTER_DIR/${SESSION_ID}.capture-auth.lock"
+BLOCK_LOG="$COUNTER_DIR/${SESSION_ID}.blocklog"
+AUTH_BREAKER_SEC=120
 AUTH_TTL_SEC=600
 AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null) || true
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null) || true
@@ -98,6 +102,15 @@ if (( AUTH_LOCKED == 0 )) && [[ -f "$AUTH_FILE" ]]; then
     AUTH_AGE=$(($(date +%s) - $(stat -c %Y "$AUTH_FILE" 2>/dev/null || echo 0)))
     if (( AUTH_AGE >= AUTH_TTL_SEC )); then
         rm -f "$AUTH_FILE"
+    else
+        AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || true)
+        # If the parent spawn was recorded but the PostToolUse bind or child
+        # claim signal never arrives, continued fail-closed enforcement blocks
+        # the only agent that can remove .vars. After a bounded interval, fail
+        # open for this recorded spawn. A missing AUTH_FILE still blocks.
+        if (( AUTH_AGE >= AUTH_BREAKER_SEC )) && [[ "$AUTH_STATE" != claimed:* ]]; then
+            exit 0
+        fi
     fi
 fi
 
@@ -139,12 +152,26 @@ if (( AUTH_LOCKED == 0 )) && [[ -n "$AGENT_ID" && "$AGENT_TYPE" == "memory-captu
     fi
 fi
 
-# Everything else: HARD BLOCK with a directive the agent cannot ignore.
+# Everything else: HARD BLOCK with a directive the agent cannot ignore. Record
+# only harness metadata (never tool input) so a missing correlation field is
+# diagnosable after the session is recovered.
 PROMPT_FILE="$USER_HOME/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md"
 VARS_AGE_SEC=$(($(date +%s) - $(stat -c %Y "$VARS_FILE" 2>/dev/null || echo 0)))
+AUTH_STATE=$(cat "$AUTH_FILE" 2>/dev/null || printf 'none')
+(umask 077; jq -cn \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg tool "$TOOL_NAME" \
+    --arg event "$HOOK_EVENT" \
+    --arg agent_id "$AGENT_ID" \
+    --arg agent_type "$AGENT_TYPE" \
+    --arg tool_use_id "$TOOL_USE_ID" \
+    --arg response_agent_id "$RESPONSE_AGENT_ID" \
+    --arg auth_state "$AUTH_STATE" \
+    '{timestamp:$timestamp,tool:$tool,event:$event,agent_id:$agent_id,agent_type:$agent_type,tool_use_id:$tool_use_id,response_agent_id:$response_agent_id,auth_state:$auth_state}' \
+    >> "$BLOCK_LOG") 2>/dev/null || true
 
 cat >&2 <<EOF
-HARD BLOCK: memory-capture subagent has not been spawned.
+HARD BLOCK: deferred memory capture is not yet authorized.
 
 A deferred memory-capture directive is sitting in $VARS_FILE
 (age: ${VARS_AGE_SEC}s). The UserPromptSubmit hook emitted a spawn directive
@@ -152,8 +179,9 @@ earlier this turn or in a prior turn and the subagent never ran -- so .vars
 has not been drained.
 
 You MUST spawn the memory-capture subagent BEFORE any other tool call.
-This block is unconditional. There is no bypass file. The block clears
-automatically only after the subagent's merge/publication transaction removes .vars.
+There is no bypass file. If a recorded spawn cannot complete its correlation
+handshake, the gate fails open after ${AUTH_BREAKER_SEC}s so the capture agent can
+drain .vars; otherwise it clears after the merge/publication transaction.
 
   Task tool:
     subagent_type: "memory-capture"
