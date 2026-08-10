@@ -565,17 +565,6 @@ function getMetricsForSession(sessionId: string): SessionMetrics | null {
   return state.sessionMetrics[sessionId] || null;
 }
 
-function getSessionCardDetails(
-  session: SessionWithStatus,
-  metrics: Pick<SessionMetrics, 'syncStatus'> | null = getMetricsForSession(session.id),
-): { processName: string; syncStatus: SessionMetrics['syncStatus'] } {
-  const tabOne = getTerminalsForSession(session.id)?.tabs.find((tab) => tab.id === '1');
-  return {
-    processName: tabOne?.processName || session.agentType || 'claude-code',
-    syncStatus: metrics?.syncStatus || 'pending',
-  };
-}
-
 // Register preferences dependencies (extracted to preferences.ts)
 registerPreferencesDeps({
   api: { getPreferences: api.getPreferences, updatePreferences: api.updatePreferences },
@@ -604,7 +593,6 @@ export const sessionStore = {
   isSessionInitializing,
   getInitProgressForSession,
   getMetricsForSession,
-  getSessionCardDetails,
   stopAllPolling,
   startSessionListPolling,
   stopSessionListPolling,

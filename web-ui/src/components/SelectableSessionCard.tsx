@@ -1,7 +1,6 @@
-import { Component, createMemo } from 'solid-js';
+import { Component } from 'solid-js';
 import SessionStatCard from './SessionStatCard';
 import type { SessionWithStatus } from '../types';
-import { sessionStore } from '../stores/session';
 import '../styles/session-dropdown.css';
 
 interface SelectableSessionCardProps {
@@ -17,8 +16,6 @@ interface SelectableSessionCardProps {
 }
 
 const SelectableSessionCard: Component<SelectableSessionCardProps> = (props) => {
-  const details = createMemo(() => sessionStore.getSessionCardDetails(props.session));
-
   return (
     <div
       data-testid={`session-card-${props.session.id}`}
@@ -38,12 +35,6 @@ const SelectableSessionCard: Component<SelectableSessionCardProps> = (props) => 
         onDelete={props.onDelete}
         onMenuClick={props.onMenuClick}
       />
-      <small
-        data-testid={`session-card-${props.session.id}-live-state`}
-        onClick={props.onSelect}
-      >
-        {details().processName} · Sync: {details().syncStatus}
-      </small>
     </div>
   );
 };

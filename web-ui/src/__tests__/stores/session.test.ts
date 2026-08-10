@@ -1287,29 +1287,6 @@ describe('Session Store', () => {
     });
   });
 
-  describe('session card details', () => {
-    it('uses tab 1 live process name and current sync metrics', () => {
-      sessionStore.initializeTerminalsForSession('card-session');
-      sessionStore.updateTerminalLabel('card-session', '1', 'codex');
-
-      const metrics = { syncStatus: 'syncing' as const };
-      const details = sessionStore.getSessionCardDetails(
-        { id: 'card-session', name: 'Card', createdAt: '', lastAccessedAt: '', status: 'running', agentType: 'claude-code' },
-        metrics,
-      );
-
-      expect(details).toEqual({ processName: 'codex', syncStatus: 'syncing' });
-      sessionStore.cleanupTerminalsForSession('card-session');
-    });
-
-    it('falls back to the configured agent when tab 1 has no live process', () => {
-      expect(sessionStore.getSessionCardDetails(
-        { id: 'no-live-process', name: 'Card', createdAt: '', lastAccessedAt: '', status: 'stopped', agentType: 'pi' },
-        null,
-      )).toEqual({ processName: 'pi', syncStatus: 'pending' });
-    });
-  });
-
   describe('applyMetricsUpdate', () => {
     it('applyMetricsUpdate populates sessionMetrics from batch status', () => {
       const sessionMetrics: Record<string, any> = {};

@@ -756,7 +756,68 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(clearPrewarmingVaultStatus(before, 'sess2')).toBe(before);
     });
 
-    it('clears the open-intent and re-requires a click when the user returns after leaving mid-prewarm', async () => {
+    it('REQ-VAULT-022 AC6: preserves a running session readiness latch across dashboard departure and return', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        (window as any).__headerProps.onLogoClick();
+        await waitFor(() => expect(mockActiveSessionId).toBeNull());
+        (window as any).__terminalAreaProps.onDashboardSessionSelect('sess1');
+
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+        expect(vaultProbeMock.latestOptions.initiallyReady()).toBe(true);
+        expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-VAULT-022 AC6: preserves armed state through the mobile visibility-return dashboard bounce', async () => {
+      mockIsSamsungBrowser = true;
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+      vi.useFakeTimers();
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(mockActiveSessionId).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockActiveSessionId).toBe('sess1');
+      expect((window as any).__headerProps.vaultStatus).toBe('armed');
+      expect(vaultProbeMock.latestOptions.initiallyReady()).toBe(true);
+      expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-VAULT-022 AC6: clears readiness after an authoritative stop so restart re-derives from scratch', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -766,22 +827,21 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
       await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
-      mockActiveSessionId = null;
+      mockSessions = [createMockSession({ status: 'stopped' })];
       bumpSessionStoreVersion();
-      await waitFor(() => expect(vaultPrewarmMock.cancel).toHaveBeenCalled());
+      await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
 
-      // Return: the open-intent was cleared, so the button is 'available' again and
-      // does NOT auto-resume prewarm — the user must click to restart it.
-      mockActiveSessionId = 'sess1';
+      mockSessions = [createMockSession({ status: 'running' })];
       bumpSessionStoreVersion();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('idle'));
+      expect(vaultProbeMock.latestOptions.initiallyReady()).toBe(false);
+
       vaultProbeMock.latestOptions.setLatch();
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
       expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
-
-      await (window as any).__headerProps.onVaultOpen();
-      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
-      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
     it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {
@@ -1324,18 +1384,13 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   // =========================================================================
-  // REQ-VAULT-019 AC4 — vault open-intent is cleared when the target session
-  // is no longer the active running session.
-  //
-  // handleVaultOpen sets the per-session open intent to 'preparing' when the
-  // key is not recoverable; that intent overrides the button status (surfaced
-  // to Header via the vaultStatus prop). When the active running session goes
-  // away, the createEffect on activeRunningSid() clears the open intent, so the
-  // button status reverts off 'preparing'.
+  // REQ-VAULT-019 AC4 — vault open-intent is cleared when authoritative
+  // session status says the target session has stopped. View departure alone
+  // is not a stop and must preserve the running session's in-memory Vault state.
   // =========================================================================
 
   describe('REQ-VAULT-019 AC4 (vault open-intent clearing)', () => {
-    it('clears the open-intent (vaultStatus leaves "preparing") when the session is no longer active-running', async () => {
+    it('clears the open-intent (vaultStatus leaves "preparing") when the session stops', async () => {
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -1356,9 +1411,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
 
-      // Session is no longer the active *running* session (mode flips so the
-      // probe gate drops it) — the clearing effect should reset the intent.
-      mockPreferences = { sessionMode: 'standard' };
+      // Authoritative session status, rather than active view selection, owns
+      // cleanup. A real stop clears the pending intent and readiness state.
+      mockSessions = [createMockSession({ id: 'sess1', status: 'stopped' })];
       bumpSessionStoreVersion();
 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).not.toBe('preparing'));

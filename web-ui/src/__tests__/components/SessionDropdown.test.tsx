@@ -39,7 +39,6 @@ vi.mock('../../stores/session', () => {
   return {
     sessionStore: {
       getMetricsForSession: vi.fn(() => null),
-      getSessionCardDetails: vi.fn(() => ({ processName: 'claude-code', syncStatus: 'pending' })),
       getInitProgressForSession: vi.fn(() => null),
       sessions: [],
       get preseedUpgrading() { return _preseedUpgrading; },
