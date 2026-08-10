@@ -451,6 +451,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
     writeFileSync(join(manifestScriptDir, 'vault-manifest.py'), [
       'import json, pathlib, sys',
       'target = pathlib.Path(sys.argv[3])',
+      'if target.with_name("vault-extract-initialized").exists(): raise SystemExit("initialization marker written before baseline")',
       'target.write_text(json.dumps({"version": 1, "files": {"Notes/first.md": "baseline"}}))',
     ].join('\n'));
 
