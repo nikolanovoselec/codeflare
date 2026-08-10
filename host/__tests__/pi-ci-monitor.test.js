@@ -354,6 +354,17 @@ test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability req
   assert.equal(github.checkCalls(), 3);
 });
 
+test('REQ-AGENT-125 AC1: a failed check with an empty workflow reports immediately', async () => {
+  const failed = check('CodeQL', 'fail', { workflow: '', state: 'FAILURE' });
+  const { output, github, time } = await runMonitor({ checks: [[failed]] });
+
+  assertResult(output, 'failure');
+  assert.equal(github.checkCalls(), 1);
+  assert.equal(time.sleeps.length, 0);
+  assert.match(output, /name=CodeQL/);
+  assert.match(output, /workflow= state=FAILURE/);
+});
+
 test('REQ-AGENT-125 AC1: failed and cancelled arbitrary providers report failure with links', async () => {
   const failed = check('Vendor A / shard 9', 'fail', { workflow: 'Provider Alpha', state: 'FAILURE' });
   const cancelled = check('queue-check', 'cancel', { workflow: 'Provider Beta', state: 'CANCELLED' });

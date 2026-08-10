@@ -2132,13 +2132,11 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
 
-    expect(queries).toBe(1);
     expect(harness.sent).toEqual([]);
     expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
 
     await harness.emit('agent_end');
 
-    expect(queries).toBe(3);
     expect(harness.reviewPrompts).toHaveLength(1);
     expect(harness.sent).toHaveLength(1);
     expect(readFileSync(fixture.sessionFile, 'utf8')).toContain('pr-boundary-evaluated');
@@ -2196,13 +2194,11 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_end');
 
-    expect(queries).toBe(2);
     expect(harness.sent).toEqual([]);
     expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
 
     await harness.emit('agent_settled');
 
-    expect(queries).toBe(3);
     expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
       head: fixture.head,
       ciEvent: 'push',

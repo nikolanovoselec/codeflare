@@ -1078,19 +1078,19 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && recoveryFacts.reviewBoundaryToolUseId !== recoveryFacts.boundary.toolUseId
         && !boundaryWasEvaluated(ctx, recoveryFacts.boundary.toolUseId)) {
         const boundary = persistedBoundary(ctx, recoveryFile);
-        const launch = boundary
-          ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)
-          : undefined;
-        if (launch === "retry") {
-          pendingBoundary = boundary;
-          return;
-        }
-        if (launch) {
-          pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-          resumedWithoutBoundary = false;
-          if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-          deferredSettledRecoveryHead = launch.head;
-          return;
+        if (boundary) {
+          const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+          if (launch === "retry") {
+            pendingBoundary = boundary;
+            return;
+          }
+          if (launch) {
+            pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+            resumedWithoutBoundary = false;
+            if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+            deferredSettledRecoveryHead = launch.head;
+            return;
+          }
         }
       }
     }

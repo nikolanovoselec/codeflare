@@ -31,7 +31,8 @@ function validCheckRow(row) {
     && typeof row === 'object'
     && !Array.isArray(row)
     && CHECK_BUCKETS.has(row.bucket)
-    && ['name', 'state', 'workflow'].every((field) => typeof row[field] === 'string' && row[field].trim())
+    && ['name', 'state'].every((field) => typeof row[field] === 'string' && row[field].trim())
+    && typeof row.workflow === 'string'
     && validCheckUrl(row.link);
 }
 
