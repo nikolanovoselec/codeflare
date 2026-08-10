@@ -210,7 +210,7 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
     assert.match(status.stdout, /FIRST use AskUserQuestion/);
     assert.match(status.stdout, /Acknowledge without review/);
-    assert.match(status.stdout, /Do not recommend either choice/,
+    assert.match(status.stdout, /do not recommend either choice/i,
       'the agent must present the user-only bypass neutrally');
     assert.match(status.stdout, /self-verification never substitutes/i,
       'the agent may not recommend bypass because it considers the diff already verified');
@@ -248,6 +248,19 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     assert.match(r.stdout, /review-fix continuation/i);
     assert.match(r.stdout, /Execute NOW/);
     assert.match(r.stdout, new RegExp(`--range ${ackSha}\\.\\.${headSha}`));
+  });
+
+  it('does not treat a repository-global legacy acknowledgement as same-PR continuation evidence', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const legacySha = commitAt(cwd, 'src/legacy.ts', 'export {};\n', 'feat: another PR base');
+    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), legacySha);
+    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: current PR finding');
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.match(r.stdout, /FIRST use AskUserQuestion/,
+      'a legacy repository-global SHA cannot prove acknowledgement by this PR');
+    assert.doesNotMatch(r.stdout, /detected after review-fix continuation/);
   });
 
   it('does not repeat the launch reminder for the same unacknowledged head', () => {

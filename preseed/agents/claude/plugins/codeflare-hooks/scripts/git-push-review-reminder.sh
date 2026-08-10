@@ -227,9 +227,13 @@ GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR" ] || exit 0
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 LAST_ACK_PR_HEAD=""
+ACK_IS_PR_SPECIFIC=0
 if [ -f "$ACK_FILE" ]; then
   LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
+  ACK_IS_PR_SPECIFIC=1
 elif [ -f "$GIT_DIR/sdd-last-ack-pr-head" ]; then
+  # Migration fallback may still provide an incremental range after explicit
+  # consent, but it cannot prove this PR was the one that acknowledged it.
   LAST_ACK_PR_HEAD=$(cat "$GIT_DIR/sdd-last-ack-pr-head" 2>/dev/null)
 fi
 case "$LAST_ACK_PR_HEAD" in
@@ -242,8 +246,8 @@ esac
 # review loop continuing, even if the original push's PostToolUse directive was
 # missed and a later `git status` or `gh run view` is what exposes it. Treat that
 # as delivery instead of asking whether to stop because one prior lane was clean.
-if [ "$BOUNDARY_KIND" = "prompt" ] && [ -n "$LAST_ACK_PR_HEAD" ] \
-    && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
+if [ "$BOUNDARY_KIND" = "prompt" ] && [ "$ACK_IS_PR_SPECIFIC" = "1" ] \
+    && [ -n "$LAST_ACK_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
   BOUNDARY_KIND="review-fix continuation"
 fi
 
