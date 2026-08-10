@@ -79,17 +79,21 @@ describe('GET /api/cloudflare/connect', () => {
     expect((await res.json() as Record<string, unknown>).code).toBe('CLOUDFLARE_NOT_CONFIGURED');
   });
 
-  it('feeds the scope tier into the OAuth authorize scope param (always incl. offline_access)', async () => {
+  it('feeds every scope tier into OAuth with Zone Analytics read and offline access', async () => {
     configureClient();
-    const advanced = new URL(
-      (await createTestApp(BASE_ENV).request('/api/cloudflare/connect?tier=advanced')).headers.get('location')!,
+    const locations = await Promise.all(
+      ['minimal', 'recommended', 'advanced'].map(async (tier) => new URL(
+        (await createTestApp(BASE_ENV).request(`/api/cloudflare/connect?tier=${tier}`)).headers.get('location')!,
+      )),
     );
-    expect(advanced.searchParams.get('scope')).toContain('ai.write');
-    expect(advanced.searchParams.get('scope')!.split(' ')).toContain('offline_access');
-    const minimal = new URL(
-      (await createTestApp(BASE_ENV).request('/api/cloudflare/connect?tier=minimal')).headers.get('location')!,
-    );
-    expect(minimal.searchParams.get('scope')).not.toContain('ai.write');
+
+    for (const location of locations) {
+      const scopes = location.searchParams.get('scope')!.split(' ');
+      expect(scopes).toContain('zone.analytics.read');
+      expect(scopes).toContain('offline_access');
+    }
+    expect(locations[2].searchParams.get('scope')).toContain('ai.write');
+    expect(locations[0].searchParams.get('scope')).not.toContain('ai.write');
   });
 });
 

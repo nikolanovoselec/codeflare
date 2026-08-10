@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-10
 
+- **Every Cloudflare connection tier includes Zone Analytics read access** ([REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth) AC5 and [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) AC1 remain Implemented). The server-owned minimal catalog now includes `zone.analytics.read`, so inheritance carries it through Recommended and Advanced while preserving each tier's existing capabilities and refresh-token access. The configuration scope table and exact catalog tests move with the OAuth authorize contract.
+
 - **The landing and landing-built login reveal only their final styled design** ([REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) AC4-AC5 and [REQ-AUTH-020](authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) AC5 added as Implemented). Slow-network measurement showed render-blocking CSS already prevented a raw color/layout paint, but `font-display: swap` allowed fallback text to paint before the preloaded Inter and JetBrains Mono files completed. Their shared CSP-hashed head gate now keeps the dark canvas visible until the stylesheet and both critical fonts resolve, while no-JavaScript visitors keep the complete server-rendered page.
 
 - **Shared landing runtime source retains landing-lane ownership** ([REQ-OPS-045](operations.md#req-ops-045-parallel-pr-checks-performance) AC4 added as Implemented). The design-ready gate is shared with the Worker so its CSP hash stays in lockstep, and the existing PR path filter now routes changes to that source through landing verification as well as backend checks.
