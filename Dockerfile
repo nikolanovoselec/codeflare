@@ -618,8 +618,8 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 # - Fail-closed completeness check: the build asserts that every local Pi extension
 #   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
 #   load transpiles Goal's installed entrypoint even when another package reports a
-#   non-fatal startup error; the build then derives and requires Goal's exact regular-
-#   file artifact. A future extension that is added, modified into a non-loading state,
+#   non-fatal startup error; the build then derives and requires exact regular-file
+#   artifacts for Goal and Usage. A future extension that is added, modified into a non-loading state,
 #   or skipped by a pi-loader change therefore fails the build instead of silently
 #   cold-transpiling every production session.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
@@ -628,8 +628,9 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
+    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
-    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --no-extensions --extension "$goal_source" -p "warm" || true) && \
+    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --no-extensions --extension "$goal_source" --extension "$usage_source" -p "warm" || true) && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -641,7 +642,8 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
     done && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions and Goal are baked"
+    usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
+    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, and Usage are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

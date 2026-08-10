@@ -49,7 +49,7 @@ deployed on Recreate or new bucket creation.
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode helper package (`ctx_*` tools) | Installed, disabled by default; `/ctx on` opts in | Installed, disabled by default; `/ctx on` opts in | Installed, disabled by default; `/ctx on` opts in |
-| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
+| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-usage`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
 The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes context-mode's disabled Pi package marker, so `ctx_*` tools and its steering hooks remain absent until the user runs `/ctx on`. A state-changing `/ctx on` or `/ctx off` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start restores the disabled default.
@@ -67,6 +67,8 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 `@juicesharp/rpiv-advisor` 2.2 adds one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. It provides the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it.
 
 `pi-web-access` 0.17 adds filtered zero-config Exa routing and configurable public tool names without changing Codeflare's default `web_search`, `source_check`, `fetch_content`, or paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the workflow as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
+
+`@narumitw/pi-usage` is exact-pinned at 0.50.0 from its reviewed MIT npm tarball and registers `src/index.ts` as `/usage`. It reads current-account limits only from validated official Codex, GitHub Copilot, or OpenRouter origins, bounds and redacts responses, and requires explicit confirmation before consuming a Codex reset. The package and its `@narumitw/pi-tui-kit` dependency are integrity-locked. Image construction explicitly loads the installed entrypoint and requires its path-correct JITI artifact, preventing a silent cold first command. The same lock-backed dependency discovery includes future `pi-usage` releases in weekly shadow-pin proposals.
 
 `@narumitw/pi-goal` remains the normal upstream package, exact-pinned at 0.43.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.43.0.tgz). Codeflare does not vendor or fork it. The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. At startup, Codeflare merges three missing values into `~/.pi/agent/pi-goal.json`: `toolVisibility: "after-first-goal"`, `continuationLimits.automaticTurns: 10`, and `continuationLimits.minIntervalMs: 60000`. Explicit values, including valid null and custom limits, win. Unknown fields, `rpc`, and existing visibility settings survive the merge. A malformed file is left byte-for-byte alone rather than being "repaired" by startup. There is no settings-panel patch for these Codeflare-owned startup values.
 
@@ -1304,6 +1306,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
 - [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
 - [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing
+- [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions) - Native Usage Workflow in Pi Sessions
 - [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) - Advanced-Session Graph-First Runtime Reminders
 - [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) - Post-Clone Graph Triage
 - [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) - Knowledge-Graph Persistence via Git

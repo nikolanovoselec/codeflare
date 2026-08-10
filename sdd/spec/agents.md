@@ -151,6 +151,32 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-131: Native Usage Workflow in Pi Sessions
+
+**Intent:** Pi sessions must expose current-account provider usage without cold-transpiling the Usage extension on first use.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi's required package set includes exact-pinned, integrity-locked `@narumitw/pi-usage` 0.50.0. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Usage package preseed (REQ-AGENT-131)) -->
+2. Image construction explicitly loads the installed Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @test: host/__tests__/pi-lockstep.test.js (explicitly warms and fail-closed verifies the installed pi-usage entrypoint) -->
+3. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (explicitly warms and fail-closed verifies the installed pi-usage entrypoint) -->
+
+**Constraints:**
+
+- Package upgrades remain lock-backed and use the existing Pi-extension shadow-pin workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Package assembly and JITI cache contract tests; deployment image build
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
 
 **Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.

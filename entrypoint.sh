@@ -2455,6 +2455,7 @@ const required = [
   'npm:pi-web-access@0.17.0',
   'npm:pi-mcp-adapter@2.16.0',
   'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-usage@0.50.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.

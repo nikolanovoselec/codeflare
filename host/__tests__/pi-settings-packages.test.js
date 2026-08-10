@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining available through explicit /ctx on,
-//   - the managed extension packages, including Goal, being present in
+//   - the managed extension packages, including Goal and Usage, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -64,6 +64,7 @@ const REQUIRED = [
   'npm:pi-web-access@0.17.0',
   'npm:pi-mcp-adapter@2.16.0',
   'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-usage@0.50.0',
 ];
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -78,6 +79,18 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
   });
 
+});
+
+describe('Usage package preseed (REQ-AGENT-131)', () => {
+  it('pins the reviewed upstream package and integrity-locks its Pi entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    assert.equal(pkg.dependencies['@narumitw/pi-usage'], '0.50.0');
+    const usage = lock.packages['node_modules/@narumitw/pi-usage'];
+    assert.equal(usage.version, '0.50.0');
+    assert.equal(usage.integrity, 'sha512-21IPhWpA3hEjjJFMZdjMBos4WVmfxGUSF4N8UFs5VnmvfE188X4SHyVLoRaIQ+FU56ks7P/QnwQzHoR6NvEGnQ==');
+    assert.deepEqual(usage.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
+  });
 });
 
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {

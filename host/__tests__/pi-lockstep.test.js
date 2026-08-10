@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { createHash, getFips } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 const script = fileURLToPath(new URL('../../scripts/verify-pi-lockstep.mjs', import.meta.url));
+const dockerfile = readFileSync(new URL('../../Dockerfile', import.meta.url), 'utf8');
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -64,6 +65,27 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('REQ-AGENT-131: pi-usage JITI warm-cache contract', () => {
+  it('explicitly warms and fail-closed verifies the installed pi-usage entrypoint', () => {
+    const start = dockerfile.indexOf('# Pi extension warm-up:');
+    const end = dockerfile.indexOf('# Pre-initialize OpenCode', start);
+    assert.notEqual(start, -1, 'Pi warm-up block must exist');
+    assert.notEqual(end, -1, 'Pi warm-up block must have a stable end marker');
+    const warmup = dockerfile.slice(start, end);
+
+    assert.match(
+      warmup,
+      /usage_source="\/opt\/codeflare\/pi-agent\/npm\/node_modules\/@narumitw\/pi-usage\/src\/index\.ts"/,
+    );
+    assert.match(warmup, /--extension "\$goal_source" --extension "\$usage_source"/);
+    assert.match(
+      warmup,
+      /usage_hit="\$\(node \/opt\/codeflare\/scripts\/verify-pi-lockstep\.mjs --verify-jiti-cache "\$usage_source" \/opt\/codeflare\/jiti-cache\)"/,
+    );
+    assert.match(warmup, /jiti warm cache verified: local extensions, Goal, and Usage are baked/);
   });
 });
 
