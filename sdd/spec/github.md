@@ -68,7 +68,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. The panel renders beside the storage panel; its backend feature gate is on in every mode, and the dashboard renders the panel face whenever GitHub is enabled — with no session-tier entitlement ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
 4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. The controls reuse one tested icon-button primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-5. The panel follows the adaptive Dashboard contract: narrow/mobile layouts show one flippable face at a time, while tablet/desktop layouts show the GitHub and storage faces simultaneously in a stacked right column. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) --> <!-- @manual: On the protected integration deployment, use the existing browser-e2e mechanism at tablet and desktop viewports; confirm the GitHub and storage faces are simultaneously visible and stacked in the right column. -->
+5. On narrow/mobile layouts, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 
 **Constraints:**
@@ -80,7 +80,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated component test for mobile face flipping; tablet/desktop simultaneous visible stacking is manually verified on the protected integration deployment through the existing browser-e2e mechanism.
+**Verification:** Automated component test for mobile one-face flipping.
 
 **Status:** Implemented
 
@@ -325,7 +325,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
 2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
 3. Single-panel mobile/flip mode derives one used height from both faces, capped at the shared viewport limit, and vertically centers the panel; internal lists scroll, flipping never resizes unequal faces, and short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column) -->
 
@@ -335,7 +335,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [panel-allocation test](../../web-ui/src/__tests__/lib/panel-allocation.test.ts))
+**Verification:** Mixed: automated Dashboard and panel-allocation tests cover single-panel allocation; the protected integration browser-e2e procedure in AC1 manually verifies tablet/desktop stacking and anchors.
 
 **Status:** Implemented
 

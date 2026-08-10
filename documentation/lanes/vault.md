@@ -552,7 +552,7 @@ The memory agent writes the note and invokes `scripts/build-memory-graph.py` to 
 
 The shared merge deduplicates only identical `(source, target, relation, source_file)` evidence, preserves distinct evidence between the same nodes across persisted/prior/new inputs, and keeps `vault-graph.json` and `graph.json` byte-identical. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence -->
 
-An exact successful native notification qualifies only while the note exists. The root then advances the counter to the greater of its current value and frozen request count and cleans only the matching pointer/snapshot. Failed, late, or superseded results cannot skip a capture window or delete replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
+An exact successful native notification qualifies only after publication and while both the post-commit note and its matching graph chunk exist. The root then advances the counter to the greater of its current value and frozen request count and cleans only the matching pointer, snapshot, and graph-chunk artifacts. Failed, late, or superseded results cannot skip a capture window or delete replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
 
 ### Counter Storage
 
