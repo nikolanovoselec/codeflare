@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import {
+  DESIGN_READY_CSP_HASH,
+  DESIGN_READY_SCRIPT,
+} from '../../landing/src/lib/design-ready';
 
 // Create a minimal Hono app to use as mock route default export
 const _mockHonoApp = new Hono();
@@ -136,6 +141,21 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     const fetchedRequest = mockAssets.fetch.mock.calls[0][0] as Request;
     expect(new URL(fetchedRequest.url).pathname).toBe('/landing/');
+  });
+
+  it('REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.ONBOARDING_LANDING_PAGE = 'active';
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(new Request('https://example.com/'), env, createMockCtx());
+    const csp = response.headers.get('Content-Security-Policy');
+    const digest = createHash('sha256').update(DESIGN_READY_SCRIPT).digest('base64');
+
+    expect(response.status).toBe(200);
+    expect(DESIGN_READY_CSP_HASH).toBe(`sha256-${digest}`);
+    expect(csp).toContain(`'${DESIGN_READY_CSP_HASH}'`);
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
   it('REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)', async () => {
