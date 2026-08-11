@@ -115,7 +115,7 @@ function runReminder(cwd, command, binDir) {
   });
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Always isolate hook state from the live Claude session. Tests exercising a
@@ -129,6 +129,9 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
       hook_event_name: event,
       transcript_path: transcriptPath,
       ...(toolName ? { tool_name: toolName } : {}),
+      // Claude Code adds agent_type/agent_id only when the caller is a
+      // subagent; a main-agent payload carries neither.
+      ...(agentType ? { agent_type: agentType, agent_id: `agent_${agentType}` } : {}),
     }),
     encoding: 'utf-8',
     env,
@@ -276,11 +279,12 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
     DONE_LINE('toolu_du1'),
   ];
-  const pretool = (cwd, t, toolName) =>
+  const pretool = (cwd, t, toolName, agentType) =>
     runHook(cwd, {
       event: 'PreToolUse',
       transcriptPath: t,
       toolName,
+      agentType,
       tmpDir: cwd,
       bypassFile: join(cwd, 'absent-bypass'),
     });
@@ -304,6 +308,50 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     for (const tool of ['Read', 'TaskOutput']) {
       assert.equal(pretool(cwd, t, tool).status, 0, tool);
     }
+  });
+
+  // A subagent's tool call arrives on this same hook, carrying the PARENT's
+  // transcript_path, so without a scope check the gate reads the main session's
+  // review state and refuses work that has nothing to do with the round. The
+  // pairing is the oracle: the identical state must block the main agent and
+  // allow the subagent, so a gutted guard cannot pass both halves.
+  it('does not gate a subagent on the main session review round', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Write', 'Edit', 'Bash']) {
+      assert.equal(pretool(cwd, t, tool).status, 2,
+        `${tool} blocks the main agent in this state`);
+      assert.equal(pretool(cwd, t, tool, 'memory-capture').status, 0,
+        `${tool} is allowed for a subagent in the same state`);
+    }
+  });
+
+  it('scopes out every subagent, not one by name', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const agent of ['memory-capture', 'vault-extract', 'Explore', 'general-purpose']) {
+      const r = pretool(cwd, t, 'Write', agent);
+      assert.equal(r.status, 0, agent);
+      assert.equal(r.stderr, '', `${agent} receives no directive`);
+    }
+  });
+
+  it('leaves the one-shot bypass sentinel for the session it belongs to', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const bypassFile = join(cwd, 'one-shot-bypass');
+    writeFileSync(bypassFile, '');
+    const r = runHook(cwd, {
+      event: 'PreToolUse',
+      transcriptPath: t,
+      toolName: 'Write',
+      agentType: 'memory-capture',
+      tmpDir: cwd,
+      bypassFile,
+    });
+    assert.equal(r.status, 0);
+    assert.ok(existsSync(bypassFile),
+      'a subagent must not consume the sentinel the main session is owed');
   });
 
   it('allows once a finding triage table is published after the last completion', () => {

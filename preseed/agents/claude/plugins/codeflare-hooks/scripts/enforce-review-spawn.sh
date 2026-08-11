@@ -49,6 +49,25 @@ INPUT=$(cat 2>/dev/null) || exit 0
 HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 
+# Main session only, as the header says. Claude Code fires PreToolUse for a
+# subagent's tool calls exactly as for the main agent's, and hands them the
+# PARENT's transcript_path, so the triage gate below would read the main
+# session's review state and refuse a subagent's Write or Bash for a round it
+# takes no part in. Memory capture lost writes to this, the vault capture file
+# among them.
+#
+# agent_type/agent_id are present only on a subagent's payload; a main-agent
+# call carries neither. That is the whole discriminator, and it is why this
+# needs no transcript inspection: reading the calling identity out of the
+# transcript is a race, reading it off the payload is not. The Stop path never
+# needed the guard (SubagentStop is its own event and the case below drops it),
+# but scoping both here keeps the contract in one place.
+#
+# Placed before any sentinel handling so a subagent can never consume the
+# one-shot bypass the main session is owed.
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+[ -n "$AGENT_TYPE" ] && exit 0
+
 case "$HOOK_EVENT" in
   Stop) PRETOOL_MODE="" ;;
   PreToolUse) PRETOOL_MODE=1 ;;
