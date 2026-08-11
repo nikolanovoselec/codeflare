@@ -3545,7 +3545,7 @@ Claude was aligned to that shape on the reasoning that Pi is authoritative. The 
 
 The original defect that prompted removing the push order was real but different. The order fired unconditionally, so a fix landed on the remote while the reviewed head's CI was still running, discarding that run and opening a round on a head whose predecessor was never verified.
 
-**Decision:** Claude's FIX directive orders the delivery push, and carries the condition with it rather than delegating it. It commits, waits for this head's terminal `CI_RESULT` if one has not landed, then pushes without asking. The wait may only delay the push, never cancel it: no monitor, or a log that has not advanced, means push now. Pi is unchanged and continues to rely on its standing rules.
+**Decision:** Claude's FIX directive orders the delivery push, and carries the condition with it rather than delegating it. It commits, waits for this head's terminal `CI_RESULT` if one has not landed, then pushes without asking. An absent result may only delay the push, never cancel it: no monitor, or a log that has not advanced, means push now. A failing result is different in kind — it is a finding, fixed in the same commit before the push ([AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) round). Pi is unchanged and continues to rely on its standing rules.
 
 **Consequences:** The two runtimes diverge at exactly one point, deliberately, and this record is why. A reader comparing them will find Pi's follow-up silent on delivery and Claude's explicit; that is not drift and should not be "fixed" by deleting either.
 
@@ -3555,7 +3555,7 @@ Anyone weakening the Claude directive must move the instruction, not merely rest
 
 **Status:** Accepted (2026-08-11)
 
-**Context:** Claude's capture directive was advisory, and [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
+**Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
 
 The block bought that guarantee at a price the design never accounted for. It made a second hook the sole arbiter of whether any work could proceed, and the review gate refuses exactly the spawn the block demands during the post-lane, pre-triage window. Reading the lane report is a tool call, publishing the triage table is what lifts the review gate, and the block forbids the read.
 

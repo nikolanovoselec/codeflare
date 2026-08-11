@@ -159,12 +159,21 @@ if [[ -f "$VARS_FILE" ]]; then
             mv -f "$tmp" "$VARS_FILE"
         else
             # A delivery that cannot be counted is a delivery that never stops:
-            # every later prompt would re-read the same attempts value, re-emit,
-            # and never reach the bound this whole design exists to enforce.
-            # Latch instead, so the failure ends the loop rather than opening it.
+            # every later prompt re-reads the same attempts value, re-emits, and
+            # never reaches the bound this design exists to enforce. Latch so the
+            # failure ends the loop rather than opening it.
+            #
+            # The latch lives in the same directory whose unwritability is the
+            # usual reason for landing here, so it can fail too. When it does,
+            # drop the request outright: one lost capture window is the small
+            # failure, an unbounded reminder loop is the large one.
             [[ -n "${tmp:-}" ]] && rm -f "$tmp"
-            printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
-            echo "memory-capture: cannot record delivery count; latching request at $VARS_FILE" >&2
+            if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
+                echo "memory-capture: cannot record delivery count; latching request at $VARS_FILE" >&2
+            else
+                rm -f "$VARS_FILE" 2>/dev/null || true
+                echo "memory-capture: cannot record delivery count or latch; dropping request at $VARS_FILE" >&2
+            fi
             emit_context "$MEMORY_SCAN"
         fi
         emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" "$attempts")"
@@ -192,12 +201,18 @@ TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 # which is the #416 class of bug in a new place. Resolve the helper next to
 # this script so it is found from preseed, from ~/.claude, and under test.
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ISO_LINE=$(bash "$HOOK_DIR/assert-iso-ts.sh" 2>/dev/null | grep '^ISO_TS=') || ISO_LINE=""
-CAPTURE_TS="${ISO_LINE#ISO_TS=}"
-# Fail closed: no trustworthy timestamp means no request. The window stays
-# uncommitted and the next prompt arms again, which is the same outcome as any
-# other failed capture.
-[[ -n "$CAPTURE_TS" ]] || emit_context "$MEMORY_SCAN"
+ISO_OUT=$(bash "$HOOK_DIR/assert-iso-ts.sh" 2>&1) || true
+CAPTURE_TS=$(printf '%s\n' "$ISO_OUT" | sed -n 's/^ISO_TS=//p')
+if [[ -z "$CAPTURE_TS" ]]; then
+    # Fail closed: no trustworthy timestamp means no request. The window stays
+    # uncommitted and the next prompt arms again, as with any failed capture.
+    # Never fail closed silently, though — a persistently wrong zone or clock
+    # would disarm capture on every prompt and look identical to the hook not
+    # running, so the helper's own assertion message is surfaced.
+    printf '%s\n' "$ISO_OUT" | grep -v '^RESOLVED_TZ=' >&2 || true
+    echo "memory-capture: no trustworthy capture timestamp; not arming this prompt" >&2
+    emit_context "$MEMORY_SCAN"
+fi
 CAPTURE_FILE="${USER_HOME}/Vault/Raw/Sessions/${CAPTURE_TS}-${SESSION_ID:0:8}.md"
 
 # A capture that published while latched removes the carrier but can leave the

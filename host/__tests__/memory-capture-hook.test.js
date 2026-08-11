@@ -334,28 +334,82 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     assert.equal(vars.attempts, 1);
   });
 
-  it('resolves the capture timestamp through the configured zone, not UTC', () => {
+  it('resolves the capture timestamp through the host zone chain, not a hardcoded UTC', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-tz'), '0\n1\n');
     const lines = [];
     for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
-    spawnSync('bash', [HOOK], {
+    // Both env vars unset is the only case that distinguishes the helper's
+    // chain from an inline `date`: with USER_TIMEZONE set, either stamps the
+    // same offset. Expected is computed from /etc/timezone, so the oracle
+    // lives outside the test. On a UTC host both agree and this asserts less,
+    // which is why it is written against the chain and not against a literal.
+    const env = { ...process.env, HOME: fx.home, MEMCAP_COUNTER_DIR: fx.counterDir };
+    delete env.USER_TIMEZONE;
+    delete env.TZ;
+    const res = spawnSync('bash', [HOOK], {
       input: JSON.stringify({ transcript_path: t, session_id: 'sess-tz' }),
+      encoding: 'utf-8',
+      env,
+    });
+    assert.equal(res.status, 0);
+    const zone = readFileSync('/etc/timezone', 'utf-8').trim();
+    const expected = spawnSync('date', ['+%z'], {
+      encoding: 'utf-8',
+      env: { ...process.env, TZ: zone },
+    }).stdout.trim();
+    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tz.vars'), 'utf-8'));
+    assert.ok(vars.capture_timestamp.endsWith(expected),
+      `capture_timestamp ${vars.capture_timestamp} must carry the ${zone} offset ${expected}`);
+    assert.ok(vars.capture_file.endsWith(`${vars.capture_timestamp}-sess-tz.md`));
+  });
+
+  it('arms nothing and says why when the timestamp helper fails its assertions', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.counterDir, 'sess-bad'), '0\n1\n');
+    const lines = [];
+    for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
+    const t = writeTranscript(fx.home, lines);
+    const res = spawnSync('bash', [HOOK], {
+      input: JSON.stringify({ transcript_path: t, session_id: 'sess-bad' }),
       encoding: 'utf-8',
       env: {
         ...process.env,
         HOME: fx.home,
         MEMCAP_COUNTER_DIR: fx.counterDir,
-        USER_TIMEZONE: 'Europe/Zurich',
-        TZ: '',
+        ASSERT_ISO_TS_OVERRIDE: 'garbage',
       },
     });
-    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tz.vars'), 'utf-8'));
-    // Zurich is never UTC. An inline `date` that ignores the resolution chain
-    // stamps +0000 here, which is the #416 class of bug in a new place.
-    assert.match(vars.capture_timestamp, /[+-]0[12]00$/);
-    assert.ok(vars.capture_file.endsWith(`${vars.capture_timestamp}-sess-tz.md`));
+    assert.equal(res.status, 0, 'the hook must not abort the prompt');
+    assert.equal(existsSync(join(fx.counterDir, 'sess-bad.vars')), false,
+      'a request must never be armed with an untrustworthy timestamp');
+    assert.notEqual(res.stderr.trim(), '',
+      'failing closed silently is indistinguishable from the hook not running');
+  });
+
+  it('latches when the delivery count cannot be recorded', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx, 'sess-latch');
+    // A carrier that is not valid JSON makes the jq rewrite fail, which is the
+    // same branch an unwritable counter dir takes. Corrupting the file works
+    // as root; chmod does not.
+    writeFileSync(join(fx.counterDir, `${sessionId}.vars`), 'not json');
+    runHook(fx, { transcriptPath, sessionId });
+    assert.equal(existsSync(join(fx.counterDir, `${sessionId}.latched`)), true,
+      'an uncountable delivery must latch, or it re-delivers forever');
+  });
+
+  it('drops the request when it can neither count the delivery nor latch', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx, 'sess-drop');
+    writeFileSync(join(fx.counterDir, `${sessionId}.vars`), 'not json');
+    // A directory cannot be overwritten by a redirect, even by root, so this
+    // defeats the latch write the way a full or unwritable dir would.
+    mkdirSync(join(fx.counterDir, `${sessionId}.latched`), { recursive: true });
+    runHook(fx, { transcriptPath, sessionId });
+    assert.equal(existsSync(join(fx.counterDir, `${sessionId}.vars`)), false,
+      'losing one window beats an unbounded reminder loop');
   });
 
   it('does not advance the counter when arming, so a failed capture is retried not lost', () => {
