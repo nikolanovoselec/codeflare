@@ -529,7 +529,8 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
    - The hook launches the capture subprocess itself; nothing is asked of the main agent before other work.
-   - There is no blocking hook. An armed request is re-delivered once per user prompt, counted, and latched after six failed launches, with a prompt arriving mid-capture spending no attempt; a latched request stays silent until fifteen further prompts allow a replacement. Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a capture that fails leaves its window uncommitted for a later request to cover ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
+   - There is no blocking hook. An armed request relaunches once per user prompt and is counted, except while a capture is still running. Six failed launches latch it until fifteen further prompts allow a replacement.
+   - Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a failed capture leaves its window uncommitted for a later request ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
    - `run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`; the agent frontmatter is not read on this path ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
 `run-memory-capture.sh` retains the `.vars` retry carrier, runs

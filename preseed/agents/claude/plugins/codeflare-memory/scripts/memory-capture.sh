@@ -96,6 +96,17 @@ emit_context() {
     exit 0
 }
 
+capture_running() {
+    # "Running" must be something we positively observed. Any other outcome --
+    # no flock binary, an unwritable lock path, no lock file yet -- is "not
+    # running", because failing to count is the unrecoverable direction: it
+    # never latches, never relaunches, and the reminder loops forever. Probing
+    # in a subshell releases the lock immediately; run-memory-capture.sh's own
+    # `flock -n` settles any real race.
+    [[ -e "${1}.lock" ]] && command -v flock >/dev/null 2>&1 \
+        && ! ( exec 8>"${1}.lock" && flock -n 8 ) 2>/dev/null
+}
+
 launch_capture() {
     # Detached, and the session never waits on it. This used to be a directive
     # asking the agent to spawn a subagent, which made every capture cost a
@@ -159,17 +170,20 @@ if [[ -f "$VARS_FILE" ]]; then
         if [[ $CURRENT_COUNT -lt $((latched_at + REARM_AFTER)) ]]; then
             emit_context "$MEMORY_SCAN"
         fi
+        # Same rule as the attempt bound: a running capture still needs its
+        # carrier, and the publisher has nothing to commit once it is gone.
+        if capture_running "$VARS_FILE"; then
+            emit_context "$MEMORY_SCAN"
+        fi
         rm -f "$LATCH_FILE" "$VARS_FILE"
     else
         # A capture holding the carrier lock is running, not failed, and must
         # not spend an attempt. Counting prompts instead of launches measured
         # how much the user typed: six prompts inside one 900s capture latched
         # a request that was working, and the re-arm then deleted the carrier
-        # out from under it, after which the publisher had nothing to commit.
-        # Pi draws the same line -- extractionDue returns `none` while the
-        # state is `running`. The subshell releases the probe immediately, and
-        # run-memory-capture.sh's own `flock -n` settles any real race.
-        if ! ( exec 8>"${VARS_FILE}.lock"; flock -n 8 ) 2>/dev/null; then
+        # out from under it. Pi draws the same line -- extractionDue returns
+        # `none` while the state is `running`.
+        if capture_running "$VARS_FILE"; then
             emit_context "$MEMORY_SCAN"
         fi
         attempts=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null) || attempts=0
@@ -190,6 +204,10 @@ if [[ -f "$VARS_FILE" ]]; then
             # A launch that cannot be counted is a launch that never stops:
             # every later prompt re-reads the same attempts value and never
             # reaches the bound. Latch so the failure ends the loop.
+            # Latched or dropped means this request is over. Falling through
+            # to launch_capture would start a capture against a carrier that
+            # was just deleted, or one the next prompt deletes.
+            count_failed=1
             if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
                 echo "memory-capture: cannot record launch count; latching request at $VARS_FILE" >&2
             elif rm -f "$VARS_FILE" 2>/dev/null; then
@@ -198,6 +216,7 @@ if [[ -f "$VARS_FILE" ]]; then
                 echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE will relaunch" >&2
             fi
         fi
+        [[ -n "${count_failed:-}" ]] && emit_context "$MEMORY_SCAN"
         launch_capture "$VARS_FILE"
         emit_context "$MEMORY_SCAN"
     fi

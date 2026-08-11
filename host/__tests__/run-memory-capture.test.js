@@ -116,9 +116,10 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     // Hold the lock in a detached process, then wait for it to actually be held
     // rather than guessing: a fixed sleep decides this test's outcome under
     // load, and the assertion inverts when the holder loses the race.
-    const holder = spawn('setsid', ['bash', '-c', `exec 9>"${lock}"; flock 9; sleep 30`], {
+    const holder = spawn('bash', ['-c', `exec 9>"${lock}"; flock 9; sleep 30`], {
       detached: true, stdio: 'ignore',
     });
+    holder.unref();
     try {
       let held = false;
       for (let i = 0; i < 100 && !held; i++) {
@@ -131,6 +132,8 @@ describe('run-memory-capture.sh — headless capture transport', () => {
       assert.match(r.stderr, /already running/);
       assert.ok(!existsSync(join(fx.dir, 'argv.txt')), 'the model was never invoked twice');
     } finally {
+      // detached:true already makes the child a session leader, so its pid IS
+      // the group. Wrapping it in setsid(1) made this kill throw ESRCH.
       try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ }
     }
   });

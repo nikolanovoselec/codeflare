@@ -219,7 +219,6 @@ describe('memory-capture.sh - user-message counting', () => {
     const t = writeTranscript(fx.home, lines);
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-t' });
     assert.equal(r.status, 0);
-    const out = JSON.parse(r.stdout);
     const vars = join(fx.counterDir, 'sess-t.vars');
     // The carrier is the whole contract now. The hook used to name it in
     // additionalContext because the agent had to be told to spawn a capture;
@@ -438,8 +437,9 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     const { transcriptPath, sessionId } = armed(fx);
     const second = runHook(fx, { transcriptPath, sessionId });
     assert.equal(second.status, 0);
-    // The relaunch is observable in the request's own attempt count. The hook
-    // no longer speaks on this path, so its stdout proves nothing either way.
+    // The relaunch is observable in the request's own attempt count. The
+    // hook's stdout is not the evidence here: it still carries the graph-scan
+    // context, which says nothing about whether a launch happened.
     assert.equal(varsOf(fx, sessionId).attempts, 2,
       'each launch must be counted, or the giveup latch can never be reached');
   });
@@ -451,9 +451,10 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     const before = varsOf(fx, sessionId).attempts;
     // Hold the carrier lock the way a live capture does, and wait until it is
     // actually held rather than sleeping a guessed interval.
-    const holder = spawn('setsid', ['bash', '-c', `exec 9>"${vars}.lock"; flock 9; sleep 30`], {
+    const holder = spawn('bash', ['-c', `exec 9>"${vars}.lock"; flock 9; sleep 30`], {
       detached: true, stdio: 'ignore',
     });
+    holder.unref();
     try {
       let held = false;
       for (let i = 0; i < 100 && !held; i++) {
@@ -468,6 +469,8 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
       assert.equal(varsOf(fx, sessionId).attempts, before,
         'a running capture is not a failed launch');
     } finally {
+      // detached:true already makes the child a session leader, so its pid IS
+      // the group. Wrapping it in setsid(1) made this kill throw ESRCH.
       try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ }
     }
   });

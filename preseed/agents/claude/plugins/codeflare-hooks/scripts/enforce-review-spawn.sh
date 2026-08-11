@@ -1439,7 +1439,16 @@ if all_required_lanes_completed_for_current_head; then
     # same for a pass and a failure and would deliver straight past a red head.
     # A failing CI_RESULT is a finding like any other: it is fixed in the same
     # commit, and only then does the push happen.
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION rows only; rejected rows stay rejected, accepted rows are not deferred. Wait for this head's terminal CI_RESULT if it has not landed yet, skipping the wait when no monitor exists for this head or its log has not advanced since your last read. A failing CI_RESULT is a finding: fix it in the same commit, and never push a head whose CI failure you have not addressed. Then verify the focused static checks, commit, and push the checked-out PR branch WITHOUT asking. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If nothing was accepted and CI passed, commit and push nothing. State what you fixed and anything you deliberately left."
+    # A round's rows can take several turns to apply, and every turn end
+    # re-enters this branch. Re-emitting the whole directive each time taught
+    # nothing after the first read and buried the session in a wall of
+    # identical text; the demand counter emit_block already keeps per head is
+    # enough to say it once and then stay short. Both forms still block, so the
+    # obligation is unchanged -- only the repetition is gone.
+    if [ "$(read_count)" -ge 1 ] 2>/dev/null; then
+      emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — still in FIX phase. Keep applying the accepted rows, then commit and push when they are all done and this head's CI is green."
+    fi
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION rows only; rejected rows stay rejected, accepted rows are not deferred. Take as many turns as the rows need; this directive is not a demand to push now. Wait for this head's terminal CI_RESULT if it has not landed yet, skipping the wait when no monitor exists for this head or its log has not advanced since your last read. A failing CI_RESULT is a finding: fix it in the same commit, and never push a head whose CI failure you have not addressed. Once every accepted row is applied, verify the focused static checks, commit, and push the checked-out PR branch WITHOUT asking. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If nothing was accepted and CI passed, commit and push nothing. State what you fixed and anything you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
