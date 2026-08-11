@@ -103,8 +103,12 @@ capture_running() {
     # never latches, never relaunches, and the reminder loops forever. Probing
     # in a subshell releases the lock immediately; run-memory-capture.sh's own
     # `flock -n` settles any real race.
-    [[ -e "${1}.lock" ]] && command -v flock >/dev/null 2>&1 \
-        && ! ( exec 8>"${1}.lock" && flock -n 8 ) 2>/dev/null
+    [[ -e "${1}.lock" ]] && command -v flock >/dev/null 2>&1 || return 1
+    # Openability is its own question. With the file present but unopenable the
+    # combined probe failed and `!` read that as "running" -- the one answer
+    # this helper must never give by accident.
+    ( exec 8>"${1}.lock" ) 2>/dev/null || return 1
+    ! ( exec 8>"${1}.lock" && flock -n 8 ) 2>/dev/null
 }
 
 launch_capture() {
@@ -207,10 +211,11 @@ if [[ -f "$VARS_FILE" ]]; then
             # Latched or dropped means this request is over. Falling through
             # to launch_capture would start a capture against a carrier that
             # was just deleted, or one the next prompt deletes.
-            count_failed=1
             if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
+                count_failed=1
                 echo "memory-capture: cannot record launch count; latching request at $VARS_FILE" >&2
             elif rm -f "$VARS_FILE" 2>/dev/null; then
+                count_failed=1
                 echo "memory-capture: cannot record launch count or latch; dropped request at $VARS_FILE" >&2
             else
                 echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE will relaunch" >&2
