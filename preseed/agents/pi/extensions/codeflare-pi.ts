@@ -478,9 +478,9 @@ function readGlobalManifest(): string | undefined {
   }
 }
 
-function reconcileGlobalGraph(repo: string): void {
+function reconcileGlobalGraph(repo: string): boolean {
   const plan = planGlobalGraphReconcile(readGlobalManifest(), repo, existsSync(join(repo, "graphify-out", "graph.json")));
-  if (plan.remove.length === 0 && !plan.add) return;
+  if (plan.remove.length === 0 && !plan.add) return true;
   try {
     // Removals and the addition share one lock acquisition, so a concurrent
     // writer cannot observe the manifest mid-reconciliation
@@ -501,8 +501,14 @@ function reconcileGlobalGraph(repo: string): void {
       ],
       { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
+    return true;
   } catch {
-    // Best effort; graphify CLI or global graph may be unavailable.
+    // A failed removal aborts the shared script before the add, so the active
+    // repo can end up absent from the global graph. Unlike the Claude hook
+    // there is no sentinel to withhold and no next tool call that retries, so
+    // the caller surfaces this rather than letting queries return nothing for
+    // a reason the user cannot see.
+    return false;
   }
 }
 
@@ -663,7 +669,12 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", (_event, ctx) => {
     const repo = activeRepo(ctx);
-    if (repo) reconcileGlobalGraph(repo);
+    if (repo && !reconcileGlobalGraph(repo)) {
+      ctx.ui.notify(
+        `Graphify global graph not reconciled for ${basename(repo)}; queries may miss this repo. Re-run /graphify or check the graphify CLI.`,
+        "warning",
+      );
+    }
     const summary = repo ? graphSummary(repo) : undefined;
     if (summary) ctx.ui.notify(summary, "info");
   });
@@ -756,6 +767,9 @@ export default function (pi: ExtensionAPI) {
 
     // No hasGraph guard: a checkout without a graph is exactly the case that
     // must remove the previous repo's tag rather than leave it published.
+    // Failure is not surfaced here, unlike session_start: a repo transition
+    // can happen many times per session and the next one reconciles anyway,
+    // so warning on each would be noise.
     if (repo) reconcileGlobalGraph(repo);
 
     if (decision && !existsSync(decision.marker)) {

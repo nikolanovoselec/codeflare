@@ -245,7 +245,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path.
 - Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 - Missing or unreadable graph files retain the established fresh-graph recovery path.
-- Each merge writes the cumulative graph to the vault's `vault-graph.json` and copies it to the sibling `graph.json` that feeds the local visualization; only `vault-graph.json` is read back and published, and `graph.json` exists as an empty file from boot, so a path-only existence guard cannot decide whether there is anything to publish.
+- Each merge copies the cumulative `vault-graph.json` to the sibling `graph.json`; only `vault-graph.json` is read back and published, and an empty `graph.json` at boot is not evidence there is nothing to publish.
 - No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
