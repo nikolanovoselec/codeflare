@@ -543,7 +543,7 @@ for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet).
 
 Between the dedup-gate step and the prefilter step, the agent invokes
-`assert-iso-ts.sh` (Step 1.5 in the prompt; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
+`assert-iso-ts.sh` (called by `memory-capture.sh` when it arms a request; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
 The script resolves the user's timezone and runs `date` to produce a
 stamp like `2026-05-23T22-11-09+0200`.
 

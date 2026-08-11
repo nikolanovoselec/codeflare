@@ -158,7 +158,14 @@ if [[ -f "$VARS_FILE" ]]; then
            && jq --argjson n "$attempts" '.attempts = $n' "$VARS_FILE" > "$tmp" 2>/dev/null; then
             mv -f "$tmp" "$VARS_FILE"
         else
+            # A delivery that cannot be counted is a delivery that never stops:
+            # every later prompt would re-read the same attempts value, re-emit,
+            # and never reach the bound this whole design exists to enforce.
+            # Latch instead, so the failure ends the loop rather than opening it.
             [[ -n "${tmp:-}" ]] && rm -f "$tmp"
+            printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
+            echo "memory-capture: cannot record delivery count; latching request at $VARS_FILE" >&2
+            emit_context "$MEMORY_SCAN"
         fi
         emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" "$attempts")"
     fi
@@ -178,7 +185,19 @@ TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 # session's graph identity is deterministic, and a filename the hook chose is a
 # filename the hook can later look for — which is what lets success be read off
 # an artifact instead of taken from the subagent's own word for it.
-CAPTURE_TS=$(TZ="${USER_TIMEZONE:-${TZ:-UTC}}" date +%Y-%m-%dT%H-%M-%S%z)
+# assert-iso-ts.sh already owns timezone resolution (USER_TIMEZONE -> TZ ->
+# /etc/timezone -> UTC) and the offset/drift assertions that REQ-MEM-010
+# AC4-AC7 describe. Moving the timestamp here must not fork that chain: an
+# inline `date` silently narrowed it to UTC whenever both env vars were unset,
+# which is the #416 class of bug in a new place. Resolve the helper next to
+# this script so it is found from preseed, from ~/.claude, and under test.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ISO_LINE=$(bash "$HOOK_DIR/assert-iso-ts.sh" 2>/dev/null | grep '^ISO_TS=') || ISO_LINE=""
+CAPTURE_TS="${ISO_LINE#ISO_TS=}"
+# Fail closed: no trustworthy timestamp means no request. The window stays
+# uncommitted and the next prompt arms again, which is the same outcome as any
+# other failed capture.
+[[ -n "$CAPTURE_TS" ]] || emit_context "$MEMORY_SCAN"
 CAPTURE_FILE="${USER_HOME}/Vault/Raw/Sessions/${CAPTURE_TS}-${SESSION_ID:0:8}.md"
 
 # A capture that published while latched removes the carrier but can leave the

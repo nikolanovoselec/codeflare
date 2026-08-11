@@ -334,6 +334,30 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     assert.equal(vars.attempts, 1);
   });
 
+  it('resolves the capture timestamp through the configured zone, not UTC', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.counterDir, 'sess-tz'), '0\n1\n');
+    const lines = [];
+    for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
+    const t = writeTranscript(fx.home, lines);
+    spawnSync('bash', [HOOK], {
+      input: JSON.stringify({ transcript_path: t, session_id: 'sess-tz' }),
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        HOME: fx.home,
+        MEMCAP_COUNTER_DIR: fx.counterDir,
+        USER_TIMEZONE: 'Europe/Zurich',
+        TZ: '',
+      },
+    });
+    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tz.vars'), 'utf-8'));
+    // Zurich is never UTC. An inline `date` that ignores the resolution chain
+    // stamps +0000 here, which is the #416 class of bug in a new place.
+    assert.match(vars.capture_timestamp, /[+-]0[12]00$/);
+    assert.ok(vars.capture_file.endsWith(`${vars.capture_timestamp}-sess-tz.md`));
+  });
+
   it('does not advance the counter when arming, so a failed capture is retried not lost', () => {
     const fx = makeFixture();
     const { sessionId } = armed(fx);

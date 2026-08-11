@@ -35,7 +35,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
 3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
 4. Capture-file timestamps use the configured user timezone, then the process timezone, then UTC, per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureTimestamp --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (prefers USER_TIMEZONE over TZ when both are present) -->
@@ -109,12 +109,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
-2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
 4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (counter advances on capture so the next run starts a fresh window) -->
 5. After a Pi memory request reaches GIVEUP, fifteen later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after fifteen later real prompts) -->
 6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
-7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 
 **Notes:** Pi delivery ownership and retry rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); request bounds and uncaptured-window compaction are in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
@@ -317,39 +317,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
-### REQ-MEM-012: Hard-block tool calls while memory-capture is deferred
-
-**Intent:** The capture directive emitted by [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)'s hook is advisory: an agent that ignores it leaves the dedup-gate undrained, and the 15-message threshold logic only fires fresh directives on threshold crossings, so a long session can silently pass with zero captures. A companion hard-block hook closes this gap without blocking the extraction agent itself: the parent capture spawn opens a bounded in-flight window before the child makes its first tool call, requiring no child identity or PostToolUse correlation metadata.
-
-**Applies To:** Agent
-
-**Acceptance Criteria:**
-
-1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds.
-2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking.
-3. A `Task` or `Agent` launch with `subagent_type="memory-capture"` creates a session-local in-flight sentinel before returning. While the carrier and a fresh sentinel coexist, parent and child tool calls proceed without requiring `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata.
-4. When a carrier exists without a fresh in-flight sentinel, every non-capture-spawn tool remains blocked. Successful publication removes the carrier and the next hook call cleans the sentinel; if capture stalls while the carrier remains, the sentinel expires after 600 seconds and blocking resumes.
-
-**Constraints:**
-
-- The block applies only in advanced session mode.
-- The process-writable sentinel is cooperative session-local workflow state, not an authentication boundary; the hard block prevents accidental sequencing, not deliberate same-UID filesystem mutation.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
-
-**Verification:** Superseded; see [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact)
-
-**Status:** Deprecated
-
-**Superseded by:** [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) ([AD124](../../documentation/decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)). The intent above still holds and REQ-MEM-020 carries it: a capture directive that is ignored must not vanish. The mechanism does not. Blocking every tool call made this hook the sole arbiter of whether any work could proceed, and the review gate refuses the very spawn the block demanded, so the two hooks could deadlock a session with no bypass. Bounded re-delivery keeps the guarantee without the wedge.
-
----
-
 ### REQ-MEM-020: Capture requests are re-delivered under a bound and committed only against an artifact
 
-**Intent:** A capture directive that the agent does not act on must come back rather than disappear, and a capture that never produced a file must not be recorded as done. Replaces [REQ-MEM-012](#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred)'s hard block, which bought the first guarantee by making one hook able to wedge the session.
+**Intent:** A capture directive that the agent does not act on must come back rather than disappear, and a capture that never produced a file must not be recorded as done. Replaces the removed hard block, which bought the first guarantee by making one hook able to wedge the session.
 
 **Applies To:** Agent
 
