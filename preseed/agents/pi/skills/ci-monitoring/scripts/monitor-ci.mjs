@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const POLL_MS = 15_000, EMPTY_LIMIT_MS = 5 * 60_000, TOTAL_LIMIT_MS = 30 * 60_000;
 const CHECK_FIELDS = 'bucket,link,name,state,workflow';
+const CHECK_BUCKETS = new Set(['pass', 'fail', 'pending', 'skipping', 'cancel']);
 
 export function runCommand(command, args, options = {}) {
   return new Promise((done) => {
@@ -17,6 +18,22 @@ export function runCommand(command, args, options = {}) {
 function parseJson(result) {
   try { return JSON.parse(result.stdout); }
   catch { return null; }
+}
+
+function validCheckUrl(value) {
+  if (typeof value !== 'string') return false;
+  try { return ['https:', 'http:'].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
+function validCheckRow(row) {
+  return row !== null
+    && typeof row === 'object'
+    && !Array.isArray(row)
+    && CHECK_BUCKETS.has(row.bucket)
+    && ['name', 'state'].every((field) => typeof row[field] === 'string' && row[field].trim())
+    && typeof row.workflow === 'string'
+    && validCheckUrl(row.link);
 }
 
 function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
@@ -135,7 +152,7 @@ export async function monitorCi({
         { cwd },
       );
       const parsed = parseJson(result);
-      if (Array.isArray(parsed)) rows = parsed;
+      if (Array.isArray(parsed) && parsed.every(validCheckRow)) rows = parsed;
     } catch {
       rows = null;
     }

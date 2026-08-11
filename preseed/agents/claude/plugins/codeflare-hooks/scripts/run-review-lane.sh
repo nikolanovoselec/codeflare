@@ -32,7 +32,7 @@
 # seeded hook scripts are not executable and a bare command path silently
 # no-ops, which reads as "not blocked".
 #
-# Usage: run-review-lane.sh --lane <name> [--range <base>..<head>] [--base <ref>]
+# Usage: run-review-lane.sh --lane <name> [--boundary-pr <number>] [--range <base>..<head>] [--base <ref>]
 #
 # `--lane <name>` is load-bearing beyond argument parsing: enforce-review-spawn.sh
 # matches this exact token in the Bash tool_use envelope to decide that the lane
@@ -42,6 +42,7 @@ set -uo pipefail
 LANE=""
 RANGE=""
 BASE=""
+BOUNDARY_PR=""
 # Set only when the classifier runs below, but referenced afterwards to seed
 # triage and the packet; initialised here because this script runs under `set -u`.
 REQUIRED=""
@@ -55,9 +56,10 @@ need_value() {
 }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --lane)  need_value $# --lane;  LANE="$2";  shift 2 ;;
-    --range) need_value $# --range; RANGE="$2"; shift 2 ;;
-    --base)  need_value $# --base;  BASE="$2";  shift 2 ;;
+    --lane)        need_value $# --lane;        LANE="$2";        shift 2 ;;
+    --range)       need_value $# --range;       RANGE="$2";       shift 2 ;;
+    --base)        need_value $# --base;        BASE="$2";        shift 2 ;;
+    --boundary-pr) need_value $# --boundary-pr; BOUNDARY_PR="$2"; shift 2 ;;
     *) echo "run-review-lane: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -66,6 +68,43 @@ case "$LANE" in
   code-reviewer|spec-reviewer|doc-updater) ;;
   *) echo "run-review-lane: --lane must be one of code-reviewer|spec-reviewer|doc-updater (got '${LANE:-}')" >&2; exit 2 ;;
 esac
+if [ -z "$RANGE" ] && [ -z "$BASE" ]; then
+  echo "run-review-lane: --range or --base is required; refusing an unscoped review" >&2
+  exit 2
+fi
+
+# A PR-boundary review never trusts the model to preserve its scope flags. The
+# acknowledged PR checkpoint is authoritative: when it is an ancestor of the
+# current head, every lane is normalized to that exact incremental range even
+# if the caller substituted `--base`. This prevents rejected findings from an
+# earlier round being re-litigated and makes a corrected relaunch unnecessary.
+if [ -n "$BOUNDARY_PR" ]; then
+  case "$BOUNDARY_PR" in *[!0-9]*|"") echo "run-review-lane: --boundary-pr must be numeric" >&2; exit 2 ;; esac
+  BOUNDARY_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  BOUNDARY_GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)
+  BOUNDARY_HEAD=$(git rev-parse HEAD 2>/dev/null || true)
+  if [ -z "$BOUNDARY_ROOT" ] || [ -z "$BOUNDARY_GIT_DIR" ] \
+      || ! printf '%s' "$BOUNDARY_HEAD" | grep -Eq '^[0-9a-f]{40}$'; then
+    echo "run-review-lane: cannot resolve PR-boundary repository identity" >&2
+    exit 2
+  fi
+  BOUNDARY_ACK=$(cat "$BOUNDARY_GIT_DIR/sdd-review-ack-pr-$BOUNDARY_PR" 2>/dev/null || true)
+  if printf '%s' "$BOUNDARY_ACK" | grep -Eq '^[0-9a-f]{40}$' \
+      && git merge-base --is-ancestor "$BOUNDARY_ACK" "$BOUNDARY_HEAD" 2>/dev/null; then
+    if [ "$BOUNDARY_ACK" = "$BOUNDARY_HEAD" ]; then
+      printf '## %s — NO-OP\n\n**Head:** `%s`\n\nThis PR head is already acknowledged; no review lane was launched.\n' \
+        "$LANE" "$BOUNDARY_HEAD"
+      echo "run-review-lane: lane=$LANE head already acknowledged; refusing a duplicate wave" >&2
+      exit 0
+    fi
+    BOUNDARY_RANGE="$BOUNDARY_ACK..$BOUNDARY_HEAD"
+    if [ "$RANGE" != "$BOUNDARY_RANGE" ] || [ -n "$BASE" ]; then
+      echo "run-review-lane: normalized PR-boundary scope to $BOUNDARY_RANGE" >&2
+    fi
+    RANGE="$BOUNDARY_RANGE"
+    BASE=""
+  fi
+fi
 
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 AGENT_DOC="$CLAUDE_HOME/agents/$LANE.md"
@@ -75,6 +114,10 @@ if [ ! -f "$AGENT_DOC" ]; then
 fi
 if ! command -v claude >/dev/null 2>&1; then
   echo "run-review-lane: 'claude' CLI not on PATH" >&2
+  exit 3
+fi
+if ! command -v timeout >/dev/null 2>&1; then
+  echo "run-review-lane: timeout(1) is required to bound review lanes; refusing to launch" >&2
   exit 3
 fi
 
@@ -272,14 +315,45 @@ TRIAGE_SCRIPT="$(dirname "$0")/lib/lane-triage.mjs"
 if [ -n "$REPO_ROOT" ] && [ -f "$TRIAGE_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   TRIAGE_JSON="$(node "$TRIAGE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
     ${RANGE:+--range "$RANGE"} ${REQUIRED:+--required-lanes "$REQUIRED"} 2>/dev/null || true)"
+  # Triage can suppress a lane, so syntax alone is insufficient: require the
+  # discriminator, lane identity, layout, and decision-specific fields before
+  # any byte is treated as authoritative. A crash envelope or partial write is
+  # absent evidence, and the lane performs its own triage.
+  if [ -n "$TRIAGE_JSON" ] && ! printf '%s' "$TRIAGE_JSON" | jq -e --arg lane "$LANE" '
+    type == "object"
+    and .lane == $lane
+    and (.range == null or (.range | type == "string"))
+    and (.sdd | type == "object")
+    and (.sdd.bootstrapped | type == "boolean")
+    and (.sdd.layout == "nested" or .sdd.layout == "flat")
+    and (.decision == "proceed" or .decision == "exit-no-op")
+    and (.reason == null or (.reason | type == "string"))
+    and (if .decision == "exit-no-op" then
+           (.reason | type == "string" and length > 0)
+           and (
+             ((.sdd.bootstrapped == false) and ($lane == "spec-reviewer" or $lane == "doc-updater"))
+             or ((.transition | type == "object") and .transition.active == true and .transition.corrupt == false)
+             or ((.roundLimit | type == "object") and .roundLimit.action == "stop"
+                 and (.roundLimit.counted | type == "number") and .roundLimit.counted >= 5)
+           )
+         else (.bulkOpAudit | type == "object")
+           and (.bulkOpAudit.checked | type == "number")
+           and (.bulkOpAudit.findings | type == "array")
+         end)
+  ' >/dev/null 2>&1; then
+    echo "run-review-lane: triage was not valid JSON with the required shape; lane gathers it itself" >&2
+    TRIAGE_JSON=""
+  fi
   # `config.raw` carries the config file verbatim and one audit finding is
   # emitted per missing line across five commits, so an unbounded triage block
   # lands in the prompt prefix of every turn. It is nearly always `config.raw`
   # that blew the cap, so shed it first and keep the decisions.
-  TRIAGE_JSON="$(shed_to_cap "$TRIAGE_JSON" \
-    "$(bounded_cap "${REVIEW_LANE_TRIAGE_MAX_BYTES:-}" 32768)" \
-    'if .config then .config |= (del(.raw) + {rawOmitted:true}) else . end' \
-    'triage block' 'config.raw omitted, decisions retained')"
+  if [ -n "$TRIAGE_JSON" ]; then
+    TRIAGE_JSON="$(shed_to_cap "$TRIAGE_JSON" \
+      "$(bounded_cap "${REVIEW_LANE_TRIAGE_MAX_BYTES:-}" 32768)" \
+      'if .config then .config |= (del(.raw) + {rawOmitted:true}) else . end' \
+      'triage block' 'config.raw omitted, decisions retained')"
+  fi
 fi
 if [ -n "$TRIAGE_JSON" ]; then
   # A decisive no-op costs zero tokens, same contract as the ownership
@@ -350,13 +424,8 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   # than nesting inside them: the resolver finishes before the lane subprocess is
   # spawned, so the worst case a wedged gate can hold is 35, not 30.
   EVIDENCE_TIMEOUT="$(bounded_cap "${REVIEW_LANE_EVIDENCE_TIMEOUT:-}" 300)"
-  if command -v timeout >/dev/null 2>&1; then
-    EVIDENCE_JSON="$(timeout -k 5 "$EVIDENCE_TIMEOUT" node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
-      ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
-  else
-    EVIDENCE_JSON="$(node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
-      ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
-  fi
+  EVIDENCE_JSON="$(timeout -k 5 "$EVIDENCE_TIMEOUT" node "$EVIDENCE_SCRIPT" --repo "$REPO_ROOT" --lane "$LANE" \
+    ${RANGE_FULL:+--range "$RANGE_FULL"} 2>/dev/null || true)"
   # A reaped or crashed resolver leaves whatever bytes reached the pipe. Inlining
   # those as authoritative is worse than inlining nothing, because the lane is
   # told not to re-derive the block. Unparseable means absent.
@@ -373,8 +442,12 @@ if [ -n "$REPO_ROOT" ] && [ -f "$EVIDENCE_SCRIPT" ] && command -v node >/dev/nul
   # contradict it.
   EVIDENCE_JSON="$(shed_to_cap "$EVIDENCE_JSON" \
     "$(bounded_cap "${REVIEW_LANE_EVIDENCE_MAX_BYTES:-}" 65536)" \
-    '. as $in | (if has("docsCitingChanged") then .docsCitingChanged |= map(del(.patch) + {patchOmitted:true}) else . end) | del(.docIndex, .specIndex, .pending, .config) + {omitted:(($in.omitted//[]) + (["docIndex","specIndex","pending","config"] | map(. as $f | select($in | has($f)))))}' \
-    'evidence' 'shed fields named in .omitted')"
+    '. as $in
+     | (if has("docsCitingChanged") then .docsCitingChanged |= map(if has("patch") then del(.patch) + {patchOmitted:true} else . end) else . end)
+     | del(.docIndex, .specIndex, .changelog, .queue)
+     | .omitted = (($in.omitted // []) + (["docIndex","specIndex","changelog","queue"] | map(. as $f | select($in | has($f))))
+         + (if (($in.docsCitingChanged // []) | any(has("patch"))) then ["docsCitingChanged.patch"] else [] end) | unique)' \
+    'evidence' 'shed fields named in .omitted; compact pending/config resolutions retained')"
 fi
 
 TASK="PR-boundary review, $LANE lane. $SCOPE"
@@ -461,16 +534,7 @@ LANE_TIMEOUT="$(bounded_cap "${REVIEW_LANE_TIMEOUT:-}" 1800)"
 # which a process wedged in an uninterruptible auth prompt or a tight retry loop
 # can ignore -- leaving exactly the hung lane the bound was meant to reap.
 #
-# `timeout` is coreutils and not guaranteed present. Its absence loses the bound,
-# not the review: a lane that runs unbounded still reviews, whereas exiting here
-# would silently drop a required lane. Say so on stderr so an unbounded run is
-# never mistaken for a bounded one.
-if command -v timeout >/dev/null 2>&1; then
-  RAW="$(printf '%s' "$TASK" | timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
-else
-  echo "run-review-lane: timeout(1) not found; running $LANE unbounded" >&2
-  RAW="$(printf '%s' "$TASK" | claude "$@" 2>"$LANE_STDERR")"
-fi
+RAW="$(printf '%s' "$TASK" | timeout -k 30 "$LANE_TIMEOUT" claude "$@" 2>"$LANE_STDERR")"
 STATUS=$?
 if [ $STATUS -ne 0 ] || [ -z "$RAW" ]; then
   echo "run-review-lane: $LANE lane failed to produce a report (exit $STATUS)" >&2

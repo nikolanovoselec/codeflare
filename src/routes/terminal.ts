@@ -22,6 +22,7 @@ import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
+import { warnStressTestBypass } from '../middleware/rate-limit';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -33,7 +34,6 @@ import { isAllowedOrigin } from '../lib/cors-cache';
 import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } from '../lib/error-types';
 
 const logger = createLogger('terminal');
-let wsStressTestWarningLogged = false;
 
 /**
  * Result of WebSocket routing validation
@@ -231,10 +231,7 @@ export async function handleWebSocketUpgrade(
     }
 
     if (env.STRESS_TEST_MODE === 'active') {
-      if (!wsStressTestWarningLogged) {
-        logger.warn('STRESS_TEST_MODE is active — WebSocket rate limits bypassed');
-        wsStressTestWarningLogged = true;
-      }
+      warnStressTestBypass();
     } else {
       // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
       // Runs AFTER session-stopped rejection (see comment above) so failed

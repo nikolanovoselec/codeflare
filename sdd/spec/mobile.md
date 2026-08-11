@@ -187,7 +187,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Constraints:**
 
-- Normal scrollback scrolls xterm's buffer service directly rather than the public viewport-relative scroll API ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
+- Normal scrollback uses xterm's buffer service directly ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
 - Alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
 
 **Priority:** P1
@@ -351,8 +351,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (retires the decorative canvas when a touch page is backgrounded) -->
-2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (falls back to the stable dark CSS background when the WebGL context is lost) -->
+1. Backgrounding on a coarse-pointer device permanently retires the decorative WebGL canvas. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC1: retires a coarse-pointer canvas when the page is backgrounded) -->
+2. WebGL context loss retires the canvas on any device and leaves the app root's dark CSS surface visible. <!-- @impl: web-ui/src/components/SplashCursor.tsx::SplashCursor --> <!-- @impl: web-ui/src/index.css::#root --> <!-- @test: web-ui/src/__tests__/components/SplashCursor.test.tsx (REQ-MOB-018 AC2: context loss permanently retires the canvas without requesting restoration) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -490,7 +490,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. On first use, when the microphone permission state requires a prompt, the iframe input is blurred (dismissing the keyboard) before requesting permission so the user can see the browser prompt. <!-- @impl: web-ui/src/lib/speech-input.ts::getMicPermissionState --> <!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (REQ-MOB-013 AC1: getMicPermissionState returns the Permissions API state ("prompt" first use)) -->
+1. On first use, when the microphone permission state is `prompt` or cannot be determined, the iframe input is blurred (dismissing the keyboard) before requesting permission so the user can see a possible browser prompt. <!-- @impl: web-ui/src/lib/speech-input.ts::getMicPermissionState --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-013 AC1: dismisses the mobile keyboard before speech may issue a first prompt when permission state is unknown) -->
 2. The same blur-before-permission pattern applies to clipboard paste. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
 3. Swipe-typed text is buffered through the browser's IME composition events and sent only when the IME commits, so partial composition does not reach the terminal as individual keystrokes. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @manual -->
 
@@ -545,12 +545,12 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. A live focus query reports whether browser focus currently rests on a terminal input surface; it is the single discriminator used by every per-pane keyboard-teardown site. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (reports focus resting on a terminal input iframe) -->
 2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::releaseKeyboardOnBlur --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 3. A Samsung back-button keyboard dismiss still zeroes keyboard state, but a pane-to-pane focus handoff does not. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)) -->
-4. When focus leaves all terminal surfaces (a non-terminal element gains focus, or the terminal unmounts) the shared keyboard overlay and signals are released. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (AC4: tears down shared keyboard state when focus leaves the terminal entirely) -->
+4. When focus leaves all terminal surfaces, the shared keyboard overlay and signals are released. Unmount releases them only when the retiring pane owns focus or no terminal input owns focus; a sibling-pane focus handoff preserves them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: preserves shared keyboard state when a sibling pane owns focus) --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (REQ-MOB-015 AC4: retires shared keyboard state when no terminal input owns focus) -->
 
 **Constraints:**
 
 - The discriminator reads live focus state, never a cached value.
-- The exit/unmount teardown path stays unconditional so overlay mode is never left enabled for subsequent non-terminal inputs.
+- Exit/unmount teardown is owner-aware: it cannot clear a sibling terminal's live keyboard state, and it resets state when no terminal input remains focused.
 
 **Priority:** P1
 

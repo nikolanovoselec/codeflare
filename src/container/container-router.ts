@@ -98,7 +98,7 @@ interface GetBucketNameResponse {
  * reproduce the wire contract that the old `${method}:${pathname}` key
  * encoded; `handle` owns body parsing and response construction.
  */
-export interface InternalRoute {
+interface InternalRoute {
   readonly name: 'setBucketName' | 'setSessionId' | 'getBucketName';
   readonly method: 'GET' | 'POST' | 'PUT';
   readonly path: string;

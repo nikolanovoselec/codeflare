@@ -300,11 +300,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
-  it('REQ-OPS-022 AC5: omits coverage lanes from the pull-request critical path', () => {
+  it('REQ-OPS-022 AC5: runs affected coverage lanes on pull requests', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const expectedConditions = {
-      'coverage-backend': "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true')",
-      'coverage-frontend': "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true')",
+      'coverage-backend': "needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true'",
+      'coverage-frontend': "needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true'",
     };
     for (const [name, condition] of Object.entries(expectedConditions)) {
       expect((testWorkflow.jobs[name] as { if?: string }).if).toBe(condition);

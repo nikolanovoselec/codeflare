@@ -58,12 +58,19 @@ describe('OAuthConnectCard', () => {
       expect(onSelect).toHaveBeenCalledWith('minimal');
     });
 
-    it('navigates to the connect URL on click', () => {
+    it('keeps provider-specific visual chrome while using the shared connect interaction', () => {
       const originalLocation = window.location;
       const mockLocation = { href: '', search: '', pathname: '/app/' };
       Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
 
-      render(() => <OAuthConnectCard {...base} status="disconnected" />);
+      render(() => (
+        <OAuthConnectCard
+          {...base}
+          status="disconnected"
+          class="github-panel-connect"
+        />
+      ));
+      expect(screen.getByTestId('cloudflare-connect-card')).toHaveClass('github-panel-connect');
       fireEvent.click(screen.getByTestId('cloudflare-connect-btn'));
       expect(mockLocation.href).toBe('/api/cloudflare/connect');
 

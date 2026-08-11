@@ -749,24 +749,24 @@ export async function collectMetrics(
   // and the construction's storage read raced with a setBucketName write, or
   // (b) some code path wrote 'sleepAfter' to storage without updating the
   // cache. Storage is the authoritative source.
-  let idleTimeoutPref = callbacks.idleTimeoutPref;
+  let idleTimeoutPref = '4h';
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
     if (stored && /^(5m|15m|30m|1h|2h|4h)$/.test(stored)) {
-      if (stored !== idleTimeoutPref) {
-        logger.info('collectMetrics: refreshing idleTimeoutPref from storage', {
-          cached: idleTimeoutPref, stored,
-        });
-        callbacks.setIdleTimeoutPref(stored);
-      }
       idleTimeoutPref = stored;
-    } else if (stored !== undefined) {
-      logger.warn('collectMetrics: storage holds invalid sleepAfter value, ignoring', { stored });
+    } else {
+      logger.warn('collectMetrics: sleepAfter missing or invalid; selecting fail-safe 4h', { stored });
     }
   } catch (err) {
-    logger.warn('collectMetrics: failed to refresh idleTimeoutPref from storage', {
+    logger.warn('collectMetrics: failed to read sleepAfter; selecting fail-safe 4h', {
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+  if (idleTimeoutPref !== callbacks.idleTimeoutPref) {
+    logger.info('collectMetrics: refreshing idleTimeoutPref from authoritative tick value', {
+      cached: callbacks.idleTimeoutPref, resolved: idleTimeoutPref,
+    });
+    callbacks.setIdleTimeoutPref(idleTimeoutPref);
   }
   const sleepMs = parseSleepAfterMs(idleTimeoutPref);
   const activityProbeStartedAt = Date.now();

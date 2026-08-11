@@ -19,6 +19,7 @@ let mockStats: any = null;
 let mockPreviewFile: any = null;
 let mockWorkspaceSyncEnabled = true;
 let mockActiveSessionId: string | null = 'test-session';
+let mockSessionSyncStatus: string | undefined;
 // REQ-STOR-015 AC6: Sync-now button disabled while a fan-out is in flight.
 // Default false; flip per test to assert disabled-state coupling.
 let mockSyncing = false;
@@ -136,6 +137,7 @@ vi.mock('../../stores/session', () => ({
         ? [{ id: mockActiveSessionId, status: 'running' }]
         : [];
     },
+    getMetricsForSession: () => ({ syncStatus: mockSessionSyncStatus }),
   },
 }));
 
@@ -1013,6 +1015,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
   describe('Sync-now fan-out button (REQ-STOR-015 AC6)', () => {
     beforeEach(() => {
       mockSyncing = false;
+      mockSessionSyncStatus = undefined;
       mockSyncNow.mockReset();
     });
 
@@ -1035,6 +1038,12 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
       const btn = screen.getByTestId('storage-sync-now-btn');
       expect(btn).toBeDisabled();
+    });
+
+    it('is disabled while authoritative session metrics report syncing', () => {
+      mockSessionSyncStatus = 'syncing';
+      render(() => <StorageBrowser />);
+      expect(screen.getByTestId('storage-sync-now-btn')).toBeDisabled();
     });
 
     it('shows the breathing animation class while syncing', () => {

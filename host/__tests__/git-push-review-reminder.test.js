@@ -137,6 +137,52 @@ describe('git-push-review-reminder.sh — substring false-positive guard', () =>
   });
 });
 
+describe('git-push-review-reminder.sh — structural shell boundaries', () => {
+  for (const command of [
+    'git -C . status --short',
+    'if git status --short; then :; fi',
+    'printf "%s\\n" "$(gh pr view)"',
+    'echo ready && "git" status --short',
+  ]) {
+    it(`classifies executable activity in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    });
+  }
+
+  for (const command of [
+    'printf "%s\\n" "x; git status"',
+    "printf '%s\\n' '$(gh pr view)'",
+    "cat <<'EOF'\ngit status\nEOF",
+  ]) {
+    it(`keeps non-executable lookalikes inert in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGhFails(cwd));
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
+    });
+  }
+
+  for (const command of [
+    "printf '%s\\n' '<<EOF'\ngit status --short",
+    'printf "%s\\n" "<<EOF"\ngit status --short',
+    'printf "%s\\n" \\<\\<EOF\ngit status --short',
+  ]) {
+    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    });
+  }
+});
+
 describe('git-push-review-reminder.sh — vibe-coding gate', () => {
   it('exits 0 silently on git push when sdd/ is missing', () => {
     const cwd = makeFixture();
@@ -158,6 +204,76 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     });
   }
 
+  it('asks before review for non-delivery Git activity but auto-launches after push or PR creation', () => {
+    const statusRepo = makeFixture();
+    withSdd(statusRepo);
+    const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
+    assert.match(status.stdout, /FIRST use AskUserQuestion/);
+    assert.match(status.stdout, /Acknowledge without review/);
+    assert.match(status.stdout, /do not recommend either choice/i,
+      'the agent must present the user-only bypass neutrally');
+    assert.match(status.stdout, /self-verification never substitutes/i,
+      'the agent may not recommend bypass because it considers the diff already verified');
+    assert.match(status.stdout, /If the question is cancelled, ask it again/);
+    assert.match(status.stdout, /ci-monitoring skill exactly once/);
+    assert.match(status.stdout, /Issue the lane calls in that same message\. Immediately after those calls, launch CI as the final launch\. Once CI is launched, END YOUR TURN\./);
+
+    for (const command of [
+      'git push origin HEAD',
+      'gh run list --branch review | xargs -r gh run cancel; echo stale-runs-handled; git push 2>&1 | tail -4',
+      'gh pr create --base main --title review --body body',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const automatic = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      assert.doesNotMatch(automatic.stdout, /FIRST use AskUserQuestion/);
+      assert.match(automatic.stdout, /Execute NOW/);
+      assert.match(automatic.stdout, /delivery boundary.*never ask.*consent/i,
+        'successful delivery must auto-launch review rather than asking again');
+      assert.match(automatic.stdout, /do NOT relaunch a lane while its first call is still in flight/,
+        'scope correction must not create a duplicate reviewer wave');
+      assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
+    }
+  });
+
+  it('auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: reviewed base');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: review finding');
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.doesNotMatch(r.stdout, /FIRST use AskUserQuestion/);
+    assert.match(r.stdout, /review-fix continuation/i);
+    assert.match(r.stdout, /Execute NOW/);
+    assert.match(r.stdout, new RegExp(`--range ${ackSha}\\.\\.${headSha}`));
+  });
+
+  it('does not treat a repository-global legacy acknowledgement as same-PR continuation evidence', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const legacySha = commitAt(cwd, 'src/legacy.ts', 'export {};\n', 'feat: another PR base');
+    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), legacySha);
+    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: current PR finding');
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.match(r.stdout, /FIRST use AskUserQuestion/,
+      'a legacy repository-global SHA cannot prove acknowledgement by this PR');
+    assert.doesNotMatch(r.stdout, /detected after review-fix continuation/);
+  });
+
+  it('does not accept a repository-global legacy acknowledgement for the current PR exact head', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = commitAt(cwd, 'sdd/spec/current.md', '# current\n', 'feat: current PR head');
+    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), headSha);
+    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+
+    assert.match(r.stdout, /FIRST use AskUserQuestion/,
+      'a legacy repository-global SHA cannot acknowledge this exact PR head');
+  });
+
   it('does not repeat the launch reminder for the same unacknowledged head', () => {
     const cwd = makeFixture();
     withSdd(cwd);
@@ -170,6 +286,17 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     assert.match(first.stdout, /separate FIX directive next turn/);
     assert.doesNotMatch(first.stdout, /THEN fix every finding/);
     assert.equal(repeated.stdout, '');
+  });
+
+  it('requires an empty finding table without synthetic lane rows for a fully clean round', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const directive = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+
+    assert.match(directive, /fully clean round publishes the header and divider with no synthetic clean-lane rows/i);
+    assert.match(directive, /\| FINDING \| VALIDITY \| PROPOSED FIX \| PROPORTIONALITY \| MINIMAL DECISION \|/);
+    assert.doesNotMatch(directive, /one row per required lane/i);
   });
 
   it('stays inert when the authoritative PR head is already acknowledged', () => {
@@ -531,6 +658,10 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, new RegExp(`--boundary-pr 42 --range ${ackSha}\\.\\.${headSha}`),
+      'the emitted runner command must bind the acknowledged incremental range to this PR');
+    assert.doesNotMatch(r.stdout, /--base main/,
+      'an acknowledged ancestor must never fall back to the full PR diff');
   });
 
   it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {

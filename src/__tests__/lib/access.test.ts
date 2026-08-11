@@ -14,13 +14,16 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 const { mockSendWelcomeEmail } = vi.hoisted(() => ({
-  mockSendWelcomeEmail: vi.fn(async () => true),
+  mockSendWelcomeEmail: vi.fn(async (_opts: { idempotencyKey?: string }) => true),
 }));
-vi.mock('../../lib/email', () => ({
+vi.mock('../../lib/email', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/email')>(),
   sendWelcomeEmail: mockSendWelcomeEmail,
 }));
 
-import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
+import { resolveUserFromKV, getBucketName, resolveBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
+import { sendEmail } from '../../lib/email';
+import { Timekeeper } from '../../timekeeper/index';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -29,9 +32,32 @@ import { createMockKV } from '../helpers/mock-kv';
 
 describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
+  let bucketOwners: Map<string, string>;
+
+  function makeEnv(overrides: Partial<Env> = {}): Env {
+    const containerNamespace = {
+      idFromName: (name: string) => name,
+      get: (id: string) => ({
+        claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+          const owner = bucketOwners.get(id);
+          if (owner === email) return 'owned' as const;
+          if (owner) return 'conflict' as const;
+          if (!allowInitialClaim) return 'ambiguous' as const;
+          bucketOwners.set(id, email);
+          return 'owned' as const;
+        },
+      }),
+    };
+    return {
+      KV: mockKV as unknown as KVNamespace,
+      CONTAINER: containerNamespace,
+      ...overrides,
+    } as unknown as Env;
+  }
 
   beforeEach(() => {
     mockKV = createMockKV();
+    bucketOwners = new Map();
     vi.clearAllMocks();
     resetAuthConfigCache();
   });
@@ -192,17 +218,74 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
     });
   });
 
+  describe('resolveBucketName / REQ-AUTH-006 tenant isolation', () => {
+    it('migrates an unambiguous legacy identity without renaming its bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const result = await resolveBucketName(makeEnv(), 'ab@example.com');
+
+      expect(result).toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
+        email: 'ab@example.com',
+        version: 1,
+      });
+    });
+
+    it('uses a digest-suffixed bucket for a later identity that collides with an owned legacy bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+      await resolveBucketName(makeEnv(), 'ab@example.com');
+      mockKV._set('user:a+b@example.com', { role: 'user' });
+
+      const versioned = await resolveBucketName(makeEnv(), 'a+b@example.com');
+
+      expect(versioned).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
+      expect(versioned).not.toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get(`bucket-owner:${versioned}`)!)).toEqual({
+        email: 'a+b@example.com',
+        version: 2,
+      });
+    });
+
+    it('REQ-AUTH-006 AC3: keeps the legacy bucket for a pre-existing colliding identity when the requester resolves first', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const requesterBucket = await resolveBucketName(makeEnv(), 'a+b@example.com');
+      const existingBucket = await resolveBucketName(makeEnv(), 'ab@example.com');
+
+      expect(requesterBucket).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
+      expect(existingBucket).toBe('codeflare-ab-example-com');
+      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
+        email: 'ab@example.com',
+        version: 1,
+      });
+    });
+
+    it('serializes concurrent claims so colliding identities never share the legacy bucket', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const [first, second] = await Promise.all([
+        resolveBucketName(makeEnv(), 'ab@example.com'),
+        resolveBucketName(makeEnv(), 'a+b@example.com'),
+      ]);
+
+      expect(new Set([first, second]).size).toBe(2);
+      expect([first, second].filter((name) => name === 'codeflare-ab-example-com')).toHaveLength(1);
+    });
+
+    it('denies access when multiple legacy identities collide before ownership is known', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+      mockKV._set('user:a+b@example.com', { role: 'user' });
+
+      await expect(resolveBucketName(makeEnv(), 'ab@example.com'))
+        .rejects.toThrow('Ambiguous legacy bucket ownership');
+      expect(mockKV._store.has('bucket-owner:codeflare-ab-example-com')).toBe(false);
+    });
+  });
+
   // ===========================================================================
   // authenticateRequest() tests (Q23)
   // ===========================================================================
   describe('authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)', () => {
-    function makeEnv(overrides: Partial<Env> = {}): Env {
-      return {
-        KV: mockKV as unknown as KVNamespace,
-        ...overrides,
-      } as Env;
-    }
-
     it('throws AuthError when request has no auth headers', async () => {
       const request = new Request('http://localhost/test');
 
@@ -309,13 +392,6 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
   // CF-019: independent double-submit CSRF token gating in authenticateRequest
   // ===========================================================================
   describe('authenticateRequest() CSRF double-submit / CF-019 (cookie+header token, mismatch rejects, absence falls back to X-Requested-With)', () => {
-    function makeEnv(overrides: Partial<Env> = {}): Env {
-      return {
-        KV: mockKV as unknown as KVNamespace,
-        ...overrides,
-      } as Env;
-    }
-
     // Pre-setup header trust authenticates the email; the KV record makes the
     // allowlist lookup pass so we reach the end of authenticateRequest. The
     // CSRF gate runs FIRST, so rejection tests do not even need a KV record.
@@ -554,27 +630,160 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
   });
 
-  describe('resolveOrProvisionUser — welcome email dedup', () => {
+  describe('resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012', () => {
+    function createWelcomeTimekeeper(): Timekeeper {
+      const values = new Map<string, unknown>();
+      let concurrencyGate = Promise.resolve();
+      const storage = {
+        get: vi.fn(async (key: string) => values.get(key)),
+        put: vi.fn(async (key: string, value: unknown) => { values.set(key, value); }),
+        getAlarm: vi.fn(async () => null),
+        setAlarm: vi.fn(async () => undefined),
+      };
+      const ctx = {
+        storage,
+        waitUntil: vi.fn(),
+        blockConcurrencyWhile: vi.fn(<T>(fn: () => Promise<T>): Promise<T> => {
+          const result = concurrencyGate.then(fn);
+          concurrencyGate = result.then(() => undefined, () => undefined);
+          return result;
+        }),
+      } as unknown as DurableObjectState;
+      return new Timekeeper(ctx, { KV: mockKV } as unknown as Env);
+    }
+
+    function welcomeRequest(userEmail = 'new@example.com'): Request {
+      return new Request('http://timekeeper/welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail, instanceUrl: 'https://codeflare.example.com' }),
+      });
+    }
+
     beforeEach(() => {
-      mockSendWelcomeEmail.mockClear();
+      mockSendWelcomeEmail.mockReset();
+      mockSendWelcomeEmail.mockResolvedValue(true);
     });
 
-    it('sends welcome email on first-time SaaS user and sets flag', async () => {
-      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
-      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'new@example.com', env);
+    it('REQ-AUTH-012 AC1: awaits the existing Timekeeper delivery claim before JIT provisioning resolves', async () => {
+      let releaseClaim!: (response: Response) => void;
+      let markClaimStarted!: () => void;
+      const claimStarted = new Promise<void>((resolve) => { markClaimStarted = resolve; });
+      const deliveryClaim = new Promise<Response>((resolve) => { releaseClaim = resolve; });
+      const timekeeperStub = {
+        fetch: vi.fn((_request: Request) => {
+          markClaimStarted();
+          return deliveryClaim;
+        }),
+      };
+      const timekeeperNamespace = {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => timekeeperStub),
+      };
+      const env = {
+        SAAS_MODE: 'active',
+        KV: mockKV,
+        TIMEKEEPER: timekeeperNamespace,
+      } as unknown as Env;
 
+      let provisioningResolved = false;
+      const provisioning = resolveOrProvisionUser(
+        mockKV as unknown as KVNamespace,
+        'new@example.com',
+        env,
+        'codeflare-new-example-com',
+      ).then((result) => {
+        provisioningResolved = true;
+        return result;
+      });
+      await claimStarted;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(provisioningResolved).toBe(false);
+      releaseClaim(new Response(null, { status: 202 }));
+      await provisioning;
+
+      expect(timekeeperNamespace.idFromName).toHaveBeenCalledWith('codeflare-new-example-com');
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      const body = await timekeeperStub.fetch.mock.calls[0][0].json();
+      expect(body).toEqual({ userEmail: 'new@example.com' });
+      expect(mockKV._store.has('welcome-sent:new@example.com')).toBe(false);
+    });
+
+    it('REQ-AUTH-012 AC2: logs a resolved Timekeeper 503 without failing JIT provisioning', async () => {
+      const timekeeperStub = {
+        fetch: vi.fn(async () => new Response(null, { status: 503 })),
+      };
+      const env = {
+        SAAS_MODE: 'active',
+        KV: mockKV,
+        TIMEKEEPER: {
+          idFromName: vi.fn((name: string) => name),
+          get: vi.fn(() => timekeeperStub),
+        },
+      } as unknown as Env;
+
+      const result = await resolveOrProvisionUser(
+        mockKV as unknown as KVNamespace,
+        'new@example.com',
+        env,
+        'codeflare-new-example-com',
+      );
+
+      expect(result).toMatchObject({ role: 'user', accessTier: 'pending', subscriptionTier: 'pending' });
+      expect(mockKV._store.has('user:new@example.com')).toBe(true);
+      expect(mockLoggerWarn).toHaveBeenCalledWith('Welcome email claim failed', { status: 503 });
+    });
+
+    it('serializes concurrent claims and never sends again after provider acceptance', async () => {
+      const timekeeper = createWelcomeTimekeeper();
+
+      const responses = await Promise.all([
+        timekeeper.fetch(welcomeRequest()),
+        timekeeper.fetch(welcomeRequest()),
+      ]);
+      const afterAcceptance = await timekeeper.fetch(welcomeRequest());
+
+      expect(responses.map((response) => response.status)).toEqual([202, 204]);
+      expect(afterAcceptance.status).toBe(204);
       expect(mockSendWelcomeEmail).toHaveBeenCalledTimes(1);
-      // Flag should be set in KV
-      const flag = mockKV._store.get('welcome-sent:new@example.com');
-      expect(flag).toBe('1');
     });
 
-    it('does NOT send welcome email when flag already exists', async () => {
-      mockKV._store.set('welcome-sent:existing@example.com', '1');
-      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
-      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'existing@example.com', env);
+    it('leaves a rejected send retryable with the same deterministic provider idempotency key', async () => {
+      mockSendWelcomeEmail.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const timekeeper = createWelcomeTimekeeper();
 
-      expect(mockSendWelcomeEmail).not.toHaveBeenCalled();
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(503);
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(202);
+      expect((await timekeeper.fetch(welcomeRequest())).status).toBe(204);
+
+      expect(mockSendWelcomeEmail).toHaveBeenCalledTimes(2);
+      const firstKey = mockSendWelcomeEmail.mock.calls[0][0].idempotencyKey;
+      const retryKey = mockSendWelcomeEmail.mock.calls[1][0].idempotencyKey;
+      expect(firstKey).toMatch(/^codeflare-welcome-v1-[a-f0-9]{64}$/);
+      expect(retryKey).toBe(firstKey);
+    });
+
+    it('forwards the deterministic idempotency key to the email provider', async () => {
+      const providerFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 202 }));
+      vi.stubGlobal('fetch', providerFetch);
+
+      try {
+        await sendEmail({
+          to: ['new@example.com'],
+          subject: 'Welcome',
+          html: '<p>Welcome</p>',
+          idempotencyKey: `codeflare-welcome-v1-${'a'.repeat(64)}`,
+          env: { RESEND_API_KEY: 'test-key' },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      const request = providerFetch.mock.calls[0]?.[1];
+      expect(request?.headers).toMatchObject({
+        'Idempotency-Key': `codeflare-welcome-v1-${'a'.repeat(64)}`,
+      });
     });
   });
 });

@@ -13,10 +13,18 @@ import { z } from 'zod';
 import type { Env, UsageRecord } from '../types';
 import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
-import { getUserTier, getTierConfig, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
+import {
+  getUserTier,
+  getTierConfig,
+  getEffectiveTier,
+  isEnterpriseMode,
+  withoutBillingState,
+} from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
+import { sendWelcomeEmail } from '../lib/email';
+import { parseUserRecord } from '../lib/user-record';
 
 const logger = createLogger('timekeeper');
 
@@ -58,6 +66,53 @@ interface PingBody {
   email: string;
 }
 
+const WelcomeBodySchema = z.object({
+  userEmail: z.string().email(),
+  instanceUrl: z.string().url().optional(),
+});
+
+const BillingSyncStartBodySchema = z.object({
+  userEmail: z.string().email(),
+}).strict();
+
+const BillingSyncPatchSchema = z.union([
+  z.object({
+    stripeSubscriptionId: z.string().min(1),
+    stripeCustomerId: z.string().min(1),
+    billingStatus: z.string().min(1),
+    cancelAtPeriodEnd: z.boolean(),
+    lastSyncedAt: z.string().datetime(),
+    subscriptionTier: z.string().min(1).optional(),
+    accessTier: z.string().min(1).optional(),
+    subscribedMode: z.enum(['default', 'advanced']).optional(),
+    stripePriceId: z.string().min(1).optional(),
+    billingPeriodEnd: z.string().datetime().optional(),
+    trialUsed: z.literal(true).optional(),
+  }).strict(),
+  z.object({
+    cleanupBillingState: z.literal(true),
+    billingStatus: z.literal(BILLING_STATUS.CANCELED),
+    subscriptionTier: z.literal('free'),
+    accessTier: z.literal('free'),
+    subscribedMode: z.literal('default'),
+  }).strict(),
+]);
+
+const BillingSyncApplyBodySchema = z.object({
+  userEmail: z.string().email(),
+  token: z.number().int().positive().safe(),
+  patch: BillingSyncPatchSchema,
+}).strict();
+
+async function getWelcomeIdempotencyKey(userEmail: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(userEmail.trim().toLowerCase()),
+  ));
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `codeflare-welcome-v1-${hex}`;
+}
+
 export class Timekeeper {
   private ctx: DurableObjectState;
   private env: Env;
@@ -97,8 +152,17 @@ export class Timekeeper {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (request.method === 'POST' && path === '/welcome') {
+      return this.handleWelcome(request);
+    }
     if (request.method === 'POST' && path === '/ping') {
       return this.handlePing(request);
+    }
+    if (request.method === 'POST' && path === '/billing-sync/start') {
+      return this.handleBillingSyncStart(request);
+    }
+    if (request.method === 'POST' && path === '/billing-sync/apply') {
+      return this.handleBillingSyncApply(request);
     }
     if (request.method === 'GET' && path === '/usage') {
       return this.handleGetUsage();
@@ -138,6 +202,109 @@ export class Timekeeper {
     if (this.pendingSeconds > 0) {
       await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
     }
+  }
+
+  private async handleWelcome(request: Request): Promise<Response> {
+    const parsed = WelcomeBodySchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return new Response('Invalid welcome body', { status: 400 });
+
+    const userEmail = parsed.data.userEmail.trim().toLowerCase();
+    let response = new Response(null, { status: 503 });
+
+    // The per-user Timekeeper is the single ownership boundary. Blocking
+    // concurrency around the provider call ensures only one claim can advance,
+    // while the provider key makes an ambiguous retry deterministic.
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (this.email && this.email !== userEmail) {
+        response = new Response('Email mismatch', { status: 403 });
+        return;
+      }
+      if (!this.email) {
+        this.email = userEmail;
+        await this.ctx.storage.put('email', userEmail);
+      }
+      if (await this.ctx.storage.get<boolean>('welcomeEmailAccepted')) {
+        response = new Response(null, { status: 204 });
+        return;
+      }
+
+      const accepted = await sendWelcomeEmail({
+        userEmail,
+        instanceUrl: parsed.data.instanceUrl,
+        idempotencyKey: await getWelcomeIdempotencyKey(userEmail),
+        env: this.env,
+      });
+      if (!accepted) return;
+
+      await this.ctx.storage.put('welcomeEmailAccepted', true);
+      response = new Response(null, { status: 202 });
+    });
+
+    return response;
+  }
+
+  private async handleBillingSyncStart(request: Request): Promise<Response> {
+    const parsed = BillingSyncStartBodySchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return new Response('Invalid billing sync start body', { status: 400 });
+
+    const userEmail = parsed.data.userEmail.trim().toLowerCase();
+    let response = new Response(null, { status: 503 });
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (this.email && this.email.trim().toLowerCase() !== userEmail) {
+        response = new Response('Email mismatch', { status: 403 });
+        return;
+      }
+      if (!this.email) {
+        this.email = userEmail;
+        await this.ctx.storage.put('email', userEmail);
+      }
+      const current = await this.ctx.storage.get<number>('billingSyncVersion') ?? 0;
+      const token = current + 1;
+      await this.ctx.storage.put('billingSyncVersion', token);
+      response = Response.json({ token });
+    });
+    return response;
+  }
+
+  private async handleBillingSyncApply(request: Request): Promise<Response> {
+    const parsed = BillingSyncApplyBodySchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return new Response('Invalid billing sync apply body', { status: 400 });
+
+    const { token, patch } = parsed.data;
+    const userEmail = parsed.data.userEmail.trim().toLowerCase();
+    let response = new Response(null, { status: 503 });
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (this.email?.trim().toLowerCase() !== userEmail) {
+        response = new Response('Email mismatch', { status: 403 });
+        return;
+      }
+      const current = await this.ctx.storage.get<number>('billingSyncVersion') ?? 0;
+      if (token !== current) {
+        response = Response.json({ applied: false });
+        return;
+      }
+
+      const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json'));
+      const updated = 'cleanupBillingState' in patch
+        ? {
+            ...withoutBillingState(existing ?? {}),
+            billingStatus: patch.billingStatus,
+            subscriptionTier: patch.subscriptionTier,
+            accessTier: patch.accessTier,
+            subscribedMode: patch.subscribedMode,
+          }
+        : { ...existing, ...patch };
+      await this.env.KV.put(`user:${userEmail}`, JSON.stringify(updated));
+      response = Response.json({
+        applied: true,
+        previous: {
+          ...(existing?.subscribedMode ? { subscribedMode: existing.subscribedMode } : {}),
+          ...(existing?.subscriptionTier ? { subscriptionTier: existing.subscriptionTier } : {}),
+          ...(existing?.accessTier ? { accessTier: existing.accessTier } : {}),
+        },
+      });
+    });
+    return response;
   }
 
   private async handlePing(request: Request): Promise<Response> {

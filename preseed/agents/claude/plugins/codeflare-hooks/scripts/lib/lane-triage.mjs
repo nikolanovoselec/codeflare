@@ -164,10 +164,13 @@ function roundCounter(repo, lane) {
     inspected += 1;
     const [header, ...fileLines] = record.split('\n');
     const subject = header.slice(header.indexOf(' ') + 1).trim();
+    const touchedLane = fileLines.some((f) => f.trim().startsWith(rule.tree));
     if (BULK_PREFIXES.some((p) => subject.startsWith(p))) continue;
-    if (!rule.tags.some((tag) => rule.match(subject, tag))) continue;
-    if (!fileLines.some((f) => f.trim().startsWith(rule.tree))) continue;
-    counted += 1;
+    if (!rule.tags.some((tag) => rule.match(subject, tag))) {
+      if (touchedLane) break;
+      continue;
+    }
+    if (touchedLane) counted += 1;
   }
   return { counted, inspected, action: counted >= 5 ? 'stop' : 'continue' };
 }

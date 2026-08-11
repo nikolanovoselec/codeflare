@@ -54,6 +54,39 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
     });
   });
 
+  describe('initial target validation', () => {
+    const blocked = [
+      'not a url',
+      'ftp://example.com/file',
+      'https://user:pass@example.com/',
+      'http://localhost/',
+      'http://app.localhost/',
+      'http://127.0.0.1/',
+      'http://10.0.0.1/',
+      'http://169.254.1.1/',
+      'http://172.16.0.1/',
+      'http://192.168.1.1/',
+      'http://[::]/',
+      'http://[::1]/',
+      'http://[fc00::1]/',
+      'http://[fe80::1]/',
+      'http://[::ffff:7f00:1]/',
+    ];
+
+    it.each(blocked)('rejects %s before any Browser Run fetch', async (url) => {
+      const fetchImpl = makeFetch(() => ok('should not run'));
+      const result = await mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url }, accountId: 'a', token: 't', fetchImpl,
+      });
+      expect(result.isError).toBe(true);
+      expect(fetchImpl.calls).toHaveLength(0);
+    });
+
+    it.each(['https://example.com/path', 'http://1.1.1.1/'])('accepts public HTTP(S) target %s', (url) => {
+      expect(mod.initialTargetError(url)).toBeNull();
+    });
+  });
+
   describe('gotoOptions', () => {
     it('returns {} with no wait strategy', () => {
       expect(mod.gotoOptions(undefined)).toEqual({});

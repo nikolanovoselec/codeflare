@@ -3,6 +3,10 @@
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
 # Trigger model: every executable `git` or `gh` command is a cheap candidate.
+# The existing structural tokenizer marks `git push` and `gh pr create` for
+# automatic delivery. Other commands require explicit user confirmation unless
+# the same PR has an acknowledged ancestor: that synchronized descendant is an
+# active review-fix continuation and resumes the loop automatically.
 # Eligibility comes only from authoritative state: the normal checkout's current
 # branch must have an open main/master/develop PR whose full head equals local
 # HEAD and differs from that PR's checkpoint. Detached HEAD, nonstandard
@@ -34,29 +38,17 @@ set +e
 
 INPUT=$(cat 2>/dev/null) || exit 0
 
-# ---------------------------------------------------------------------------
-# Cheap pre-filter — skip if raw input doesn't even mention the trigger
-# substrings. PostToolUse fires on every Bash call, so avoiding the
-# jq cold-start (~30-80ms on a resource-constrained container) here saves seconds of
-# cumulative blocking time over a long session.
-# ---------------------------------------------------------------------------
-case "$INPUT" in
-  *"git "*|*"gh "*) ;; # candidate — authoritative branch-state check follows
-  *) exit 0 ;;
-esac
-
 # Extract the command(s) from any of three supported tool-input shapes:
 #
 #   1. Bash tool             → .tool_input.command           (string)
 #   2. mcp__*__ctx_execute   → .tool_input.code              (string, only when
 #                              .tool_input.language == "shell")
 #   3. mcp__*__ctx_batch_execute → .tool_input.commands[].command (array of
-#                              objects; concatenated with `; ` so the existing
-#                              shell-separator regex matches each command)
+#                              objects; concatenated with `; ` for one structural pass)
 #
 # Issue #317: when context-mode's enforce-ctx-mode.sh denies `gh pr create` /
 # `gh pr merge` in Bash, agents retry through MCP shell tools. Without this
-# multi-shape parsing, the regex below was applied to a JSON shape that has
+# multi-shape parsing, candidate parsing was applied to a JSON shape that has
 # no `.tool_input.command` field, COMMAND was empty, and the review-pipeline
 # directive silently never fired for the redirected invocation.
 COMMAND=$(echo "$INPUT" | jq -r '
@@ -71,12 +63,141 @@ COMMAND=$(echo "$INPUT" | jq -r '
   end
 ' 2>/dev/null) || true
 
-# Any executable git or gh command is a cheap candidate. Command syntax never
-# decides eligibility; the checked-out branch and GitHub PR state do.
-COMMAND=$(printf '%s' "$COMMAND" | tr '\n\r' ';;')
-if ! [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)(env[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git|gh)([[:space:]]|$) ]]; then
-  exit 0
-fi
+# Any structurally executable git or gh command is a candidate. Command syntax
+# never decides eligibility; the checked-out branch and GitHub PR state do.
+BOUNDARY_KIND=$(node - "$COMMAND" <<'NODE'
+const text = process.argv[2];
+const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
+const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+function heredocDeclarations(line) {
+  const declarations = [];
+  let quote = '';
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index] || '';
+    if (quote) {
+      if (char === '\\' && quote === '"') index++;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === '\\') { index++; continue; }
+    if (char !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === '-';
+    if (stripTabs) cursor++;
+    while (line[cursor] === ' ' || line[cursor] === '\t') cursor++;
+    let delimiter = '', delimiterQuote = '';
+    while (cursor < line.length) {
+      const token = line[cursor] || '';
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = '';
+        else if (token === '\\' && delimiterQuote === '"' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+        else delimiter += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === '\\' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+      else if (/\s/.test(token) || ';&|<>'.includes(token)) break;
+      else delimiter += token;
+      cursor++;
+    }
+    if (delimiter) declarations.push({ delimiter, stripTabs });
+    index = cursor - 1;
+  }
+  return declarations;
+}
+function stripHeredocs(value) {
+  const out = [], pending = [];
+  for (const line of value.split(/\r?\n/)) {
+    if (pending.length) {
+      const active = pending[0];
+      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === active.delimiter) pending.shift();
+      continue;
+    }
+    out.push(line);
+    pending.push(...heredocDeclarations(line));
+  }
+  return out.join('\n');
+}
+let found = false;
+let kind = 'none';
+function classify(tool, args) {
+  const takesValue = tool === 'git'
+    ? new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix'])
+    : new Set(['-R', '--repo', '--hostname', '--config']);
+  let index = 0;
+  while (index < args.length) {
+    const value = args[index] || '';
+    if (value === '--') { index++; break; }
+    if (!value.startsWith('-')) break;
+    if (takesValue.has(value) && !value.includes('=')) index++;
+    index++;
+  }
+  const command = args.slice(index);
+  const next = tool === 'git' && command[0] === 'push'
+    ? 'push'
+    : tool === 'gh' && command[0] === 'pr' && command[1] === 'create'
+      ? 'pr-create'
+      : 'prompt';
+  if (next !== 'prompt' || kind === 'none') kind = next;
+}
+function scan(source) {
+  let word = '', command = true, prefix = false, tool = '', args = [];
+  const finish = () => {
+    if (!word) return;
+    const value = word; word = '';
+    if (!command) {
+      if (tool) args.push(value);
+      return;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
+    if (value === 'git' || value === 'gh') { found = true; tool = value; command = false; return; }
+    if (prefix && value.startsWith('-')) return;
+    prefix = prefixes.has(value); command = prefix;
+  };
+  const boundary = () => {
+    finish();
+    if (tool) classify(tool, args);
+    command = true; prefix = false; tool = ''; args = [];
+  };
+  function substitution(start) {
+    let depth = 1, quote = '', escaped = false;
+    for (let i = start; i < source.length; i++) {
+      const c = source[i];
+      if (escaped) { escaped = false; continue; }
+      if (c === '\\' && quote !== "'") { escaped = true; continue; }
+      if (quote) { if (c === quote) quote = ''; continue; }
+      if (c === "'" || c === '"') { quote = c; continue; }
+      if (c === '(') depth++;
+      else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
+    }
+    return source.length;
+  }
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
+    if (c === '"') {
+      for (i++; i < source.length && source[i] !== '"'; i++) {
+        if (source[i] === '\\') word += source[++i] || '';
+        else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
+        else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
+        else word += source[i];
+      }
+      continue;
+    }
+    if (c === '\\') { word += source[++i] || ''; continue; }
+    if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
+    if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
+    if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
+    word += c;
+  }
+  boundary();
+}
+scan(stripHeredocs(text));
+console.log(kind);
+process.exit(found ? 0 : 1);
+NODE
+) || exit 0
+[ "$BOUNDARY_KIND" != "none" ] || exit 0
 
 [ -d sdd ] && [ -f sdd/README.md ] || exit 0
 [ -d .git ] || exit 0
@@ -106,16 +227,37 @@ GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR" ] || exit 0
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 LAST_ACK_PR_HEAD=""
+ACK_IS_PR_SPECIFIC=0
 if [ -f "$ACK_FILE" ]; then
   LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
+  ACK_IS_PR_SPECIFIC=1
 elif [ -f "$GIT_DIR/sdd-last-ack-pr-head" ]; then
+  # Migration fallback may still provide an incremental range after explicit
+  # consent, but it cannot prove this PR was the one that acknowledged it.
   LAST_ACK_PR_HEAD=$(cat "$GIT_DIR/sdd-last-ack-pr-head" 2>/dev/null)
 fi
 case "$LAST_ACK_PR_HEAD" in
   *[!0-9a-f]*|"") LAST_ACK_PR_HEAD="" ;;
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
-[ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+if [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
+  if [ "$ACK_IS_PR_SPECIFIC" = "1" ]; then
+    exit 0
+  fi
+  # Equal legacy state is not this PR's checkpoint and cannot provide a
+  # meaningful review range; fall back to the initial full-PR consent path.
+  LAST_ACK_PR_HEAD=""
+fi
+
+# A reviewed head followed by a synchronized descendant on the SAME PR is the
+# review loop continuing, even if the original push's PostToolUse directive was
+# missed and a later `git status` or `gh run view` is what exposes it. Treat that
+# as delivery instead of asking whether to stop because one prior lane was clean.
+if [ "$BOUNDARY_KIND" = "prompt" ] && [ "$ACK_IS_PR_SPECIFIC" = "1" ] \
+    && [ -n "$LAST_ACK_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
+  BOUNDARY_KIND="review-fix continuation"
+fi
+
 PLAN_FILE="$GIT_DIR/sdd-review-plan-pr-$PR_NUMBER"
 [ "$(cat "$PLAN_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ] || exit 0
 
@@ -155,7 +297,11 @@ case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
 case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
-DIRECTIVE="SDD $CONTEXT detected. Execute NOW, and keep the user informed as described at the end of this directive."
+if [ "$BOUNDARY_KIND" = "prompt" ]; then
+  DIRECTIVE="SDD $CONTEXT detected outside a push, PR creation, or acknowledged review-fix continuation. FIRST use AskUserQuestion to ask whether the user wants review and CI for PR #$PR_NUMBER at exact head $CURRENT_PR_HEAD. Offer 'Launch review' and 'Acknowledge without review' as neutral choices: do not recommend either choice, and self-verification never substitutes for required review. If the question is cancelled, ask it again until the user explicitly chooses; cancellation neither launches nor acknowledges. If the user chooses acknowledge, create the existing /tmp/review-bypass sentinel and end the turn; the Stop hook will revalidate and acknowledge this exact head. If the user chooses launch, continue with the review instructions below."
+else
+  DIRECTIVE="SDD $CONTEXT detected after $BOUNDARY_KIND. Execute NOW, and keep the user informed as described at the end of this directive. A successful push, PR creation, or acknowledged review-fix continuation is a delivery boundary: auto-launch review and CI and never ask the user for renewed consent."
+fi
 
 # Lane-aware composition. All review lanes are report-only and return findings to the
 # root session, so they run in parallel without shared-file writes or ordering dependency.
@@ -204,7 +350,8 @@ else
   LANE_SCOPE=""
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
-DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> $LANE_SCOPE' with run_in_background: true. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents and do NOT paste diffs into the command - the lane gathers its own evidence."
+DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> --boundary-pr $PR_NUMBER $LANE_SCOPE' with run_in_background: true. Copy that boundary command unchanged: the runner binds it to this PR checkpoint and normalizes any stale full-diff scope to the acknowledged incremental range. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents, do NOT paste diffs into the command, and do NOT relaunch a lane while its first call is still in flight - a terminal failure is re-demanded by the Stop hook."
+DIRECTIVE="$DIRECTIVE Immediately after launching reviewers, invoke the existing ci-monitoring skill exactly once for branch $CURRENT at exact head $CURRENT_PR_HEAD; its detached monitor is independent of review acknowledgement and is the final launch."
 DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes."
 # VISIBILITY. This replaces an earlier instruction to run the round silently.
 # That instruction also contradicted the constitution's review-result handoff
@@ -212,7 +359,7 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # user's to see, and a silent round makes an autofix look like an unexplained
 # edit. Lane names are deliberately not written here: several emission tests
 # assert the directive carries no lane literal outside its Lanes: line.
-DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message and then END YOUR TURN. While the lanes are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. When no lane returned a finding, do not publish an empty table: state plainly that every lane came back clean, and name each lane with its turn count and its triage verdict from the runner telemetry, so a clean round is distinguishable from a round that did not happen. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message. Immediately after those calls, launch CI as the final launch. Once CI is launched, END YOUR TURN. While the lanes and CI are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. A fully clean round publishes the header and divider with no synthetic clean-lane rows; lane completion already proves the round happened and the Stop hook can acknowledge that empty finding table. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
 
 printf '%s\n' "$CURRENT_PR_HEAD" > "$PLAN_FILE" 2>/dev/null || true
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'

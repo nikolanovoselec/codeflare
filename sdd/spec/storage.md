@@ -36,9 +36,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The bucket name is derived deterministically from the authenticated user's email so the same user always resolves to the same bucket. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)) -->
+1. The bucket identity is resolved deterministically through a strongly consistent Durable Object ownership claim; unambiguous legacy assignments remain stable and later sanitization collisions use a digest-suffixed v2 name. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @impl: src/container/index.ts::claimBucketOwner --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) --> <!-- @test: src/__tests__/container/index.test.ts (claimBucketOwner / REQ-STOR-001 tenant isolation) -->
 2. The bucket is auto-created via the Cloudflare API on first container start when it does not already exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC2 (createBucketIfNotExists is idempotent and race-safe)) -->
-3. No API endpoint may return objects from a bucket the authenticated user does not own. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)) -->
+3. No API endpoint may read, mutate, or delete objects from a bucket the acting user does not own; authentication, setup, billing, preferences, administration, and offboarding resolve the strongly claimed identity before bucket access, while unresolved legacy collisions fail closed. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 
 **Constraints:**
 
@@ -72,7 +72,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - R2 is the durable store; the local filesystem is ephemeral.
 - Persistence depends on at least one successful sync completing before container shutdown.
-- R2 carries object content and modification time but not POSIX modes, so an attribute the store cannot round-trip is re-established locally after every sync rather than assumed to have survived it.
+- R2 round-trips content and modification time only; each sync re-establishes local executable modes.
 
 **Priority:** P0
 
@@ -97,7 +97,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @manual -->
 4. The daemon retries on transient failure and continues the periodic cycle. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
-6. After three consecutive unrecoverable failures (each with internal retries exhausted), the daemon falls back to a resync baseline to re-establish a clean state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)) -->
+6. The default fallback remains three consecutive unrecoverable failures (each with internal retries exhausted). When exit code 7 coincides with a missing prior listing, the daemon immediately re-establishes a resync baseline because two more attempts cannot use absent state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)) --> <!-- @manual: Remove the listing, force exit 7, and confirm the first failed cycle enters baseline re-establishment. -->
 
 **Constraints:**
 
@@ -248,7 +248,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The multipart initiate endpoint creates a multipart upload and returns an upload identifier. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
 2. The multipart part endpoint uploads a single part for a given upload identifier. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
 3. The multipart complete endpoint finalizes the upload by assembling the recorded parts into the final object. <!-- @impl: src/routes/storage/upload.ts::CompleteUploadBodySchema --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
-4. The multipart abort endpoint cancels an in-progress multipart upload and releases any retained parts. <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) --> <!-- @manual -->
+4. The authenticated, bucket-scoped multipart abort endpoint reports success only when R2 accepts the abort; non-2xx responses fail the request rather than claiming cleanup. <!-- @impl: src/routes/storage/upload.ts::default --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
 5. All multipart endpoints share a single rate-limit bucket so an attacker cannot bypass the upload limit by interleaving phases. <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC5: shared rate limit across multipart endpoints) --> <!-- @manual -->
 
 **Constraints:**
@@ -560,7 +560,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - The marker value identifies the writing build and is never used to infer staleness on its own; only an object outside the current build's key set is a candidate.
 - A key the seed once shipped is never appended to the by-name list; the marker identifies it instead.
 - The list grows only for a product-generated file that was never a seeded key at all.
-- Deletion always requires positive evidence — a marker, or membership of the by-name list, whose entries are each shown to be product-generated rather than user-authored before being added — and anything unproven is kept.
+- Deletion requires a provenance marker or by-name membership that positively identifies product-generated content; all unproven content is kept.
 - The preseed content hash covers the by-name list, so shipping the list triggers the upgrade that applies it.
 - The generator refuses to emit a by-name list naming a key the current build still seeds.
 - Paths the agent runtime writes and owns are excluded from the sweep before the candidate cap is counted.

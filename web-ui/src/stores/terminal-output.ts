@@ -97,7 +97,7 @@ export function flushWriteBuffer(key: string, terminal: Terminal): void {
   if (isReadingScrollback(terminal)) {
     let heldChars = 0;
     for (const chunk of buffer) heldChars += chunk.length;
-    while (heldChars > READ_HOLD_MAX_CHARS && buffer.length > 1) {
+    while (heldChars > READ_HOLD_MAX_CHARS && buffer.length > 0) {
       heldChars -= buffer[0].length;
       buffer.shift();
     }

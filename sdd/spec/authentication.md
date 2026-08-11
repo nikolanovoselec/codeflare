@@ -180,7 +180,7 @@ None. Authentication is foundational; other domains depend on it.
 
 1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
 2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations. <!-- @impl: src/lib/access.ts::resolveUserFromKV --> <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)) -->
-3. User storage resources are named deterministically from the normalized email address. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)) -->
+3. User storage resources resolve through a strongly consistent Durable Object ownership claim: unambiguous legacy names are retained, later collisions receive a deterministic digest-suffixed name, and ambiguous legacy collisions are denied. <!-- @impl: src/lib/access.ts::resolveBucketName --> <!-- @test: src/__tests__/lib/access.test.ts (resolveBucketName / REQ-AUTH-006 tenant isolation) -->
 
 **Constraints:**
 
@@ -204,7 +204,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. A new user record is created with a pending subscription tier on first SaaS login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+1. A new user record is created with a pending subscription tier only after a cryptographically verified SaaS login; the pre-setup email header alone cannot persist an unknown identity. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 2. Pending users can access identity-only endpoints but are blocked from the IDE. <!-- @impl: src/middleware/auth.ts::requireIdentity --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)) -->
 3. The frontend detects the pending state and redirects the user to the subscription page. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC3: pending user redirected to subscribe) --> <!-- @manual -->
 4. After subscription (self-service or admin approval), the user record is updated with an active tier. <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/lib/user-record.test.ts (REQ-AUTH-007 AC4: transitions a pending user record to an active tier after subscription) -->
@@ -345,14 +345,14 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When a user is JIT-provisioned on first login, a welcome email is sent. <!-- @impl: src/lib/email.ts::sendWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-2. Email sending is fire-and-forget; delivery failure does not block login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-3. Email is sent only once per user (deduplicated via a per-user flag in storage). <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-4. When the email provider is not configured, the send is silently skipped. <!-- @impl: src/lib/email.ts::sendWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
+1. When a user is JIT-provisioned on first login, a welcome email is submitted through that user's existing Timekeeper ownership boundary. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+2. Login awaits the Timekeeper submission so the delivery claim remains within the Worker request lifetime; provider failure is logged without failing login. <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+3. The Timekeeper serializes each user's claim; an accepted provider response is persisted and cannot produce another send. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
+4. A rejected or unconfigured-provider send remains unclaimed and retryable on a later login, using the same deterministic provider idempotency key. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/email.ts::sendEmail --> <!-- @test: src/__tests__/lib/access.test.ts (resolveOrProvisionUser — strongly consistent welcome email claim / REQ-AUTH-012) -->
 
 **Constraints:**
 
-- Must comply with [CON-REL-001](constraints.md#con-rel-001-graceful-shutdown-with-final-sync-before-exit) (non-blocking).
+- Timekeeper submission is awaited within the login request lifetime; provider failure must be logged without failing login.
 - Email content must not expose internal system details.
 
 **Priority:** P2
@@ -376,7 +376,7 @@ None. Authentication is foundational; other domains depend on it.
 1. The SaaS login page shows Codeflare branding with an animated logo. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
 2. A "Continue with <provider>" button is displayed for the configured identity provider. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
 3. Available auth providers are listed. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 (branded SaaS login page)) -->
-4. Core login content is visible at first paint and is not hidden behind entrance opacity or transform animation. <!-- @impl: web-ui/src/styles/login-page.css::.login-content --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (REQ-AUTH-013: core login content is visible without entrance opacity or transform animation) -->
+4. Core login content is visible at first paint and is not hidden behind entrance opacity or transform animation. <!-- @impl: web-ui/src/styles/login-page.css::.login-content --> <!-- @manual -->
 
 **Constraints:**
 
@@ -386,7 +386,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/components/LoginPage.test.tsx))
+**Verification:** Automated component test ([LoginPage](../../web-ui/src/__tests__/components/LoginPage.test.tsx)); first-paint visibility is verified against the protected deployment through the agent-driven browser-e2e lane.
 
 **Status:** Implemented
 
@@ -447,19 +447,19 @@ None.
 
 ### REQ-AUTH-016: Header user dropdown
 
-**Intent:** Quick access to account actions from any page.
+**Intent:** Quick access to deployment-mode-appropriate account actions from any page without exposing inert or unsupported billing surfaces.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+1. The visible account identity opens a dropdown with Subscription, Usage, Guided Setup, and Logout in SaaS, Guided Setup and Logout in onboarding/default, and an inert trigger in enterprise. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows Guided Setup and Logout outside enterprise mode) -->
 2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 
 **Constraints:**
 
-- In Enterprise Mode the dropdown does not open — the avatar/username stays visible but its click is inert — per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; This REQ describes the non-enterprise dropdown.
+- In Enterprise Mode the dropdown does not open—the avatar/username stays visible but its click is inert—per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; AC1 restates that exception only to make the complete mode matrix explicit.
 
 **Priority:** P2
 
@@ -480,7 +480,7 @@ None.
 **Acceptance Criteria:**
 
 1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-2. Falls back to outline icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (uses d=404 fallback so the caller can detect "no Gravatar" via image error and render the outline-icon fallback (REQ-AUTH-017 AC2)) -->
+2. Falls back to the account-shield icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: Use an address with no Gravatar and confirm both Header and Dashboard render the account-shield fallback. -->
 3. The hashed normalized email is used for the Gravatar lookup. <!-- @impl: web-ui/src/lib/gravatar.ts::getGravatarUrl --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (getGravatarUrl / REQ-AUTH-017 AC3 (MD5 of email used for Gravatar lookup)) -->
 
 **Constraints:**
@@ -567,6 +567,7 @@ None.
 2. The landing-built `/login` page uses the shared landing design tokens, preloaded fonts, and login nav chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
 3. The landing-built `/login` page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
 4. In SaaS mode, `/login` is unchanged and continues to serve the SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+5. The landing-built login remains on the dark canvas until its shared stylesheet and critical fonts are ready. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) -->
 
 **Constraints:**
 
@@ -574,7 +575,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving)
+**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
 **Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [wrangler control-plane test](../../host/__tests__/wrangler-run-worker-first.test.js))
 

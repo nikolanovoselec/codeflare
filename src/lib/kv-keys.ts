@@ -386,6 +386,11 @@ export async function getBaseUrl(kv: KVNamespace, requestUrl: string): Promise<s
   return new URL(requestUrl).origin;
 }
 
+/** KV ownership record for a dynamically selected R2 bucket. */
+export function getBucketOwnerKey(bucketName: string): string {
+  return `bucket-owner:${bucketName}`;
+}
+
 /**
  * Fetch all KV keys matching a prefix, handling pagination safely.
  *

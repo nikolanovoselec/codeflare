@@ -17,6 +17,7 @@ import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
 import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
+import { DESIGN_READY_SCRIPT } from '../../../src/lib/design-ready';
 import {
   AGENTS,
   COST,
@@ -352,6 +353,22 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
       .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
       .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
     expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
+  });
+
+  it('AC4: hides rendered content before the design-ready gate can run', () => {
+    const criticalPaint = [...doc.querySelectorAll('style')]
+      .map((style) => (style.textContent ?? '').replace(/\s+/g, ''))
+      .find((css) => css.includes('html.design-loadingbody{visibility:hidden}'));
+    expect(criticalPaint).toBeTruthy();
+
+    const gate = doc.querySelector('script[data-design-ready]');
+    expect(gate).not.toBeNull();
+    expect(gate!.textContent).toBe(DESIGN_READY_SCRIPT);
+  });
+
+  it('AC5: keeps the server-rendered document visible when JavaScript does not run', () => {
+    expect(doc.documentElement.classList.contains('design-loading')).toBe(false);
+    expect(doc.body.textContent?.trim().length).toBeGreaterThan(0);
   });
 });
 

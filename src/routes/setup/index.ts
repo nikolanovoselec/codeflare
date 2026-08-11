@@ -6,11 +6,11 @@ import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
-import { getBucketName } from '../../lib/access';
+import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
-import { setupRateLimiter, logger, getWorkerNameFromHostname } from './shared';
+import { setupRateLimiter, logger, getWorkerNameFromHostname, upsertStep } from './shared';
 import type { SetupStep } from './shared';
 import { handleGetAccount } from './account';
 import { handleDeriveR2Credentials } from './credentials';
@@ -33,7 +33,7 @@ const accessNameSchema = z
     z.string()
       .min(1, 'Name must not be empty')
       .max(256, 'Name must be at most 256 characters')
-      .refine((s) => !/[,\n]/.test(s), 'Name must not contain a comma or newline'),
+      .refine((s) => !/[,\r\n]/.test(s), 'Name must not contain a comma or newline'),
   );
 
 // Pi's thinking-level enum (settings.json defaultThinkingLevel) — passed through
@@ -260,20 +260,28 @@ app.post('/configure', async (c) => {
 
   // Run setup steps in the background, streaming progress as NDJSON
   (async () => {
-    const steps: SetupStep[] = [];
+    let steps: SetupStep[] = [];
     const lockKey = SETUP_KEYS.CONFIGURING;
     let lockAcquired = false;
 
-    // Helper to run a named step with streaming progress
-    const runStep = async <T>(stepName: string, fn: () => Promise<T>): Promise<T> => {
-      await send({ step: stepName, status: 'running' });
+    // Run a named step while keeping one ordered immutable status list for both
+    // streamed transitions and the terminal summary.
+    const runStep = async <T>(stepName: string, fn: (operationSteps: SetupStep[]) => Promise<T>): Promise<T> => {
+      const running: SetupStep = { step: stepName, status: 'running' };
+      steps = upsertStep(steps, running);
+      await send(running);
+      const operationSteps = steps.map((step) => ({ ...step }));
       try {
-        const result = await fn();
-        await send({ step: stepName, status: 'success' });
+        const result = await fn(operationSteps);
+        const success: SetupStep = { step: stepName, status: 'success' };
+        steps = upsertStep(steps, success);
+        await send(success);
         return result;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        await send({ step: stepName, status: 'error', error: msg });
+        const failure: SetupStep = { step: stepName, status: 'error', error: msg };
+        steps = upsertStep(steps, failure);
+        await send(failure);
         throw error;
       }
     };
@@ -295,16 +303,16 @@ app.post('/configure', async (c) => {
       lockAcquired = true;
 
       // Step 1: Get account ID
-      const accountId = await runStep('get_account', () => handleGetAccount(token, steps));
+      const accountId = await runStep('get_account', (operationSteps) => handleGetAccount(token, operationSteps));
       const workerName = getWorkerNameFromHostname(c.req.url, c.env.CLOUDFLARE_WORKER_NAME);
 
       // Step 2: Derive R2 S3 credentials
       const { accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey } =
-        await runStep('derive_r2_credentials', () => handleDeriveR2Credentials(token, steps));
+        await runStep('derive_r2_credentials', (operationSteps) => handleDeriveR2Credentials(token, operationSteps));
 
       // Step 3: Set worker secrets
-      await runStep('set_secrets', () =>
-        handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, steps, workerName)
+      await runStep('set_secrets', (operationSteps) =>
+        handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, operationSteps, workerName)
       );
 
       // Normalize and deduplicate emails before any KV operations
@@ -370,7 +378,7 @@ app.post('/configure', async (c) => {
       // Auto-set advanced session mode for admin users so their first
       // session seeds advanced skills and agent rules.
       const adminPrefsWrites = normalizedAdmins.map(async (email) => {
-        const bucketName = getBucketName(email, workerName);
+        const bucketName = await resolveBucketName(c.env, email, workerName);
         const prefsKey = getPreferencesKey(bucketName);
         const existingPrefs = await c.env.KV.get(prefsKey, 'json');
         if (!existingPrefs) {
@@ -380,8 +388,8 @@ app.post('/configure', async (c) => {
       await Promise.all(adminPrefsWrites);
 
       // Step 4 & 5: Custom domain + CF Access
-      await runStep('configure_custom_domain', () =>
-        handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, steps, workerName)
+      await runStep('configure_custom_domain', (operationSteps) =>
+        handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, operationSteps, workerName)
       );
       // Issue #140: Skip CF Access provisioning when GitHub OIDC is configured.
       // In any session-OIDC mode (SaaS OR onboarding) the Worker handles auth
@@ -398,8 +406,8 @@ app.post('/configure', async (c) => {
         // so the wizard UI advances naturally. No CF Access resources are created.
         await runStep('create_access_app', async () => { /* skipped: GitHub OIDC handles auth */ });
       } else {
-        await runStep('create_access_app', () =>
-          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE), isEnterpriseMode(c.env))
+        await runStep('create_access_app', (operationSteps) =>
+          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, operationSteps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE), isEnterpriseMode(c.env))
         );
       }
 
@@ -407,8 +415,8 @@ app.post('/configure', async (c) => {
       const saasMode = isSaasModeActive(c.env.SAAS_MODE);
       // Turnstile is needed for onboarding landing (waitlist) AND SaaS mode (access requests)
       if (onboardingLandingActive || saasMode) {
-        await runStep('configure_turnstile', () =>
-          handleConfigureTurnstile(token, accountId, customDomain, steps, c.env.KV, workerName, c.req.url)
+        await runStep('configure_turnstile', (operationSteps) =>
+          handleConfigureTurnstile(token, accountId, customDomain, operationSteps, c.env.KV, workerName, c.req.url)
         );
       }
       await c.env.KV.put(SETUP_KEYS.ONBOARDING_LANDING_PAGE, onboardingLandingActive ? 'active' : 'inactive');

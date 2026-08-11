@@ -5,11 +5,19 @@ import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
-import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
-import { SETUP_KEYS } from './kv-keys';
+import { getBucketOwnerKey, listAllKvKeys, SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('access');
+
+// Internal provenance: only identities produced by successful cryptographic or
+// edge-validated authentication are admitted to JIT provisioning. A WeakSet
+// avoids exposing this trust marker on the public user shape.
+const verifiedIdentities = new WeakSet<AccessUser>();
+function markIdentityVerified(user: AccessUser): AccessUser {
+  verifiedIdentities.add(user);
+  return user;
+}
 
 // Module-level cache for auth config (avoids KV reads on every request)
 const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -230,7 +238,7 @@ async function validateServiceAuthHeader(request: Request, env?: Env): Promise<A
     // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
     // obviously non-production; the actual auth gate is the worker secret.
     const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
-    return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin'};
+    return markIdentityVerified({ email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin' });
   }
   // timingSafeEqual failed
   return { email: '', authenticated: false};
@@ -261,7 +269,7 @@ async function validateSessionOidc(request: Request, env?: Env): Promise<AccessU
   if (!payload) {
     return { email: '', authenticated: false };
   }
-  return { email: normalizeEmail(payload.email), authenticated: true };
+  return markIdentityVerified({ email: normalizeEmail(payload.email), authenticated: true });
 }
 
 /**
@@ -281,7 +289,7 @@ async function verifyCfAccessJwt(
   for (const expectedAud of config.accessAudList) {
     const verifiedEmail = await verifyAccessJWT(jwtToken, config.authDomain, expectedAud);
     if (verifiedEmail) {
-      return { email: normalizeEmail(verifiedEmail), authenticated: true };
+      return markIdentityVerified({ email: normalizeEmail(verifiedEmail), authenticated: true });
     }
   }
   // JWT verification failed for all expected audiences
@@ -312,10 +320,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   // Extract CF Access JWT early - evaluated after service token and SaaS OIDC checks
   const jwtToken = extractAccessJwt(request);
 
-  const config = await loadAuthConfig(env);
-
   const serviceAuthResult = await validateServiceAuthHeader(request, env);
   if (serviceAuthResult) return serviceAuthResult;
+
+  const config = await loadAuthConfig(env);
 
   const sessionResult = await validateSessionOidc(request, env);
   if (sessionResult) return sessionResult;
@@ -343,7 +351,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     // Service token was validated by CF Access
     // Use SERVICE_TOKEN_EMAIL env var or fall back to a default based on client ID
     const serviceEmail = env?.SERVICE_TOKEN_EMAIL || `service-${serviceTokenClientId.split('.')[0]}@codeflare.local`;
-    return { email: normalizeEmail(serviceEmail), authenticated: true };
+    return markIdentityVerified({ email: normalizeEmail(serviceEmail), authenticated: true });
   }
 
   return { email: '', authenticated: false };
@@ -385,6 +393,84 @@ export function getBucketName(email: string, workerName?: string): string {
   return trimTrailingHyphens(`${prefix}${truncated}`);
 }
 
+interface BucketOwnerRecord {
+  email: string;
+  version: 1 | 2;
+}
+
+type BucketClaimResult = 'owned' | 'conflict' | 'ambiguous';
+interface BucketOwnerStub {
+  claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<BucketClaimResult>;
+}
+
+async function getVersionedBucketName(email: string, workerName?: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizeEmail(email))));
+  const suffix = `-v2-${Array.from(digest.slice(0, 10), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  const legacy = getBucketName(email, workerName);
+  return `${trimTrailingHyphens(legacy.substring(0, 63 - suffix.length))}${suffix}`;
+}
+
+async function writeBucketOwner(kv: KVNamespace, bucketName: string, owner: BucketOwnerRecord): Promise<void> {
+  await kv.put(getBucketOwnerKey(bucketName), JSON.stringify(owner));
+}
+
+function getBucketOwnerStub(env: Env, bucketName: string): BucketOwnerStub {
+  const id = env.CONTAINER.idFromName(`bucket-owner:${bucketName}`);
+  return env.CONTAINER.get(id) as unknown as BucketOwnerStub;
+}
+
+async function claimVersionedBucket(env: Env, email: string, workerName?: string): Promise<string> {
+  const versioned = await getVersionedBucketName(email, workerName);
+  const result = await getBucketOwnerStub(env, versioned).claimBucketOwner(email, true);
+  if (result !== 'owned') throw new ForbiddenError('Bucket ownership conflict');
+  await writeBucketOwner(env.KV, versioned, { email, version: 2 });
+  return versioned;
+}
+
+/**
+ * Resolve a collision-safe bucket identity. Durable Object storage is the
+ * authoritative serialization point; the KV owner entry is observability only.
+ */
+export async function resolveBucketName(env: Env, email: string, workerName = env.CLOUDFLARE_WORKER_NAME): Promise<string> {
+  const normalizedEmail = normalizeEmail(email);
+  const legacy = getBucketName(normalizedEmail, workerName);
+  const legacyStub = getBucketOwnerStub(env, legacy);
+  const existingClaim = await legacyStub.claimBucketOwner(normalizedEmail, false);
+
+  if (existingClaim === 'owned') {
+    await writeBucketOwner(env.KV, legacy, { email: normalizedEmail, version: 1 });
+    return legacy;
+  }
+  if (existingClaim === 'conflict') {
+    return claimVersionedBucket(env, normalizedEmail, workerName);
+  }
+
+  const userKeys = await listAllKvKeys(env.KV, 'user:');
+  const collidingEmails = [...new Set(userKeys
+    .map(({ name }) => normalizeEmail(name.substring('user:'.length)))
+    .filter((candidate) => getBucketName(candidate, workerName) === legacy))];
+  if (collidingEmails.length > 1) {
+    throw new ForbiddenError('Ambiguous legacy bucket ownership');
+  }
+
+  const existingIdentity = collidingEmails[0];
+  if (existingIdentity && existingIdentity !== normalizedEmail) {
+    const legacyClaim = await legacyStub.claimBucketOwner(existingIdentity, true);
+    if (legacyClaim !== 'owned') {
+      throw new ForbiddenError('Ambiguous legacy bucket ownership');
+    }
+    await writeBucketOwner(env.KV, legacy, { email: existingIdentity, version: 1 });
+    return claimVersionedBucket(env, normalizedEmail, workerName);
+  }
+
+  const claim = await legacyStub.claimBucketOwner(normalizedEmail, true);
+  if (claim === 'conflict') return claimVersionedBucket(env, normalizedEmail, workerName);
+  if (claim !== 'owned') throw new ForbiddenError('Ambiguous legacy bucket ownership');
+
+  await writeBucketOwner(env.KV, legacy, { email: normalizedEmail, version: 1 });
+  return legacy;
+}
+
 /**
  * Resolve a user entry from KV, returning role and access tier information.
  * Defaults missing role to 'user' for backward compatibility with
@@ -416,6 +502,34 @@ export async function resolveUserFromKV(
   };
 }
 
+async function queueWelcomeEmail(
+  kv: KVNamespace,
+  env: Env,
+  bucketName: string | undefined,
+  userEmail: string,
+): Promise<void> {
+  if (!bucketName || !env.TIMEKEEPER) return;
+  const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
+  const body = {
+    userEmail,
+    ...(customDomain ? { instanceUrl: `https://${customDomain}` } : {}),
+  };
+  const id = env.TIMEKEEPER.idFromName(bucketName);
+  const timekeeper = env.TIMEKEEPER.get(id);
+  try {
+    const response = await timekeeper.fetch(new Request('https://timekeeper/welcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    if (!response.ok) {
+      logger.warn('Welcome email claim failed', { status: response.status });
+    }
+  } catch (err) {
+    logger.warn('Welcome email claim failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 /**
  * Resolve an existing user from KV, or auto-provision a new one in SaaS mode.
  * New users are created with 'pending' tier and can self-subscribe via /api/auth/subscribe.
@@ -425,12 +539,16 @@ export async function resolveUserFromKV(
 export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
-  env: Env
+  env: Env,
+  bucketName?: string,
 ): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; subscribedMode?: 'default' | 'advanced'; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
   const normalizedEmail = normalizeEmail(email);
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
   if (kvEntry) {
+    if (kvEntry.addedBy === 'jit') {
+      await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
+    }
     return {
       role: kvEntry.role,
       accessTier: kvEntry.accessTier ?? 'advanced',
@@ -453,17 +571,9 @@ export async function resolveOrProvisionUser(
       subscriptionTier: 'pending',
     }));
 
-    // Fire-and-forget welcome email with dedup flag.
-    // Concurrent first-login requests can race past the check, but the flag
-    // narrows the window from "always doubles" to milliseconds of KV propagation.
-    const welcomeFlag = `welcome-sent:${normalizedEmail}`;
-    const alreadySent = await kv.get(welcomeFlag);
-    if (!alreadySent) {
-      await kv.put(welcomeFlag, '1', { expirationTtl: 86400 });
-      const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
-      const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
-      void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
-    }
+    // The caller awaits the existing per-user Timekeeper delivery claim; the
+    // Timekeeper serializes acceptance and retries rejected sends on later login.
+    await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
 
     return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending', subscribedMode: 'default' };
   }
@@ -843,9 +953,14 @@ export async function authenticateRequest(
   if (!normalizedEmail) {
     throw new AuthError('Not authenticated');
   }
+  // Only cryptographically verified identities may create a new JIT record.
+  // The pre-setup email header remains usable for setup and existing allowlisted
+  // users, but cannot persist a new identity by itself.
+  const jitIdentityVerified = verifiedIdentities.has(rawUser);
+
   // Service auth users already have a role - skip KV allowlist lookup
   if (rawUser.role) {
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(env, normalizedEmail);
     return { user: { ...rawUser, email: normalizedEmail }, bucketName };
   }
 
@@ -854,17 +969,23 @@ export async function authenticateRequest(
   // SaaS and non-SaaS branches below are byte-identical when the flag is unset.
   // REQ-ENTERPRISE-010.
   if (isEnterpriseMode(env)) {
+    if (!jitIdentityVerified && !(await resolveUserFromKV(env.KV, normalizedEmail))) {
+      throw new ForbiddenError('Verified identity required for JIT provisioning');
+    }
     const accessToken = extractAccessJwt(request);
     const { authDomain } = await loadAuthConfig(env);
     const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionEnterpriseUser(env.KV, normalizedEmail, accessToken, authDomain);
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    const bucketName = await resolveBucketName(env, normalizedEmail);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
   if (isSaasModeActive(env.SAAS_MODE)) {
-    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
-    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    if (!jitIdentityVerified && !(await resolveUserFromKV(env.KV, normalizedEmail))) {
+      throw new ForbiddenError('Verified identity required for JIT provisioning');
+    }
+    const bucketName = await resolveBucketName(env, normalizedEmail);
+    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env, bucketName);
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
@@ -874,6 +995,6 @@ export async function authenticateRequest(
     throw new ForbiddenError('User not in allowlist');
   }
   const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = kvEntry;
-  const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+  const bucketName = await resolveBucketName(env, normalizedEmail);
   return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
 }

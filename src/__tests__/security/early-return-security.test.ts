@@ -64,6 +64,13 @@ vi.mock('../../routes/stripe-webhook', () => {
 });
 
 import worker, { withSecurityHeaders } from '../../index';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: Env, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 function createMockCtx() {
   return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;

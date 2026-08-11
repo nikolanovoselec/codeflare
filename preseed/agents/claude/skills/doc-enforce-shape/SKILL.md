@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-shape
 description: SDD documentation structural shape enforcement — the canonical cross-agent contract. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Documentation Enforcement — Structural shape
@@ -46,10 +46,14 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 | `decisions/README.md` | Per ADR section: `**Status:**` (`Proposed`/`Accepted`/`Superseded`/`Reclassified` + date), `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**` |
 
 **Rules of engagement:**
-- Templates apply per **section** (`##` or `###`), not per file. Top-of-file preamble paragraph exempt.
-- Sections describing a different concern than their lane are flagged separately by `doc-enforce-lanes` Pass 4.
-- A section with no value for a field uses an explicit marker (`**Auth:** none (public endpoint)`).
+- Templates apply to positively recognized **items**, not to every Markdown heading. Top-of-file preambles, collection/area headings, and unrelated headings are exempt.
+- Per-item collections recognize a child heading when it is an exact governed inventory item or its body starts the lane's field shape. Once any shape field starts an item, missing sibling fields are findings; malformed items cannot disappear from traversal merely because they are incomplete.
+- Grouped collections recognize tables by their item discriminator (`Component`, `Recipe`/`Symptom`, or `Method`/`Path`) and validate the complete header contract.
+- Sections describing a different concern than their lane are handled separately by `doc-enforce-lanes` Pass 4 rather than being coerced into this template.
+- An item with no value for a field uses an explicit marker (`**Auth:** none (public endpoint)`).
 - Missing fields: Pass 5 MEDIUM.
+
+The binding implementation is the narrow checker at `scripts/check-shape.mjs`. Run `node scripts/check-shape.mjs <lane files...>` for item shape and add `--inventory` when validating Codeflare's governed 21-item regression set. Consume its JSON findings; do not substitute a general Markdown parser or a walk over all headings.
 
 **Two equivalent shapes per FILE.** A section satisfies the template in either shape:
 - **Per-item shape**: one section per item with bolded label/value pairs.
@@ -57,7 +61,7 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 
 Choice is made once per FILE via dominant-shape detection (>=60% of sections match one shape; first-content-section tiebreak otherwise). Pass 6 enforces consistency against that resolved shape.
 
-Required-field set is the same in both shapes. For `api-reference*.md`, grouped tables must carry columns >= `Method`, `Path`, `Auth`, `Implements`. For `configuration.md`: `Variable`, `Default`, `Required`, `Consumed by`, `Implements`. For `security.md`: `Threat`, `Mitigation`, `Verification`, `Implements`. For `troubleshooting.md`: `Symptom`, `Cause`, `Fix`. For `architecture.md`: `Component`, `Responsibility`, `Source`. For `deployment.md`: `When`, `Command`, `Verifies`, `Rollback`.
+Required-field set is the same in both shapes. For `api-reference*.md`, grouped tables must carry columns >= `Method`, `Path`, `Auth`, `Implements`. For `configuration.md`: `Variable`, `Default`, `Required`, `Consumed by`, `Implements`. For `security.md`: `Threat`, `Mitigation`, `Verification`, `Implements`. For `troubleshooting.md`: `Symptom`, `Cause`, `Fix`. For `architecture.md`: `Component`, `Responsibility`, `Inputs`, `Outputs`, `Source`. For `deployment.md`: `When`, `Command`, `Verifies`, `Rollback`.
 
 ## Jump-TOC at file top (lane files, binding)
 
@@ -127,7 +131,7 @@ Auto-fix in `auto`/`unleashed`: for `implements-cell-id-not-linked`, wrap each b
 
 **Scope:** Pass 5 (and Pass 6, Pass 7) operate on canonical lane files. Framework metadata files excluded by name: any basename starting with `.` (`.doc-coverage.md`, `.review-needed.md`, `.cold-read-tasks.yml`), `documentation/README.md` index. `documentation/decisions/README.md` is covered by the **Index-table link rule** above and by the per-ADR-section template in the per-lane templates table.
 
-Walk every `##`/`###` section in each canonical lane file. Verify required fields from the per-lane template in either shape. Missing fields: MEDIUM `template-field-missing` listing section + missing fields.
+Run the item-aware checker over each in-scope canonical lane file. Verify only recognized per-item and grouped-table collections against the lane template; do not treat preamble, area, or unrelated headings as items. Missing fields produce MEDIUM `template-field-missing` findings naming the item and missing fields. For Codeflare's architecture, troubleshooting, and API lanes, `--inventory` additionally requires the exact governed 8 + 8 + 5 items.
 
 Pass 5 also enforces:
 - The jump-TOC rule on the file as a whole (>=5 `##` sections: required TOC).
@@ -142,7 +146,7 @@ Auto-fix in `auto`/`unleashed` requires inferable content from source; otherwise
 
 ## Pass 6 — File-level shape consistency
 
-Verify each canonical lane file against its expected shape declared by the per-lane format templates table (resolved by filename). Every section that deviates: MEDIUM `rendering-shape-mismatch` naming the section, deviant shape, expected file shape.
+Verify each canonical lane file's recognized items against its expected shape declared by the per-lane format templates table (resolved by filename). Every recognized item that deviates produces MEDIUM `rendering-shape-mismatch`, naming the item, deviant shape, and expected file shape. Exempt headings never participate in dominant-shape resolution.
 
 **Content-preservation guarantee:** auto-fix preserves all original prose verbatim. Restructuring a per-item section to grouped-table shape collapses the bolded pairs into table rows; extended prose preserved as body prose below the table. Reverse direction splits table rows into sections. Either direction, no clause dropped or paraphrased. If a section's prose cannot be split or merged without semantic loss (>200 words of inline prose that does not fit any single cell), auto-fix DEFERS that one section, emits MEDIUM `shape-conversion-content-bloat`. Rare residual JUDGMENT.
 

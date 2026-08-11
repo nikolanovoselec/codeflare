@@ -19,7 +19,7 @@ Review fires on PRs that target `main`, `master`, or `develop`. PRs into any oth
 | No open protected-base PR, detached HEAD, nonstandard worktree, or remote head not synchronized locally | Nothing |
 | After a merge, switch to and synchronize the merge-target branch; its open protected-base PR now has a new exact local head | Required review lanes and independent CI |
 
-The cost model is per protected-base PR head: each authoritative head is reviewed once, independent of the Git or GitHub CLI syntax that exposed it.
+The cost model is per protected-base PR head: each authoritative head is reviewed once, independent of the Git or GitHub CLI syntax that exposed it. Successful `git push` and `gh pr create` delivery boundaries launch review and CI automatically. If their directive is missed, a later candidate command auto-recovers a synchronized same-PR descendant of its acknowledged review head; unrelated non-delivery Git/GitHub activity requires a neutral consent choice, never an agent-recommended bypass.
 
 ## Recommended workflow
 
@@ -40,13 +40,17 @@ To manually invoke code-reviewer or doc-updater on a non-SDD project (e.g., to a
 
 All three review agents run **in parallel** — `code-reviewer` (source lane), `spec-reviewer` (`sdd/` lane), and `doc-updater` (`documentation/` + root `README.md` lane).
 
-**Why parallel:** review agents are **report-only**. Each returns one complete structured report to the root session and writes no project, triage, or review-artifact files. The root waits for every required lane, persists any deferred findings, applies legitimate fixes, and alone owns Git. With immutable reviewer inputs there is no shared-write race or ordering dependency.
+**Why parallel:** review agents are **report-only**. Each returns one complete structured report to the root session and writes no project, triage, or review-artifact files. The root waits for every required lane notification to reach its visible context, persists any deferred findings, applies legitimate fixes, and alone owns Git. With immutable reviewer inputs there is no shared-write race or ordering dependency.
 
 ## Finding triage (root-owned, after ALL lanes return)
 
 Do not act on a subset of required reviewer outputs. Wait until every required lane has returned, then assess all findings together in one visible triage summary BEFORE any mutation: one line per finding — lane, severity, category, decision (`fix` / `reject (evidence)` / `defer` / `debt`), so the user sees every decision without reading the raw reports.
 
+A terminal background record can reach the transcript before its native notification reaches the root. The first Stop observation of a newly complete round ends silently to let queued reports arrive; triage and acknowledgement happen only afterward. If a report remains absent, retrieve it with `Read` or `TaskOutput` before the final tool-free table.
+
 Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery; reject unsupported or oversized proposals with evidence while still fixing the underlying finding minimally. Fix every legitimate finding by default; record exactly one decision per finding; defer, reject, and debt decisions persist to `sdd/.review-decisions.md` (the `/review` triage-history contract). Ask before acting only when the user explicitly requested approval or the change is destructive or irreversible. (This mirrors the Pi pipeline's Finding-discipline contract, so both agents hand review results to the root under identical rules.)
+
+After acknowledgement, the separate FIX turn applies only accepted decisions. If files change, the root verifies focused static checks, commits, and pushes the checked-out PR branch without asking again; that delivery push starts exactly one incremental review wave and one CI monitor. The runner binds each lane to the PR-specific acknowledged-head-to-current-head range even if a stale `--base` argument is supplied. Never relaunch an in-flight lane, never merge automatically, and create no commit or push when no fix was accepted.
 
 ## The three agents (SDD mode only)
 
@@ -81,4 +85,4 @@ The PR-boundary trigger model assumes branch protection is in place. If the user
 
 ## Binding invocation rule
 
-The PostToolUse hook (`git-push-review-reminder.sh`) emits the three-agent directive when an SDD-mode PR-boundary trigger fires. On receipt, launch all required agents together, wait for every returned report, and keep all file/Git writes in the root session. This skill is the operational reference; the directive itself is non-negotiable.
+The PostToolUse hook (`git-push-review-reminder.sh`) emits the three-agent directive when an SDD-mode PR-boundary trigger fires. On receipt, run the emitted boundary commands unchanged, launch all required lanes together, wait for every delivered report, and keep all file/Git writes in the root session. This skill is the operational reference; the directive itself is non-negotiable.

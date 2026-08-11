@@ -68,8 +68,7 @@ User clicks "Sign in with GitHub" on /login
   -> Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
   -> Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
   -> Redirect active user to /app/
-  -> Redirect pending SaaS user to /app/subscribe
-  -> Redirect pending onboarding user to /login?status=requested
+  -> Redirect pending user to /app/subscribe (SaaS) or /login?status=requested (onboarding)
   -> On state verification failure: redirect to /?error=session-expired
 ```
 
@@ -167,7 +166,7 @@ User visits protected URL (/app, /api/*, /setup)
   -> Worker extracts email, normalizes, resolves user from KV
 ```
 
-**Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket name derivation.
+**Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket identity resolution. Bucket ownership is serialized by a bucket-keyed Durable Object; KV carries only an observability projection: an unambiguous legacy owner retains its bucket, a later sanitization collision receives a digest-suffixed v2 bucket, and pre-existing ambiguous collisions fail closed.
 
 **Enterprise mode:** When `ENTERPRISE_MODE=active`, an authenticated CF Access request enters `resolveOrProvisionEnterpriseUser()` **before** the SaaS path. Existing users (admin or prior JIT) are returned unchanged; unknown emails are JIT-provisioned to `unlimited` tier (subject to an optional access-group gate). The SaaS subscribe/onboarding path is never reached. See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
 
@@ -268,6 +267,10 @@ flowchart TD
 
 **Key architectural choice:** CF Access handles authentication (identity), while the Worker handles authorization (access control).
 
+### Welcome delivery consistency ([REQ-AUTH-012](../../sdd/spec/authentication.md#req-auth-012-welcome-email-on-first-login))
+
+A first-time SaaS user's welcome notification is submitted through the same per-user Timekeeper Durable Object used for usage ownership. Timekeeper serializes concurrent claims and records completion only after the provider accepts the send. Provider rejection or missing email configuration leaves the claim retryable on a later login; retries use one deterministic, hashed idempotency key, so an accepted send cannot duplicate even when the provider response was ambiguous.
+
 ### Three-Tier Auth Middleware
 
 SaaS mode uses a layered middleware stack on every request to protected routes (`src/middleware/auth.ts`):
@@ -328,7 +331,7 @@ The SaaS and onboarding activation flags, identity-provider settings, email cred
 
 ## Header User Dropdown
 
-The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. Clicking it opens a dropdown in non-enterprise modes only.
+The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. A successful Gravatar lookup renders the image; a miss renders the account-shield icon in both surfaces. Clicking it opens a dropdown in non-enterprise modes only.
 
 **Enterprise mode:** the avatar trigger's `onClick` is inert. `Dashboard.tsx` uses an early-return guard (`if (sessionStore.enterpriseMode) return;`); `Header.tsx` uses the equivalent inverted guard (`if (!sessionStore.enterpriseMode) setShowUserMenu(...)`). Either way no dropdown opens — the avatar element itself stays present and styled normally.
 

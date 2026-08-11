@@ -60,6 +60,18 @@ describe('block-attributed-commits.sh — Bash tool', () => {
     assert.equal(r.stdout, '');
   });
 
+  for (const command of [
+    `git -C /repo commit -m "${ATTRIBUTED_MESSAGE}"`,
+    `git --git-dir=/repo/.git --work-tree /repo commit -m "${ATTRIBUTED_MESSAGE}"`,
+    `git -c user.name=Bot --no-pager commit -m "${ATTRIBUTED_MESSAGE}"`,
+  ]) {
+    it(`denies attributed commits after Git global options: ${command.split(' commit')[0]}`, () => {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command } });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"permissionDecision"\s*:\s*"deny"/);
+    });
+  }
+
   it('allows non-commit/non-attribution git commands (git status)', () => {
     const r = runHook({
       tool_name: 'Bash',

@@ -13,7 +13,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
-import { getTierConfig, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
+import { getTierConfig, countPaidSlots, isEnterpriseMode, withoutBillingState } from '../lib/subscription';
 import { getBaseUrl, getNextUtcMonthStart, SETUP_KEYS } from '../lib/kv-keys';
 import { getAllUsers } from '../lib/access-policy';
 import {
@@ -25,6 +25,7 @@ import {
 } from '../lib/stripe';
 import { getCurrencyForCountry } from '../lib/currency';
 import { parseJsonBody } from '../lib/request-helpers';
+import { verifyTurnstileToken } from '../lib/turnstile';
 
 const logger = createLogger('billing');
 
@@ -40,14 +41,16 @@ const checkoutRateLimiter = createRateLimiter({
 const CheckoutSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
   mode: z.enum(['default', 'advanced']).optional().default('default'),
+  turnstileToken: z.string().optional(),
 });
 
 // POST /billing/checkout
-app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no self-serve billing in enterprise mode (no-op when flag unset).
+app.post('/checkout', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Billing is not available in enterprise mode');
   }
+  await next();
+}, checkoutRateLimiter, async (c) => {
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -58,7 +61,8 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 
   // Max users cap — block new checkouts when capacity is reached
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-  const isAlreadySubscribed = !!userData?.subscribedAt;
+  const isAlreadySubscribed = userData?.billingStatus === BILLING_STATUS.ACTIVE
+    || userData?.billingStatus === BILLING_STATUS.TRIALING;
   if (!isAlreadySubscribed) {
     const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
     if (maxUsers > 0) {
@@ -69,7 +73,21 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     }
   }
 
-  const { tier, mode } = await parseJsonBody(c, CheckoutSchema);
+  const { tier, mode, turnstileToken } = await parseJsonBody(c, CheckoutSchema);
+
+  if (!isAlreadySubscribed) {
+    const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
+      || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
+    if (turnstileSecret) {
+      if (!turnstileToken) throw new ForbiddenError('CAPTCHA token required');
+      const verification = await verifyTurnstileToken(
+        turnstileToken,
+        turnstileSecret,
+        c.req.header('CF-Connecting-IP') || null,
+      );
+      if (!verification.success) throw new ForbiddenError('CAPTCHA verification failed');
+    }
+  }
 
   // Free tier doesn't go through Stripe
   if (tier === 'free') {
@@ -153,14 +171,13 @@ app.get('/status', requireIdentity, async (c) => {
     try {
       const snapshot = await fetchSubscription(subscriptionId, secretKey);
       if (!snapshot) {
-        // Subscription gone from Stripe — return cleared state
-        // Clean up billing fields in KV (non-blocking). Only reset billing
-        // fields — never touch identity fields (addedBy, addedAt, role).
-        void updateUserRecord(c.env.KV, user.email, {
+        // Subscription gone from Stripe — remove every provider-owned field
+        // before returning. Keep identity and product-owned fields intact.
+        await c.env.KV.put(`user:${user.email}`, JSON.stringify({
+          ...withoutBillingState(userData as Record<string, unknown>),
           subscriptionTier: 'pending',
           accessTier: 'pending',
-          billingStatus: BILLING_STATUS.CANCELED,
-        });
+        }));
         return c.json({
           stripeCustomerId: null,
           stripeSubscriptionId: null,
@@ -203,11 +220,12 @@ const portalRateLimiter = createRateLimiter({
 });
 
 // POST /billing/portal — create a Stripe Customer Portal session
-app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no customer portal in enterprise mode (no-op when flag unset).
+app.post('/portal', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Billing portal is not available in enterprise mode');
   }
+  await next();
+}, portalRateLimiter, async (c) => {
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -249,11 +267,12 @@ const SwitchSchema = z.object({
 });
 
 // POST /billing/switch — deep-link portal to plan change confirmation
-app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
-  // REQ-ENTERPRISE-009: no plan switching in enterprise mode (no-op when flag unset).
+app.post('/switch', requireIdentity, async (c, next) => {
   if (isEnterpriseMode(c.env)) {
     throw new ForbiddenError('Plan switching is not available in enterprise mode');
   }
+  await next();
+}, switchRateLimiter, async (c) => {
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     throw new ValidationError('Stripe is not configured.');
@@ -286,14 +305,14 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
   // Fetch subscription to get the subscription item ID (si_xxx)
   const snapshot = await fetchSubscription(subscriptionId, secretKey);
   if (!snapshot) {
-    // Subscription no longer exists on Stripe — clean up billing fields in KV.
-    // Only reset billing fields — never touch identity fields (addedBy, addedAt, role).
+    // Subscription no longer exists on Stripe — remove every stale provider
+    // field while preserving identity, then reuse the existing checkout restart.
     logger.warn('Stale subscription in KV, cleaning up', { email: user.email, subscriptionId });
-    await updateUserRecord(c.env.KV, user.email, {
+    await c.env.KV.put(`user:${user.email}`, JSON.stringify({
+      ...withoutBillingState(userData as Record<string, unknown>),
       subscriptionTier: 'pending',
       accessTier: 'pending',
-      billingStatus: BILLING_STATUS.CANCELED,
-    });
+    }));
     throw new ValidationError('Subscription expired. Redirecting to checkout.');
   }
   if (!snapshot.subscriptionItemId) {

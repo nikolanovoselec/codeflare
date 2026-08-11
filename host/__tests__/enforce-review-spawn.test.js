@@ -21,6 +21,10 @@ const HOOK = resolve(
   __dirname,
   '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh',
 );
+const REMINDER_HOOK = resolve(
+  __dirname,
+  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh',
+);
 
 function makeFixture() {
   const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-'));
@@ -30,6 +34,18 @@ function makeFixture() {
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd });
   spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd });
   return cwd;
+}
+
+function currentHead(cwd) {
+  return spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf-8' }).stdout.trim();
+}
+
+function ackOf(cwd) {
+  const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd, encoding: 'utf-8',
+  }).stdout.trim();
+  const ackFile = join(cwd, gitCommonDir, 'sdd-review-ack-pr-42');
+  return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
 }
 
 function withSdd(cwd) {
@@ -90,13 +106,22 @@ function writeTranscript(cwd, lines) {
   return path;
 }
 
+function runReminder(cwd, command, binDir) {
+  return spawnSync('bash', [REMINDER_HOOK], {
+    cwd,
+    input: JSON.stringify({ tool_input: { command } }),
+    encoding: 'utf-8',
+    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+  });
+}
+
 function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
-  // Per-test sentinel path keeps tests hermetic from production /tmp/review-bypass.
-  if (bypassFile) env.REVIEW_BYPASS_FILE = bypassFile;
-  // Per-test TMPDIR keeps the PreToolUse gate's strike/clear state hermetic.
-  if (tmpDir) env.TMPDIR = tmpDir;
+  // Always isolate hook state from the live Claude session. Tests exercising a
+  // sentinel can override the default path explicitly.
+  env.REVIEW_BYPASS_FILE = bypassFile ?? join(cwd, '.review-bypass');
+  env.TMPDIR = tmpDir ?? cwd;
   // Prevent the hook from finding a real gh in PATH if we want it absent
   return spawnSync('bash', [HOOK], {
     cwd,
@@ -194,6 +219,13 @@ const TRIAGE_LINE = () =>
       ],
     },
   });
+const CLEAN_TRIAGE_LINE = () =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|` }],
+    },
+  });
 
 // A background call that exits non-zero. Same envelope, terminal status
 // `failed`: the lane ENDED, but produced nothing the gate may credit.
@@ -262,6 +294,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(r.stdout, '');
     assert.equal(pretool(cwd, t, 'Write').status, 2,
       'Write carries no exemption while blocked');
+    assert.equal(pretool(cwd, t, 'AskUserQuestion').status, 2,
+      'questions cannot bypass a completed round awaiting its verdict table');
   });
 
   it('allows read-only tools during the blocked window', () => {
@@ -272,9 +306,15 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     }
   });
 
-  it('allows once the triage table is published after the last completion', () => {
+  it('allows once a finding triage table is published after the last completion', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
+    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+  });
+
+  it('accepts a fully clean table without synthetic lane rows', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [...completedRound(), CLEAN_TRIAGE_LINE()]);
     assert.equal(pretool(cwd, t, 'Edit').status, 0);
   });
 
@@ -434,17 +474,67 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
 });
 
 describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
-  it('exits 0 and deletes the sentinel file (one-shot)', () => {
+  it('exits 0 and deletes the sentinel for an eligible open head (one-shot)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const bypassFile = join(cwd, 'review-bypass');
     writeFileSync(bypassFile, '');
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    const r = runHook(cwd, { transcriptPath: t, bypassFile });
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('OPEN', 'unackedSHA')),
+    });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.equal(existsSync(bypassFile), false,
-      'sentinel must be deleted on use (one-shot semantics)');
+      'sentinel must be deleted when it bypasses an eligible head');
+    assert.equal(
+      readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
+      spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+      'eligible bypass must acknowledge the exact validated PR head',
+    );
+  });
+
+  it('prompts on branch navigation and acknowledges the exact head after the user declines', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA'));
+    const prompt = runReminder(cwd, 'git switch review', binDir);
+    assert.equal(prompt.status, 0);
+    assert.match(prompt.stdout, /FIRST use AskUserQuestion/);
+    assert.match(prompt.stdout, /Acknowledge without review/);
+
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const transcript = writeTranscript(cwd, [COMMAND_LINE('git switch review')]);
+    const declined = runHook(cwd, { transcriptPath: transcript, bypassFile, binDir });
+
+    assert.equal(declined.status, 0);
+    assert.equal(declined.stdout, '');
+    assert.equal(existsSync(bypassFile), false);
+    assert.equal(
+      readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
+      spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+    );
+  });
+
+  it('preserves the sentinel when no PR exists for the current branch', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghNoPR()),
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), true,
+      'an ineligible boundary must not waste the user-owned one-shot bypass');
   });
 });
 
@@ -457,6 +547,53 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  it('reports a merged unacknowledged head without consuming the bypass sentinel', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', 'mergedSHA')),
+    });
+    const notice = JSON.parse(r.stdout);
+
+    assert.equal(r.status, 0);
+    assert.match(notice.systemMessage, /acknowledgement missing/i);
+    assert.match(notice.systemMessage, /PR state: MERGED/);
+    assert.equal(existsSync(bypassFile), true);
+    assert.equal(existsSync(join(cwd, '.git/sdd-review-ack-pr-42')), false,
+      'visibility must not fabricate acknowledgement after merge');
+
+    const repeated = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', 'mergedSHA')),
+    });
+    assert.equal(repeated.stdout, '', 'the same closed head emits its visibility notice only once');
+  });
+
+  it('keeps an acknowledged merged head silent and preserves the bypass sentinel', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    writeFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), `${headSha}\n`);
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, {
+      transcriptPath: t,
+      bypassFile,
+      binDir: fakeGh(cwd, ghReturning('MERGED', headSha)),
+    });
+
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), true);
   });
 
   it('blocks when open PR targets develop with un-acked HEAD and no agents spawned', () => {
@@ -698,14 +835,6 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
 // REQ-AGENT-102: reviewer lanes run as headless subprocesses. The gate accepts
 // either transport, so migrating a lane cannot narrow what counts as reviewed.
 describe('enforce-review-spawn.sh — headless lane transport', () => {
-  const ackOf = (cwd) => {
-    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
-      cwd, encoding: 'utf-8',
-    }).stdout.trim();
-    const ackFile = join(cwd, gitCommonDir, 'sdd-review-ack-pr-42');
-    return existsSync(ackFile) ? readFileSync(ackFile, 'utf-8').trim() : '';
-  };
-
   it('acks when every lane ran as a run-review-lane.sh Bash call', () => {
     const cwd = makeFixture();
     withSdd(cwd);
@@ -806,7 +935,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   // returned into a session that never read them leave findings unacted while
   // the checkpoint advances past them -- so the verdict, not the exit, is what
   // the gate keys on.
-  it('withholds the ack until the triage verdict is published', () => {
+  it('gives native completion notifications one delivery turn before demanding triage', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'notriagesha'));
@@ -818,19 +947,26 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b2'),
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
-      // every lane returned, nothing published
+      // Terminal records may have reached the transcript while the root model
+      // was already running, before their native notifications reached its context.
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.status, 0);
+    assert.equal(deliveryTurn.stdout, '',
+      'first observation must let queued reviewer notifications reach the root');
     assert.notEqual(ackOf(cwd), 'notriagesha',
-      'three exits are not a review; the checkpoint may not advance past unread findings');
-    assert.match(r.stdout, /MINIMAL DECISION/,
-      'the block must demand the verdict in the shape the gate matches');
+      'terminal records alone never acknowledge unread findings');
+
+    const triageTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(triageTurn.stdout, /MINIMAL DECISION/,
+      'only the later turn may demand the verdict in the shape the gate matches');
   });
 
   it('drives the FIX phase once the verdict is published', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'fixphasesha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -842,9 +978,41 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       TRIAGE_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(ackOf(cwd), 'fixphasesha');
+    assert.equal(ackOf(cwd), headSha);
     assert.match(r.stdout, /FIX phase/,
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
+    assert.match(r.stdout, /commit and push/i,
+      'accepted fixes must be delivered to the PR rather than left in a local commit');
+    assert.match(r.stdout, /without asking/i,
+      'a fix push is a delivery boundary and does not require renewed consent');
+    assert.match(r.stdout, /do not merge/i,
+      'automatic fix delivery must never become automatic merge');
+  });
+
+  it('blocks FIX when the PR-specific acknowledgement cannot be persisted', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const commonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    mkdirSync(join(cwd, commonDir, 'sdd-review-ack-pr-42'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
+      LANE_BASH_DONE_LINE('toolu_b1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_b2'),
+      LANE_BASH_DONE_LINE('toolu_b2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
+      LANE_BASH_DONE_LINE('toolu_b3'),
+      TRIAGE_LINE(),
+    ]);
+
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(r.stdout, /acknowledgement could not be persisted/);
+    assert.doesNotMatch(r.stdout, /FIX phase/,
+      'a local-only fix cannot start when the next incremental base would be lost');
   });
 
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
@@ -898,11 +1066,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('does not spend the lane-demand budget on the verdict escape hatch', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'exhaustedsha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' })
       .stdout.trim();
     // This head already cost four Stop events to get its lanes running.
-    writeFileSync(join(cwd, gcd, 'sdd-review-count-pr-42'), 'exhaustedsha:4\n');
+    writeFileSync(join(cwd, gcd, 'sdd-review-count-pr-42'), `${headSha}:4\n`);
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -913,11 +1082,14 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
 
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.stdout, '',
+      'notification delivery grace must not spend either demand budget');
     for (let i = 0; i < 3; i += 1) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
-      assert.match(r.stdout, /no triage verdict was published/,
+      assert.match(r.stdout, /MINIMAL DECISION/,
         'the verdict demand must keep being shown; a demand silenced by the lane breaker can never be answered');
-      assert.notEqual(ackOf(cwd), 'exhaustedsha',
+      assert.notEqual(ackOf(cwd), headSha,
         'the lane-demand budget is not payment for the verdict hatch: these findings have still never been triaged');
     }
   });
@@ -929,7 +1101,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('acknowledges after repeated unanswered demands instead of staying wedged', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'wedgedsha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const lanes = [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -942,13 +1115,13 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     const t = writeTranscript(cwd, lanes);
 
     runHook(cwd, { transcriptPath: t, binDir });
-    assert.notEqual(ackOf(cwd), 'wedgedsha',
+    assert.notEqual(ackOf(cwd), headSha,
       'the very first unanswered demand must not acknowledge: no verdict has been asked for yet');
 
     let acked = false;
     for (let i = 0; i < 6 && !acked; i += 1) {
       runHook(cwd, { transcriptPath: t, binDir });
-      acked = ackOf(cwd) === 'wedgedsha';
+      acked = ackOf(cwd) === headSha;
     }
     assert.equal(acked, true,
       'repeated unanswered demands must acknowledge; a permanently wedged checkpoint is the failure being removed');
@@ -987,7 +1160,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('applies the verdict requirement on the retroactive scan path, not just the live path', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'retroactivesha'));
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
@@ -997,11 +1171,14 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /no triage verdict was published/,
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.status, 0);
+    assert.equal(deliveryTurn.stdout, '',
+      'retroactive completion also needs a notification delivery turn');
+    const triageTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.match(triageTurn.stdout, /MINIMAL DECISION/,
       'the requirement must be APPLIED here, not merely un-met: a crashed hook also leaves the ack alone');
-    assert.notEqual(ackOf(cwd), 'retroactivesha',
+    assert.notEqual(ackOf(cwd), headSha,
       'the retroactive scan is a second acknowledgement path and must not bypass the verdict requirement');
   });
 
@@ -1099,7 +1276,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
   it('credits a lane whose runner path is quoted', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const sha = 'quotedpathsha';
+    const sha = currentHead(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', sha));
     const quoted = (lane, id) =>
       JSON.stringify({
@@ -1165,31 +1342,41 @@ describe('enforce-review-spawn.sh — bypass 2: magic phrase', () => {
 });
 
 describe('enforce-review-spawn.sh — fail-safe behavior', () => {
-  it('classifies agents earlier in the transcript than the push as stale', () => {
-    // Pins the post-push line-number ordering contract.
-    // The transcript is append-only JSONL, so a subagent_type entry
-    // that appears BEFORE the push line is definitionally pre-push
-    // and must not satisfy enforcement.
-    //
-    // All three report-only lanes are demanded together in the single parallel block.
-    // Every agent spawn here precedes the push, so none counts as current-head coverage
-    // and all three are re-demanded.
+  it('does not credit pre-push agents after their in-flight suppression ends', () => {
+    // A wave launched before the latest push suppresses duplicate demands only
+    // while it is still running. It cannot cover the newer head: once those
+    // tasks end, every required lane must be demanded after the push boundary.
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha, 'main'));
+    const runningLines = [
       AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
       AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
       AGENT_LINE('doc-updater', '2026-05-03T11:59:59Z', 'toolu_stale_du'),
       PUSH_LINE(),
+    ];
+    const t = writeTranscript(cwd, runningLines);
+
+    const inFlight = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(inFlight.status, 0);
+    assert.equal(inFlight.stdout, '', 'a running wave is not summoned twice');
+    assert.notEqual(ackOf(cwd), headSha, 'in-flight pre-push lanes provide no current-head coverage');
+
+    writeTranscript(cwd, [
+      ...runningLines,
+      DONE_LINE('toolu_stale_cr'),
+      DONE_LINE('toolu_stale_sr'),
+      DONE_LINE('toolu_stale_du'),
     ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'agents earlier in the transcript than the push must not count');
-    assert.match(r.stdout, /code-reviewer/);
-    assert.match(r.stdout, /spec-reviewer/);
-    assert.match(r.stdout, /doc-updater/);
+    const ended = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ended.status, 0);
+    assert.match(ended.stdout, /"decision"\s*:\s*"block"/,
+      'completed pre-push agents must not count for the newer head');
+    assert.match(ended.stdout, /code-reviewer/);
+    assert.match(ended.stdout, /spec-reviewer/);
+    assert.match(ended.stdout, /doc-updater/);
+    assert.notEqual(ackOf(cwd), headSha);
   });
 
   it('does not match "git push" inside echo strings (regression for substring false-positive)', () => {
@@ -1455,18 +1642,18 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     }
   });
 
-  it('does NOT classify non-protected or metadata-only gh pr edit commands', () => {
+  it('evaluates authoritative state after non-protected and metadata-only gh pr edit commands', () => {
     for (const command of [
       'gh pr edit 394 --base develop',
       'gh pr edit 394 --title metadata-only',
     ]) {
       const cwd = makeFixture();
       withSdd(cwd);
-      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const binDir = fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main'));
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.equal(r.stdout, '', command);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
     }
   });
 
@@ -1487,6 +1674,61 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       assert.match(r.stdout, /"decision"\s*:\s*"block"/);
     }
   });
+});
+
+describe('enforce-review-spawn.sh - structural shell boundaries', () => {
+  for (const command of [
+    'git -C . status --short',
+    'if git status --short; then :; fi',
+    'printf "%s\\n" "$(gh pr view)"',
+    'echo ready && "git" status --short',
+  ]) {
+    it(`enforces after executable activity in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, {
+        transcriptPath: t,
+        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
+      });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    });
+  }
+
+  for (const command of [
+    'printf "%s\\n" "x; git status"',
+    "printf '%s\\n' '$(gh pr view)'",
+    "cat <<'EOF'\ngit status\nEOF",
+  ]) {
+    it(`keeps non-executable lookalikes inert in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, { transcriptPath: t, binDir: ghPoison(cwd) });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
+    });
+  }
+
+  for (const command of [
+    "printf '%s\\n' '<<EOF'\ngit status --short",
+    'printf "%s\\n" "<<EOF"\ngit status --short',
+    'printf "%s\\n" \\<\\<EOF\ngit status --short',
+  ]) {
+    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
+      const r = runHook(cwd, {
+        transcriptPath: t,
+        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
+      });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    });
+  }
 });
 
 // REQ-AGENT-092 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended
@@ -1859,7 +2101,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       'sdd-only push must NOT demand code-reviewer');
   });
 
-  it('behavioral push (src/): requires all three lanes', () => {
+  it('behavioral push (src/): requires only lanes with owned surfaces', () => {
     const { cwd, baseSha } = makeLaneFixture();
     ackBase(cwd, baseSha);
     const tip = advanceWith(cwd, () => {
@@ -1870,14 +2112,15 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /code-reviewer/);
-    assert.match(r.stdout, /spec-reviewer/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/);
+    assert.doesNotMatch(r.stdout, /doc-updater/);
   });
 
-  it('rename bypass attempt (src -> documentation) is REJECTED — still all three', () => {
+  it('rename bypass attempt (src -> documentation) keeps code and documentation review', () => {
     // Adversarial: a user might rename src/foo.ts -> documentation/poison.md
     // to make the diff look like a pure docs change and skip code-reviewer.
-    // The hook MUST use --no-renames so both old and new paths appear, and
-    // the source path triggers behavioral classification.
+    // The hook MUST use --no-renames so both old and new paths appear: the
+    // source path preserves code review and the destination preserves docs review.
     const { cwd, baseSha } = makeLaneFixture();
     ackBase(cwd, baseSha);
     const tip = advanceWith(cwd, () => {
@@ -1889,7 +2132,9 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /code-reviewer/,
       'cross-category rename must trigger code-reviewer (--no-renames defense)');
-    assert.match(r.stdout, /spec-reviewer/);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'an untouched, unanchored specification surface owns no work in this range');
   });
 
   it('force-push / unrelated lineage: merge-base guard falls through to all three', () => {

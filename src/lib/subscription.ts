@@ -219,12 +219,12 @@ function mergeStoredWithDefaults(
 }
 
 /** Migrate legacy "Team" displayName to "Custom" (renamed, no admin UI to change). */
-function migrateLegacyTierNames(tiers: SubscriptionTierConfig[]): void {
-  for (const t of tiers) {
-    if (t.id === 'unlimited' && t.displayName === 'Team') {
-      t.displayName = 'Custom';
-    }
-  }
+function migrateLegacyTierNames(tiers: SubscriptionTierConfig[]): SubscriptionTierConfig[] {
+  return tiers.map((tier) => (
+    tier.id === 'unlimited' && tier.displayName === 'Team'
+      ? { ...tier, displayName: 'Custom' }
+      : tier
+  ));
 }
 
 /**
@@ -234,9 +234,15 @@ export async function getTierConfig(kv: KVNamespace): Promise<SubscriptionTierCo
   if (cachedTierConfig && Date.now() - tierConfigCachedAt < TIER_CONFIG_CACHE_TTL_MS) {
     return cachedTierConfig;
   }
-  const stored = await fetchStoredTiers(kv);
-  const tiers = mergeStoredWithDefaults(stored, getDefaultTiers());
-  migrateLegacyTierNames(tiers);
+  let stored: SubscriptionTierConfig[] | null;
+  try {
+    stored = await fetchStoredTiers(kv);
+  } catch {
+    // Entitlement checks must never fail open. Immutable hardcoded defaults are
+    // safer than allowing a stale stored mode when tier configuration is unavailable.
+    stored = null;
+  }
+  const tiers = migrateLegacyTierNames(mergeStoredWithDefaults(stored, getDefaultTiers()));
   cachedTierConfig = tiers;
   tierConfigCachedAt = Date.now();
   return cachedTierConfig;
@@ -332,7 +338,7 @@ export function getEffectiveTier(
 }
 
 /** Billing-derived entitlements resolved from a user record. */
-export interface EffectiveEntitlements {
+interface EffectiveEntitlements {
   effectiveTier: string;
   allowedModes: SessionMode[];
   maxSessions: number;
@@ -382,6 +388,26 @@ export function getAllowedSessionModes(
 ): SessionMode[] {
   const tier = tiers.find((t) => t.id === tierValue);
   return tier?.sessionModes ?? [];
+}
+
+/**
+ * Remove provider-owned billing state without mutating the source record.
+ * Omitted properties stay genuinely unpopulated and JSON serialization cannot
+ * turn an `undefined` patch value into an accidental no-op.
+ */
+export function withoutBillingState(record: Record<string, unknown>): Record<string, unknown> {
+  const {
+    stripeCustomerId: _stripeCustomerId,
+    stripeSubscriptionId: _stripeSubscriptionId,
+    stripePriceId: _stripePriceId,
+    billingPeriodEnd: _billingPeriodEnd,
+    billingStatus: _billingStatus,
+    checkoutSessionId: _checkoutSessionId,
+    cancelAtPeriodEnd: _cancelAtPeriodEnd,
+    lastSyncedAt: _lastSyncedAt,
+    ...preserved
+  } = record;
+  return preserved;
 }
 
 /** Paid tier IDs that occupy a capacity slot. Free tier excluded - low resource usage. */

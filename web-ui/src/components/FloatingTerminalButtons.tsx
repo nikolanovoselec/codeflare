@@ -209,7 +209,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
                 // On first use, browser shows a permission prompt. On mobile it
                 // appears behind the keyboard. Dismiss keyboard so user sees it.
                 const permState = await getMicPermissionState();
-                if (permState === 'prompt') {
+                if (permState === 'prompt' || permState === 'unknown') {
                   const iframeInput = getIframeInput(term);
                   if (iframeInput) iframeInput.blur();
                 }

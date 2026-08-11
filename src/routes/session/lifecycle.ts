@@ -245,16 +245,14 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
 
   const session = await getSessionOrThrow(c.env.KV, key);
 
-  // Persist stopped status in KV so batch-status can skip container probes
+  // Destruction owns graceful shutdown and final sync. Keep the current KV state
+  // retryable until that boundary confirms success.
+  const containerId = getContainerId(bucketName, sessionId);
+  const container = getContainer(c.env.CONTAINER, containerId);
+  await container.destroy();
+
   const updated = { ...session, status: 'stopped' as const, lastStatusCheck: Date.now() };
   await putSessionWithMetadata(c.env.KV, key, updated);
-
-  // Best-effort container destroy - container may already be stopped
-  try {
-    const containerId = getContainerId(bucketName, sessionId);
-    const container = getContainer(c.env.CONTAINER, containerId);
-    await container.destroy();
-  } catch { /* best-effort, container may already be stopped */ }
 
   return c.json({ success: true, stopped: true, id: sessionId });
 });

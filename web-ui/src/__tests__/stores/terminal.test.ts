@@ -930,23 +930,20 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0);
 
-      // An old chunk followed by a cap-exceeding newest chunk: the ring drops
-      // the oldest, keeps the newest even when it alone exceeds the cap, and
-      // NEVER writes while the user reads scrollback.
+      // An old chunk followed by an individually cap-exceeding atomic chunk:
+      // the ring drops both whole units rather than retaining an over-cap unit,
+      // and NEVER writes while the user reads scrollback.
       wsInstance._simulateMessage('a'.repeat(1000));
       wsInstance._simulateMessage('x'.repeat(READ_HOLD_MAX_CHARS + 1));
       await vi.advanceTimersByTimeAsync(200);
 
       expect(terminal.write).not.toHaveBeenCalled();
 
-      // Returning to the bottom releases only the retained tail.
+      // Returning to the bottom has nothing over-cap to release.
       activeBuffer.viewportY = activeBuffer.baseY;
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(terminal.write).toHaveBeenCalledTimes(1);
-      const released = vi.mocked(terminal.write).mock.calls[0][0] as string;
-      expect(released).toHaveLength(READ_HOLD_MAX_CHARS + 1);
-      expect(released.includes('a')).toBe(false);
+      expect(terminal.write).not.toHaveBeenCalled();
       expect(scrollLines).not.toHaveBeenCalled();
       expect(scrollToBottom).not.toHaveBeenCalled();
 

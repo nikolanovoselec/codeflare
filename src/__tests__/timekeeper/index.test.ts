@@ -50,6 +50,49 @@ function pingRequest(body: Record<string, unknown>): Request {
   });
 }
 
+function billingRequest(path: string, body: Record<string, unknown>): Request {
+  return new Request(`http://timekeeper${path}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function createBillingTimekeeper(initialUser: Record<string, unknown>) {
+  const storageState = new Map<string, unknown>();
+  const userRecords = new Map<string, string>([
+    ['user:alice@example.com', JSON.stringify(initialUser)],
+  ]);
+  const storage = {
+    get: vi.fn(async (key: string) => storageState.get(key)),
+    put: vi.fn(async (key: string, value: unknown) => { storageState.set(key, value); }),
+    getAlarm: vi.fn(async () => null),
+    setAlarm: vi.fn(async () => undefined),
+  };
+  const kv = {
+    get: vi.fn(async (key: string, type?: string) => {
+      const raw = userRecords.get(key) ?? null;
+      return type === 'json' && raw ? JSON.parse(raw) : raw;
+    }),
+    put: vi.fn(async (key: string, value: string) => { userRecords.set(key, value); }),
+  };
+  let lock = Promise.resolve();
+  const ctx = {
+    storage,
+    waitUntil: vi.fn(),
+    blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => {
+      const run = lock.then(fn);
+      lock = run.then(() => undefined, () => undefined);
+      return run;
+    }),
+  } as any;
+
+  return {
+    timekeeper: new Timekeeper(ctx, { KV: kv } as any),
+    readUser: () => JSON.parse(userRecords.get('user:alice@example.com') ?? '{}') as Record<string, unknown>,
+  };
+}
+
 // REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
 
 describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)', () => {
@@ -544,6 +587,72 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       }));
       const body = await res.json() as { quotaExceeded: boolean };
       expect(body.quotaExceeded).toBe(false);
+    });
+  });
+
+  describe('billing sync deletion ordering', () => {
+    it('REQ-SUB-015 AC3: canceled/free cleanup rejects an older paid apply', async () => {
+      const { timekeeper, readUser } = createBillingTimekeeper({
+        addedBy: 'self',
+        onboardingComplete: true,
+        subscriptionTier: 'advanced',
+        accessTier: 'advanced',
+        subscribedMode: 'advanced',
+        billingStatus: 'active',
+        stripeCustomerId: 'cus_old',
+        stripeSubscriptionId: 'sub_old',
+        stripePriceId: 'price_old',
+        billingPeriodEnd: '2026-09-01T00:00:00.000Z',
+        checkoutSessionId: 'cs_old',
+      });
+      const olderStart = await timekeeper.fetch(billingRequest('/billing-sync/start', {
+        userEmail: 'alice@example.com',
+      }));
+      const { token: olderToken } = await olderStart.json() as { token: number };
+      const deletionStart = await timekeeper.fetch(billingRequest('/billing-sync/start', {
+        userEmail: 'alice@example.com',
+      }));
+      const { token: deletionToken } = await deletionStart.json() as { token: number };
+
+      const deletion = await timekeeper.fetch(billingRequest('/billing-sync/apply', {
+        userEmail: 'alice@example.com',
+        token: deletionToken,
+        patch: {
+          cleanupBillingState: true,
+          billingStatus: 'canceled',
+          subscriptionTier: 'free',
+          accessTier: 'free',
+          subscribedMode: 'default',
+        },
+      }));
+      const staleApply = await timekeeper.fetch(billingRequest('/billing-sync/apply', {
+        userEmail: 'alice@example.com',
+        token: olderToken,
+        patch: {
+          stripeSubscriptionId: 'sub_stale',
+          stripeCustomerId: 'cus_stale',
+          billingStatus: 'active',
+          cancelAtPeriodEnd: false,
+          lastSyncedAt: '2026-08-10T00:00:00.000Z',
+          subscriptionTier: 'advanced',
+          accessTier: 'advanced',
+          subscribedMode: 'advanced',
+        },
+      }));
+
+      expect(await deletion.json()).toEqual(expect.objectContaining({ applied: true }));
+      expect(await staleApply.json()).toEqual({ applied: false });
+      expect(readUser()).toEqual(expect.objectContaining({
+        addedBy: 'self',
+        onboardingComplete: true,
+        billingStatus: 'canceled',
+        subscriptionTier: 'free',
+        accessTier: 'free',
+        subscribedMode: 'default',
+      }));
+      expect(readUser().stripeCustomerId).toBeUndefined();
+      expect(readUser().stripeSubscriptionId).toBeUndefined();
+      expect(readUser().checkoutSessionId).toBeUndefined();
     });
   });
 

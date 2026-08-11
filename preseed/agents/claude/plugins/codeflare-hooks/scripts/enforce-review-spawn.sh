@@ -79,7 +79,7 @@ PRETOOL_COMPLETION_COUNT=""
 if [ -n "$PRETOOL_MODE" ]; then
   TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
   case "$TOOL_NAME" in
-    Read|TaskOutput|TaskGet|TaskList|AskUserQuestion) exit 0 ;;
+    Read|TaskOutput|TaskGet|TaskList) exit 0 ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
@@ -184,31 +184,128 @@ if [ -z "$PRETOOL_MODE" ]; then
 # Stop hook. The fix mirrors the multi-shape parsing already shipped in
 # git-push-review-reminder.sh for issue #317.
 #
-# Match positions inside the command/code value:
-#   1. starts with `git push` - e.g. `"command":"git push origin..."`
-#   2. has a shell separator (;&|) before `git push` - chained pipelines
-#      like `git add . && git push` or `git status; git push`
-# Acceptable false-negative: heredoc/multi-line commands that JSON-encode
-# newlines as `\n` and put `git push` after that. Rare in practice.
-# Acceptable false-positive: still possible if a quoted string ends in a
-# separator, but Layer 2 (PR HEAD SHA) filters these.
+# The structural parser recognizes command position across quoting, Git global
+# options, shell lists/control words, and command substitutions. Quoted prose
+# and heredoc bodies remain inert; authoritative Layer 2 still decides whether
+# the parsed activity corresponds to an eligible PR boundary.
 #
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '
-  function candidate(field) {
-    return field ~ /"(command|code)"[[:space:]]*:[[:space:]]*"(env[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git|gh)[[:space:]"\047);&|]/ \
-      || field ~ /(\\n|[;&|])[[:space:]]*(git|gh)[[:space:]"\047);&|]/
+candidate_line_numbers() {
+  node - "$TRANSCRIPT" <<'NODE'
+const fs = require('node:fs');
+const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
+const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+function heredocDeclarations(line) {
+  const declarations = [];
+  let quote = '';
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index] || '';
+    if (quote) {
+      if (char === '\\' && quote === '"') index++;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === '\\') { index++; continue; }
+    if (char !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === '-';
+    if (stripTabs) cursor++;
+    while (line[cursor] === ' ' || line[cursor] === '\t') cursor++;
+    let delimiter = '', delimiterQuote = '';
+    while (cursor < line.length) {
+      const token = line[cursor] || '';
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = '';
+        else if (token === '\\' && delimiterQuote === '"' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+        else delimiter += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === '\\' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
+      else if (/\s/.test(token) || ';&|<>'.includes(token)) break;
+      else delimiter += token;
+      cursor++;
+    }
+    if (delimiter) declarations.push({ delimiter, stripTabs });
+    index = cursor - 1;
   }
-  /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-    if (candidate($0)) { print NR; next }
+  return declarations;
+}
+function stripHeredocs(text) {
+  const out = [], pending = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (pending.length) {
+      const active = pending[0];
+      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === active.delimiter) pending.shift();
+      continue;
+    }
+    out.push(line);
+    pending.push(...heredocDeclarations(line));
   }
-  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-    if (candidate($0)) { print NR; next }
+  return out.join('\n');
+}
+function hasCandidate(text) {
+  let found = false;
+  function scan(source) {
+    let word = '', command = true, prefix = false;
+    const finish = () => {
+      if (!word) return;
+      const value = word; word = '';
+      if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
+      if (value === 'git' || value === 'gh') { found = true; command = false; return; }
+      if (prefix && value.startsWith('-')) return;
+      prefix = prefixes.has(value); command = prefix;
+    };
+    const boundary = () => { finish(); command = true; prefix = false; };
+    function substitution(start) {
+      let depth = 1, quote = '', escaped = false;
+      for (let i = start; i < source.length; i++) {
+        const c = source[i];
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\' && quote !== "'") { escaped = true; continue; }
+        if (quote) { if (c === quote) quote = ''; continue; }
+        if (c === "'" || c === '"') { quote = c; continue; }
+        if (c === '(') depth++;
+        else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
+      }
+      return source.length;
+    }
+    for (let i = 0; i < source.length && !found; i++) {
+      const c = source[i];
+      if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
+      if (c === '"') {
+        for (i++; i < source.length && source[i] !== '"'; i++) {
+          if (source[i] === '\\') word += source[++i] || '';
+          else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
+          else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
+          else word += source[i];
+        }
+        continue;
+      }
+      if (c === '\\') { word += source[++i] || ''; continue; }
+      if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
+      if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
+      if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
+      word += c;
+    }
+    finish();
   }
-  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
-    if ($0 ~ /"language"[[:space:]]*:[[:space:]]*"shell"/ && candidate($0)) { print NR; next }
+  scan(stripHeredocs(text));
+  return found;
+}
+fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
+  let entry; try { entry = JSON.parse(raw); } catch { return; }
+  for (const call of entry?.message?.content?.filter?.((part) => part?.type === 'tool_use') || []) {
+    const input = call.input || {}; let commands = [];
+    if (call.name === 'Bash' && typeof input.command === 'string') commands = [input.command];
+    else if (/ctx_execute$/.test(call.name) && input.language === 'shell' && typeof input.code === 'string') commands = [input.code];
+    else if (/ctx_batch_execute$/.test(call.name) && Array.isArray(input.commands)) commands = input.commands.map((item) => item?.command).filter((value) => typeof value === 'string');
+    if (commands.some(hasCandidate)) { process.stdout.write(`${index + 1}\n`); return; }
   }
-' "$TRANSCRIPT" 2>/dev/null | tail -1)
+});
+NODE
+}
+PUSH_LINE=$(candidate_line_numbers 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
@@ -311,41 +408,10 @@ if grep -q '^transition:[[:space:]]*true' "$_config_file" 2>/dev/null \
 fi
 
 # ---------------------------------------------------------------------------
-# Bypass 1: sentinel file (one-shot, auto-delete).
-#
-# Ordering: runs AFTER the vibe-coding gate and transition gate so a
-# routine Stop event on a vibe-coding project (no sdd/) or during SDD
-# transition does NOT consume the user's one-shot /tmp/review-bypass
-# sentinel - that bypass is reserved for skipping enforcement on the
-# next gate-active Stop event.
-#
-# Sentinel path is overridable via REVIEW_BYPASS_FILE for hermetic
-# tests; production reads /tmp/review-bypass. Codeflare runs a
-# single-user container, so /tmp scoping is sufficient - multi-user
-# hosts should set REVIEW_BYPASS_FILE per user.
-# ---------------------------------------------------------------------------
-BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
-if [ -f "$BYPASS_FILE" ]; then
-  rm -f "$BYPASS_FILE" 2>/dev/null || true
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Bypass 2: magic phrase in user messages since candidate push line.
-#
-# Ordering note: SINCE_PUSH only includes transcript content from the
-# push line forward. A user message saying "skip review for the next
-# push" sent BEFORE the assistant ran git push won't bypass - only
-# messages between the push line and the Stop event are scanned.
-# Users who need pre-emptive bypass should use the sentinel file
-# (`touch /tmp/review-bypass`), which fires first via Bypass 1.
-# ---------------------------------------------------------------------------
-if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
 # Authoritative checked-out branch state
+#
+# Bypasses are evaluated only after this state is validated. An absent,
+# acknowledged, closed, or merged PR cannot spend the user's one-shot sentinel.
 # ---------------------------------------------------------------------------
 [ -d .git ] || exit 0
 GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
@@ -359,13 +425,14 @@ PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 BASE_REF=$(printf '%s' "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 PR_NUMBER=$(printf '%s' "$PR_INFO" | jq -r '.number // empty' 2>/dev/null)
-[ "$PR_STATE" = "OPEN" ] || exit 0
+case "$PR_STATE" in OPEN|CLOSED|MERGED) ;; *) exit 0 ;; esac
 case "$BASE_REF" in main|master|develop) ;; *) exit 0 ;; esac
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 COUNT_FILE="$GIT_DIR/sdd-review-count-pr-$PR_NUMBER"
+CLOSED_NOTICE_FILE="$GIT_DIR/sdd-review-closed-notified-pr-$PR_NUMBER"
 LEGACY_ACK="$GIT_DIR/sdd-last-ack-pr-head"
 LAST_ACK_PR_HEAD=""
 if [ -f "$ACK_FILE" ]; then
@@ -377,7 +444,37 @@ case "$LAST_ACK_PR_HEAD" in
   *[!0-9a-f]*|"") LAST_ACK_PR_HEAD="" ;;
   *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
 esac
+
+if [ "$PR_STATE" != "OPEN" ]; then
+  if [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] \
+     && [ "$(cat "$CLOSED_NOTICE_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ]; then
+    printf '%s\n' "$CURRENT_PR_HEAD" > "$CLOSED_NOTICE_FILE" 2>/dev/null || true
+    CLOSED_NOTICE="PR review - acknowledgement missing
+Head: $CURRENT_PR_HEAD
+PR state: $PR_STATE
+Acknowledgement written: no
+Review completion was not proven before the PR closed. This notice is visibility only; review the head manually if required."
+    jq -n --arg message "$CLOSED_NOTICE" '{systemMessage:$message}' 2>/dev/null
+  fi
+  exit 0
+fi
+
 [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] || exit 0
+
+# Bypass 1: a user-created one-shot sentinel applies only to this validated,
+# open, unacknowledged PR head. The path is overridable for hermetic tests.
+BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
+if [ -f "$BYPASS_FILE" ]; then
+  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || exit 0
+  rm -f "$BYPASS_FILE" 2>/dev/null || true
+  exit 0
+fi
+
+# Bypass 2: only a finalized user message after the latest candidate can skip
+# enforcement. Unlike the sentinel, this path has no persistent state to spend.
+if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Retroactive ack scan (v7) -- handles the fix-push cascade pattern.
@@ -603,8 +700,8 @@ spawn_completion_line() {
 # and a model restating a required format ("I'll publish <header> over
 # <divider>") writes them too -- so a substring test acknowledges a head on a
 # message that contains no verdict at all, inverting the gate. The header must
-# be its own line, the divider the line immediately after it, and at least one
-# data row must follow: that shape is a published table and nothing else is.
+# be its own line and the divider the line immediately after it. Finding rows
+# follow when findings exist; a fully clean round has no synthetic lane rows.
 #
 # The canonical flow is Pi's: the table is a TOOL-FREE message that ends the
 # turn, which the harness always persists; the Stop hook then acknowledges it
@@ -613,14 +710,14 @@ spawn_completion_line() {
 # counts when it persisted, because refusing it could only wedge the session.
 # Only text blocks are extracted below, so nothing inside a tool_use envelope
 # can fake the shape.
-# The canonical stacked shape on stdin: header, divider, and a data row on
-# consecutive lines.
+# The canonical stacked shape on stdin: header and divider on consecutive
+# lines, followed only by actual finding rows when the round has findings.
 stacked_table_in_stream() {
   awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
     { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
     END {
       for (i = 1; i <= n; i++) {
-        if (rows[i] == h && rows[i + 1] == d && rows[i + 2] ~ /^\|.*\|$/) exit 0
+        if (rows[i] == h && rows[i + 1] == d) exit 0
       }
       exit 1
     }'
@@ -686,7 +783,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "Review triage required: publish the triage table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) as a TOOL-FREE message ending this turn - the fix directive follows next turn. Read/TaskOutput remain available for lane reports." >&2
+  echo "Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn." >&2
   exit 2
 fi
 
@@ -702,27 +799,7 @@ retroactive_ack_scan() {
   # old_string/new_string content quotes the phrase (e.g. an edit to
   # this hook itself).
   local all_push_lines
-  all_push_lines=$(awk '
-    /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
-      if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
-    }
-  ' "$TRANSCRIPT")
+  all_push_lines=$(candidate_line_numbers 2>/dev/null)
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.
@@ -928,6 +1005,36 @@ read_count() { read_count_from "$COUNT_FILE"; }
 # FIRST pass -- acknowledging a head whose findings were never triaged, before
 # a single verdict demand had been issued, while claiming five went unanswered.
 VERDICT_COUNT_FILE="$GIT_DIR/sdd-review-verdict-count-pr-$PR_NUMBER"
+
+# Native background completion is appended to the transcript before Claude is
+# guaranteed to receive its task notification. On the first Stop that observes
+# a newly complete round, record the completion line and allow the turn to end;
+# the harness can then deliver every queued report. Only a later Stop may demand
+# triage. Reuse the existing verdict counter file so this adds no new checkpoint.
+completion_delivery_pending() {
+  local completion_line="$1"
+  local state
+  state=$(cat "$VERDICT_COUNT_FILE" 2>/dev/null || true)
+  if [ "$state" = "$CURRENT_PR_HEAD:DELIVERY:$completion_line" ]; then
+    echo "$CURRENT_PR_HEAD:0" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    return 1
+  fi
+  case "$state" in
+    "$CURRENT_PR_HEAD":*) return 1 ;;
+  esac
+  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" > "$VERDICT_COUNT_FILE" 2>/dev/null; then
+    return 0
+  fi
+  # If the barrier cannot be persisted, fail safe toward delivery rather than
+  # forcing a verdict from reports the root may not have received.
+  echo "enforce-review-spawn: cannot persist reviewer-delivery barrier; allowing notification delivery" >&2
+  return 0
+}
+
+write_acknowledgement() {
+  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null \
+    && [ "$(cat "$ACK_FILE" 2>/dev/null)" = "$CURRENT_PR_HEAD" ]
+}
 
 reack_on_repeated_demand() {
   local strikes
@@ -1257,10 +1364,18 @@ fi
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
-    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    if ! write_acknowledgement; then
+      emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
+    fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane returned and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION from that table and nothing else — a rejected row stays rejected, and a row you accepted is not deferred. State what you fixed and anything you deliberately left."
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks, commit and push the checked-out PR branch without asking. That push is a delivery boundary and must start the next incremental review and CI round; end the turn immediately after the push. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
+  fi
+  if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
+    # The terminal records may have landed while the current model request was
+    # already running. Ending this turn is what lets their native notifications
+    # become root-visible before any verdict can be demanded.
+    exit 0
   fi
   # The demand must never cost more than it protects. Five unanswered demands
   # would otherwise leave this head unacked forever, and a wedged checkpoint is
@@ -1270,7 +1385,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane returned with no triage verdict published. First verify every finding against the reviewers' evidence - finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then, in a TOOL-FREE response (no tool calls - end the turn immediately, make no file or Git changes), publish ONE table, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' (a fully clean round gets one row per lane stating the runner's clean verdict). VALIDITY records whether the finding is real (a rejected row states its cause there - never a deferral), PROPORTIONALITY whether the proposed fix is minimal or overengineered, MINIMAL DECISION the smallest correct action. The fix directive follows in the next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0

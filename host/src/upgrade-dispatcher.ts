@@ -24,7 +24,7 @@ import {
 import type { ProxyTarget } from './request-router.js';
 import type { ActivityTracker, Logger } from './types.js';
 
-export interface UpgradeDispatcherDeps {
+interface UpgradeDispatcherDeps {
   /** The /terminal WSS (owned by server.ts, where its connection handler is attached). */
   terminalWss: WebSocketServer;
   activityTracker: ActivityTracker;
@@ -34,7 +34,7 @@ export interface UpgradeDispatcherDeps {
   wsMaxPayload: number;
 }
 
-export interface UpgradeDispatcher {
+interface UpgradeDispatcher {
   handleUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void;
   /** Close the proxy WSS this dispatcher owns (used by graceful shutdown). */
   close(): void;

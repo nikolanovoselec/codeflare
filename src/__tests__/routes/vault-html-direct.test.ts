@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // CF-045
 // Direct unit tests for src/lib/vault-view.ts. These pure helpers were
@@ -10,6 +10,7 @@ import {
   filterVaultFsListing,
   isFilteredVaultMutation,
   rewriteVaultBaseHref,
+  rewriteVaultHtmlResponse,
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
@@ -23,6 +24,7 @@ import {
   VAULT_PREWARM_FOCUS_GUARD_MARKER,
   VAULT_PREWARM_REQUIRED_FILES,
   injectVaultControlledReload,
+  completeVaultBootstrap,
   installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../lib/vault-view';
@@ -106,6 +108,26 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(rewritten).toBe('<head></head>');
       expect(wasNoOp).toBe(true);
     });
+
+    it('warns when a successful deep SPA HTML response has no rewritable base href (REQ-VAULT-013 AC4)', async () => {
+      const logger = { warn: vi.fn() };
+      await rewriteVaultHtmlResponse(
+        new Response('<html><head><base href="/already-prefixed/"></head></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        'aabbccdd11223344',
+        '/Notes/deep/path',
+        '/api/vault/aabbccdd11223344/Notes/deep/path',
+        'text/html',
+        logger,
+      );
+
+      expect(logger.warn).toHaveBeenCalledWith('vault base-href rewrite no-op', {
+        pathname: '/api/vault/aabbccdd11223344/Notes/deep/path',
+        contentType: 'text/html',
+      });
+    });
   });
 
   describe('hasVaultBootstrapCookie', () => {
@@ -122,6 +144,32 @@ describe('CF-045: vault-html direct unit tests', () => {
     it('returns false when the cookie has a non-1 value', () => {
       const req = new Request('https://x/', { headers: { Cookie: `${VAULT_BOOTSTRAP_COOKIE}=0` } });
       expect(hasVaultBootstrapCookie(req)).toBe(false);
+    });
+  });
+
+  describe('completeVaultBootstrap / REQ-VAULT-024', () => {
+    it('does not mark bootstrap complete when encryption enablement cannot persist', () => {
+      let cookie = '';
+      const documentRef = {
+        get cookie() { return cookie; },
+        set cookie(value: string) { cookie = value; },
+      };
+      const locationRef = { replace: vi.fn() };
+      const storageRef = {
+        setItem: vi.fn(() => { throw new Error('storage denied'); }),
+      };
+
+      expect(() => completeVaultBootstrap(
+        storageRef,
+        documentRef,
+        locationRef,
+        VAULT_BOOTSTRAP_COOKIE,
+        '/api/vault/aabbccdd11223344/',
+        '',
+      )).toThrow('storage denied');
+
+      expect(cookie).toBe('');
+      expect(locationRef.replace).not.toHaveBeenCalled();
     });
   });
 

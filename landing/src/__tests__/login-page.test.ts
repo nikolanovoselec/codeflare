@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import LoginPage from '../pages/login.astro';
 import { LOGIN } from '../content/site';
+import { DESIGN_READY_SCRIPT } from '../../../src/lib/design-ready';
 import { documentDom, dom, decodeEntities } from './_helpers/dom';
 
 let html: string;
@@ -68,6 +69,13 @@ describe('onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)', () => {
     const map = JSON.parse(mapMatch![1]) as Record<string, string>;
     expect(map['no-verified-email']).toBeTruthy();
     expect(map.default).toBeTruthy();
+  });
+
+  it('inherits the shared final-design gate before exposing the login shell', () => {
+    const gate = documentNode.head.querySelector('script[data-design-ready]');
+    expect(gate).not.toBeNull();
+    expect(gate!.textContent).toBe(DESIGN_READY_SCRIPT);
+    expect(documentNode.documentElement.classList.contains('design-loading')).toBe(false);
   });
 
   it('inherits the shared nav and font preloads while omitting landing-only motion hooks', () => {

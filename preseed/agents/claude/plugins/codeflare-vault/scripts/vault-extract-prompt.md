@@ -100,7 +100,10 @@ Read each changed file with the Read tool. For each file, identify:
   `conceptually_related_to` concept when they co-occur in a single
   bullet or paragraph.
 
-#### 3a. PDF handling (do NOT skip PDFs as binary)
+#### 3a. PDF handling (Claude runtime only; do NOT skip PDFs as binary)
+<!-- source-anchor: claude-vault-pdf-handling -->
+
+This content/vision/citation path depends on Claude's native PDF-capable Read tool. It is not a cross-runtime parity claim; Pi's runtime has no PDF page reader and intentionally emits metadata-only document evidence.
 
 Vault PDFs typically arrive via SilverBullet drag-drop into Inbox or
 Notes. The `.md` note that wikilinks to the PDF is the only trace the

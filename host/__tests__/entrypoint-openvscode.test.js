@@ -120,10 +120,11 @@ function writeExecutable(dir, name, body) {
   return executable;
 }
 
-function writeTermIgnoringChild(dir) {
+function writeTermIgnoringChild(dir, readyFile = '') {
+  const readySignal = readyFile ? `printf '%s\\n' "$$" > "${readyFile}"\n` : '';
   return writeExecutable(dir, 'managed-child', `#!/usr/bin/env bash
 trap 'printf "TERM\\n" >> "$TERM_LOG"' TERM
-while true; do sleep 1; done
+${readySignal}while true; do sleep 1; done
 `);
 }
 
@@ -796,9 +797,10 @@ if kill -0 "$child" 2>/dev/null; then echo "ALIVE"; else echo "DEAD"; fi
     const flag = join(dir, 'init-complete');
     const trigger = join(dir, 'requested');
     const managedPid = join(dir, 'managed.pid');
+    const managedReady = join(dir, 'managed.ready');
     const termLog = join(dir, 'term.log');
     const generationPidfile = join(dir, 'generation.pid');
-    const managedChild = writeTermIgnoringChild(dir);
+    const managedChild = writeTermIgnoringChild(dir, managedReady);
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
 "$MANAGED_CHILD" >/dev/null 2>&1 &
 printf '%s\\n' "$!" > "$MANAGED_PID_FILE"
@@ -811,23 +813,54 @@ wait
 ${extractKillHelpers()}
 setsid bash -c '_openvscode_supervise_loop' >/dev/null 2>&1 &
 supervisor=$!
+supervisor_start="$(_process_start_time "$supervisor")"
 printf '%s\\n' "$supervisor" > "$OPENVSCODE_PIDFILE"
-for _ in $(seq 1 50); do [ -s "$MANAGED_PID_FILE" ] && break; sleep 0.02; done
-read -r managed < "$MANAGED_PID_FILE"
+cleanup_test_launch_group() {
+  kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
+  kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
+  [ -z "\${managed:-}" ] || kill -KILL "$managed" 2>/dev/null || true
+  [ -z "\${supervisor:-}" ] || kill -KILL "$supervisor" 2>/dev/null || true
+}
+trap cleanup_test_launch_group EXIT
+managed=""
+generation_leader=""
+# The stub can publish its child before the supervisor atomically publishes the
+# generation metadata that shutdown consumes. Wait for the whole launch group.
+for _ in $(seq 1 50); do
+  if [ -s "$MANAGED_PID_FILE" ] && [ -s "$MANAGED_READY_FILE" ] \\
+     && [ -s "$OPENVSCODE_GENERATION_PIDFILE" ]; then
+    read -r managed < "$MANAGED_PID_FILE"
+    read -r managed_ready < "$MANAGED_READY_FILE"
+    read -r generation_leader < "$OPENVSCODE_GENERATION_PIDFILE"
+    if [ "$managed_ready" = "$managed" ] \\
+       && kill -0 "$supervisor" 2>/dev/null \\
+       && kill -0 "$generation_leader" 2>/dev/null \\
+       && kill -0 "$managed" 2>/dev/null; then break; fi
+  fi
+  sleep 0.02
+done
+[ "$managed_ready" = "$managed" ] \\
+  && kill -0 "$supervisor" 2>/dev/null \\
+  && kill -0 "$generation_leader" 2>/dev/null \\
+  && kill -0 "$managed" 2>/dev/null \\
+  || { echo "launch group did not become ready" >&2; exit 1; }
+managed_start="$(_process_start_time "$managed")"
 kill_pidfile_subtree "$OPENVSCODE_GENERATION_PIDFILE"
 kill_pidfile_subtree "$OPENVSCODE_PIDFILE"
-# kill -0 also succeeds for a terminated process that briefly remains a zombie
-# while CI's init process catches up. Assert that neither process is runnable.
-is_running() {
+# A busy shared runner can reuse a terminated PID while the assertion waits.
+# Match the original process identity and reject zombies, as production cleanup does.
+is_running_original() {
   [ -r "/proc/$1/stat" ] || return 1
+  [ "$(_process_start_time "$1")" = "$2" ] || return 1
   [ "$(awk '{print $3}' "/proc/$1/stat")" != Z ]
 }
 for _ in $(seq 1 50); do
-  if ! is_running "$supervisor" && ! is_running "$managed"; then break; fi
+  if ! is_running_original "$supervisor" "$supervisor_start" \\
+     && ! is_running_original "$managed" "$managed_start"; then break; fi
   sleep 0.02
 done
-if is_running "$supervisor"; then supervisor_state=alive; else supervisor_state=dead; fi
-if is_running "$managed"; then managed_state=alive; else managed_state=dead; fi
+if is_running_original "$supervisor" "$supervisor_start"; then supervisor_state=alive; else supervisor_state=dead; fi
+if is_running_original "$managed" "$managed_start"; then managed_state=alive; else managed_state=dead; fi
 printf 'supervisor=%s managed=%s\\n' "$supervisor_state" "$managed_state"
 pkill -KILL -P "$managed" 2>/dev/null || true
 kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
@@ -841,6 +874,7 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
       OPENVSCODE_GENERATION_PIDFILE: generationPidfile,
       MANAGED_CHILD: managedChild,
       MANAGED_PID_FILE: managedPid,
+      MANAGED_READY_FILE: managedReady,
       TERM_LOG: termLog,
       OPENVSCODE_TERM_GRACE_SECONDS: '0.2',
     });

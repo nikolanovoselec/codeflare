@@ -32,6 +32,17 @@ export function clearPrewarmingVaultStatus(
   return next;
 }
 
+function pruneNonRunningSessionState<T>(
+  state: Record<string, T>,
+  runningSessionIds: ReadonlySet<string>,
+): Record<string, T> {
+  const stoppedSessionIds = Object.keys(state).filter((sessionId) => !runningSessionIds.has(sessionId));
+  if (stoppedSessionIds.length === 0) return state;
+  const next = { ...state };
+  for (const sessionId of stoppedSessionIds) delete next[sessionId];
+  return next;
+}
+
 interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
@@ -109,29 +120,28 @@ const Layout: Component<LayoutProps> = (props) => {
     if (sessionStore.preferences.sessionMode !== 'advanced') return null;
     return s && s.status === 'running' ? sid : null;
   });
-  // The active-running sid as of the last effect run. When the user leaves to the
-  // dashboard, sessionStore.activeSessionId is already null, so we can't read the
-  // departed sid from it — remember it here to clean up the departed session's latches.
-  let lastVaultSid: string | null = null;
+  // In-memory Vault state belongs to the running session, not to whichever view
+  // happens to be active. Dashboard navigation and mobile visibility recovery can
+  // temporarily clear activeSessionId while the container keeps running; preserve
+  // those latches so returning opens immediately. Session status is authoritative:
+  // once a session is absent or no longer running, discard all transient Vault state
+  // so a later restart under the same id derives readiness from scratch.
+  createEffect(() => {
+    const runningSessionIds = new Set(
+      sessionStore.sessions
+        .filter((session) => session.status === 'running')
+        .map((session) => session.id),
+    );
+    setVaultReadyBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
+    setVaultPrewarmBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
+    setVaultPrewarmRetryBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
+    setVaultOpenIntentBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
+    setVaultPersistenceRequestedBySession((prev) => pruneNonRunningSessionState(prev, runningSessionIds));
+  });
+
   createEffect(() => {
     const sid = activeRunningSid();
-    if (!sid) {
-      // No active running session: drop any latch for the previously active
-      // sid so a restart under the same id re-probes from scratch.
-      const prevSid = lastVaultSid;
-      if (prevSid && untrack(vaultReadyBySession)[prevSid]) {
-        setVaultReadyBySession((prev) => {
-          const next = { ...prev };
-          delete next[prevSid];
-          return next;
-        });
-      }
-      if (prevSid) {
-        clearVaultOpenIntent(prevSid);
-      }
-      return;
-    }
-    lastVaultSid = sid;
+    if (!sid) return;
 
     // `untrack` so the latch reads do not subscribe the effect to its own
     // writes (steady() clears the latch on crash; tracking would spawn a
@@ -203,27 +213,6 @@ const Layout: Component<LayoutProps> = (props) => {
       error: err instanceof Error ? err.message : String(err),
     }));
   };
-
-  // Drop the prewarm/retry latches when the active running session goes away so a
-  // restart under the same id re-derives from scratch.
-  createEffect(() => {
-    const sid = activeRunningSid();
-    if (sid) return;
-    const prevSid = lastVaultSid;
-    if (prevSid && untrack(vaultPrewarmBySession)[prevSid]) {
-      setVaultPrewarmBySession((prev) => {
-        const next = { ...prev };
-        delete next[prevSid];
-        return next;
-      });
-      setVaultPrewarmRetryBySession((prev) => {
-        if (prev[prevSid] === undefined) return prev;
-        const next = { ...prev };
-        delete next[prevSid];
-        return next;
-      });
-    }
-  });
 
   // Reload-skip (REQ-VAULT-022 AC2): a browser that already completed the full
   // prewarm proof for this session AND still has live local stores resolves

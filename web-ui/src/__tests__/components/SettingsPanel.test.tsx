@@ -23,6 +23,7 @@ vi.mock('../../lib/mobile', () => ({
   needsHomeScreenInstallForNotifications: () => mobileState.iosInstall,
 }));
 
+const mockGetUser = vi.hoisted(() => vi.fn());
 const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
 const mockGetDeployKeys = vi.hoisted(() => vi.fn());
@@ -33,6 +34,7 @@ const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
 ));
 
 // Defaults
+mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
 mockGetLlmKeys.mockResolvedValue({});
 mockUpdateLlmKeys.mockResolvedValue({});
 mockGetDeployKeys.mockResolvedValue({});
@@ -44,7 +46,7 @@ vi.mock('../../api/client', () => ({
   getDeployKeys: () => mockGetDeployKeys(),
   updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
   deleteDeployKeys: vi.fn(async () => undefined),
-  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true })),
+  getUser: () => mockGetUser(),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -111,6 +113,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
     sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
+    mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
     mockAgentNotificationPermission.mockReturnValue('default');
@@ -396,14 +399,13 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
 
     it('Pro mode radio is disabled when subscribedMode is default', async () => {
-      const { getUser } = await import('../../api/client');
-      vi.mocked(getUser).mockResolvedValueOnce({
+      mockGetUser.mockResolvedValueOnce({
         email: 'test@example.com',
         authenticated: true,
         bucketName: 'test',
         subscribedMode: 'default',
         hasSubscribed: true,
-      } as Awaited<ReturnType<typeof getUser>>);
+      });
 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
@@ -610,6 +612,18 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(titleSpan).toHaveTextContent('Session Defaults');
     });
 
+    it('lets an administrator change auto-sleep even when the account tier is free', async () => {
+      mockGetUser.mockResolvedValue({
+        email: 'admin@example.com', authenticated: true, bucketName: 'test',
+        accessTier: 'free', subscribedMode: 'default', hasSubscribed: false,
+      });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="admin" />);
+
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const select = await screen.findByTestId('settings-sleep-after-select');
+      expect(select).not.toBeDisabled();
+    });
+
     it('renders "Administration" group heading for admins', () => {
       render(() => (
         <SettingsPanel
@@ -804,11 +818,11 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
     });
 
-    it('renders OpenAI and Gemini provider rows', () => {
+    it('renders OpenAI and Gemini provider rows after saved-key loading succeeds', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      expect(screen.getByTestId('llm-openai-row')).toBeInTheDocument();
+      expect(await screen.findByTestId('llm-openai-row')).toBeInTheDocument();
       expect(screen.getByTestId('llm-gemini-row')).toBeInTheDocument();
     });
 

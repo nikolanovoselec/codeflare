@@ -14,7 +14,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Mandatory boundary stop
 
-After successful `git` or `gh` activity leaves the checked-out branch at an unacknowledged exact head of an open PR to `main`/`master`/`develop`, **end the turn immediately** and report only the command result or PR URL. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Commands whose checked-out branch has no changed open protected-base PR head are not boundaries and do not require this stop. A plan not yet visible after an eligible boundary is queued, not missing.
+After a successful `git push` or `gh pr create` leaves the checked-out branch at an unacknowledged exact head of an open PR to `main`/`master`/`develop`, **end the turn immediately** and report only the command result or PR URL. Do the same after accepting the extension's review question for an existing exact head. Pi delivers the queued boundary plan after idle. Do not call another tool, inspect logs, search for the plan, edit the PR, invoke CI, or attempt another boundary command. Other Git or GitHub activity asks before review and writes the exact-head acknowledgement when declined; it never launches automatically. A plan not yet visible after an eligible boundary is queued, not missing.
 
 ## No pre-push reviewers
 

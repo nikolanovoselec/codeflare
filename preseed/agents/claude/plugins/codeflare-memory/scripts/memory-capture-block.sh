@@ -5,7 +5,7 @@
 # Companion to memory-capture.sh (UserPromptSubmit). When that hook fires
 # and delta >= 15 it writes a .vars file at /tmp/.memory-counter/<session>.vars.
 # The main agent MUST spawn `subagent_type: memory-capture` in the
-# background; the subagent's first step deletes .vars (dedup gate).
+# background; the successful publication transaction removes .vars.
 #
 # Pre-this-hook behaviour: if the agent ignored the additionalContext
 # directive, .vars sat undrained and the next 14 user prompts were below
@@ -50,7 +50,7 @@ esac
 [[ -z "$SESSION_ID" ]] && exit 0
 
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
-SENTINEL="/tmp/.memory-capture-in-flight.${SESSION_ID}"
+SENTINEL="$COUNTER_DIR/${SESSION_ID}.capture-in-flight"
 SENTINEL_TTL_SEC=600  # 10 min — subagent runtime budget
 
 # Common case: no deferred capture, allow the tool call. (Sentinel is moot
@@ -103,7 +103,8 @@ has not been drained.
 
 You MUST spawn the memory-capture subagent BEFORE any other tool call.
 This block is unconditional. There is no bypass file. The block clears
-automatically the moment the subagent runs and deletes .vars.
+when the capture spawn opens its bounded in-flight window. The window closes
+after ${SENTINEL_TTL_SEC}s or when successful publication removes .vars.
 
   Task tool:
     subagent_type: "memory-capture"
@@ -113,7 +114,8 @@ automatically the moment the subagent runs and deletes .vars.
       PROMPT_FILE=$PROMPT_FILE
       VARS_FILE=$VARS_FILE
 
-The subagent's first step deletes $VARS_FILE (dedup gate). Frontmatter
-pins the model to sonnet (AD58); do NOT pass a model override.
+The subagent retains $VARS_FILE until one locked command merges and publishes
+the graph, then removes the carrier. Frontmatter pins the model to sonnet
+(AD58); do NOT pass a model override.
 EOF
 exit 2

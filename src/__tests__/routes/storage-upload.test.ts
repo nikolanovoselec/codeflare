@@ -443,6 +443,18 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       expect(body.success).toBe(true);
     });
 
+    it('does not report success when R2 rejects the bucket-scoped abort', async () => {
+      const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('denied', { status: 403 }));
+
+      const res = await app.request('/upload/abort', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'workspace/large.zip', uploadId: 'upload-id-123' }),
+      });
+
+      expect(res.status).toBe(500);
+    });
+
     it('allows previously protected key (.anthropic/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
       mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));

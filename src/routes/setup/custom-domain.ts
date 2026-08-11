@@ -145,7 +145,7 @@ async function upsertDnsRecord(
       )),
       'dnsRecordLookup'
     );
-    const dnsLookupData = await parseCfResponse<Array<{ id: string; type: string }>>(dnsLookupRes);
+    const dnsLookupData = await parseCfResponse<Array<{ id: string; type: string; content?: string; proxied?: boolean }>>(dnsLookupRes);
     if (dnsLookupData.success && dnsLookupData.result?.length) {
       const cnameRecord = dnsLookupData.result.find(r => r.type === 'CNAME');
       existingDnsRecordId = cnameRecord?.id || dnsLookupData.result[0]?.id || null;
@@ -189,9 +189,58 @@ async function upsertDnsRecord(
 
   if (!dnsRecordRes.ok) {
     const dnsError = await parseCfResponse(dnsRecordRes);
-    // Record might already exist - that's OK (code 81057) - only relevant for POST
+    // A duplicate create is successful only after the existing CNAME is found
+    // and either verified correct or updated to the desired target/proxy state.
     if (dnsMethod === 'POST' && dnsError.errors?.some(e => e.code === 81057)) {
-      logger.info('DNS record already exists (detected via create error)', { domain, subdomain, target: workersDevTarget });
+      const duplicateLookupRes = await withSetupRetry(
+        () => cfApiCB.execute(() => fetch(
+          `${CF_API_BASE}/zones/${zoneId}/dns_records?name=${domain}`,
+          { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
+        )),
+        'dnsRecordDuplicateLookup'
+      );
+      const duplicateLookup = await parseCfResponse<Array<{
+        id: string;
+        type: string;
+        content?: string;
+        proxied?: boolean;
+      }>>(duplicateLookupRes);
+      const duplicateRecord = duplicateLookup.result?.find((record) => record.type === 'CNAME');
+      if (!duplicateLookup.success || !duplicateRecord?.id) {
+        steps[stepIndex].status = 'error';
+        steps[stepIndex].error = 'Failed to resolve existing DNS record';
+        throw new SetupError('Failed to resolve existing DNS record', steps);
+      }
+      if (duplicateRecord.content === workersDevTarget && duplicateRecord.proxied === true) {
+        logger.info('Existing DNS record already matches desired state', { domain, target: workersDevTarget });
+        return;
+      }
+      const duplicateUpdateRes = await withSetupRetry(
+        () => cfApiCB.execute(() => fetch(
+          `${CF_API_BASE}/zones/${zoneId}/dns_records/${duplicateRecord.id}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              type: 'CNAME',
+              name: subdomain,
+              content: workersDevTarget,
+              proxied: true
+            }),
+            signal: AbortSignal.timeout(10000),
+          }
+        )),
+        'dnsRecordDuplicateUpdate'
+      );
+      if (!duplicateUpdateRes.ok) {
+        steps[stepIndex].status = 'error';
+        steps[stepIndex].error = 'Failed to configure DNS record';
+        throw new SetupError('Failed to configure DNS record', steps);
+      }
+      logger.info('Existing DNS record updated after duplicate create', { domain, target: workersDevTarget });
     } else {
       const dnsErrMsg = dnsError.errors?.[0]?.message || 'unknown';
       logger.error('DNS record configuration failed', new Error(dnsErrMsg), {
@@ -266,6 +315,15 @@ async function createWorkerRoute(
         : null;
       const existingRoute = exactMatch || sameScriptDomainMatch || fallbackDomainMatch;
 
+      if (exactMatch?.script === workerName) {
+        logger.info('Existing worker route already matches desired state', {
+          domain,
+          routeId: exactMatch.id,
+          script: workerName,
+        });
+        return true;
+      }
+
       if (!existingRoute?.id) {
         if (domainMatches.length > 1 && !sameScriptDomainMatch) {
           logger.warn('Multiple domain-matching worker routes found and none match target script', {
@@ -335,14 +393,9 @@ async function createWorkerRoute(
     if (updated) {
       return;
     }
-    // If route exists but update path failed, don't hard-fail setup.
-    // Existing route is still in place and will continue routing traffic.
-    logger.warn('Worker route already exists and could not be updated, continuing setup', {
-      domain,
-      zoneId,
-      script: workerName,
-    });
-    return;
+    steps[stepIndex].status = 'error';
+    steps[stepIndex].error = 'Failed to configure worker route';
+    throw new SetupError('Failed to configure worker route', steps);
   }
 
   const routeErrMsg = routeError.errors?.[0]?.message || 'unknown';

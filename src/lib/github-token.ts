@@ -192,9 +192,9 @@ async function revokeAtGithub(
   clientSecret: string,
   accessToken: string,
 ): Promise<void> {
+  const basic = btoa(`${clientId}:${clientSecret}`);
   try {
-    const basic = btoa(`${clientId}:${clientSecret}`);
-    await fetch(`https://${apiHost(env)}/applications/${clientId}/token`, {
+    const response = await fetch(`https://${apiHost(env)}/applications/${clientId}/token`, {
       method: 'DELETE',
       headers: {
         Authorization: `Basic ${basic}`,
@@ -204,8 +204,10 @@ async function revokeAtGithub(
       body: JSON.stringify({ access_token: accessToken }),
       signal: AbortSignal.timeout(8000),
     });
+    if (!response.ok) throw new Error(`GitHub token revocation failed with HTTP ${response.status}`);
   } catch (err) {
-    logger.warn('GitHub token revoke failed (continuing)', { err: String(err) });
+    logger.warn('GitHub token revoke failed; retaining local retry state', { err: String(err) });
+    throw err;
   }
 }
 
@@ -391,7 +393,8 @@ export async function disconnectGithub(env: Env, bucketName: string): Promise<vo
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source !== 'pat') {
     const provider = await getGithubProvider(env);
-    if (provider) await provider.revoke(conn.accessToken);
+    if (!provider) throw new Error('GitHub provider unavailable; retaining local retry state');
+    await provider.revoke(conn.accessToken);
   }
   await clearGithubConnection(env, bucketName);
 }

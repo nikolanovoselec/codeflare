@@ -28,6 +28,30 @@ import { ForbiddenError } from '../../lib/error-types';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
+
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
 
 const AUTH_DOMAIN = 'team.cloudflareaccess.com';
 const TOKEN = 'cf-auth-token';
@@ -241,23 +265,26 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
 
   describe('authenticateRequest enterprise integration', () => {
     function enterpriseEnv(overrides: Partial<Env> = {}): Env {
-      return { KV: mockKV as unknown as KVNamespace, ENTERPRISE_MODE: 'active', CLOUDFLARE_WORKER_NAME: 'codeflare', ...overrides } as Env;
+      return {
+        KV: mockKV as unknown as KVNamespace,
+        CONTAINER: createBucketOwnerNamespace(),
+        ENTERPRISE_MODE: 'active',
+        CLOUDFLARE_WORKER_NAME: 'codeflare',
+        ...overrides,
+      } as Env;
     }
 
-    it('AC1 e2e: a fresh Access user (pre-setup header trust) is auto-provisioned unlimited', async () => {
-      // Empty KV => no auth config => pre-setup header trust => authenticated without a JWT.
+    it('rejects JIT persistence from an invalid JWT plus spoofed pre-setup email header', async () => {
       const req = new Request('https://app.example.com/api/user', {
         method: 'GET',
-        headers: { 'cf-access-authenticated-user-email': 'fresh@example.com' },
+        headers: {
+          'cf-access-authenticated-user-email': 'fresh@example.com',
+          'cf-access-jwt-assertion': 'invalid.jwt.value',
+        },
       });
 
-      const { user, bucketName } = await authenticateRequest(req, enterpriseEnv());
-
-      expect(user.email).toBe('fresh@example.com');
-      expect(user.role).toBe('user');
-      expect(user.subscriptionTier).toBe('unlimited');
-      expect(bucketName).toContain('fresh');
-      expect(JSON.parse(mockKV._store.get('user:fresh@example.com') as string).addedBy).toBe('enterprise-jit');
+      await expect(authenticateRequest(req, enterpriseEnv())).rejects.toThrow('Verified identity required');
+      expect(mockKV._store.get('user:fresh@example.com')).toBeUndefined();
     });
 
     it('AC6 flag-off: with ENTERPRISE_MODE unset, an unknown non-SaaS user is rejected and never provisioned', async () => {

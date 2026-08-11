@@ -26,6 +26,7 @@ import {
   isChildSessionFirstLine,
   isChildSessionHeader,
   isFirstMessage,
+  isGraphifyExtractionChunk,
   isResumedSession,
   isSyntheticPrompt,
   parseActiveExtractionRequest,
@@ -60,6 +61,7 @@ export interface MemoryVaultPaths {
   memoryPromptFile: string;
   vaultPromptFile: string;
   vaultManifestFile: string;
+  vaultInitializationFile: string;
   vaultMarkerFile: string;
 }
 
@@ -97,6 +99,7 @@ const defaultDependencies: MemoryVaultDependencies = {
     memoryPromptFile: join(PROMPTS_DIR, "memory-agent-prompt.md"),
     vaultPromptFile: join(PROMPTS_DIR, "vault-extract-prompt.md"),
     vaultManifestFile: join(VAULT_ROOT, "graphify-out", "vault-extract-manifest.json"),
+    vaultInitializationFile: join(VAULT_ROOT, "graphify-out", "vault-extract-initialized"),
     vaultMarkerFile: join(CACHE_DIR, "vault-extract.last"),
   },
   now: () => Date.now(),
@@ -119,6 +122,7 @@ function ensureDirs(paths: MemoryVaultPaths): void {
   mkdirSync(paths.cacheDir, { recursive: true });
   mkdirSync(paths.memoryCounterDir, { recursive: true });
   mkdirSync(join(paths.vaultRoot, "Raw", "Sessions"), { recursive: true });
+  mkdirSync(join(paths.vaultRoot, "Notes"), { recursive: true });
   mkdirSync(join(paths.vaultRoot, "graphify-out"), { recursive: true });
 }
 
@@ -338,13 +342,17 @@ function cleanupVaultRequest(paths: MemoryVaultPaths, active: ActiveVaultRequest
   safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
 }
 
+function requestChunkQualifies(paths: MemoryVaultPaths, requestId: string): boolean {
+  return isGraphifyExtractionChunk(readJson(requestChunkPath(paths, requestId)));
+}
+
 function memorySuccessQualifies(paths: MemoryVaultPaths, request: MemoryCaptureRequest): boolean {
   return existsSync(captureOutputPath(paths, request))
-    && existsSync(requestChunkPath(paths, request.requestId));
+    && requestChunkQualifies(paths, request.requestId);
 }
 
 function vaultSuccessQualifies(paths: MemoryVaultPaths, request: VaultExtractRequest): boolean {
-  return request.changedFiles.length === 0 || existsSync(requestChunkPath(paths, request.requestId));
+  return request.changedFiles.length === 0 || requestChunkQualifies(paths, request.requestId);
 }
 
 function finalizeMemorySuccess(
@@ -583,9 +591,16 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
   pi.on("session_start", (_event, ctx) => {
     if (isChildSession(ctx)) return;
+    const vaultExisted = existsSync(paths.vaultRoot);
     ensureDirs(paths);
     bestEffortMergeGraphs(paths);
-    if (!existsSync(paths.vaultManifestFile)) commitVaultManifest(paths);
+    // Entrypoint owns production first initialization. The fallback below keeps
+    // the extension independently usable in tests/development, while the durable
+    // marker prevents a later missing or corrupt R2 restore from being rebaselined.
+    if (!existsSync(paths.vaultInitializationFile)) {
+      if (!vaultExisted && !existsSync(paths.vaultManifestFile)) commitVaultManifest(paths);
+      writeFileSync(paths.vaultInitializationFile, "1\n", "utf8");
+    }
   });
 
   pi.on("before_agent_start", (event, ctx) => {
@@ -620,7 +635,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
           promptCount: currentCount,
           afterPromptCount: lastCount,
           messages,
-          timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
+          timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
         });
         if (replacement) {
           safeUnlink(active.executionPath);
@@ -644,7 +659,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       promptCount: currentCount,
       afterPromptCount: lastCount,
       messages,
-      timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
+      timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
     });
   });
 

@@ -328,16 +328,17 @@ SYNC_MODE="${SYNC_MODE:-none}"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Vault syncs, but Vault/graphify-out/ is mostly derived. Persist ONLY the
     # cumulative graph (vault-graph.json - REQ-MEM-009 source of truth; the
-    # global graph is rebuilt from it at boot) and the vault-extract content-hash
-    # manifest (REQ-VAULT-026: the durable
-    # change-detection high-water mark — it MUST survive restart so a restored
-    # vault is not re-extracted whole). The per-run graph.json, chunks, labels,
+    # global graph is rebuilt from it at boot), the vault-extract content-hash
+    # manifest, and its durable first-initialization record (REQ-VAULT-026: both
+    # MUST survive restart so a missing restore cannot be mistaken for a fresh
+    # vault and rebaseline unextracted edits). The per-run graph.json, chunks, labels,
     # GRAPH_REPORT.md, cache/ and graphify's own manifest.json are regenerated
     # by the next extraction and have no R2 value. These allow-rules MUST precede
     # both the graphify-out exclusion and "+ Vault/**" (rclone first-match order).
     VAULT_FILTER=(
         --filter "+ Vault/graphify-out/vault-graph.json"
         --filter "+ Vault/graphify-out/vault-extract-manifest.json"
+        --filter "+ Vault/graphify-out/vault-extract-initialized"
         --filter "- Vault/graphify-out/**"
         --filter "+ Vault/**"
     )
@@ -2000,7 +2001,10 @@ init_user_vault() {
     # file dropped here round-trips to R2 and is visible in the storage panel.
     mkdir -p "$USER_HOME/Uploads" "$USER_HOME/Temporary"
 
-    if [ ! -d "$VAULT" ]; then
+    local VAULT_EXISTED_AT_BOOT=0
+    if [ -d "$VAULT" ]; then
+        VAULT_EXISTED_AT_BOOT=1
+    else
         echo "[entrypoint] Initializing vault skeleton at $VAULT"
         mkdir -p "$VAULT"
     fi
@@ -2045,13 +2049,22 @@ init_user_vault() {
     done
 
     # One-time cleanup: legacy "Global Graph.md" pages from earlier installs
-    # link to a non-existent global-graph.html (404). Drop the page and the
-    # never-generated viz file on every boot - idempotent, also catches
-    # vaults restored from R2 snapshots that predate this cleanup.
-    if [ -f "$VAULT/Raw/Graphs/Global Graph.md" ] \
-       && [ ! -f "$PRESEED_DIR/Raw/Graphs/Global Graph.md" ]; then
-        rm -f "$VAULT/Raw/Graphs/Global Graph.md" "$VAULT/Raw/Graphs/global-graph.html" 2>/dev/null
-        echo "[entrypoint] Removed legacy Raw/Graphs/Global Graph.md (viz dropped)"
+    # link to a non-existent global-graph.html (404). Remove each stale artifact
+    # independently whenever the preseed counterpart is absent: either sibling
+    # may already have disappeared on an earlier boot or restore.
+    if [ ! -f "$PRESEED_DIR/Raw/Graphs/Global Graph.md" ]; then
+        local REMOVED_LEGACY_GRAPH=0
+        if [ -f "$VAULT/Raw/Graphs/Global Graph.md" ]; then
+            rm -f "$VAULT/Raw/Graphs/Global Graph.md" 2>/dev/null
+            REMOVED_LEGACY_GRAPH=1
+        fi
+        if [ -f "$VAULT/Raw/Graphs/global-graph.html" ]; then
+            rm -f "$VAULT/Raw/Graphs/global-graph.html" 2>/dev/null
+            REMOVED_LEGACY_GRAPH=1
+        fi
+        if [ "$REMOVED_LEGACY_GRAPH" = "1" ]; then
+            echo "[entrypoint] Removed legacy Raw/Graphs global graph artifact(s)"
+        fi
     fi
 
     # Preseed-managed config pages. Always overwritten from preseed on every boot
@@ -2160,20 +2173,32 @@ init_user_vault() {
     [ -f "$HOOK_CACHE/vault-extract.last" ] || touch "$HOOK_CACHE/vault-extract.last"
     [ -f "$HOOK_CACHE/vault-monitor.tick" ] || touch "$HOOK_CACHE/vault-monitor.tick"
 
-    # Baseline the content-hash manifest ONLY when it is absent — the first
-    # session for this vault. On every later boot the manifest is restored from
-    # R2 (graphify-out/ allow-rule), so we do NOT re-baseline: genuine changes,
-    # including a prior session's unextracted files, are still detected. Recording
-    # content hashes (not stamping an mtime) is what makes detection survive the
-    # R2 restore's mtime reset — the fix for the full-vault re-extraction.
+    # Baseline only before the durable initialization record exists. The record
+    # is R2-allow-listed beside the manifest and contains one byte-plus-newline so
+    # rclone's --min-size 1B policy persists it. A returning Vault whose manifest
+    # is missing or corrupt must remain full-delta eligible; rebuilding a baseline
+    # from current bytes would silently mark unextracted edits as processed.
     local MANIFEST_FILE="$VAULT/graphify-out/vault-extract-manifest.json"
+    local INITIALIZED_FILE="$VAULT/graphify-out/vault-extract-initialized"
     local MANIFEST_SCRIPT="$PLUGIN_DIR/codeflare-vault/scripts/vault-manifest.py"
-    if [ ! -f "$MANIFEST_FILE" ] && [ -f "$MANIFEST_SCRIPT" ]; then
-        if python3 "$MANIFEST_SCRIPT" commit "$VAULT" "$MANIFEST_FILE" 2>/dev/null; then
-            echo "[entrypoint] Vault-extract manifest baselined (first session)"
-        else
-            echo "[entrypoint] Vault-extract manifest baseline deferred"
+    if [ ! -f "$INITIALIZED_FILE" ]; then
+        if [ -f "$MANIFEST_FILE" ] || [ "$VAULT_EXISTED_AT_BOOT" = "1" ]; then
+            # Migration-safe: a Vault restored from an older release may not yet
+            # carry this new marker. Never baseline an already-existing Vault;
+            # if its manifest is absent, empty high-water state preserves every
+            # file as a full-delta candidate.
+            printf '1\n' > "$INITIALIZED_FILE"
+            echo "[entrypoint] Vault-extract durable initialization state recorded"
+        elif [ -f "$MANIFEST_SCRIPT" ]; then
+            if python3 "$MANIFEST_SCRIPT" commit "$VAULT" "$MANIFEST_FILE" 2>/dev/null; then
+                printf '1\n' > "$INITIALIZED_FILE"
+                echo "[entrypoint] Vault-extract manifest baselined (first initialization)"
+            else
+                echo "[entrypoint] Vault-extract manifest baseline deferred"
+            fi
         fi
+    elif [ ! -f "$MANIFEST_FILE" ]; then
+        echo "[entrypoint] WARNING: initialized Vault manifest missing after restore; preserving full-delta eligibility"
     fi
 }
 
@@ -2282,12 +2307,97 @@ fi
 
 configure_pi_goal_defaults() {
     local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
-    if [ -e "$goal_config" ]; then
-        return 0
-    fi
-    mkdir -p "$(dirname "$goal_config")"
-    printf '{\n  "toolVisibility": "after-first-goal"\n}\n' > "$goal_config"
-    echo "[entrypoint] Pi Goal configured for capability-filtered tool activation"
+    PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_GOAL_STARTUP_CONFIG;
+const hasOwn = (value, key) => Object.hasOwn(value, key);
+const ownRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+const validContinuationLimit = (value) =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+
+function validSettings(value) {
+  if (!ownRecord(value)) return false;
+  if (
+    hasOwn(value, 'toolVisibility') &&
+    value.toolVisibility !== 'always' &&
+    value.toolVisibility !== 'after-first-goal'
+  ) return false;
+
+  if (hasOwn(value, 'experimental')) {
+    const experimental = ownRecord(value.experimental);
+    if (!experimental || (hasOwn(experimental, 'goals') && typeof experimental.goals !== 'boolean')) {
+      return false;
+    }
+  }
+  if (hasOwn(value, 'rpc')) {
+    const rpc = ownRecord(value.rpc);
+    if (!rpc || (hasOwn(rpc, 'enabled') && typeof rpc.enabled !== 'boolean')) return false;
+  }
+  if (hasOwn(value, 'continuationLimits')) {
+    const limits = ownRecord(value.continuationLimits);
+    if (!limits) return false;
+    if (hasOwn(limits, 'automaticTurns') && !validContinuationLimit(limits.automaticTurns)) {
+      return false;
+    }
+    if (hasOwn(limits, 'noProgressTurns') && !validContinuationLimit(limits.noProgressTurns)) {
+      return false;
+    }
+    if (
+      hasOwn(limits, 'minIntervalMs') &&
+      !(typeof limits.minIntervalMs === 'number' &&
+        Number.isSafeInteger(limits.minIntervalMs) &&
+        limits.minIntervalMs >= 0)
+    ) return false;
+  }
+  return true;
+} // validSettings
+
+function configure() {
+  let settings = {};
+  try {
+    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      settings = {};
+    } else {
+      return;
+    }
+  }
+  if (!validSettings(settings)) return;
+
+  const limits = ownRecord(settings.continuationLimits) ?? {};
+  const missingVisibility = !hasOwn(settings, 'toolVisibility');
+  const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
+  const missingMinInterval = !hasOwn(limits, 'minIntervalMs');
+  if (!missingVisibility && !missingAutomaticTurns && !missingMinInterval) return;
+
+  const nextLimits = {
+    ...limits,
+    ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
+    ...(missingMinInterval ? { minIntervalMs: 60_000 } : {}),
+  };
+  const nextSettings = {
+    ...settings,
+    ...(missingVisibility ? { toolVisibility: 'after-first-goal' } : {}),
+    continuationLimits: nextLimits,
+  };
+
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(nextSettings, null, 2)}\n`, { flag: 'wx' });
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+  console.log('[entrypoint] Pi Goal startup defaults configured');
+} // configure
+
+configure();
+NODE
 }
 
 warm_pi_npm_dependencies() {
@@ -2345,6 +2455,7 @@ const required = [
   'npm:pi-web-access@0.17.0',
   'npm:pi-mcp-adapter@2.16.0',
   'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-usage@0.50.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
 // every fresh container start until upstream ships a memory-safe Pi adapter.
@@ -2497,10 +2608,31 @@ _merge_consult_llm_mcp() {
     echo "[entrypoint] consult-llm MCP server configured for $label"
 }
 
+_remove_consult_llm_mcp() {
+    # $1 target json, $2 human label
+    local target="$1" label="$2" tmp
+    [ -f "$target" ] || return 0
+
+    tmp=$(mktemp)
+    if jq 'del(.mcpServers["consult-llm"])' "$target" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$target"
+        echo "[entrypoint] stale consult-llm MCP server removed for $label"
+    else
+        echo "[entrypoint] WARNING: could not remove consult-llm MCP config from $target (malformed?)"
+        rm -f "$tmp"
+    fi
+}
+
+_remove_disabled_consult_llm() {
+    _remove_consult_llm_mcp "$USER_CLAUDE_JSON" "Claude Code"
+    _remove_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" "Pi"
+    rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+}
+
 configure_consult_llm() {
     if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
-        # No per-user LLM keys in enterprise; ensure the skill is absent for all agents.
-        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        # No per-user LLM keys in enterprise; remove only Codeflare-owned consult-llm state.
+        _remove_disabled_consult_llm
         echo "[entrypoint] Enterprise Mode: consult-llm disabled (no per-user LLM keys)"
         return 0
     fi
@@ -2526,10 +2658,9 @@ configure_consult_llm() {
         echo "[entrypoint] consult-llm: Gemini -> API key"
     fi
     if [ "$ok" != "1" ]; then
-        # No usable provider: strip the consult-llm skill so the agent is not left
-        # holding a skill for an MCP server that was never registered. Mirrors the
-        # enterprise branch above and the browser-run skill gate.
-        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        # No usable provider: remove only Codeflare-owned consult-llm state so the
+        # agent cannot retain a stale server or a skill that points to one.
+        _remove_disabled_consult_llm
         echo "[entrypoint] consult-llm: no usable provider; skipping (skill not seeded)"
         return 0
     fi
@@ -3102,6 +3233,24 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   2. CLOUDFLARE_API_TOKEN non-empty - no token, no remote browser; the
 #      registration would no-op (and CLOUDFLARE_ACCOUNT_ID is needed for the
 #      endpoint URL), so we require both before wiring it up.
+remove_owned_browser_mcp_servers() {
+    local config_path="$1"
+    local owned_names="$2"
+    [ -f "$config_path" ] || return 0
+
+    local tmp_json
+    tmp_json=$(mktemp)
+    if jq --argjson names "$owned_names" '
+        reduce $names[] as $name (. ; del(.mcpServers[$name]))
+        | if ((.mcpServers // {}) | length) == 0 then del(.mcpServers) else . end
+    ' "$config_path" > "$tmp_json" 2>/dev/null; then
+        mv "$tmp_json" "$config_path"
+    else
+        echo "[entrypoint] WARNING: Could not remove disabled Browser Run MCP config from $config_path (malformed JSON?)"
+        rm -f "$tmp_json"
+    fi
+}
+
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
@@ -3173,15 +3322,15 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     fi
     echo "[entrypoint] browser-run MCP server registered in .claude.json (Cloudflare Browser Run markdown/content/scrape)"
 else
-    # No Browser Run token configured (or not an advanced session): do not leave the
-    # agents holding skills for browser tools they cannot use (REQ-BROWSER-007). The
-    # MCP servers above already self-gate on the token and Pi's browser-run extension
-    # registers nothing without it; but the browser-run / browser-e2e SKILL.md files
-    # are seeded unconditionally by the agent-config sync, so strip them here. Mirrors
-    # the consult-llm skill removal in configure_consult_llm.
+    # No Browser Run token configured (or not an advanced session): remove restored
+    # Codeflare-owned registrations as well as skills. User-defined MCP servers stay
+    # untouched, while stale bearer-bearing Browser Run entries cannot survive a mode
+    # or credential change.
+    remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
+    remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp.json" '["chrome-devtools"]'
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
-    echo "[entrypoint] Browser Run not configured; browser-run/browser-e2e skills not seeded"
+    echo "[entrypoint] Browser Run not configured; owned MCP registrations and browser skills removed"
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
@@ -3466,7 +3615,8 @@ configure_fast_start_tool_settings
 # configure_tab_autostart launches the agent, so the workspace is populated when
 # the user lands. Best-effort: a clone failure is logged but never aborts start.
 if [ -n "${GIT_CLONE_REPO:-}" ]; then
-    clone_repo="${GIT_CLONE_REPO%.git}"
+    clone_repo="$GIT_CLONE_REPO"
+    clone_remote="${GIT_CLONE_REPO%.git}"
     # Defense-in-depth: re-validate repo/ref shape here (mirrors
     # host/src/git-clone.ts) so the new-session path fails closed like the
     # running-session path; rejects an option-leading dash in the ref and a
@@ -3483,10 +3633,10 @@ if [ -n "${GIT_CLONE_REPO:-}" ]; then
         else
             echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
             if [ -n "${GIT_CLONE_REF:-}" ]; then
-                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
                     || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
             else
-                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_remote}.git" "$CLONE_DIR" \
                     || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
             fi
         fi

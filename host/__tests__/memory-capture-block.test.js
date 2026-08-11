@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,7 @@ function runHook({ home, counterDir }, payload) {
     env: { ...process.env, HOME: home, MEMCAP_COUNTER_DIR: counterDir },
   });
 }
+
 
 // REQ-MEM-012 AC1 (no deferred capture -> hook is inert)
 describe('memory-capture-block.sh - common path / REQ-MEM-012 AC1', () => {
@@ -143,6 +144,7 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
     const r = runHook(fx, {
       session_id: sid,
       tool_name: 'Task',
+      tool_use_id: 'task-spawn-id',
       tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
     });
     assert.equal(r.status, 0);
@@ -174,14 +176,57 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
   });
 });
 
-// REQ-MEM-012 AC4 (no bypass: every non-allowed tool call blocks while .vars
-// exists, no in-hook escape, block clears only when subagent runs and deletes
-// .vars). Stop-hook semantics same as the review-agent enforcement hook.
-describe('memory-capture-block.sh - no bypass / REQ-MEM-012 AC4 stop-hook', () => {
-  it('blocks every non-Task-memory-capture call unconditionally while .vars exists', () => {
+// REQ-MEM-012 AC3+AC4: spawning the capture agent opens one bounded
+// in-flight window so its own PreToolUse calls cannot self-deadlock.
+describe('memory-capture-block.sh - in-flight capture sentinel / REQ-MEM-012 AC3+AC4', () => {
+  it('allows the capture child first tool call without correlation metadata', () => {
+    const fx = makeFixture();
+    const sessionId = `sess-in-flight-${process.pid}-${Date.now()}`;
+    const varsPath = writeVars(fx, sessionId);
+    const sentinel = join(fx.counterDir, `${sessionId}.capture-in-flight`);
+
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      tool_name: 'Agent',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    }).status, 0);
+    assert.equal(existsSync(sentinel), true);
+
+    for (const payload of [
+      { session_id: sessionId, tool_name: 'Read', tool_input: {} },
+      { session_id: sessionId, agent_id: 'capture-child', tool_name: 'Write', tool_input: {} },
+      { session_id: sessionId, agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'true' } },
+    ]) {
+      assert.equal(runHook(fx, payload).status, 0);
+    }
+
+    rmSync(varsPath);
+    assert.equal(runHook(fx, { session_id: sessionId, tool_name: 'Read', tool_input: {} }).status, 0);
+    assert.equal(existsSync(sentinel), false);
+  });
+
+  it('expires a stalled in-flight sentinel after 600 seconds and resumes blocking', () => {
+    const fx = makeFixture();
+    const sessionId = `sess-stale-${process.pid}-${Date.now()}`;
+    writeVars(fx, sessionId);
+    const sentinel = join(fx.counterDir, `${sessionId}.capture-in-flight`);
+    assert.equal(runHook(fx, {
+      session_id: sessionId,
+      tool_name: 'Task',
+      tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
+    }).status, 0);
+    const old = new Date(Date.now() - 601_000);
+    utimesSync(sentinel, old, old);
+    const blocked = runHook(fx, { session_id: sessionId, tool_name: 'Read', tool_input: {} });
+    assert.equal(blocked.status, 2);
+    assert.equal(existsSync(sentinel), false);
+  });
+});
+
+describe('memory-capture-block.sh - no in-flight bypass / REQ-MEM-012 AC4 stop-hook', () => {
+  it('blocks every non-capture-spawn call while .vars exists and no sentinel is active', () => {
     const fx = makeFixture();
     writeVars(fx, 'sess-blocked');
-    // Try a variety of tool calls; all must hard-block.
     const tools = [
       { tool_name: 'Bash', tool_input: { command: 'ls' } },
       { tool_name: 'Read', tool_input: { file_path: '/etc/hosts' } },
@@ -189,19 +234,19 @@ describe('memory-capture-block.sh - no bypass / REQ-MEM-012 AC4 stop-hook', () =
       { tool_name: 'Write', tool_input: { file_path: '/tmp/y', content: 'z' } },
       { tool_name: 'Task', tool_input: { subagent_type: 'general-purpose', prompt: 'noop' } },
     ];
-    for (const t of tools) {
-      const r = runHook(fx, { session_id: 'sess-blocked', ...t });
-      assert.equal(r.status, 2, `${t.tool_name} (subagent_type=${t.tool_input?.subagent_type ?? 'n/a'}) must block`);
-      assert.match(r.stderr, /HARD BLOCK/);
+    for (const tool of tools) {
+      const result = runHook(fx, { session_id: 'sess-blocked', ...tool });
+      assert.equal(result.status, 2);
+      assert.match(result.stderr, /HARD BLOCK/);
     }
   });
 
-  it('stderr explicitly states the block is unconditional and has no bypass', () => {
+  it('stderr states the block clears only after the capture spawn opens the in-flight window', () => {
     const fx = makeFixture();
     writeVars(fx, 'sess-blocked');
-    const r = runHook(fx, { session_id: 'sess-blocked', tool_name: 'Bash', tool_input: {} });
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /unconditional/);
-    assert.match(r.stderr, /no bypass file/);
+    const result = runHook(fx, { session_id: 'sess-blocked', tool_name: 'Bash', tool_input: {} });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /unconditional/);
+    assert.match(result.stderr, /no bypass file/i);
   });
 });

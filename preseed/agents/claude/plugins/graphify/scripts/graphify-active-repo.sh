@@ -200,72 +200,62 @@ if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ]; then
     exit 0
 fi
 
-# Writer-must-write-newline contract: sentinel readers (e.g. the
-# graph-first nudge) use `read -r ACTIVE_REPO < $SENTINEL || ACTIVE_REPO=""`. read -r
-# returns non-zero when the input ends without a newline (EOF on first
-# line), which trips the `||` clause and clobbers the value. Keep the
-# `\n` in printf so the reader's contract holds.
-printf '%s\n' "$REPO" > "$SENTINEL"
+# Resolve the complete reconciliation before advancing the sentinel. On a repo
+# switch, old-tag removal and new-tag addition run under one lock and one
+# success chain. A lock timeout or either graphify failure leaves OLD in place,
+# so the next hook invocation retries instead of taking the unchanged fast path.
+RECONCILED=1
+REMOVE_TAG=""
+REPO_BASENAME=$(basename "$REPO")
+NEED_ADD=0
 
-# Single-active-repo model: when the user switches FROM repo A's tree
-# INTO repo B's tree, A's nodes should not linger in the global graph -
-# subsequent mcp__graphify__* queries would otherwise return symbols
-# from a project the user is no longer in. Prune A by tag (basename)
-# before adding B.
-#
-# Same-tag case (two clones with the same basename, or branch switch
-# within the same repo - which fires through the GRAPH_MTIME path
-# above): skip the remove; the add below replaces the existing entry
-# via graphify's source_hash dedup.
-#
-# flock serialises against the capture + vault-extract sonnets which
-# also write the global graph.
-if [ -n "$OLD" ] && [ "$OLD" != "$REPO" ] && command -v graphify >/dev/null 2>&1; then
-    OLD_BASENAME=$(basename "$OLD")
-    NEW_BASENAME=$(basename "$REPO")
-    if [ "$OLD_BASENAME" != "$NEW_BASENAME" ] && [ -f "$GLOBAL_MANIFEST" ]; then
-        # `.repos | has($tag)` returns a clean true/false; using `length`
-        # on `.repos[$tag] // empty` would also return 0 for a present-
-        # but-empty entry, falsely skipping the remove.
-        STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos | has($tag)' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-        if [ "$STILL_PRESENT" = "true" ]; then
-            # -w 5: bounded wait so a stuck capture / vault-extract sonnet
-            # holding the global-graph lock cannot hang the user's tool
-            # call indefinitely. Lock-acquire failure is swallowed by the
-            # outer `|| true`; the next active-repo fire will retry.
-            (flock -w 5 /tmp/graphify-global.lock graphify global remove "$OLD_BASENAME" >/dev/null 2>&1) || true
+if command -v graphify >/dev/null 2>&1; then
+    if [ -n "$OLD" ] && [ "$OLD" != "$REPO" ]; then
+        OLD_BASENAME=$(basename "$OLD")
+        if [ "$OLD_BASENAME" != "$REPO_BASENAME" ] && [ -f "$GLOBAL_MANIFEST" ]; then
+            STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos | has($tag)' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+            [ "$STILL_PRESENT" = "true" ] && REMOVE_TAG="$OLD_BASENAME"
+        fi
+    fi
+
+    if [ -f "$GRAPH_JSON" ]; then
+        NEED_ADD=1
+        if [ -f "$GLOBAL_MANIFEST" ]; then
+            STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+            # graphify stores the first 16 hex chars of the file SHA-256.
+            # A malformed or changed format refuses the optimisation and forces
+            # graphify's own source-hash dedup to make the decision.
+            if [ -n "$STORED_HASH" ] && [ "${#STORED_HASH}" -eq 16 ]; then
+                CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
+                [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
+            fi
+        fi
+    fi
+
+    if [ -n "$REMOVE_TAG" ] || [ "$NEED_ADD" = "1" ]; then
+        if ! flock -w 5 /tmp/graphify-global.lock bash -c '
+            remove_tag="$1"
+            graph_json="$2"
+            repo_tag="$3"
+            need_add="$4"
+            if [ -n "$remove_tag" ]; then
+                graphify global remove "$remove_tag" >/dev/null 2>&1 || exit 1
+            fi
+            if [ "$need_add" = "1" ]; then
+                graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1
+            fi
+        ' _ "$REMOVE_TAG" "$GRAPH_JSON" "$REPO_BASENAME" "$NEED_ADD"; then
+            RECONCILED=0
         fi
     fi
 fi
 
-# Add NEW to global graph (if it has one). Skips when the manifest
-# already records this tag with a matching content hash, avoiding the
-# graphify spawn on no-op fires. The graphify CLI itself also dedups
-# via source_hash, so this pre-check is a perf optimisation, not a
-# correctness gate.
-if [ -f "$GRAPH_JSON" ] && command -v graphify >/dev/null 2>&1; then
-    REPO_BASENAME=$(basename "$REPO")
-    NEED_ADD=1
-    if [ -f "$GLOBAL_MANIFEST" ]; then
-        STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-        # graphify stores the first 16 hex chars of the file SHA-256.
-        # Length sanity check: if the manifest format ever changes (full
-        # 64-char hash, base64, salted), refuse the optimisation and
-        # force re-add - graphify's own source_hash dedup will then run
-        # at the CLI level and either no-op or correctly replace.
-        if [ -n "$STORED_HASH" ] && [ "${#STORED_HASH}" -eq 16 ]; then
-            CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
-            [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
-        fi
-    fi
-    if [ "$NEED_ADD" = "1" ]; then
-        # -w 5 bound: same rationale as the remove above.
-        (flock -w 5 /tmp/graphify-global.lock graphify global add "$GRAPH_JSON" --as "$REPO_BASENAME" >/dev/null 2>&1) || true
-    fi
+if [ "$RECONCILED" = "1" ]; then
+    # Writer-must-write-newline contract: `read -r` readers treat an unterminated
+    # first line as failure and otherwise clobber the active path.
+    printf '%s\n' "$REPO" > "$SENTINEL"
+    # Bump mtime only after the global graph and sentinel describe the same state.
+    touch "$SENTINEL" 2>/dev/null || true
 fi
-
-# Bump sentinel mtime so the GRAPH_MTIME fast-path can skip subsequent
-# fires until the next graph rebuild.
-touch "$SENTINEL" 2>/dev/null || true
 
 exit 0

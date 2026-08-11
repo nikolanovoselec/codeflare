@@ -79,6 +79,10 @@ function summarise(rows, inputTruncated = false, passes) {
   const failed = rows.filter((row) => !row.resolved);
   const weak = rows.filter((row) => row.resolved && row.as === 'literal');
   const weakManifest = rows.filter((row) => row.resolved && row.as === 'manifest');
+  const resolvedBy = rows.filter((row) => row.resolved && row.as).reduce((counts, row) => ({
+    ...counts,
+    [row.as]: (counts[row.as] ?? 0) + 1,
+  }), {});
   // Both emitted lists are bounded, so both have to be able to raise the flag.
   // Marking only the failure list reintroduced the exact false clean this
   // function documents, in the field added to prevent one.
@@ -97,6 +101,10 @@ function summarise(rows, inputTruncated = false, passes) {
     // Same reason, weaker evidence: this name is a token in a dependency
     // manifest and nothing stronger. It is a resolution, not a clean.
     ...(weakManifest.length ? { resolvedOnlyByDependencyManifest: weakManifest.slice(0, MAX_UNRESOLVED) } : {}),
+    // Compact classification counts make evidence precedence observable without
+    // carrying every successful row. In particular, a name that is both a
+    // source declaration and a dependency must count as a symbol.
+    ...(Object.keys(resolvedBy).length ? { resolvedBy } : {}),
     // How many passes over the tree the answers cost. Constant against the
     // number of names asked about -- which is the contract, and is otherwise
     // only checkable with a stopwatch.
@@ -511,16 +519,15 @@ function resolveDocReferences(repo, files) {
         rows.push({ ref: candidate, resolved: true, as: 'path' });
         continue;
       }
-      if (dependencies.exact.has(candidate)) {
-        rows.push({ ref: candidate, resolved: true, as: 'package' });
-        continue;
-      }
-      // A reference must resolve to CODE. Grep finds the documentation file that
-      // names it, so counting that as resolution makes every reference
-      // self-confirming and the whole pass vacuous -- a deleted symbol still
-      // written about would read as live.
+      // A source declaration is stronger evidence than a manifest dependency.
+      // Check it first so a name held in both places is never demoted to the
+      // weaker package classification.
       if (declared.has(candidate)) {
         rows.push({ ref: candidate, resolved: true, as: 'symbol' });
+        continue;
+      }
+      if (dependencies.exact.has(candidate)) {
+        rows.push({ ref: candidate, resolved: true, as: 'package' });
         continue;
       }
       // A name registered as a string is real but weaker evidence than a
@@ -890,28 +897,72 @@ function main() {
 // Bulk first, resolutions last, and every drop leaves a named marker so an
 // absent field is never mistaken for a clean answer.
 function bound(out) {
-  // Measured on the form that is EMITTED. Measuring the compact form let a
-  // block pass the check and then go out over the cap, which is the one thing
-  // the shed exists to prevent.
-  const size = () => JSON.stringify(out, null, 1).length;
-  if (size() <= MAX_TOTAL) return out;
-  for (const field of ['changelog', 'docIndex', 'specIndex', 'pending', 'queue', 'config']) {
-    if (out[field] === undefined || out[field] === null) continue;
+  // Measure emitted UTF-8 bytes. Character count undercharges multibyte paths
+  // and can put the supposedly bounded block over the transport cap.
+  const size = () => Buffer.byteLength(JSON.stringify(out, null, 1));
+  const omit = (field) => {
+    if (out[field] === undefined || out[field] === null) return false;
     delete out[field];
-    out.omitted = [...(out.omitted ?? []), field];
-    if (size() <= MAX_TOTAL) return out;
+    out.omitted = [...new Set([...(out.omitted ?? []), field])];
+    return true;
+  };
+  if (size() <= MAX_TOTAL) return out;
+
+  // Verbatim indexes and patches are reproducible bulk. Compact resolutions,
+  // especially `pending` and `config`, stay available so shedding does not send
+  // the lane back to deriving settled answers.
+  for (const field of ['changelog', 'docIndex', 'specIndex', 'queue']) {
+    if (omit(field) && size() <= MAX_TOTAL) return out;
   }
   if (Array.isArray(out.docsCitingChanged)) {
+    const hadPatch = out.docsCitingChanged.some((row) => row.patch !== undefined);
     out.docsCitingChanged = out.docsCitingChanged.map(({ patch, ...row }) => (
       patch === undefined ? row : { ...row, patchOmitted: true }
     ));
+    if (hadPatch) out.omitted = [...new Set([...(out.omitted ?? []), 'docsCitingChanged.patch'])];
     if (size() <= MAX_TOTAL) return out;
   }
   if (Array.isArray(out.adrs)) {
-    out.adrs = out.adrs.filter((entry) => !String(entry).endsWith('|Superseded'));
-    out.omitted = [...(out.omitted ?? []), 'adrs:superseded'];
+    const kept = out.adrs.filter((entry) => !String(entry).endsWith('|Superseded'));
+    if (kept.length !== out.adrs.length) {
+      out.adrs = kept;
+      out.omitted = [...new Set([...(out.omitted ?? []), 'adrs:superseded'])];
+      if (size() <= MAX_TOTAL) return out;
+    }
   }
-  return out;
+
+  // Shed every other reproducible field before required decision evidence. Sort
+  // by emitted byte size so each omission makes deterministic maximum progress.
+  const protectedFields = new Set([
+    'lane', 'range', 'base', 'adrs', 'config', 'pending', 'omitted', 'resolutionCounts',
+  ]);
+  const remainingFields = Object.keys(out)
+    .filter((field) => !protectedFields.has(field))
+    .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
+      - Buffer.byteLength(JSON.stringify(out[left])));
+  for (const field of remainingFields) {
+    if (omit(field) && size() <= MAX_TOTAL) return out;
+  }
+
+  // ADRs, config and pending carry the source and dispositions for settled
+  // decisions. Keep compact siblings, but shed an individually oversized field
+  // last, larger first, and name every omission.
+  const decisionFields = ['adrs', 'config', 'pending']
+    .filter((field) => out[field] !== undefined && out[field] !== null)
+    .sort((left, right) => Buffer.byteLength(JSON.stringify(out[right]))
+      - Buffer.byteLength(JSON.stringify(out[left])));
+  for (const field of decisionFields) {
+    if (omit(field) && size() <= MAX_TOTAL) return out;
+  }
+
+  // External input can make even identity metadata pathological. Never emit an
+  // over-cap block: return one bounded failure marker so the lane gathers its
+  // own evidence instead of treating truncation as a clean result.
+  return {
+    lane: typeof out.lane === 'string' ? out.lane.slice(0, 64) : null,
+    error: 'evidence exceeded rendered UTF-8 byte budget',
+    omitted: ['evidence:oversized'],
+  };
 }
 
 try {

@@ -333,8 +333,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const ctx = {
         ...mockCtx,
         container: { ...mockContainerRuntime, interceptOutboundHttps },
-        // No LlmInterceptor wiring possible (gateway unset), but GitHub must still wire.
-        exports: { LlmInterceptor: vi.fn(), GitHubInterceptor },
+        exports: { LlmInterceptor: vi.fn(() => ({ id: 'llm-unconfigured' })), GitHubInterceptor },
       };
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'userEmail') return 'nikola@novoselec.ch';
@@ -347,7 +346,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = new ContainerClass(ctx as any, {
         ...mockEnv,
         ENTERPRISE_MODE: 'active',
-        KV: { get: vi.fn().mockResolvedValue('inactive') },
+        KV: { get: vi.fn(async (key: string) => key === 'setup:strict_egress' ? 'inactive' : null) },
       } as any);
       // Wait for userEmail (loaded after bucketName) so _bucketName is set before wiring.
       await vi.waitFor(() => {
@@ -356,10 +355,44 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       await instance.startAndWaitForPorts(8080);
 
+      expect(ctx.exports.LlmInterceptor).toHaveBeenCalledWith({
+        props: { user: 'nikola@novoselec.ch', gatewayUrl: undefined, token: undefined },
+      });
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', { id: 'llm-unconfigured' });
       expect(GitHubInterceptor).toHaveBeenCalledWith({
         props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
       });
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
+    });
+
+    it('fails startup when mandatory enterprise LLM registration throws', async () => {
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
+        exports: { LlmInterceptor: vi.fn(() => { throw new Error('registration failed'); }) },
+      };
+      const instance = new ContainerClass(ctx as any, {
+        ...mockEnv,
+        ENTERPRISE_MODE: 'active',
+        KV: { get: vi.fn().mockResolvedValue(null) },
+      } as any);
+
+      const startsBefore = callOrder.filter((entry) => entry === 'super.startAndWaitForPorts').length;
+      await expect(instance.startAndWaitForPorts(8080)).rejects.toThrow('registration failed');
+      expect(callOrder.filter((entry) => entry === 'super.startAndWaitForPorts')).toHaveLength(startsBefore);
+    });
+
+    it('fails startup when the mandatory interception API is unavailable', async () => {
+      const ctx = {
+        ...mockCtx,
+        container: undefined,
+        exports: { LlmInterceptor: vi.fn(() => ({ id: 'llm' })) },
+      };
+      const instance = new ContainerClass(ctx as any, {
+        ...mockEnv, ENTERPRISE_MODE: 'active', KV: { get: vi.fn().mockResolvedValue(null) },
+      } as any);
+
+      await expect(instance.startAndWaitForPorts(8080)).rejects.toThrow('Mandatory outbound HTTPS interception is unavailable');
     });
 
     // REQ-ENTERPRISE-016 / AD86: when the strict Gateway egress toggle is ON, the DO

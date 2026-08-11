@@ -60,8 +60,10 @@ function containsUserInput(data: string): boolean {
     .replace(/\x1b\[[A-H]/g, '\x01')
     // Function keys (CSI <num> ~)
     .replace(/\x1b\[\d+~/g, '\x01')
-    // Mouse clicks only — SGR press ends with M (release ends with m, ignore)
-    .replace(/\x1b\[<\d+;\d+;\d+M/g, '\x01')
+    // Mouse button presses only — ignore SGR motion/drag reports (bit 32).
+    .replace(/\x1b\[<(\d+);\d+;\d+M/g, (sequence, button: string) =>
+      (Number(button) & 32) === 0 ? '\x01' : '',
+    )
     // SS3 keypad/function keys (ESC O + letter)
     .replace(/\x1bO[A-Za-z]/g, '\x01')
     // 2. Strip ALL multi-byte ESC sequences (CSI, OSC, DCS, APC, PM, SOS)

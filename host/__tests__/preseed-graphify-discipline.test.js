@@ -1,6 +1,6 @@
-// Verifies the structural delivery for REQ-AGENT-024 AC2 and REQ-AGENT-091:
-// the remaining graph-first discipline is preseeded in advanced mode, while the
-// retired startup hook is absent. Behavioral wiring is covered separately.
+// Verifies manifest delivery for REQ-AGENT-024 AC2 and REQ-AGENT-091.
+// Runtime graph-first behavior is exercised by graph-first-nudge.test.js; this
+// file owns only the executable/file and manifest delivery boundary.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, statSync } from 'node:fs';
@@ -15,21 +15,6 @@ function readPreseed(rel) {
 }
 
 describe('graphify preseed - advanced-mode discipline (REQ-AGENT-024)', () => {
-  it('graph-first discipline ships inside the engineering constitution', () => {
-    // The standalone rules/graph-first.md was absorbed into the constitution.
-    // Both were advanced-only, so the discipline-vs-capability split is
-    // unchanged: what is asserted is that the discipline still ships.
-    const path = resolve(repoRoot, 'preseed/agents/claude/rules/engineering-constitution.md');
-    assert.ok(existsSync(path), 'engineering-constitution.md must exist in preseed/agents/claude/rules/');
-    const body = readFileSync(path, 'utf8');
-    assert.match(body, /^## Graph first$/m,
-      'the constitution must carry the graph-first discipline section');
-    // The heading alone survives the section being emptied, which is exactly
-    // the loss this guards; assert the directive that carries the discipline.
-    assert.match(body, /graphify-out\/graph\.json/,
-      'the graph-first section must still name the artifact that triggers it');
-  });
-
   it('AC2: skills/graphify/SKILL.md exists and is preseeded', () => {
     const path = resolve(repoRoot, 'preseed/agents/claude/skills/graphify/SKILL.md');
     assert.ok(existsSync(path), 'SKILL.md must exist in preseed/agents/claude/skills/graphify/');

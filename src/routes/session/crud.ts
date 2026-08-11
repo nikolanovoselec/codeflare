@@ -242,10 +242,14 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     await container.destroy();
     reqLogger.info('Destroyed container', { containerId });
   } catch (err) {
-    reqLogger.warn('Could not destroy container', { containerId, error: String(err) });
+    reqLogger.warn('Could not confirm container destruction; preserving session for retry', {
+      containerId,
+      error: String(err),
+    });
+    throw err;
   }
 
-  // Delete from KV only after container destruction attempt
+  // Delete from KV only after confirmed container destruction.
   await c.env.KV.delete(key);
 
   return c.json({ success: true, deleted: true, id: sessionId });
