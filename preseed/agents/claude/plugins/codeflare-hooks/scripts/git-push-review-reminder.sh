@@ -222,6 +222,30 @@ CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/n
 case "$PR_BASE" in main|master|develop) ;; *) exit 0 ;; esac
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
+# The boundary rework made gh's head authoritative and exact equality the
+# eligibility test, and it kept bounded retries for "matching branches whose
+# authoritative heads are still synchronizing". Pi implements that second half
+# in classifyBoundary; this hook only ever implemented the first, so a delivery
+# landing inside the lag window read the PREVIOUS head, disagreed with the
+# checkout, and exited silently. PostToolUse fires once per tool call, so
+# nothing re-fired for that push and its round never opened.
+#
+# Retry the authoritative query rather than believing a local ref: reading the
+# reflog or refs/remotes is exactly the parsing machinery that rework removed,
+# and it answers a different question (what this clone saw) than the one
+# eligibility asks (what the PR carries). Only a delivery can be
+# mid-synchronization, so every other mismatch stays inert and waits for
+# nothing.
+case "$BOUNDARY_KIND" in
+  push|pr-create)
+    for RETRY_DELAY in 0.3 0.6 1.2; do
+      [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] && break
+      sleep "$RETRY_DELAY"
+      PR_INFO=$(gh_pr_state "$CURRENT") || break
+      CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+    done
+    ;;
+esac
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
 GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR" ] || exit 0
