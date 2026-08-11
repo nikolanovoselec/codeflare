@@ -486,6 +486,10 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
         env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
       });
       assert.equal(r.status, 2, 'an unreadable transcript is not "nothing to classify"');
+      // Names its own guard. Both guards exit 2, so a status-only assertion
+      // would stay green if the transcript check were deleted and the
+      // classifier check caught the case instead.
+      assert.match(r.stderr, /is unreadable, so a delivery/, 'the transcript guard refused, not the classifier one');
     });
   }
 
