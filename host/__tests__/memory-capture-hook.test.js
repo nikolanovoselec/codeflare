@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -334,35 +334,34 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     assert.equal(vars.attempts, 1);
   });
 
-  it('resolves the capture timestamp through the host zone chain, not a hardcoded UTC', () => {
+  it('takes the capture timestamp from the helper rather than computing its own', () => {
+    // The helper owns the USER_TIMEZONE -> TZ -> /etc/timezone -> UTC chain.
+    // An inline `date` in the hook differs from it only when both env vars are
+    // unset, so any env-driven test goes green on a UTC host no matter which
+    // implementation is present. Shadowing the helper removes the host from the
+    // question: the hook resolves it next to itself, so a stub with a sentinel
+    // proves delegation on every machine and fails the moment anyone inlines.
     const fx = makeFixture();
-    writeFileSync(join(fx.counterDir, 'sess-tz'), '0\n1\n');
+    const shadowDir = mkdtempSync(join(tmpdir(), 'memcap-shadow-'));
+    copyFileSync(HOOK, join(shadowDir, 'memory-capture.sh'));
+    writeFileSync(
+      join(shadowDir, 'assert-iso-ts.sh'),
+      "#!/usr/bin/env bash\necho 'ISO_TS=1999-12-31T23-59-59-1234'\necho 'RESOLVED_TZ=Sentinel/Zone'\n",
+    );
+    writeFileSync(join(fx.counterDir, 'sess-stub'), '0\n1\n');
     const lines = [];
     for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
-    // Both env vars unset is the only case that distinguishes the helper's
-    // chain from an inline `date`: with USER_TIMEZONE set, either stamps the
-    // same offset. Expected is computed from /etc/timezone, so the oracle
-    // lives outside the test. On a UTC host both agree and this asserts less,
-    // which is why it is written against the chain and not against a literal.
-    const env = { ...process.env, HOME: fx.home, MEMCAP_COUNTER_DIR: fx.counterDir };
-    delete env.USER_TIMEZONE;
-    delete env.TZ;
-    const res = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({ transcript_path: t, session_id: 'sess-tz' }),
+    const res = spawnSync('bash', [join(shadowDir, 'memory-capture.sh')], {
+      input: JSON.stringify({ transcript_path: t, session_id: 'sess-stub' }),
       encoding: 'utf-8',
-      env,
+      env: { ...process.env, HOME: fx.home, MEMCAP_COUNTER_DIR: fx.counterDir },
     });
     assert.equal(res.status, 0);
-    const zone = readFileSync('/etc/timezone', 'utf-8').trim();
-    const expected = spawnSync('date', ['+%z'], {
-      encoding: 'utf-8',
-      env: { ...process.env, TZ: zone },
-    }).stdout.trim();
-    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tz.vars'), 'utf-8'));
-    assert.ok(vars.capture_timestamp.endsWith(expected),
-      `capture_timestamp ${vars.capture_timestamp} must carry the ${zone} offset ${expected}`);
-    assert.ok(vars.capture_file.endsWith(`${vars.capture_timestamp}-sess-tz.md`));
+    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-stub.vars'), 'utf-8'));
+    assert.equal(vars.capture_timestamp, '1999-12-31T23-59-59-1234',
+      'the hook must use the helper\'s value verbatim, not derive a timestamp');
+    assert.ok(vars.capture_file.endsWith('1999-12-31T23-59-59-1234-sess-stu.md'));
   });
 
   it('arms nothing and says why when the timestamp helper fails its assertions', () => {

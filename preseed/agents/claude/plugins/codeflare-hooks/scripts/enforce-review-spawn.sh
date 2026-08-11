@@ -101,7 +101,30 @@ PRETOOL_COMPLETION_COUNT=""
 if [ -n "$PRETOOL_MODE" ]; then
   TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
   case "$TOOL_NAME" in
-    Read|TaskOutput|TaskGet|TaskList) exit 0 ;;
+    Read|TaskOutput|TaskGet|TaskList|Grep|Glob) exit 0 ;;
+  esac
+  # Investigation is what this window exists for. Judging a finding's validity
+  # routinely needs more than a file read -- a reviewer's empirical claim can
+  # only be settled by running the thing -- and an allowlist of Read alone
+  # forced a choice between publishing an unverified table and defying the
+  # gate. It also refused unrelated read-only work. The window should deny the
+  # state changes that would spoil the round (a head minted or delivered before
+  # triage, a lane relaunched) and let inspection through, which is the same
+  # correction the capture hard block needed: deny what matters, not everything.
+  #
+  # This substring test is cruder than the shell-aware classifier used for
+  # boundary detection, which lives inside transcript_scan's node program and
+  # is not callable per command. Crude in this direction is safe: the worst
+  # case is refusing a command that merely mentions a delivery verb, which is
+  # exactly what this window did to every command before.
+  case "$TOOL_NAME" in
+    Bash|mcp__*ctx_execute|mcp__*ctx_execute_file|mcp__*ctx_batch_execute)
+      PRETOOL_CMD=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_input.code // "", ([.tool_input.commands[]?.command // ""] | join("\n"))] | join("\n")' 2>/dev/null) || PRETOOL_CMD=""
+      case "$PRETOOL_CMD" in
+        *"git push"*|*"git commit"*|*"gh pr create"*|*"gh pr merge"*|*run-review-lane.sh*) ;;
+        *) exit 0 ;;
+      esac
+      ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
@@ -1498,7 +1521,7 @@ if all_required_lanes_completed_for_current_head; then
     # same for a pass and a failure and would deliver straight past a red head.
     # A failing CI_RESULT is a finding like any other: it is fixed in the same
     # commit, and only then does the push happen.
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION rows only; rejected rows stay rejected, accepted rows are not deferred. Wait for this head's terminal CI_RESULT if it has not landed yet, skipping the wait when no monitor exists for this head or its log has not advanced since your last read. A failing CI_RESULT is a finding: fix it in the same commit, and never push a head whose CI failure you have not addressed. Then commit and push the checked-out PR branch WITHOUT asking. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If nothing was accepted and CI passed, commit and push nothing. State what you fixed and anything you deliberately left."
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is ACKNOWLEDGED: do not relaunch review or CI for it. Apply the accepted MINIMAL DECISION rows only; rejected rows stay rejected, accepted rows are not deferred. Wait for this head's terminal CI_RESULT if it has not landed yet, skipping the wait when no monitor exists for this head or its log has not advanced since your last read. A failing CI_RESULT is a finding: fix it in the same commit, and never push a head whose CI failure you have not addressed. Then verify the focused static checks, commit, and push the checked-out PR branch WITHOUT asking. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If nothing was accepted and CI passed, commit and push nothing. State what you fixed and anything you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was

@@ -170,9 +170,15 @@ if [[ -f "$VARS_FILE" ]]; then
             [[ -n "${tmp:-}" ]] && rm -f "$tmp"
             if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
                 echo "memory-capture: cannot record delivery count; latching request at $VARS_FILE" >&2
+            elif rm -f "$VARS_FILE" 2>/dev/null; then
+                echo "memory-capture: cannot record delivery count or latch; dropped request at $VARS_FILE" >&2
             else
-                rm -f "$VARS_FILE" 2>/dev/null || true
-                echo "memory-capture: cannot record delivery count or latch; dropping request at $VARS_FILE" >&2
+                # Report what happened, not what was attempted. The drop runs in
+                # the same directory that defeated the count and the latch, so it
+                # can fail too, and a message asserting an outcome it never
+                # checked is worse than none: it says the loop stopped while the
+                # loop continues.
+                echo "memory-capture: cannot record delivery count, latch, or drop; request at $VARS_FILE will re-deliver" >&2
             fi
             emit_context "$MEMORY_SCAN"
         fi
