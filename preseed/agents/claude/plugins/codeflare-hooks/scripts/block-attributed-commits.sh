@@ -84,16 +84,72 @@ COMMAND=$(echo "$INPUT" | jq -r '
 #   gh pr create|edit|comment|review|merge
 #   gh issue create|edit|comment
 #   gh release create|edit
-MATCHED=0
-if [[ "$COMMAND" =~ git[[:space:]]+commit ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ git[[:space:]]+merge.*-m ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ git[[:space:]]+tag.*-[am] ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ git[[:space:]]+notes[[:space:]]+add ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ gh[[:space:]]+pr[[:space:]]+(create|edit|comment|review|merge) ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ gh[[:space:]]+issue[[:space:]]+(create|edit|comment) ]]; then MATCHED=1; fi
-if [[ "$COMMAND" =~ gh[[:space:]]+release[[:space:]]+(create|edit) ]]; then MATCHED=1; fi
-
-if [[ "$MATCHED" -eq 0 ]]; then
+if ! node - "$COMMAND" <<'NODE'
+const source = process.argv[2];
+const commands = [];
+let words = [], word = '', quote = '', escaped = false;
+const finishWord = () => { if (word) { words.push(word); word = ''; } };
+const finishCommand = () => { finishWord(); if (words.length) commands.push(words); words = []; };
+for (let index = 0; index < source.length; index++) {
+  const char = source[index];
+  if (escaped) { word += char; escaped = false; continue; }
+  if (char === '\\' && quote !== "'") { escaped = true; continue; }
+  if (quote) { if (char === quote) quote = ''; else word += char; continue; }
+  if (char === "'" || char === '"') { quote = char; continue; }
+  if (char === '\n' || char === '\r') { finishCommand(); continue; }
+  if (/\s/.test(char)) { finishWord(); continue; }
+  if (';&|(){}'.includes(char)) {
+    finishCommand();
+    if ((char === '&' || char === '|') && source[index + 1] === char) index++;
+    continue;
+  }
+  word += char;
+}
+finishCommand();
+const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+const executableIndex = (argv, executable) => {
+  let index = 0;
+  while (index < argv.length) {
+    const value = argv[index];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value)) { index++; continue; }
+    if (value === executable) return index;
+    if (!prefixes.has(value)) return -1;
+    index++;
+    while ((argv[index] || '').startsWith('-')) index++;
+  }
+  return -1;
+};
+const operation = (argv, executable) => {
+  const executableAt = executableIndex(argv, executable);
+  if (executableAt < 0) return { name: undefined, index: -1 };
+  const takesValue = executable === 'git'
+    ? new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix'])
+    : new Set(['-R', '--repo', '--hostname', '--config']);
+  let index = executableAt + 1;
+  while (index < argv.length) {
+    const value = argv[index];
+    if (value === '--') return { name: argv[index + 1], index: index + 1 };
+    if (!value.startsWith('-')) return { name: value, index };
+    if (takesValue.has(value) && !value.includes('=')) index++;
+    index++;
+  }
+  return { name: undefined, index: -1 };
+};
+const guarded = commands.some((argv) => {
+  const git = operation(argv, 'git');
+  if (git.name === 'commit') return true;
+  if (git.name === 'merge') return argv.slice(git.index + 1).some((value) => value === '-m' || /^-m.+/.test(value) || value.startsWith('--message='));
+  if (git.name === 'tag') return argv.slice(git.index + 1).some((value) => value === '-a' || value === '-m' || /^-m.+/.test(value) || value === '--annotate' || value.startsWith('--message='));
+  if (git.name === 'notes') return argv[git.index + 1] === 'add';
+  const gh = operation(argv, 'gh');
+  const subcommand = argv[gh.index + 1];
+  return (gh.name === 'pr' && ['create', 'edit', 'comment', 'review', 'merge'].includes(subcommand))
+    || (gh.name === 'issue' && ['create', 'edit', 'comment'].includes(subcommand))
+    || (gh.name === 'release' && ['create', 'edit'].includes(subcommand));
+});
+process.exit(guarded ? 0 : 1);
+NODE
+then
   exit 0
 fi
 

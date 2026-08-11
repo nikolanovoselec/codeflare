@@ -25,7 +25,7 @@ interface StoredAigToken {
 }
 
 /** Resolved AI Gateway config: wizard (KV) values take precedence over deploy-secret (env) fallback. */
-export interface AigConfig {
+interface AigConfig {
   gatewayUrl: string | undefined;
   token: string | undefined;
 }

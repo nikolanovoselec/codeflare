@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import {
+  DESIGN_READY_CSP_HASH,
+  DESIGN_READY_SCRIPT,
+} from '../lib/design-ready';
 
 // Create a minimal Hono app to use as mock route default export
 const _mockHonoApp = new Hono();
@@ -136,6 +141,26 @@ describe('Edge-level setup redirect', () => {
     expect(response.status).toBe(200);
     const fetchedRequest = mockAssets.fetch.mock.calls[0][0] as Request;
     expect(new URL(fetchedRequest.url).pathname).toBe('/landing/');
+  });
+
+  it('REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.ONBOARDING_LANDING_PAGE = 'active';
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(new Request('https://example.com/'), env, createMockCtx());
+    const csp = response.headers.get('Content-Security-Policy');
+    const digest = createHash('sha256').update(DESIGN_READY_SCRIPT).digest('base64');
+
+    expect(response.status).toBe(200);
+    expect(DESIGN_READY_CSP_HASH).toBe(`sha256-${digest}`);
+    expect(csp).toContain(`'${DESIGN_READY_CSP_HASH}'`);
+    const scriptSrc = csp!
+      .split(';')
+      .map((directive) => directive.trim().split(/\s+/))
+      .find(([name]) => name === 'script-src');
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
   it('REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)', async () => {
@@ -545,6 +570,16 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
     );
 
     expect(response.headers.get('Cache-Control')).not.toBe('public, max-age=31536000, immutable');
+  });
+
+  it('rejects an invalid encryption key before an early discoverability route', async () => {
+    const { env, mockAssets } = createMockEnv();
+    env.ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64').replace(/=$/, '');
+
+    await expect(worker.fetch(
+      new Request('https://example.com/robots.txt'), env, createMockCtx(),
+    )).rejects.toThrow('canonical base64');
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
   });
 
   it('does NOT mark a non-hashed asset immutable (HTML/other keep the revalidating default)', async () => {

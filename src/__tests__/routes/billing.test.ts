@@ -5,6 +5,7 @@ import type { Env, AccessUser } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockBillingCoordinator } from '../helpers/mock-billing-coordinator';
 import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ vi.mock('../../lib/access', () => ({
     }
     return { ...mockAuthResult, user: { ...mockAuthResult.user } };
   }),
+  resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
 }));
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,7 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
 // Import after mocks
 import billingRoutes from '../../routes/billing';
 import stripeWebhookRoute from '../../routes/stripe-webhook';
-import { createCheckoutSession, createPortalSession, createSwitchPortalSession, fetchSubscription } from '../../lib/stripe';
+import { createCheckoutSession, createPortalSession, createSwitchPortalSession, fetchSubscription, endTrialNow } from '../../lib/stripe';
 
 // ---------------------------------------------------------------------------
 // Test app factory
@@ -59,11 +61,13 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return t;
   });
   mockKV._set('tiers:config', tiersWithPrices);
+  const mockTimekeeper = createMockBillingCoordinator(mockKV);
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      TIMEKEEPER: mockTimekeeper,
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
       ...envOverrides,
@@ -92,6 +96,34 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     vi.clearAllMocks();
     mockAuthShouldReject = false;
     mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
+  });
+
+  it('rejects a new paid checkout without the configured Turnstile token before Stripe mutation', async () => {
+    const { app } = createApp({ TURNSTILE_SECRET_KEY: 'turnstile-secret' });
+
+    const res = await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('requires Turnstile for a canceled historical subscriber with subscribedAt', async () => {
+    const { app, mockKV } = createApp({ TURNSTILE_SECRET_KEY: 'turnstile-secret' });
+    mockKV._set('user:user@example.com', {
+      role: 'user', subscribedAt: '2025-01-01T00:00:00Z', billingStatus: 'canceled',
+    });
+
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
   it('returns checkoutUrl for paid tier', async () => {
@@ -256,6 +288,26 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
   });
 });
 
+describe('DEEP-22-004: enterprise billing guards precede action limiters', () => {
+  it('keeps checkout, portal, and switch at 403 beyond their SaaS limiter budgets', async () => {
+    vi.clearAllMocks();
+    const { app } = createApp({ ENTERPRISE_MODE: 'active' });
+    for (const path of ['/billing/checkout', '/billing/portal', '/billing/switch']) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const res = await app.request(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+        });
+        expect(res.status).toBe(403);
+      }
+    }
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(createPortalSession).not.toHaveBeenCalled();
+    expect(createSwitchPortalSession).not.toHaveBeenCalled();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // GET /billing/status
 // ---------------------------------------------------------------------------
@@ -299,8 +351,12 @@ describe('GET /billing/status', () => {
 
     const { app, mockKV } = createApp();
     mockKV._set('user:user@example.com', {
+      role: 'user',
       stripeCustomerId: 'cus_gone',
       stripeSubscriptionId: 'sub_gone',
+      stripePriceId: 'price_gone',
+      billingPeriodEnd: '2026-09-01T00:00:00.000Z',
+      checkoutSessionId: 'cs_gone',
       billingStatus: 'active',
     });
 
@@ -310,6 +366,14 @@ describe('GET /billing/status', () => {
     expect(body.stripeCustomerId).toBeNull();
     expect(body.billingStatus).toBeNull();
     expect(body.stripeSubscriptionId).toBeNull();
+    const persisted = await mockKV.get('user:user@example.com', 'json') as Record<string, unknown>;
+    expect(persisted.role).toBe('user');
+    expect(persisted.stripeCustomerId).toBeUndefined();
+    expect(persisted.stripeSubscriptionId).toBeUndefined();
+    expect(persisted.stripePriceId).toBeUndefined();
+    expect(persisted.billingPeriodEnd).toBeUndefined();
+    expect(persisted.checkoutSessionId).toBeUndefined();
+    expect(Object.values(persisted)).not.toContain(undefined);
   });
 
   it('returns nulls for free user', async () => {
@@ -326,6 +390,25 @@ describe('GET /billing/status', () => {
     const { app } = createApp();
     const res = await app.request('/billing/status');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('DEEP-16-008: early trial termination billing anchor', () => {
+  it('anchors billing at the first UTC month boundary after the actual early end', async () => {
+    const originalFetch = globalThis.fetch;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-31T23:59:59.000Z'));
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 200 })) as typeof fetch;
+    try {
+      await endTrialNow('sub_early', 'sk_test_123');
+      const request = vi.mocked(globalThis.fetch).mock.calls[0];
+      const body = new URLSearchParams(String((request[1] as RequestInit).body));
+      expect(body.get('trial_end')).toBe('now');
+      expect(body.get('billing_cycle_anchor')).toBe(String(Date.UTC(2026, 1, 1) / 1000));
+    } finally {
+      globalThis.fetch = originalFetch;
+      vi.useRealTimers();
+    }
   });
 });
 

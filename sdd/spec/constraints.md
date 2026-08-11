@@ -129,8 +129,8 @@ Three states (CLOSED/OPEN/HALF_OPEN) wrapping `container.fetch()` calls to preve
 
 ### Cost
 
-### CON-COST-001: Idle containers hibernate (zero cost when not running)
-Containers stop after configurable `sleepAfter` (15m, 30m, 1h, 2h, 4h) with no terminal input. Default 30m for paying users, 15m for free tier. Timer resets only on actual user input (keypresses, not WebSocket reconnects or background polls). No running containers = no compute bill.
+### CON-COST-001: Idle containers stop Container metering
+Containers stop after configurable `sleepAfter` (15m, 30m, 1h, 2h, 4h) with no terminal input. Default 30m for paying users, 15m for free tier. Timer resets only on actual user input (keypresses, not WebSocket reconnects or background polls). After Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends. Local disk is ephemeral rather than hibernated state, and Workers, Durable Objects, R2, requests, logs, storage, and network usage may still incur charges.
 **Applies To:** System (container lifecycle), Admin (cost management)
 
 #### Additional Cost Mechanisms

@@ -175,7 +175,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-004: First-paint stability and immutable asset caching
 
-**Intent:** Full-page navigations between the marketing landing and the SPA (Sign in → `/login`, and "Back to codeflare.ch") never flash the browser's default white canvas — nor the gray navigation canvas that Chromium forks (Vivaldi/Arc/Brave) expose while the next document has not yet painted, nor the intermittent light-gray flash the default view-transition cross-fade produced on these dark pages — and the landing's content-hashed build assets are cached immutably so its stylesheet is not revalidated on every navigation. This eliminates the inter-page flash (the white default, the fork gray canvas, and the cross-fade light-gray flash, in both light and dark appearance) and the delayed background/haze paint.
+**Intent:** The public surface never exposes a browser-default canvas or partially styled content while its final CSS and typography are loading, and content-hashed landing assets stay cached immutably so repeat navigation preserves the same stable first paint.
 
 **Applies To:** User
 
@@ -184,6 +184,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas. <!-- @impl: landing/src/layouts/BaseLayout.astro::viewport --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 2. Content-hashed landing assets remain reusable for one year without revalidation, while non-hashed assets continue to revalidate so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004: immutable /_astro/ asset caching) -->
 3. Every same-origin full-page navigation between the landing and `/login` opts into a cross-document view transition. <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @manual -->
+4. Landing-built marketing and login content stays hidden over the dark canvas until the shared stylesheet and both critical local fonts have loaded. <!-- @impl: src/lib/design-ready.ts::DESIGN_READY_SCRIPT --> <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/design-ready.script.test.ts (REQ-LANDING-004: final-design first paint gate) --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 AC4: landing response authorizes only the integrity-pinned design-ready script) -->
+5. Without JavaScript, the complete server-rendered page remains visible and usable rather than inheriting the loading gate. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004: dark first paint (anti-flash contract)) -->
 
 **Constraints:**
 
@@ -191,6 +193,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - The installable manifest's `theme_color` and `background_color` match the dark first-paint background so the PWA splash/install surface is consistent with the app's dark canvas.
 - Immutability is keyed on the `/_astro/` path segment (Astro's content-hashed output directory): only those filenames change when content changes, so a stale cache entry is impossible; HTML and other non-hashed responses must keep revalidating so content stays fresh.
 - Immutability is applied only to a real `200` asset whose response is not `text/html`, never the SPA fallback served for a non-existent `/_astro/` URL.
+- The inline design-ready gate is authorized by one integrity-pinned CSP hash; broad inline-script execution remains forbidden.
 
 **Priority:** P2
 
@@ -315,7 +318,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Constraints:**
 
-- Screen readers consume the complete semantic sessions rather than character-by-character visual updates.
+- Screen readers consume the complete semantic sessions.
 - Reduced-motion visitors retain both complete Hero-scale terminal viewports.
 
 **Priority:** P1

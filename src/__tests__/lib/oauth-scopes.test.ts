@@ -40,6 +40,7 @@ describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', ()
 
     for (const s of [minimal, recommended, advanced]) {
       expect(s.split(' ')).toContain('offline_access'); // refresh-token grant
+      expect(s.split(' ')).toContain('analytics.read'); // Analytics read access
     }
     // minimal ⊆ recommended ⊆ advanced (verified by containment, not length). Advanced is a
     // strict superset of recommended: it keeps recommended's combined Access scopes
@@ -89,6 +90,7 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     'account-settings.read',
     'user-details.read',
     'zone.read',
+    'analytics.read',
     // zone / dns + recommended's combined Access scopes (inherited from recommended)
     'dns.write',
     'zone-access.write',

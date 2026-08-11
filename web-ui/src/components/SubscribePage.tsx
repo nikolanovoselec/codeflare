@@ -167,6 +167,7 @@ const SubscribePage: Component = () => {
   const [portalLoading, setPortalLoading] = createSignal(false);
   const [capacityReached, setCapacityReached] = createSignal(false);
   const [contactSent, setContactSent] = createSignal(false);
+  const [contactSending, setContactSending] = createSignal(false);
   const [showReportButton, setShowReportButton] = createSignal(false);
 
   let observer: MutationObserver | null = null;
@@ -379,7 +380,7 @@ const SubscribePage: Component = () => {
         }
       }
       if (isPaid) {
-        const { checkoutUrl } = await createCheckoutSession(tierId, mode);
+        const { checkoutUrl } = await createCheckoutSession(tierId, mode, token);
         window.location.href = checkoutUrl;
       } else {
         const result = await subscribe(tierId, token, mode);
@@ -516,7 +517,7 @@ const SubscribePage: Component = () => {
   function ctaLabel(): string {
     const tier = selectedTier();
     if (!tier) return 'Select';
-    if (isContactTier()) return contactSent() ? "We'll be in touch" : "Let's talk";
+    if (isContactTier()) return contactSent() ? "We'll be in touch" : contactSending() ? 'Sending...' : "Let's talk";
     if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
     if (isModeChange()) return globalMode() === 'advanced' ? 'Upgrade to Pro' : 'Switch to Standard';
     if (isActive() && tier.id === currentTierId()) return 'Current Plan';
@@ -529,7 +530,7 @@ const SubscribePage: Component = () => {
   function ctaDisabled(): boolean {
     const tier = selectedTier();
     if (!tier) return true;
-    if (isContactTier()) return false; // always clickable
+    if (isContactTier()) return contactSending();
     if (subscribing() !== null) return true;
     if (capacityReached() && !isActive()) return true;
     if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
@@ -722,13 +723,23 @@ const SubscribePage: Component = () => {
                         disabled={ctaDisabled() || contactSent()}
                         onClick={() => {
                           if (isContactTier()) {
-                            setContactSent(true);
-                            // Notify admins via Resend that user wants Team access
-                            void fetch('/api/auth/contact-team', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
-                              body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Custom' }),
-                            }).catch(() => {});
+                            setContactSending(true);
+                            setError('');
+                            void (async () => {
+                              try {
+                                const response = await fetch('/api/auth/contact-team', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+                                  body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Custom' }),
+                                });
+                                if (!response.ok) throw new Error('Inquiry delivery failed. Please try again.');
+                                setContactSent(true);
+                              } catch {
+                                setError('We could not send your inquiry. Please try again.');
+                              } finally {
+                                setContactSending(false);
+                              }
+                            })();
                             return;
                           }
                           void handleSubscribe(selectedTierId());

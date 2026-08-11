@@ -19,6 +19,7 @@ vi.mock('../../lib/access', () => ({
     }
     return { ...mockAuthResult, user: { ...mockAuthResult.user } };
   }),
+  resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
 }));
 
 const { mockGetStripePrices } = vi.hoisted(() => ({

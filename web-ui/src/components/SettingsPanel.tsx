@@ -168,7 +168,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
   const sleepAfter = () => isFreeUser() ? '15m' : (sessionStore.preferences.sleepAfter ?? '30m');
   const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
-  const canChangeSleepAfter = () => (isAdmin() || userHasSubscribed()) && !isFreeUser();
+  const canChangeSleepAfter = () => isAdmin() || (userHasSubscribed() && !isFreeUser());
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;

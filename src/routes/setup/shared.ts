@@ -18,13 +18,28 @@ export const setupRateLimiter = createRateLimiter({
 });
 
 // Step tracking type
-export type SetupStep = { step: string; status: 'pending' | 'success' | 'error'; error?: string };
+export type SetupStep = { step: string; status: 'running' | 'success' | 'error'; error?: string };
 
 /**
- * Push a new pending step and return its index for later status updates.
+ * Return a new ordered list with the named step inserted or replaced.
+ */
+export function upsertStep(steps: SetupStep[], update: SetupStep): SetupStep[] {
+  const existingIndex = steps.findIndex(({ step }) => step === update.step);
+  if (existingIndex === -1) {
+    return [...steps, update];
+  }
+  return steps.map((step, index) => index === existingIndex ? update : step);
+}
+
+/**
+ * Ensure a running step exists and return its index for handler-local updates.
  */
 export function addStep(steps: SetupStep[], step: string): number {
-  steps.push({ step, status: 'pending' });
+  const existingIndex = steps.findIndex((candidate) => candidate.step === step);
+  if (existingIndex !== -1) {
+    return existingIndex;
+  }
+  steps.push({ step, status: 'running' });
   return steps.length - 1;
 }
 

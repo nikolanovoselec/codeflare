@@ -121,6 +121,31 @@ describe('entrypoint Browser Run MCP wiring', () => {
     assert.equal(pi, null, 'Pi mcp.json not created without a token');
   });
 
+  for (const testCase of [
+    { name: 'default mode', options: { mode: 'default' } },
+    { name: 'advanced mode without a token', options: { token: null } },
+  ]) {
+    it(`${testCase.name}: removes restored Codeflare Browser Run registrations but preserves unrelated servers`, () => {
+      const claudeInitial = JSON.stringify({
+        mcpServers: {
+          'chrome-devtools': { command: 'stale', args: ['--wsHeaders={"Authorization":"Bearer stale"}'] },
+          'browser-run': { command: 'stale-browser-run', env: { CLOUDFLARE_API_TOKEN: 'stale' } },
+          'user-server': { command: 'keep-me' },
+        },
+      });
+      const piInitial = JSON.stringify({
+        mcpServers: {
+          'chrome-devtools': { command: 'stale', args: ['--wsHeaders={"Authorization":"Bearer stale"}'] },
+          'user-server': { command: 'keep-me' },
+        },
+      });
+
+      const { claude, pi } = run({ ...testCase.options, claudeInitial, piInitial });
+      assert.deepEqual(claude.mcpServers, { 'user-server': { command: 'keep-me' } });
+      assert.deepEqual(pi.mcpServers, { 'user-server': { command: 'keep-me' } });
+    });
+  }
+
   it('preserves existing mcpServers entries when merging (consult-llm survives on both agents)', () => {
     const claudeInitial = JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', args: [] } } });
     const piInitial = JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', args: [], lifecycle: 'keep-alive' } } });

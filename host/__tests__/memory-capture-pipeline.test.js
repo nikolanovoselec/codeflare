@@ -7,13 +7,13 @@
 //         remainder into ~20-entry files.
 //   AC4 - the memory-agent prompt declares the YAML frontmatter
 //         template (session_id, captured_at, captured_from_range).
-//   AC5 - the prompt runs graphify extract + global add under
-//         flock /tmp/graphify-global.lock.
+//   AC6 - the executable publication helper retains retry state unless
+//         cumulative merge and global publication both succeed.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,9 +23,9 @@ const PREFILTER = resolve(
   __dirname,
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh',
 );
-const PROMPT = resolve(
+const PUBLISH = resolve(
   __dirname,
-  '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md',
+  '../../preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh',
 );
 
 function realUserLine(content) {
@@ -155,14 +155,50 @@ describe('prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversatio
   });
 });
 
-// REQ-MEM-001 AC5 (YAML frontmatter shape) and AC7 (graphify global add
-// under flock) were previously covered by four prompt-text-grep tests.
-// Per tdd-discipline they were text-matching theater: the regexes would
-// still pass if the surrounding prompt prose was replaced with a no-op
-// agent that ignored the directives, AND would fail if the prompt was
-// reworded to an equivalent shell idiom (e.g. `( exec 200>/tmp/lock;
-// flock 200; graphify global add ...)`) while runtime behaviour stayed
-// identical. Deleted rather than papered over. The E2E verification
-// path in REQ-MEM-001 Verification (a real capture lands in
-// /home/user/Vault/Raw/Sessions/ after 15 messages and shows up via
-// mcp__graphify__query_graph) is the honest coverage for both ACs.
+describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
+  function fixture({ mergeStatus = 0, publishStatus = 0 } = {}) {
+    const root = mkdtempSync(join(tmpdir(), 'memory-publish-'));
+    const carrier = join(root, 'capture.vars');
+    const merge = join(root, 'merge');
+    const graphify = join(root, 'graphify');
+    const publicationLog = join(root, 'publication.log');
+    writeFileSync(carrier, '{}\n');
+    writeFileSync(merge, `#!/usr/bin/env bash\nexit ${mergeStatus}\n`);
+    writeFileSync(graphify, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" > '${publicationLog}'\nexit ${publishStatus}\n`);
+    chmodSync(merge, 0o755);
+    chmodSync(graphify, 0o755);
+    const result = spawnSync('bash', [PUBLISH, carrier], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        MEMCAP_GRAPH_LOCK: join(root, 'graph.lock'),
+        MEMCAP_PYTHON_BIN: merge,
+        MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
+        MEMCAP_GRAPHIFY_BIN: graphify,
+        MEMCAP_VAULT_GRAPH: join(root, 'vault-graph.json'),
+      },
+    });
+    return { carrier, publicationLog, result };
+  }
+
+  it('retains the carrier and skips publication when the cumulative merge fails', () => {
+    const { carrier, publicationLog, result } = fixture({ mergeStatus: 17 });
+    assert.equal(result.status, 17);
+    assert.ok(existsSync(carrier));
+    assert.equal(existsSync(publicationLog), false);
+  });
+
+  it('retains the carrier when global publication fails', () => {
+    const { carrier, publicationLog, result } = fixture({ publishStatus: 19 });
+    assert.equal(result.status, 19);
+    assert.ok(existsSync(publicationLog));
+    assert.ok(existsSync(carrier));
+  });
+
+  it('removes the carrier only after merge and cumulative user_vault publication succeed', () => {
+    const { carrier, publicationLog, result } = fixture();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(carrier), false);
+    assert.match(readFileSync(publicationLog, 'utf8'), /^global add .*vault-graph\.json --as user_vault\n$/);
+  });
+});

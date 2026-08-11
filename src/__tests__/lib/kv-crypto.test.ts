@@ -21,6 +21,11 @@ async function generateTestKeyBase64(): Promise<string> {
 
 describe('kv-crypto / REQ-SEC-004 (credential encryption-at-rest cryptographic contract) / REQ-SEC-006 (transparent KV encryption migration)', () => {
   describe('importEncryptionKey / REQ-SEC-004 AC1 (base64 32-byte key validation) / REQ-SEC-004 AC2 (AES-256-GCM via Web Crypto)', () => {
+    it('rejects non-canonical base64 even when Buffer would decode 32 bytes', async () => {
+      const canonical = Buffer.alloc(32, 7).toString('base64');
+      await expect(importEncryptionKey(` ${canonical}`)).rejects.toThrow('canonical base64');
+      await expect(importEncryptionKey(canonical.replace(/=$/, ''))).rejects.toThrow('canonical base64');
+    });
     it('converts base64 string to AES-256-GCM CryptoKey', async () => {
       const base64Key = await generateTestKeyBase64();
       const cryptoKey = await importEncryptionKey(base64Key);

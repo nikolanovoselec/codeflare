@@ -746,24 +746,58 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       expect(subscribeFn).not.toHaveBeenCalled();
     });
 
-    it('AC3: after activation the Custom-tier CTA switches to a disabled confirmation state', async () => {
+    it('AC3: confirms and disables only after successful delivery', async () => {
       await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-unlimited'));
 
       const panel = await screen.findByTestId('tier-detail-panel');
       const cta = panel.querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
-
-      // Before activation the contact CTA is actionable (not disabled).
       expect(cta.disabled).toBe(false);
 
       fireEvent.click(cta);
       await vi.advanceTimersByTimeAsync(0);
 
-      // After activation (contactSent) the control is disabled to block duplicate submits.
       await waitFor(() => {
         const after = screen.getByTestId('tier-detail-panel')
           .querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
         expect(after.disabled).toBe(true);
+        expect(after.textContent).toContain("We'll be in touch");
+      });
+    });
+
+    it('AC3/AC5: non-2xx delivery keeps an actionable retry state', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({}) });
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-unlimited'));
+
+      const cta = (await screen.findByTestId('tier-detail-panel'))
+        .querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
+      fireEvent.click(cta);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText('We could not send your inquiry. Please try again.')).toBeInTheDocument();
+        expect(cta.disabled).toBe(false);
+        expect(cta.textContent).toContain("Let's talk");
+      });
+
+      fireEvent.click(cta);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    });
+
+    it('AC3/AC5: network failure keeps the inquiry retryable', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-unlimited'));
+
+      const cta = (await screen.findByTestId('tier-detail-panel'))
+        .querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
+      fireEvent.click(cta);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText('We could not send your inquiry. Please try again.')).toBeInTheDocument();
+        expect(cta.disabled).toBe(false);
       });
     });
   });

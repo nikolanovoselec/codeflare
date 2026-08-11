@@ -10,6 +10,13 @@ const logger = createLogger('rate-limit');
 
 let stressTestWarningLogged = false;
 
+/** Emit one isolate-wide warning for the accepted non-SaaS stress bypass. */
+export function warnStressTestBypass(): void {
+  if (stressTestWarningLogged) return;
+  logger.warn('STRESS_TEST_MODE is active - HTTP and WebSocket rate limits bypassed');
+  stressTestWarningLogged = true;
+}
+
 /**
  * Configuration for the rate limiter
  */
@@ -59,10 +66,7 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
     // src/index.ts:78-80, which 503s any request when SAAS_MODE && STRESS_TEST_MODE
     // are both active before this middleware runs.
     if (c.env.STRESS_TEST_MODE === 'active') {
-      if (!stressTestWarningLogged) {
-        logger.warn('STRESS_TEST_MODE is active - all HTTP rate limits bypassed');
-        stressTestWarningLogged = true;
-      }
+      warnStressTestBypass();
       return next();
     }
 

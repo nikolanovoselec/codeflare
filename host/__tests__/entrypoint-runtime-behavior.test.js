@@ -40,23 +40,81 @@ function runStartupInvocation(name, env = {}) {
 }
 
 describe('entrypoint production helpers', () => {
-  it('REQ-AGENT-111 AC4: initializes Goal tool visibility once and preserves existing preferences', () => {
+  it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
     const conflictingPath = join(fixture, 'legacy/pi-goal.json');
     const env = { USER_HOME: fixture, PI_GOAL_CONFIG_FILE: conflictingPath };
 
-    const first = runStartupInvocation('configure_pi_goal_defaults', env);
-    assert.equal(first.status, 0, first.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), { toolVisibility: 'after-first-goal' });
+    const result = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'after-first-goal',
+      continuationLimits: { automaticTurns: 10, minIntervalMs: 60_000 },
+    });
     assert.equal(existsSync(conflictingPath), false);
+  });
 
-    const userSettings = '{"toolVisibility":"always","continuationLimits":{"automaticTurns":7},"rpc":{"enabled":true}}';
-    writeFileSync(configPath, userSettings);
-    const second = runStartupInvocation('configure_pi_goal_defaults', env);
-    assert.equal(second.status, 0, second.stderr);
-    assert.equal(readFileSync(configPath, 'utf8'), userSettings);
-    assert.equal(existsSync(conflictingPath), false);
+  it('REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const env = { USER_HOME: fixture };
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({
+      toolVisibility: 'always',
+      continuationLimits: {
+        automaticTurns: null,
+        noProgressTurns: 8,
+        customLimit: 'keep',
+      },
+      rpc: { enabled: true, customTransport: 'keep' },
+      unknownRoot: { enabled: null },
+    }));
+
+    const explicit = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(explicit.status, 0, explicit.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'always',
+      continuationLimits: {
+        automaticTurns: null,
+        noProgressTurns: 8,
+        customLimit: 'keep',
+        minIntervalMs: 60_000,
+      },
+      rpc: { enabled: true, customTransport: 'keep' },
+      unknownRoot: { enabled: null },
+    });
+
+    writeFileSync(configPath, JSON.stringify({
+      continuationLimits: { minIntervalMs: 1_250 },
+      rpc: { enabled: false },
+      unknownRoot: 'keep',
+    }));
+    const missing = runStartupInvocation('configure_pi_goal_defaults', env);
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      toolVisibility: 'after-first-goal',
+      continuationLimits: { minIntervalMs: 1_250, automaticTurns: 10 },
+      rpc: { enabled: false },
+      unknownRoot: 'keep',
+    });
+  });
+
+  it('REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-malformed-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    const env = { USER_HOME: fixture };
+    mkdirSync(dirname(configPath), { recursive: true });
+
+    for (const malformed of [
+      '{"toolVisibility":"always",\n',
+      '{"toolVisibility":"always","continuationLimits":null}\n',
+    ]) {
+      writeFileSync(configPath, malformed);
+      const result = runStartupInvocation('configure_pi_goal_defaults', env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(configPath, 'utf8'), malformed);
+    }
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {

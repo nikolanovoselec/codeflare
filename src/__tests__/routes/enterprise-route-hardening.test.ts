@@ -28,6 +28,7 @@ vi.mock('../../lib/access', async (importOriginal) => {
   return {
     ...actual,
     authenticateRequest: vi.fn(async () => ({ user: { ...mockAuthUser }, bucketName: 'codeflare-user' })),
+    resolveBucketName: vi.fn(async (_env: Env, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
   };
 });
 

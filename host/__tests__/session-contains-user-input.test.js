@@ -17,7 +17,9 @@ function containsUserInput(data) {
     // 1. Mark known user-input CSI sequences FIRST (before CSI stripping)
     .replace(/\x1b\[[A-H]/g, '\x01')
     .replace(/\x1b\[\d+~/g, '\x01')
-    .replace(/\x1b\[<\d+;\d+;\d+M/g, '\x01')
+    .replace(/\x1b\[<(\d+);\d+;\d+M/g, (_sequence, button) =>
+      (Number(button) & 32) === 0 ? '\x01' : '',
+    )
     .replace(/\x1bO[A-Za-z]/g, '\x01')
     // 2. Strip ALL multi-byte ESC sequences (CSI, OSC, DCS, APC, PM, SOS)
     .replace(/\x1b\[[\s\S]*?[\x40-\x7e]/g, '')
@@ -231,6 +233,11 @@ describe('containsUserInput', () => {
 
     it('returns false for DCS response', () => {
       assert.equal(containsUserInput('\x1bP1$r\x1b\\'), false);
+    });
+
+    it('returns false for SGR mouse motion reports (button bit 32)', () => {
+      assert.equal(containsUserInput('\x1b[<32;10;20M'), false);
+      assert.equal(containsUserInput('\x1b[<35;10;20M'), false);
     });
 
     it('returns false for SGR mouse release (ends with m)', () => {

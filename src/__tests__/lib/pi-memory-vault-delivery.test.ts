@@ -23,7 +23,9 @@ import {
   type ExtractionJob,
   type PublicExtractionRequest,
   capTurn,
+  compactMessages,
   MEMORY_CAPTURE_MAX_RESCUED_REFS,
+  MEMORY_CAPTURE_MAX_TOTAL_CHARS,
   MEMORY_CAPTURE_MAX_TURN_CHARS,
 } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
@@ -32,6 +34,8 @@ import {
   type MemoryVaultPi,
 } from '../../../preseed/agents/pi/extensions/memory-vault';
 import { readVaultManifest } from '../../../preseed/agents/pi/extensions/vault-manifest-fs';
+import { renderInjection } from '../../../preseed/agents/pi/extensions/memory-inject-helpers';
+import { recallBlock } from '../../../preseed/agents/pi/extensions/post-compaction-recall-helpers';
 
 const NOW = Date.parse('2026-07-14T10:00:00.000Z');
 const UUIDS = [
@@ -196,7 +200,7 @@ function launchEntry(
   };
 }
 
-function makeHarness(options: { child?: boolean } = {}): Harness {
+function makeHarness(options: { child?: boolean; existingVault?: boolean } = {}): Harness {
   const root = mkdtempSync(join(tmpdir(), 'pi-memory-vault-'));
   roots.push(root);
   const vaultRoot = join(root, 'Vault');
@@ -212,9 +216,10 @@ function makeHarness(options: { child?: boolean } = {}): Harness {
     memoryPromptFile: join(promptsDir, 'memory-agent-prompt.md'),
     vaultPromptFile: join(promptsDir, 'vault-extract-prompt.md'),
     vaultManifestFile: join(vaultRoot, 'graphify-out', 'vault-extract-manifest.json'),
+    vaultInitializationFile: join(vaultRoot, 'graphify-out', 'vault-extract-initialized'),
     vaultMarkerFile: join(cacheDir, 'vault-extract.last'),
   };
-  mkdirSync(join(vaultRoot, 'Notes'), { recursive: true });
+  if (options.existingVault) mkdirSync(join(vaultRoot, 'Notes'), { recursive: true });
   mkdirSync(promptsDir, { recursive: true });
   writeFileSync(paths.memoryPromptFile, '# memory fixture\n', 'utf8');
   writeFileSync(paths.vaultPromptFile, '# vault fixture\n', 'utf8');
@@ -347,6 +352,7 @@ async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<
 
 afterEach(() => {
   delete process.env.CODEFLARE_MEMORY_MODEL;
+  delete process.env.USER_TIMEZONE;
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -490,6 +496,24 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
 });
 
 describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => {
+  it('prefers USER_TIMEZONE over TZ when both are present', async () => {
+    const priorTz = process.env.TZ;
+    process.env.USER_TIMEZONE = 'America/New_York';
+    process.env.TZ = 'UTC';
+    try {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+      writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+      for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+
+      expect(readJson(activeExecutionPath(harness, 'memory-capture')).captureTimestamp).toMatch(/-0400$/);
+    } finally {
+      if (priorTz === undefined) delete process.env.TZ;
+      else process.env.TZ = priorTz;
+    }
+  });
+
   it('creates work on the fifteenth real prompt and emits a visible reminder without private spawn', async () => {
     const harness = makeHarness();
     let privateSpawnCalls = 0;
@@ -822,6 +846,55 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
   });
 
+  it('rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion', async () => {
+    for (const invalidChunk of ['', '{not-json', JSON.stringify({ nodes: [], edges: [] })]) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
+      writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'invalid-chunk.md'), 'changed\n', 'utf8');
+      await harness.emit('agent_settled');
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      appendEntry(harness.sessionFile, toolCall('invalid-chunk-vault', 'vault-extract', launch.request), notification('invalid-chunk-vault'));
+      writeFileSync(vaultChunkPath(harness, launch.requestId), invalidChunk, 'utf8');
+
+      await harness.emit('agent_settled');
+      expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
+      expect(existsSync(vaultPointerPath(harness))).toBe(true);
+      expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+    }
+  });
+
+  it('keeps an existing marker-less Vault full-delta eligible during Pi fallback initialization (REQ-VAULT-026 AC7)', async () => {
+    const harness = makeHarness({ existingVault: true });
+    const existing = join(harness.paths.vaultRoot, 'Notes', 'pre-marker.md');
+    writeFileSync(existing, 'unextracted on an older release\n', 'utf8');
+
+    await harness.emit('session_start');
+
+    expect(readFileSync(harness.paths.vaultInitializationFile, 'utf8')).toBe('1\n');
+    expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
+  });
+
+  it('treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes', async () => {
+    for (const restoredManifest of [undefined, '{corrupt']) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      expect(readFileSync(harness.paths.vaultInitializationFile, 'utf8')).toBe('1\n');
+      if (restoredManifest === undefined) rmSync(harness.paths.vaultManifestFile, { force: true });
+      else writeFileSync(harness.paths.vaultManifestFile, restoredManifest, 'utf8');
+      const changed = join(harness.paths.vaultRoot, 'Notes', 'restored-unextracted.md');
+      writeFileSync(changed, 'changed before restore completed\n', 'utf8');
+
+      await harness.emit('agent_settled');
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+      if (restoredManifest === undefined) {
+        expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
+      } else {
+        expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(restoredManifest);
+      }
+    }
+  });
+
   // REQ-VAULT-028: Vault edits remain isolated after extraction starts
   it('promotes matching staged bytes and creates one follow-up request for during-run edits', async () => {
     const harness = makeHarness();
@@ -925,6 +998,39 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(harness.paths.vaultManifestFile)).toBe(false);
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
     expect(existsSync(vaultPointerPath(harness))).toBe(false);
+  });
+});
+
+describe('rendered capture byte budget', () => {
+  it('bounds complete Pi injection and recall output with multibyte metadata', () => {
+    const injection = renderInjection(Array.from({ length: 10 }, () => ({
+      label: `vault${'é'.repeat(1500)}`,
+      source: `Vault/${'路'.repeat(1500)}.md`,
+      description: `vault ${'界'.repeat(100)}`,
+    })))!;
+    expect(Buffer.byteLength(injection, 'utf8')).toBeLessThanOrEqual(4096);
+    expect(injection).not.toContain(String.fromCharCode(0xfffd));
+
+    const sourcePath = `/Vault/${'路'.repeat(100)}.md`;
+    const recall = recallBlock(
+      sourcePath,
+      `# ${'é'.repeat(300)}\n\n## Context\n${'界'.repeat(1000)}\n\n## Decisions\n- retained`,
+      500,
+    )!;
+    expect(Buffer.byteLength(recall, 'utf8')).toBeLessThanOrEqual(500);
+    expect(recall).not.toContain(String.fromCharCode(0xfffd));
+    expect(recall).toContain(`Source: ${sourcePath}`);
+    expect(recallBlock(sourcePath, '## Context\nretained', 100)).toBeNull();
+  });
+
+  it('charges role headings, separators, and multibyte text to one byte budget', () => {
+    const rendered = compactMessages([
+      { role: 'user', content: '界'.repeat(MEMORY_CAPTURE_MAX_TOTAL_CHARS) },
+      { role: 'assistant', content: 'é'.repeat(MEMORY_CAPTURE_MAX_TOTAL_CHARS) },
+    ]);
+
+    expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(MEMORY_CAPTURE_MAX_TOTAL_CHARS);
+    expect(rendered).not.toContain(String.fromCharCode(0xfffd));
   });
 });
 

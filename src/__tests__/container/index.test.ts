@@ -97,6 +97,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     deleteAll: ReturnType<typeof vi.fn>;
     setAlarm: ReturnType<typeof vi.fn>;
     deleteAlarm: ReturnType<typeof vi.fn>;
+    transaction: ReturnType<typeof vi.fn>;
   };
   let mockTcpPortFetch: ReturnType<typeof vi.fn>;
   let mockContainerRuntime: {
@@ -123,6 +124,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       deleteAll: vi.fn().mockResolvedValue(undefined),
       setAlarm: vi.fn().mockResolvedValue(undefined),
       deleteAlarm: vi.fn().mockResolvedValue(undefined),
+      transaction: vi.fn(async (fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put }) => Promise<unknown>) =>
+        fn({ get: mockStorage.get, put: mockStorage.put })),
     };
     mockTcpPortFetch = vi.fn();
     mockContainerRuntime = {
@@ -238,6 +241,52 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   // every read until container.destroy() wipes storage. The key is
   // injected by the Worker into SilverBullet's /.config response so
   // SB encrypts IndexedDB without prompting the user.
+  describe('claimBucketOwner / REQ-STOR-001 tenant isolation', () => {
+    it('atomically preserves the first allowed owner and rejects a colliding identity', async () => {
+      let owner: string | undefined;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketOwnerEmail' ? owner : null);
+      mockStorage.put.mockImplementation(async (key: string, value: string) => {
+        if (key === 'bucketOwnerEmail') owner = value;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      await expect(instance.claimBucketOwner('ab@example.com', true)).resolves.toBe('owned');
+      await expect(instance.claimBucketOwner('a+b@example.com', true)).resolves.toBe('conflict');
+      expect(owner).toBe('ab@example.com');
+      expect(mockStorage.transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('serializes simultaneous ownership claims so exactly one colliding identity wins', async () => {
+      let owner: string | undefined;
+      let transactionTail = Promise.resolve();
+      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketOwnerEmail' ? owner : null);
+      mockStorage.put.mockImplementation(async (key: string, value: string) => {
+        if (key === 'bucketOwnerEmail') owner = value;
+      });
+      mockStorage.transaction.mockImplementation((fn: (txn: { get: typeof mockStorage.get; put: typeof mockStorage.put }) => Promise<unknown>) => {
+        const result = transactionTail.then(() => fn({ get: mockStorage.get, put: mockStorage.put }));
+        transactionTail = result.then(() => undefined, () => undefined);
+        return result;
+      });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const results = await Promise.all([
+        instance.claimBucketOwner('ab@example.com', true),
+        instance.claimBucketOwner('a+b@example.com', true),
+      ]);
+
+      expect(results.sort()).toEqual(['conflict', 'owned']);
+      expect(owner).toBe('ab@example.com');
+    });
+
+    it('refuses an ambiguous first claim without persisting an owner', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      await expect(instance.claimBucketOwner('ab@example.com', false)).resolves.toBe('ambiguous');
+      expect(mockStorage.put).not.toHaveBeenCalledWith('bucketOwnerEmail', expect.anything());
+    });
+  });
+
   describe('ensureVaultKey (REQ-VAULT-008 AC1)', () => {
     it('generates a 32-byte vault key on first call and persists it', async () => {
       // Fresh DO -- no key in storage. ensureVaultKey() must generate
@@ -920,6 +969,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
@@ -983,9 +1033,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((drainInit?.headers as Record<string, string> | undefined)?.Authorization).toBe('Bearer tok-teardown-456');
     });
 
+    it('REQ-SESSION-011: missing auth token records the reason and makes zero final-sync requests', async () => {
+      mockStorage.get.mockResolvedValue(null);
+      mockContainerRuntime.running = true;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      vi.spyOn(instance, 'stop' as any).mockImplementation(async () => { mockContainerRuntime.running = false; });
+
+      await instance.destroy();
+
+      expect(mockTcpPortFetch).not.toHaveBeenCalledWith(expect.stringContaining('/internal/final-sync'), expect.anything());
+      expect(mockStorage.put).toHaveBeenCalledWith('finalSyncAudit', expect.objectContaining({ reason: 'missing-auth-token' }));
+    });
+
     it('REQ-SESSION-011: still stops when the final-sync drain fails (best-effort, no throw)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
@@ -1010,6 +1073,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     it('REQ-SESSION-011/#516: attempts the final-sync drain on delete even when container.running reads transiently false, and persists a durable audit marker', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       // The transient: container reports not-running at teardown start.
@@ -1049,6 +1113,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
         return null;
       });
       mockContainerRuntime.running = true;
@@ -1089,7 +1154,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // swallowed completion) while destroy still proceeds. Also covers a transient
     // not-running reading where the port fetch simply fails.
     it('#516: persists outcome "errored" and still completes destroy when the drain fetch is aborted/rejected (DO AbortSignal ceiling)', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-final-sync';
+        return null;
+      });
       mockContainerRuntime.running = false;
       const abortErr = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
       mockTcpPortFetch.mockRejectedValue(abortErr);
@@ -1100,31 +1169,53 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((auditPut![1] as { outcome: string }).outcome).toBe('errored');
     });
 
-    it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
+    it('REQ-SESSION-006 AC2: rejects after logging when forced SDK destroy rejects', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const forcedError = new Error('provider force-destroy failed');
+      const superDestroySpy = vi.spyOn(instance, 'superDestroy').mockRejectedValue(forcedError);
+      const loggerWarn = (instance as any).logger.warn as ReturnType<typeof vi.fn>;
+
+      await expect(instance.destroy()).rejects.toBe(forcedError);
+
+      expect(superDestroySpy).toHaveBeenCalled();
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Forced destroy failed or exceeded teardown deadline',
+        { error: forcedError.message },
+      );
+    });
+
+    it('REQ-SESSION-011 AC5: rejects at the entry-to-exit deadline and observes a later forced-destroy rejection', async () => {
       vi.useFakeTimers();
       try {
-        mockStorage.get.mockImplementation(async (key: string) => {
-          if (key === 'bucketName') return 'test-bucket';
-          return null;
-        });
         mockContainerRuntime.running = true;
-
         const instance = new ContainerClass(mockCtx as any, mockEnv);
-
-        // SIGTERM is delivered but the container never exits
         const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+        const loggerWarn = (instance as any).logger.warn as ReturnType<typeof vi.fn>;
+        let rejectForcedDestroy!: (error: Error) => void;
+        const forcedDestroy = new Promise<void>((_, reject) => {
+          rejectForcedDestroy = reject;
+        });
+        const superDestroySpy = vi.spyOn(instance, 'superDestroy').mockReturnValue(forcedDestroy);
 
         const destroyPromise = instance.destroy();
-        // Advance just past the 135s timeout so the polling loop exits via
-        // the wall-clock branch, not the running=false branch. 135s pairs
-        // with the entrypoint.sh shutdown bisync 120s budget plus a 15s
-        // clean-exit buffer. See AD57.
+        const deadlineRejection = expect(destroyPromise).rejects.toThrow('teardown deadline exceeded');
         await vi.advanceTimersByTimeAsync(136_000);
-        await destroyPromise;
+        await deadlineRejection;
 
         expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-        // Container is still "running" — polling timed out, super.destroy() ran anyway
         expect(mockContainerRuntime.running).toBe(true);
+        expect(superDestroySpy).toHaveBeenCalled();
+        expect(loggerWarn).toHaveBeenCalledWith(
+          'Forced destroy failed or exceeded teardown deadline',
+          { error: 'teardown deadline exceeded' },
+        );
+
+        rejectForcedDestroy(new Error('late provider rejection'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(loggerWarn).toHaveBeenCalledWith(
+          'Forced destroy failed after teardown deadline',
+          { error: 'late provider rejection' },
+        );
       } finally {
         vi.useRealTimers();
       }

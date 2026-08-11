@@ -245,6 +245,11 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       // within ~2s of launching. We give 4s of headroom for slow CI.
       const log = await waitFor(h.logFile, (s) => /BISYNC_CALLED/.test(s), 4000);
       assert.match(log, /BISYNC_CALLED/, 'bisync_with_r2 must be called after the cadence sleep');
+      assert.match(log, /STATUS status=syncing/, 'the daemon must publish syncing before each bisync run');
+      assert.ok(
+        log.indexOf('STATUS status=syncing') < log.indexOf('BISYNC_CALLED'),
+        'syncing must be observable before bisync starts so final-sync can arm the correct run',
+      );
       assert.match(log, /STATUS status=success/, 'success path must invoke update_sync_status with "success"');
     } finally {
       killHarness(h.child, pid);

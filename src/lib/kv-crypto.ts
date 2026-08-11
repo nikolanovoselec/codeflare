@@ -43,6 +43,9 @@ function decodeBase64Key(base64: string): Uint8Array {
   if (raw.byteLength !== 32) {
     throw new Error(`ENCRYPTION_KEY must decode to exactly 32 bytes, got ${raw.byteLength}`);
   }
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(base64) || Buffer.from(raw).toString('base64') !== base64) {
+    throw new Error('ENCRYPTION_KEY must be canonical base64');
+  }
   return raw;
 }
 

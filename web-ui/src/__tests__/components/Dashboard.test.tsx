@@ -99,10 +99,11 @@ vi.mock('../../components/SessionLimitPopup', () => ({
   }
 }));
 
-vi.mock('../../stores/session', () => {
+vi.mock('../../stores/session', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [r2Ready, setR2Ready] = createSignal(true);
   let _isAtLimit = false;
   let _maxSessions = 3;
-  let _r2Ready = true;
   let _preseedUpgrading = false;
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
@@ -112,7 +113,7 @@ vi.mock('../../stores/session', () => {
     sessionStore: {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
-      get r2Ready() { return _r2Ready; },
+      get r2Ready() { return r2Ready(); },
       get preseedUpgrading() { return _preseedUpgrading; },
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
@@ -125,7 +126,7 @@ vi.mock('../../stores/session', () => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
       },
-      _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
+      _setR2Ready: setR2Ready,
       _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
@@ -150,25 +151,30 @@ vi.mock('../../components/CreateSessionDialog', () => ({
   }
 }));
 
-vi.mock('../../stores/storage', () => ({
-  storageStore: {
-    get stats() { return null; },
-    get previewFile() { return null; },
-    get downloadsDisabled() { return false; },
-    get downloadsNoticeOpen() { return false; },
-    showDownloadsNotice: vi.fn(),
-    dismissDownloadsNotice: vi.fn(),
-    fetchStats: vi.fn(),
-    closePreview: vi.fn(),
-    searchFiles: vi.fn((query: string) => {
-      if (query === 'test-file') {
-        return { objects: [{ key: 'workspace/test-file.ts', size: 100, lastModified: '2024-01-01' }], prefixes: [] };
-      }
-      return { objects: [], prefixes: [] };
-    }),
-    browse: vi.fn(),
-  }
-}));
+vi.mock('../../stores/storage', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [stats, setStats] = createSignal<unknown>(null);
+  return {
+    storageStore: {
+      get stats() { return stats(); },
+      get previewFile() { return null; },
+      get downloadsDisabled() { return false; },
+      get downloadsNoticeOpen() { return false; },
+      showDownloadsNotice: vi.fn(),
+      dismissDownloadsNotice: vi.fn(),
+      fetchStats: vi.fn(),
+      _setStats: setStats,
+      closePreview: vi.fn(),
+      searchFiles: vi.fn((query: string) => {
+        if (query === 'test-file') {
+          return { objects: [{ key: 'workspace/test-file.ts', size: 100, lastModified: '2024-01-01' }], prefixes: [] };
+        }
+        return { objects: [], prefixes: [] };
+      }),
+      browse: vi.fn(),
+    }
+  };
+});
 
 vi.mock('../../api/storage', () => ({
   getDownloadUrl: vi.fn(() => 'https://example.com/download'),
@@ -218,6 +224,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // reset loadStatus fully — otherwise an unconsumed once-impl from one test could
     // leak into the next. (The end-to-end deadlock test queues one such impl.)
     vi.mocked(githubStore.loadStatus).mockReset();
+    vi.mocked(storageStore.fetchStats).mockReset();
+    vi.mocked(sessionStore.startR2Polling).mockReset();
+    (storageStore as any)._setStats(null);
+    (sessionStore as any)._setR2Ready(true);
     viewportMock.setViewport?.('desktop');
   });
 
@@ -296,16 +306,29 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     });
   });
 
-  it('calls storageStore.fetchStats on mount', () => {
+  it('REQ-STOR-006 AC3: renders storage statistics returned by the mount refresh', () => {
+    const refreshedStats = { totalSize: 4096, objectCount: 7, folderCount: 2 };
+    vi.mocked(storageStore.fetchStats).mockImplementationOnce(async () => {
+      (storageStore as any)._setStats(refreshedStats);
+    });
+
     render(() => <Dashboard {...defaultProps} />);
 
-    expect(storageStore.fetchStats).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('stat-cards')).toHaveAttribute('data-stats', JSON.stringify(refreshedStats));
   });
 
-  it('calls sessionStore.startR2Polling on mount', () => {
+  it('REQ-STOR-001: transitions from storage setup to the browser when mount polling reports ready', async () => {
+    vi.mocked(sessionStore.startR2Polling).mockImplementationOnce(async () => {
+      (sessionStore as any)._setR2Ready(false);
+      setTimeout(() => (sessionStore as any)._setR2Ready(true), 0);
+    });
+
     render(() => <Dashboard {...defaultProps} />);
 
-    expect(sessionStore.startR2Polling).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('storage-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('storage-browser')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('storage-browser')).toBeInTheDocument());
+    expect(screen.queryByTestId('storage-skeleton')).not.toBeInTheDocument();
   });
 
   it('REQ-GITHUB-007: loads GitHub status from the Dashboard on mount so the enabled-gated GitHub panel is not deadlocked', () => {
@@ -428,6 +451,43 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   // === Mobile right-column flip face (REQ-GITHUB-010) ===
+
+  it('REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile', () => {
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const realInnerWidth = window.innerWidth;
+    class CapRO { observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    (window as any).innerWidth = 500;
+    try {
+      viewportMock.setViewport?.('mobile');
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+
+      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
+      const githubFace = right.querySelector('.panel-flip-face--github')!;
+      const storageFace = right.querySelector('.panel-flip-face--storage')!;
+      expect(right.getAttribute('data-layout')).toBe('flip');
+      expect(githubFace.getAttribute('data-active')).toBe('true');
+      expect(storageFace.getAttribute('data-active')).toBe('false');
+
+      fireEvent.click(screen.getByTestId('gh-stub-flip'));
+      expect(githubFace.getAttribute('data-active')).toBe('false');
+      expect(storageFace.getAttribute('data-active')).toBe('true');
+
+      fireEvent.click(screen.getByTestId('storage-flip-btn'));
+      expect(githubFace.getAttribute('data-active')).toBe('true');
+      expect(storageFace.getAttribute('data-active')).toBe('false');
+    } finally {
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+      (window as any).innerWidth = realInnerWidth;
+    }
+  });
 
   it('REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2', () => {
     (githubStore as any)._setEnabled(false);
@@ -733,6 +793,37 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
       (window as any).innerWidth = realInnerWidth;
+    }
+  });
+
+  it('REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column', () => {
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const origGBCR = HTMLElement.prototype.getBoundingClientRect;
+    const realInnerWidth = window.innerWidth;
+    const realInnerHeight = window.innerHeight;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    (window as any).innerWidth = 500;
+    (window as any).innerHeight = 400;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList?.contains('panel-flip-face--github') ? 180
+        : this.classList?.contains('panel-flip-face--storage') ? 420 : 0;
+      return { height, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
+      expect(right.style.height).toBe('300px');
+      fireEvent.click(screen.getByTestId('gh-stub-flip'));
+      expect(right.style.height).toBe('300px');
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+      (window as any).innerWidth = realInnerWidth;
+      (window as any).innerHeight = realInnerHeight;
     }
   });
 

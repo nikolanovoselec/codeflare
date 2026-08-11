@@ -107,23 +107,43 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
+**Symptom:** An API request returns the SPA's HTML shell instead of JSON.
+
+**Cause:** The request path is missing from the Static Assets `run_worker_first` control-plane list, so the edge serves the SPA fallback before Worker routing.
+
+**Fix:** Ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]` is present in the `[assets]` section of `wrangler.toml`. A missing `/login` breaks the onboarding rewrite, a missing `/api/*` breaks setup/auth, and a missing `/assets/*` bypasses the immutable Vite-asset policy.
 
 ### `/setup` Shows "Access Denied"
 
-Check `GET /api/setup/status` returns JSON. Verify `setup:complete` in KV is absent/false for first-time setup.
+**Symptom:** Opening `/setup` displays an Access Denied response instead of the setup flow.
+
+**Cause:** Setup status is not reaching the Worker as JSON, or KV already marks setup complete.
+
+**Fix:** Check that `GET /api/setup/status` returns JSON and verify `setup:complete` in KV is absent or false for first-time setup.
 
 ### Auth Error After Successful Access Login
 
-Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email casing mismatch. Re-run setup configure. Confirm user keys are lowercase.
+**Symptom:** Cloudflare Access login succeeds, but Codeflare rejects the resulting authenticated request.
+
+**Cause:** `setup:auth_domain` or `setup:access_aud` is stale, causing JWT verification drift, or a stored user key has noncanonical email casing.
+
+**Fix:** Re-run setup configuration and confirm user keys are lowercase.
 
 ### HTTP 500 After Login
 
-Take the `X-Request-ID` value off the 500 response and match it to the `requestId` field on the `Unexpected error` line in `wrangler tail codeflare --status error`. <!-- @impl: src/index.ts::requestId --> Then check the callback the deployment actually redirects to (the `redirect_uri` test under [Onboarding GitHub Sign-in Bounces to the Landing](#onboarding-github-sign-in-bounces-to-the-landing--app-shows-authentication-required)), and confirm `OAUTH_JWT_SECRET` is listed by `wrangler secret list`. The three checks separate a request-handling failure, a provider mismatch, and invalid session issuance without rotating credentials blindly.
+**Symptom:** The login flow returns HTTP 500 after the identity provider redirects to Codeflare.
+
+**Cause:** The failure may be in request handling, the deployed OAuth callback may not match the provider registration, or session signing may lack `OAUTH_JWT_SECRET`.
+
+**Fix:** Take the `X-Request-ID` value from the 500 response and match it to the `requestId` field on the `Unexpected error` line in `wrangler tail codeflare --status error`. <!-- @impl: src/index.ts::requestId --> Then check the callback the deployment actually redirects to (the `redirect_uri` test under [Onboarding GitHub Sign-in Bounces to the Landing](#onboarding-github-sign-in-bounces-to-the-landing--app-shows-authentication-required)), and confirm `OAUTH_JWT_SECRET` is listed by `wrangler secret list`. These checks separate the three causes without rotating credentials blindly.
 
 ### "Unable to find your Access application!"
 
-Browser retained stale Access session. Test in incognito. Clear CF Access cookies. Confirm one managed app with correct destinations.
+**Symptom:** Cloudflare reports that it cannot find the Access application for the Codeflare destination.
+
+**Cause:** The browser retained a stale Access session, or the managed application no longer has the correct destination.
+
+**Fix:** Test in an incognito window, clear Cloudflare Access cookies, and confirm exactly one managed application has the correct destinations.
 
 ### Onboarding GitHub Sign-in Bounces to the Landing / `/app` Shows "Authentication required"
 
@@ -233,7 +253,13 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 ### Container Stuck at "Waiting for Services"
 
-The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
+**Symptom:** Container startup remains on the Waiting for Services screen and never reports ready.
+
+**Cause:** Initial R2 sync or PTY pre-warm has not completed; missing credentials, an unavailable bucket, or an entrypoint failure can keep the initialization flag absent.
+
+**Fix:** Check `GET /api/container/startup-status?sessionId=xxx`, inspect `details.syncError`, verify the terminal process and R2 credentials, and inspect `/tmp/sync.log` plus container warnings.
+
+The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready.
 
 **Port-wait timeout (container killed before reaching the loading screen):** Cloudflare kills a container that does not bind port 8080 within ~10-15s. Since PR #364 the terminal server binds port 8080 at the very start of `entrypoint.sh` - before R2 sync - so this should no longer occur. If it does, check that `node dist/server.js` in `/app/host` exits cleanly: `cat /tmp/terminal.pid` then `kill -0 $(cat /tmp/terminal.pid)`.
 
@@ -261,7 +287,11 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 ### Secrets Lost After Worker Deletion
 
-`wrangler delete` nukes all secrets. Re-set with `wrangler secret put`.
+**Symptom:** A recreated Worker starts without credentials that were configured before deletion.
+
+**Cause:** `wrangler delete` removes the Worker's secrets with the deployment.
+
+**Fix:** Restore each required secret with `wrangler secret put` before using the recreated Worker.
 
 ### R2 Bucket Cleanup on User Deletion
 
@@ -273,9 +303,12 @@ If worker-level R2 credentials are not configured (e.g., setup was interrupted),
 
 ### Chrome in CI (Ubuntu 22.04)
 
-`apt install chromium-browser` on Ubuntu 22.04 installs a snap wrapper, NOT real Chromium. Without snapd (which GitHub Actions runners don't have), it installs with exit 0 but provides nothing usable.
+**Symptom:** Chromium installation exits successfully, but CI has no usable browser executable.
 
-**Solution:** Install Chrome via Puppeteer, then install shared libraries individually:
+**Cause:** On Ubuntu 22.04, `apt install chromium-browser` installs a snap wrapper; GitHub Actions runners do not provide the snapd environment it needs.
+
+**Fix:** Install Chrome through Puppeteer, then install its required shared libraries individually.
+
 ```bash
 npx puppeteer browsers install chrome
 sudo apt-get install -yqq --no-install-recommends \
@@ -324,6 +357,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | WebSocket fails with close code 1013 (`container-warming-up`) | Container started but not yet ready - port 8080 bound before R2 sync and `.bashrc` autostart completed | See [note](#websocket-fails-with-close-code-1013). |
 | Session stays `running` but terminal, `/activity`, and `/health` all stop responding while the PTY was last reported alive | Both routes share port 8080 and one Node event loop. Failure may be the DO attachment, container network, listener, CPU starvation, or host wedge; `running` and `ptyAlive` prove only retained process/object state. | [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) and [REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-confirmed-and-bounded) confirm three failures and permit at most two resets. Correlate `recoveryAttemptId` across reset, confirmed, and exhausted logs. Exhaustion keeps metered 60 s checks without a reset loop; verify terminal reconnection. |
 | Session shows `stopped` on the dashboard but container is actually running | `onError` fired on a transient platform event (deploy-roll, monitor blip) and a prior clobber-race guard prevented `collectMetrics` from correcting the status | See [note](#session-shows-stopped-on-the-dashboard-but-container-is-actually-runni). |
+| Session remains `stopping` after a stop request | Status confirmation timed out or repeatedly failed, so the dashboard deliberately retained terminal state instead of fabricating a stopped result. | Refresh to fetch authoritative status. If it still shows `stopping`, retry Stop; do not assume teardown completed. |
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Stop/delete loses the session's recent edits — the next session restores stale or empty state (transcripts, credentials, config missing) | See note below. | See [note](#stop-delete-loses-the-session-s-recent-edits-the-next-session-restores). |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
@@ -342,19 +376,19 @@ sudo apt-get install -yqq --no-install-recommends \
 | `graphify: command not found` in terminal ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | System-PATH symlink absent in the image, or entrypoint self-heal did not run | See [note](#graphify-command-not-found-in-terminal). |
 | Enterprise Mode: LLM calls fail with TLS certificate errors | Cloudflare containers CA not found or not trusted | See [note](#enterprise-mode-llm-calls-fail-with-tls-certificate-errors). |
 | Enterprise Mode: agent fails with opaque "Connection error" but `curl https://api.openai.com` from the same container succeeds | See note below. | See [note](#enterprise-mode-agent-fails-with-opaque-connection-error-but-curl-http). |
-| Enterprise Mode: LLM calls return 401 / authentication errors | Interceptor not wired, or `AIG_GATEWAY_URL` / `AIG_TOKEN` missing or incorrect | (1) `wrangler secret list` must show `AIG_GATEWAY_URL` and `AIG_TOKEN`. (2) `wrangler tail` must show `[LlmInterceptor]` lines; absence means `interceptOutboundHttps` never ran (check `ENTERPRISE_MODE` is `active`). (3) The gateway URL needs a trailing slash and the correct account/gateway path. |
+| Enterprise Mode: LLM calls return 503 / 401 / authentication errors | Missing or invalid `AIG_GATEWAY_URL`, or missing/incorrect `AIG_TOKEN` | A missing/malformed URL now returns bounded 503 through the always-wired interceptor; it never falls through direct. (1) Check Setup and deploy secrets for `AIG_GATEWAY_URL` and `AIG_TOKEN`. (2) `wrangler tail` must show the pre-start registration; a registration exception aborts startup. (3) Verify the account/gateway path and required token scopes. |
 | Enterprise Mode: agent hits a non-OpenAI provider error (e.g. Pi → AWS Bedrock `UnrecognizedClientException`), uses the wrong model, or **no request reaches the AI Gateway** (empty gateway logs) | Pi auto-bound a built-in provider (amazon-bedrock, falsely "authenticated" by R2 keys exported as `AWS_*`) instead of the gateway, signing a SigV4 call to AWS that never hit `api.openai.com`; or the dynamic-route catalog/default is unconfigured in Setup | See [note](#enterprise-mode-agent-hits-a-non-openai-provider-error-uses-the-wrong). |
 | Enterprise Mode: agent retries every streamed reply and token usage multiplies (Pi logs `Stream ended without finish_reason`) | The AI Gateway dynamic route ends streaming responses with `finish_reason: null` then `[DONE]`, omitting the terminal `stop`/`tool_calls` chunk that OpenAI-wire agents require; the agent treats the stream as truncated and retries (≈3×), multiplying token cost | See [note](#enterprise-mode-agent-retries-every-streamed-reply-and-token-usage-mul). |
 | Enterprise Mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows a redirect on `service_worker.js`, 302 to `*.cloudflareaccess.com`) | The host-wide Cloudflare Access app 302s the credential-less `service_worker.js` registration fetch to the IdP login before the Worker's [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) short-circuit can run | See [note](#enterprise-mode-the-vault-editor-never-loads-silverbullet-service-work). |
 | `mcp__graphify__*` tools not visible in Claude Code ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | Plugin manifest absent or `~/.claude.json` malformed | Check plugin delivery and the lazy MCP wrapper path; rerun `entrypoint.sh` if stale. |
 | `mcp__graphify__*` tools return empty results on a fresh session ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | No `graphify-out/graph.json` exists in any cloned repo yet - the wrapper started in empty-graph mode | Expected behaviour, not a bug. Run `graphify update .` from the repo root to build the AST graph (free, no LLM cost). The wrapper hot-reloads within `GRAPHIFY_POLL_SECONDS` (default 2s) of the file appearing. |
 | `mcp__graphify__*` returns answers from the wrong repo ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | Sentinel file at `~/.cache/codeflare-hooks/graphify-active-cwd` is absent, stale, or points at a repo without a `graphify-out/`; wrapper fell back to the freshest-mtime heuristic and picked the wrong repo | See [note](#mcp-graphify-returns-answers-from-the-wrong-repo). |
-| Pi emits no review request after expected PR-boundary work ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)) | The command failed or is unsupported, the session is a child, SDD is absent or transitioning, or the fresh PR is not open against `main`/`master`/`develop`. | Confirm those conditions, then run a supported successful root boundary; passive startup does not launch review. |
+| Pi emits no review request after expected PR-boundary work ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)) | The command failed or is unsupported, the session is a child, SDD is absent or transitioning, the fresh PR is not open against `main`/`master`/`develop`, or GitHub has not yet reported the exact local head. | An unavailable or stale candidate boundary remains unevaluated and retries at root agent-end, settled, or resumed-session recovery. If no plan appears after GitHub reports the exact head, verify the other eligibility conditions; do not recreate the push. |
 | Default-mode Pi emits no CI-only plan after `cd <repo> && git push` from the workspace parent | An older default seed did not remember the repository from the successful shell boundary because the advanced main extension was absent. | Reload the corrected seed. The default active-repository extension now resolves `cd` and tool-level cwd before CI eligibility. |
 | A launched Pi reviewer never produces a native completion notification ([REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation)) | The public background subagent is still active, stopped, or was lost on reload; only the notification correlated to its tool-use ID proves completion. | Wait while it is active. A persisted delayed notification can still acknowledge the reviewed head while the PR head is unchanged; otherwise request the missing lane at a later supported boundary. Never treat unrelated tool output as completion. |
 | Pi repeats an already completed review range after newer local work was committed but not pushed | The final native reviewer notification arrived after local `HEAD` advanced, and an older runtime required local and PR heads to match before writing acknowledgement. | Reload the corrected runtime. It correlates the persisted terminal notification to the still-authoritative reviewed PR head without acknowledging a replacement PR head. |
 | Pi reports that a merged PR head was never acknowledged ([REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) AC7) | `gh pr merge` completed before the required reviewer notifications and triage could acknowledge that head; Pi has no pre-command merge interceptor. An acknowledged head does not emit this notice. | Check the transcript for a triage verdict for the reported SHA and review the merged head manually when none exists. Pi deliberately does not write a false acknowledgement. |
-| Claude reports that a merged PR head was never acknowledged ([REQ-AGENT-120](../../sdd/spec/agents.md#req-agent-120-claude-authoritative-branch-review-boundary) AC7) | The PR closed before the Stop hook could advance its exact-head checkpoint. Claude reports each unacknowledged closed head once and preserves the one-shot bypass sentinel. | Check the transcript for a triage verdict for the reported SHA and review the merged head manually when none exists. An acknowledged head stays silent, so repeated or false notices indicate stale seeded hooks. |
+| Claude reports that a merged PR head was never acknowledged ([REQ-AGENT-120](../../sdd/spec/agents.md#req-agent-120-claude-review-enforcement-lifecycle) AC4) | The PR closed before the Stop hook could advance its exact-head checkpoint. Claude reports each unacknowledged closed head once and preserves the one-shot bypass sentinel. | Check the transcript for a triage verdict for the reported SHA and review the merged head manually when none exists. An acknowledged head stays silent, so repeated or false notices indicate stale seeded hooks. |
 | Pi CI resolver returns no request ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)) | The boundary head, repository cwd, or review launch state was omitted or invalid; the live PR head differs from the boundary head; the Git action was unchanged/unsupported; or no open PR targets `main`/`master`/`develop`. | Run from the affected repository after required reviewer calls with explicit `head`, `cwd`, and `reviewState`. A live-head mismatch supersedes that plan; do not launch its CI request or acknowledge its review. |
 | Pi CI monitor times out ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) AC2-AC3; [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) AC3) | Check rows stayed empty or pending beyond the bounded wait, or GitHub responses remained malformed/transient. | Inspect the PR checks in GitHub and fix the provider issue. Do not relaunch automatically; use an explicit user request or a later eligible Git action if monitoring is still needed. |
 | Pi CI monitor reports the head as superseded ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) AC4) | The PR `headRefOid` changed before terminal reporting, so the old monitor refused to report stale status. | No recovery is needed for the old head. The successful newer push runs the root resolver once for the new head. |

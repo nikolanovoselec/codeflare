@@ -112,7 +112,7 @@ For the current tree, run `tree -L 2 -I node_modules` from the repo root.
 
 ## Cost Analysis
 
-Estimated monthly costs per active user based on Cloudflare Containers pricing.
+Dated `2026-08-09` account example based on Cloudflare Containers pricing. This is not a universal per-user quote or a complete platform-cost estimate.
 
 ### Per-Container Pricing
 
@@ -124,15 +124,18 @@ Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU
 | Memory (provisioned) | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
 | Disk (provisioned) | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
 | Workers Paid plan | | | | | $5.00 |
-| **Total** | | | | | **~$11.14/user/month** |
+| **Dated account example total** | | | | | **~$11.14** |
 
 Notes:
-- CPU billed on active usage only. Memory + disk billed on provisioned resources.
-- Hibernated containers (after 30m idle) = zero cost
-- R2: First 10 GB free, $0.015/GB/month after
+- CPU is billed on active usage; provisioned memory and local disk are billed while the Container is active.
+- After Codeflare's stop completes and the Container goes to sleep, Container vCPU, provisioned-memory, and local-disk metering stops.
+- This is not state-preserving hibernation: local disk is ephemeral and returns fresh; persistent files restore from R2.
+- The `$5` Workers Paid minimum and Container inclusions are account-level and shared. They cannot be assigned universally to each user or session.
+- Workers, Durable Objects, R2, requests, logs, storage, and network usage may still incur charges, so `$11.14` is not a total platform-cost estimate.
+- The example assumes one account, one 160-hour active session, 1 vCPU, 3 GiB memory, 6 GB local disk, and 20% average CPU as of `2026-08-09`.
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
-Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 15m - 4h) of no user input. Hibernated containers = zero cost.
+Container resource usage scales per active session (each session is one container; up to six terminal tabs share it). Idle sessions stop after `sleepAfter` (default 30m, configurable 15m-4h) of no user input; durable state comes back from R2 on a later fresh Container.
 
 ---
 

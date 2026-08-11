@@ -18,7 +18,9 @@ import {
   getTierConfig,
   resetTierConfigCache,
   getEffectiveTier,
+  withoutBillingState,
 } from '../../lib/subscription';
+import { countsTowardSessionLimit } from '../../routes/container/lifecycle-validation';
 import { createMockKV } from '../helpers/mock-kv';
 
 // ---------------------------------------------------------------------------
@@ -242,6 +244,14 @@ describe('REQ-SUB-009: getTierConfig KV-first with default fallback', () => {
 
     const config = await getTierConfig(mockKV as unknown as KVNamespace);
     expect(config.find((t) => t.id === 'unlimited')!.displayName).toBe('Custom');
+    expect(legacyTiers.find((t) => t.id === 'unlimited')!.displayName).toBe('Team');
+  });
+
+  it('REQ-SEC-015 AC2/AC3: tier read failure returns immutable default entitlement rules', async () => {
+    mockKV.get.mockRejectedValueOnce(new Error('KV unavailable'));
+    const config = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(config.find((t) => t.id === 'free')?.sessionModes).toEqual(['default']);
+    expect(config.find((t) => t.id === 'unlimited')?.sessionModes).toEqual(['default', 'advanced']);
   });
 });
 
@@ -302,6 +312,25 @@ describe('REQ-SUB-010: Tier Config 60-second cache', () => {
 // REQ-SUB-011: Graceful Degradation Without Stripe
 // AC3: getEffectiveTier does NOT downgrade paid tiers when billing fields absent
 // ---------------------------------------------------------------------------
+describe('Wave 4.2 subscription state and capacity invariants', () => {
+  it('DEEP-18-001/004/011: removes billing-only fields immutably without undefined', () => {
+    const source = {
+      role: 'user', subscriptionTier: 'standard', stripeCustomerId: 'cus_1',
+      stripeSubscriptionId: 'sub_1', stripePriceId: 'price_1', billingStatus: 'active',
+      billingPeriodEnd: '2026-09-01T00:00:00.000Z', checkoutSessionId: 'cs_1',
+    };
+    const cleared = withoutBillingState(source);
+    expect(cleared).toEqual({ role: 'user', subscriptionTier: 'standard' });
+    expect(source.stripeSubscriptionId).toBe('sub_1');
+    expect(Object.values(cleared)).not.toContain(undefined);
+  });
+
+  it('DEEP-18-005: running and initializing sessions consume capacity', () => {
+    expect(['running', 'initializing', 'r', 'i'].map(countsTowardSessionLimit)).toEqual([true, true, true, true]);
+    expect(['stopped', 's', undefined].map(countsTowardSessionLimit)).toEqual([false, false, false]);
+  });
+});
+
 describe('REQ-SUB-011: Graceful Degradation Without Stripe', () => {
   it('REQ-SUB-011 AC3: getEffectiveTier does not downgrade paid tier when billingStatus is null', () => {
     // No Stripe: billingStatus absent/null, billingPeriodEnd absent

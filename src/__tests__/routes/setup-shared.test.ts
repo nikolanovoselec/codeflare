@@ -3,6 +3,13 @@ import { getWorkerNameFromHostname, detectCloudflareAuthError, withSetupRetry } 
 import { CircuitBreakerOpenError } from '../../lib/error-types';
 import { handleConfigureCustomDomain } from '../../routes/setup/custom-domain';
 import type { SetupStep } from '../../routes/setup/shared';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 describe('getWorkerNameFromHostname()', () => {
   it('extracts first segment from workers.dev hostname', () => {

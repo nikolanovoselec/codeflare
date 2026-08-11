@@ -17,6 +17,13 @@ function cfSuccess<T>(result: T) {
   });
 }
 
+function cfFailure(status: number, code: number, message: string) {
+  return new Response(JSON.stringify({ success: false, result: null, errors: [{ code, message }], messages: [] }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 describe('Setup Custom Domain', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -108,6 +115,124 @@ describe('Setup Custom Domain', () => {
       const routeCall = mockFetch.mock.calls[4];
       const routeBody = JSON.parse(routeCall[1].body);
       expect(routeBody.script).toBe('my-worker');
+    });
+
+    it('accepts an already-existing worker route only when its current state is correct', async () => {
+      const steps: SetupStep[] = [];
+
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess([{ id: 'zone-123' }]))
+        .mockResolvedValueOnce(cfSuccess({ subdomain: 'myaccount' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfFailure(409, 10020, 'Route already exists'))
+        .mockResolvedValueOnce(cfSuccess([
+          { id: 'route-123', pattern: 'app.example.com/*', script: 'codeflare' },
+        ]));
+
+      await expect(handleConfigureCustomDomain(
+        'test-token',
+        'account-123',
+        'app.example.com',
+        'http://custom.example.com',
+        steps,
+        'codeflare'
+      )).resolves.toBe('zone-123');
+
+      const routePut = mockFetch.mock.calls.find(([url, init]) =>
+        String(url).includes('/workers/routes/') && init?.method === 'PUT'
+      );
+      expect(routePut).toBeUndefined();
+    });
+
+    it('updates an already-existing worker route whose state is wrong', async () => {
+      const steps: SetupStep[] = [];
+
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess([{ id: 'zone-123' }]))
+        .mockResolvedValueOnce(cfSuccess({ subdomain: 'myaccount' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfFailure(409, 10020, 'Route already exists'))
+        .mockResolvedValueOnce(cfSuccess([
+          { id: 'route-123', pattern: 'app.example.com/*', script: 'old-worker' },
+        ]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await handleConfigureCustomDomain(
+        'test-token',
+        'account-123',
+        'app.example.com',
+        'http://custom.example.com',
+        steps,
+        'codeflare'
+      );
+
+      const routePut = mockFetch.mock.calls.find(([url, init]) =>
+        String(url).endsWith('/workers/routes/route-123') && init?.method === 'PUT'
+      );
+      expect(routePut).toBeDefined();
+      expect(JSON.parse(routePut![1].body)).toEqual({ pattern: 'app.example.com/*', script: 'codeflare' });
+    });
+
+    it('fails setup when an incorrect worker route cannot be updated', async () => {
+      const steps: SetupStep[] = [];
+
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess([{ id: 'zone-123' }]))
+        .mockResolvedValueOnce(cfSuccess({ subdomain: 'myaccount' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfFailure(409, 10020, 'Route already exists'))
+        .mockResolvedValueOnce(cfSuccess([
+          { id: 'route-123', pattern: 'app.example.com/*', script: 'old-worker' },
+        ]))
+        .mockResolvedValueOnce(cfFailure(500, 1000, 'Update failed'));
+
+      await expect(handleConfigureCustomDomain(
+        'test-token',
+        'account-123',
+        'app.example.com',
+        'http://custom.example.com',
+        steps,
+        'codeflare'
+      )).rejects.toThrow(SetupError);
+
+      expect(steps[0]).toMatchObject({ step: 'configure_custom_domain', status: 'error' });
+    });
+
+    it('resolves a duplicate DNS create and corrects its target and proxy state', async () => {
+      const steps: SetupStep[] = [];
+
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess([{ id: 'zone-123' }]))
+        .mockResolvedValueOnce(cfSuccess({ subdomain: 'myaccount' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfFailure(409, 81057, 'Record already exists'))
+        .mockResolvedValueOnce(cfSuccess([
+          { id: 'dns-123', type: 'CNAME', content: 'old.example.net', proxied: false },
+        ]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await handleConfigureCustomDomain(
+        'test-token',
+        'account-123',
+        'app.example.com',
+        'http://custom.example.com',
+        steps,
+        'codeflare'
+      );
+
+      const dnsPut = mockFetch.mock.calls.find(([url, init]) =>
+        String(url).endsWith('/dns_records/dns-123') && init?.method === 'PUT'
+      );
+      expect(dnsPut).toBeDefined();
+      expect(JSON.parse(dnsPut![1].body)).toMatchObject({
+        type: 'CNAME',
+        content: 'codeflare.myaccount.workers.dev',
+        proxied: true,
+      });
     });
   });
 });

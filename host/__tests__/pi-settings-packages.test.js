@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining available through explicit /ctx on,
-//   - the managed extension packages, including Goal, being present in
+//   - the managed extension packages, including Goal and Usage, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -64,6 +64,7 @@ const REQUIRED = [
   'npm:pi-web-access@0.17.0',
   'npm:pi-mcp-adapter@2.16.0',
   'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-usage@0.50.0',
 ];
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -80,6 +81,20 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
 
 });
 
+describe('Usage package preseed (REQ-AGENT-131)', () => {
+  it('pins the reviewed upstream package and integrity-locks its Pi entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['@narumitw/pi-usage'];
+    assert.match(version, /^\d+\.\d+\.\d+$/);
+    const usage = lock.packages['node_modules/@narumitw/pi-usage'];
+    assert.equal(usage.version, version);
+    assert.equal(usage.resolved, `https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-${version}.tgz`);
+    assert.match(usage.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+    assert.deepEqual(usage.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
+  });
+});
+
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
@@ -90,7 +105,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1: fresh container disables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     for (const spec of REQUIRED) {

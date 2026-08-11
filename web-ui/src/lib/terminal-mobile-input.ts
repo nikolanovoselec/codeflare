@@ -414,7 +414,12 @@ export function setupMobileInput(
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('focus', onWindowFocus);
     window.removeEventListener('pagehide', onPageHide);
-    disableVirtualKeyboardOverlay();
+    const ownedFocus = iframeInputRef !== null
+      && iframe.contentDocument?.activeElement === iframeInputRef;
+    if (ownedFocus || !isFocusOnTerminalInput()) {
+      disableVirtualKeyboardOverlay();
+      forceResetKeyboardState();
+    }
     iframe.remove();
   };
 }

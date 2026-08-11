@@ -1,3 +1,5 @@
+import { capRenderedBytes } from "./memory-vault-helpers";
+
 /**
  * Pure logic for first-prompt memory injection (REQ-MEM-013, Pi runtime).
  *
@@ -8,6 +10,7 @@
 
 export const MEMORY_INJECT_MIN_PROMPT_CHARS = 20;
 export const MEMORY_INJECT_MAX_NODES = 10;
+export const MEMORY_INJECT_MAX_RENDERED_BYTES = 4096;
 /**
  * Shared with the Claude hook, and measured on both runtimes rather than
  * inherited: the same 40MB graph costs 148MB RSS / 469ms under Node's
@@ -89,13 +92,13 @@ export function renderInjection(nodes: readonly GraphNode[]): string | null {
   const tail = vaultHits.length > 0
     ? [`(${vaultHits.length} vault note(s) matched - consider reading them for detailed context)`]
     : [];
-  return [
+  return capRenderedBytes([
     "Prior context matching your query:",
     ...lines,
     ...tail,
     "",
     "Use graphify_query or graphify_explain to drill into any of these for more detail.",
-  ].join("\n");
+  ].join("\n"), MEMORY_INJECT_MAX_RENDERED_BYTES);
 }
 
 export default function () {

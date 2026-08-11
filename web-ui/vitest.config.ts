@@ -17,6 +17,7 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
+      reporter: ['text', 'lcov'],
       // Emit the report even when tests fail. Vitest skips report generation on
       // failure by default, so the coverage lane's "was a table produced?" check
       // fired first and blamed a missing report for what was actually a failing

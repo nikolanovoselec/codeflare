@@ -2,9 +2,9 @@
 // (Container base image is Debian bookworm-slim).
 //
 // AC1 and AC3 are Dockerfile-content audits: grep for the FROM line and the
-// apt-get install block. AC2 (agent CLIs start without crashes) is a runtime
-// property that cannot be verified without launching a container; the audit
-// covers the Dockerfile install steps that are a precondition for AC2.
+// apt-get install block. AC2 runtime behavior is verified by the packaged-image
+// smoke in container-image.yml, which executes every selected launcher's version
+// command with a ten-second timeout; this audit covers its lock-backed catalog.
 //
 // Gut-check: changing the FROM line to a different image or removing a
 // required package from the RUN apt-get block will cause the relevant test
@@ -33,7 +33,7 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
   });
 
   it('supported agent CLI options remain in the locked image catalog', () => {
-    // AC2 runtime verification requires a live selected image. This audit
+    // Packaged-image execution is owned by container-image.yml; this audit
     // verifies that its lock-backed source catalog still carries every option.
     for (const packageName of [
       '@anthropic-ai/claude-code',

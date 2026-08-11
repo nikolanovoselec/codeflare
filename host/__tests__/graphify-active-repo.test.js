@@ -6,7 +6,7 @@
 // graphify-out/. Sentinel is only rewritten on change.
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -559,5 +559,57 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     );
     assert.equal(r.status, 0);
     assert.equal(sentinel(sentinelDir), repoA);
+  });
+
+  function runTransactionalSwitch({ failLock = false } = {}) {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const repoB = makeRepoWithGraph(workspace, 'repo-b');
+    const bin = mkdtempSync(join(baseTmp, 'bin-'));
+    const log = join(baseTmp, `graphify-${randomUUID()}.log`);
+    const flockLog = join(baseTmp, `flock-${randomUUID()}.log`);
+    const manifest = join(baseTmp, `manifest-${randomUUID()}.json`);
+    writeFileSync(manifest, JSON.stringify({ repos: { 'repo-a': { source_hash: '0123456789abcdef' } } }));
+    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), `${repoA}\n`);
+    writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\n`);
+    writeFileSync(join(bin, 'flock'), failLock
+      ? `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nexit 1\n`
+      : `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nshift 3\nexec "$@"\n`);
+    chmodSync(join(bin, 'graphify'), 0o755);
+    chmodSync(join(bin, 'flock'), 0o755);
+    const result = spawnSync('bash', [HOOK], {
+      input: JSON.stringify({ tool_name: 'Bash', cwd: repoB, tool_input: { command: 'ls' } }),
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        GRAPHIFY_SENTINEL_DIR: sentinelDir,
+        GRAPHIFY_GLOBAL_MANIFEST: manifest,
+        PATH: `${bin}:${process.env.PATH}`,
+      },
+    });
+    return {
+      result,
+      repoA,
+      repoB,
+      graphifyCalls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [],
+      flockCalls: existsSync(flockLog) ? readFileSync(flockLog, 'utf8').trim().split('\n').filter(Boolean) : [],
+    };
+  }
+
+  it('reconciles old removal and new addition under one lock before advancing the sentinel (REQ-VAULT-014 AC1/AC2)', () => {
+    const switched = runTransactionalSwitch();
+    assert.equal(switched.result.status, 0, switched.result.stderr);
+    assert.deepEqual(switched.flockCalls, ['attempt'], 'a repo switch must acquire the shared lock once');
+    assert.equal(switched.graphifyCalls[0], 'global remove repo-a');
+    assert.match(switched.graphifyCalls[1] ?? '', /^global add .*repo-b\/graphify-out\/graph\.json --as repo-b$/);
+    assert.equal(switched.graphifyCalls.length, 2);
+    assert.equal(sentinel(sentinelDir), switched.repoB, 'only a fully reconciled switch may advance the sentinel');
+  });
+
+  it('keeps a failed locked switch retryable and never adds the new repo (REQ-VAULT-014 AC1/AC2)', () => {
+    const switched = runTransactionalSwitch({ failLock: true });
+    assert.equal(switched.result.status, 0, switched.result.stderr);
+    assert.deepEqual(switched.flockCalls, ['attempt']);
+    assert.deepEqual(switched.graphifyCalls, [], 'lock failure must prevent both removal and addition');
+    assert.equal(sentinel(sentinelDir), switched.repoA, 'failed reconciliation must retain the prior sentinel for retry');
   });
 });

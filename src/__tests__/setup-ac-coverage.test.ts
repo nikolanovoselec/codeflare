@@ -18,6 +18,13 @@ import type { Env } from '../types';
 import { ValidationError, SetupError, ForbiddenError } from '../lib/error-types';
 import { resetAuthConfigCache } from '../lib/access';
 import { createMockKV } from './helpers/mock-kv';
+vi.mock('../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Shared infrastructure (mirrors setup.test.ts helpers - kept local so this

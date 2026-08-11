@@ -34,6 +34,13 @@ vi.mock('../../lib/email', () => ({ sendSubscriptionAdminNotification: vi.fn(asy
 vi.mock('../../lib/access-policy', () => ({ getAdminEmails: vi.fn(async () => []) }));
 
 import stripeWebhookRoute from '../../routes/stripe-webhook';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: Env, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 const WEBHOOK_SECRET = 'whsec_test_secret_456';
 

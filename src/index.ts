@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
+import { DESIGN_READY_CSP_HASH } from './lib/design-ready';
 import type { Env } from './types';
 import userRoutes from './routes/user-profile';
 import containerRoutes from './routes/container/index';
@@ -33,7 +34,7 @@ import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
-import { warnIfNoEncryptionKey } from './lib/kv-crypto';
+import { getOrImportKey, warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './lib/onboarding';
 import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt } from './lib/seo';
 import { isActiveUser } from './lib/access-tier';
@@ -117,7 +118,7 @@ app.use('*', async (c, next) => {
   // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
   if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
-    return c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503);
+    return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
   }
 
   // CF-017: Warn on first request if credentials will be stored as plaintext
@@ -327,6 +328,7 @@ export default {
     if (env.LOG_LEVEL) {
       setLogLevel(env.LOG_LEVEL as LogLevel);
     }
+    if (env.ENCRYPTION_KEY) await getOrImportKey(env);
 
     const url = new URL(request.url);
     const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);
@@ -513,7 +515,7 @@ export default {
     // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
     // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
   }

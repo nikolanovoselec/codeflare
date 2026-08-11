@@ -43,7 +43,13 @@ graph TD
 
 ### Worker (Hono Router)
 
-**File:** `src/index.ts`
+**Responsibility:** Serve as the public HTTP/API gateway, apply authentication and routing policy, and dispatch session work to the owning Durable Objects.
+
+**Inputs:** HTTP and WebSocket requests, Worker bindings, setup state, and verified user identity.
+
+**Outputs:** API and asset responses, WebSocket upgrades, and calls to session-scoped Durable Objects.
+
+**Source:** `src/index.ts` and `src/middleware/auth.ts`.
 
 Entry point and API gateway. Handles routing, WebSocket upgrade interception, authentication (CF Access JWT or GitHub OIDC session cookies), container lifecycle through Durable Objects, and CORS with configurable allowed origins.
 
@@ -68,7 +74,15 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
+**Responsibility:** Own one session container's configuration, startup, proxying, metrics, idle enforcement, and teardown lifecycle.
+
+**Inputs:** Session and bucket identity, container preferences and credentials, internal control requests, and activity metrics.
+
+**Outputs:** Container lifecycle transitions, authenticated proxied responses, persisted session status, and usage metrics.
+
+**Source:** `src/container/index.ts`, `src/container/container-config.ts`, `src/container/container-lifecycle.ts`, `src/container/container-router.ts`, and `src/container/container-metrics.ts`.
+
+`src/container/index.ts` extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
 
 Together these own the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
 
@@ -76,7 +90,13 @@ For Container DO internals including the `collectMetrics()` loop, `destroy()` ov
 
 ### LlmInterceptor (Enterprise Mode)
 
-**File:** `src/llm-interceptor.ts`
+**Responsibility:** Route enterprise agent LLM traffic through the configured Cloudflare AI Gateway without exposing the gateway credential to the container.
+
+**Inputs:** Intercepted provider HTTPS requests, session route catalog and identity metadata, and Worker-held AI Gateway configuration.
+
+**Outputs:** Authenticated AI Gateway requests, normalized streaming responses, and bounded request-time errors when routing is unavailable.
+
+**Source:** `src/llm-interceptor.ts` and `src/container/container-interception.ts`.
 
 A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the customer's AI Gateway when `ENTERPRISE_MODE=active`. Instantiated per container session by the Container DO via `ctx.container.interceptOutboundHttps` + `ctx.exports`. The interceptor receives every outbound HTTPS connection the container opens to the LLM provider host (`api.openai.com`), strips the placeholder credential injected by `entrypoint.sh`, and forwards to the AI Gateway **REST API** first (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/<path>`, authenticated with `Authorization: Bearer <AIG_TOKEN>` using the Workers AI scope, plus a `cf-aig-gateway-id` header).
 
@@ -98,7 +118,13 @@ The gateway URL (`AIG_GATEWAY_URL`) and token (`AIG_TOKEN`) live exclusively in 
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**File:** `src/egress-controller.ts` (transport helpers in `src/lib/controller-egress.ts`)
+**Responsibility:** Force otherwise-unclaimed enterprise internet traffic through the configured Cloudflare Gateway boundary while preserving explicit own-account exemptions.
+
+**Inputs:** Catch-all intercepted HTTPS and WebSocket requests, strict-egress state, account identity, and the VPC egress binding.
+
+**Outputs:** Gateway-proxied responses, direct own-account platform requests, bridged WebSockets, or fail-closed boundary errors.
+
+**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, and `src/container/container-interception.ts`.
 
 A `WorkerEntrypoint` the Container DO wires as the catch-all (`interceptOutboundHttps('*', controller)`) only when the optional **Strict Gateway Egress** toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). Whereas `LlmInterceptor`/`GitHubInterceptor` own specific hosts and stamp the real credential, the `EgressController` is a **transparent proxy** for every other host: it stamps no `Authorization`/`cf-aig-*`/identity header, preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response, strips only the eight RFC 7230 hop-by-hop headers, and forwards with `redirect:'manual'` through the Workers VPC `env.EGRESS.fetch` (and from there the customer's Cloudflare Gateway). Its only job is to force otherwise-unintercepted **direct-internet** traffic onto the mandatory Gateway boundary.
 
@@ -120,7 +146,13 @@ See [Strict Gateway Egress](#strict-gateway-egress) for the data flow, [Security
 
 ### CloudflareBrowserInterceptor (non-enterprise OAuth mode)
 
-**File:** `src/cloudflare-browser-interceptor.ts` (wired in `src/container/container-interception.ts::cloudflareOauthApi`).
+**Responsibility:** Inject a current user-scoped Cloudflare OAuth or enterprise Browser Rendering token at the Worker boundary for REST and CDP WebSocket traffic.
+
+**Inputs:** Intercepted Cloudflare API or AI Gateway requests, the session-bound bucket identity, and Worker-held token state.
+
+**Outputs:** Re-authenticated upstream HTTP requests, bridged WebSocket traffic, or a fail-closed authentication response.
+
+**Source:** `src/cloudflare-browser-interceptor.ts` and `src/container/container-interception.ts::cloudflareOauthApi`.
 
 The same `WorkerEntrypoint` that injects the enterprise Browser Rendering token ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) serves a **second mode** for **non-enterprise Connect-to-Cloudflare OAuth** sessions ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)). Because a dashboard OAuth access token is short-lived and nothing can refresh an env var inside a running container, the container is given only the non-secret placeholder `codeflare-oauth`, and this interceptor is wired for `api.cloudflare.com` to re-stamp **every** request (all paths — the OAuth token is full-scope) with a token freshly minted by `getValidCloudflareToken(bucket)` (refreshed via the stored per-user `refresh_token`).
 
@@ -131,6 +163,14 @@ The OAuth mode also intercepts the AI Gateway data-plane host `gateway.ai.cloudf
 The OAuth CF-API interception-registry entry (`cloudflareOauthApi`, container-interception.ts) is double-guarded — it acts only when `!isEnterpriseMode(env)` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on `api.cloudflare.com` in enterprise, and the enterprise branch above is unchanged. The GitHub interceptor is not involved: non-enterprise git stays direct (GitHub tokens are long-lived). See [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
 ### GitHub Integration
+
+**Responsibility:** Connect a user's GitHub identity to repository browsing, cloning, and in-session GitHub access while preserving mode-specific credential boundaries.
+
+**Inputs:** Authenticated GitHub API requests, OAuth tokens, repository selections, and session/bucket identity.
+
+**Outputs:** Connection and repository metadata, contained clone requests, and mode-appropriate GitHub credentials or intercepted traffic.
+
+**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, and `web-ui/src/components/github/`.
 
 A GitHub panel sits beside the R2 storage panel: a connected user browses and clones their repos, and the in-session agent acts with the user's own GitHub permissions. The panel renders whenever GitHub is enabled — there is no session-tier gate — and GitHub leads as the default right-column face on every session ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
@@ -200,7 +240,15 @@ Browser IDE launch generations record PID, process group, start time, and a rand
 
 ### Terminal Server (node-pty)
 
-**File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
+**Responsibility:** Own the in-container PTY sessions, terminal WebSocket protocol, activity tracking, and private health/control endpoints.
+
+**Inputs:** Authenticated WebSocket and HTTP requests, terminal control frames, user input, and PTY output.
+
+**Outputs:** Raw terminal output and control frames, PTY writes, activity/health metrics, and internal sync-trigger responses.
+
+**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/terminal-ws.ts`, and `host/src/request-router.ts`.
+
+The Node.js/TypeScript server runs inside the container on port 8080 for WebSocket, REST, health, and metrics traffic.
 
 Sync handled entirely by `entrypoint.sh` (15-minute daemon, SIGUSR1-interruptible for manual triggers). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. The user-facing manual trigger surface is the Worker route `POST /api/sessions/sync`, which fans out per-session to each of the user's running containers; the per-container host endpoint it reaches is `POST /internal/bisync-trigger`, which reads `/tmp/sync-daemon.pid` and sends SIGUSR1 to the daemon. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) and [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui). Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
 
@@ -254,9 +302,17 @@ There is no Worker/host route, event store, queue, retry, polling loop, wake pat
 
 ### Landing (Astro, prerendered)
 
-**Directory:** `landing/`
+**Responsibility:** Produce and serve the public, mode-aware marketing experience as prerendered static assets under `/landing`.
 
-The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches content-hashed Astro `/_astro/` and Vite `/assets/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML and missing-asset SPA fallbacks keep their revalidating default. The landing layout and SPA shell both declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)).
+**Inputs:** Astro content and components, shared design tokens, build-time product copy, and browser navigation/motion preferences.
+
+**Outputs:** Static landing HTML, CSS, scripts, metadata, and long-cacheable fingerprinted assets.
+
+**Source:** `landing/` and the Worker static-assets binding in `src/index.ts`.
+
+The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches content-hashed Astro `/_astro/` and Vite `/assets/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML and missing-asset SPA fallbacks keep their revalidating default.
+
+The landing layout and SPA shell both declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)). Before body parsing, the landing's integrity-pinned design-ready gate adds a root loading class; the dark canvas remains visible while Astro's render-blocking stylesheet and the local Inter and JetBrains Mono faces resolve, then the complete final design appears in one frame. The class exists only when JavaScript executes, so no-JavaScript visitors retain the complete server-rendered page.
 
 The landing also opts every same-origin full-page navigation into a cross-document view transition (`@view-transition { navigation: auto }` in `landing/src/styles/global.css`), so the browser holds the current page during the document swap and Chromium-fork browsers (Vivaldi/Arc/Brave) never expose their gray navigation canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) AC3).
 
@@ -584,7 +640,7 @@ sequenceDiagram
 
 **CA trust:** The platform TLS-terminates each intercepted connection and presents a certificate signed by the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`). `entrypoint.sh` installs this CA into the system trust store and persists `NODE_EXTRA_CA_CERTS` / `REQUESTS_CA_BUNDLE` exports into `.bashrc` (sourced by the agent PTYs via `bash -l` → `.bash_profile` → `.bashrc`; a process-only export in the entrypoint would not reach them) so all agent runtimes (Node, Python) trust the intercepted connections without errors.
 
-**Pre-start interception ordering ([REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)):** The Container DO calls `wireContainerInterception()` (the container-interception.ts registry, which invokes `ctx.container.interceptOutboundHttps`) inside `startAndWaitForPorts()` **before** the SDK's `container.start()` call. This ordering is load-bearing: the Cloudflare containers CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` is only mounted after `interceptOutboundHttps` is registered. If wired after boot (e.g. in `onStart`), `entrypoint.sh` finds no cert to install, and every intercepted TLS handshake to `api.openai.com` fails. When `ENTERPRISE_MODE` is unset the override performs no interception work and the container start path is byte-identical to the non-enterprise path.
+**Pre-start interception ordering ([REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)):** The Container DO calls `wireContainerInterception()` (the container-interception.ts registry, which invokes `ctx.container.interceptOutboundHttps`) inside `startAndWaitForPorts()` **before** the SDK's `container.start()` call. This ordering is load-bearing: the Cloudflare containers CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` is only mounted after `interceptOutboundHttps` is registered. If wired after boot (e.g. in `onStart`), `entrypoint.sh` finds no cert to install, and every intercepted TLS handshake to `api.openai.com` fails. When `ENTERPRISE_MODE` is unset the override performs no interception work and the container start path is byte-identical to the non-enterprise path. In enterprise mode the LLM host registration is mandatory even when Gateway configuration is absent: requests then receive the interceptor's bounded 503, while a registration exception aborts container startup rather than allowing direct provider bypass. Other interception transports remain independently best-effort.
 
 **Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only, never through the container env. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. The interceptor uses two auth headers depending on transport: `Authorization: Bearer <AIG_TOKEN>` on the REST API (`api.cloudflare.com/.../ai/v1/*`, Workers AI scope) and `cf-aig-authorization: Bearer <AIG_TOKEN>` on the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, AI Gateway Run scope); `AIG_TOKEN` must carry both permissions or the missing transport is rejected with `error 10000`.
 
@@ -651,7 +707,7 @@ The shared merge normalizes final edges by source, target, relation, and source 
 
 Exact native success requires the note and request chunk after graph publication. The root then advances the counter with `max(current, frozenPromptCount)` and removes only matching state. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
 
-For Vault edits, prelaunch changes coalesce under one request ID, launched work stays frozen, and later edits become one follow-up. The staged content-hash manifest is promoted by same-directory rename only after exact success, post-commit chunk qualification, and hash validation; matching committed bytes recover rename-before-cleanup idempotently. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
+For Vault edits, prelaunch changes coalesce under one request ID, launched work stays frozen, and later edits become one follow-up. Pi reads supported text inputs once but treats PDFs as metadata-only bare documents because its runtime has no bounded PDF page reader; Claude separately owns vision/content concepts and sibling-wikilink citation. The staged content-hash manifest is promoted by same-directory rename only after exact success, post-commit chunk qualification, and hash validation; matching committed bytes recover rename-before-cleanup idempotently. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
 
 Generated agents and public calls both set medium reasoning; calls stop after four turns and expose only Bash. The normal path reads each immutable input once, writes `<CHUNK>.work`, and uses one required 300-second flock for cumulative merge plus `graphify global add --as user_vault`. Only successful publication exposes canonical `CHUNK`; failure leaves root high-water state unchanged. Noncritical visualization is best effort with a 15-second ceiling.
 
@@ -678,7 +734,7 @@ Diff-scoped reviewers retain their complete enforcement families but use gather-
 
 Every scoped hunk and manifest row receives a disposition; whole-file reads require a hunk-backed candidate, and unchanged baseline debt is reserved for full-tree scope. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
 
-Pi and Claude treat successful executable `git` and `gh` commands as cheap candidates, then decide eligibility from the normal checkout's current branch. The branch must have an open `main`, `master`, or `develop` PR whose authoritative full head equals local `HEAD`; detached HEAD, nonstandard worktrees, unsynchronized remote heads, and already acknowledged heads remain inert. A synchronized closed or merged head never launches review. Each runtime emits one visibility notice only when that head lacks its acknowledgement checkpoint; a matching checkpoint stays silent, and neither closed path consumes the one-shot bypass.
+Pi and Claude treat successful executable `git` and `gh` commands as cheap candidates, then decide eligibility from the normal checkout's current branch. The branch must have an open `main`, `master`, or `develop` PR whose authoritative full head equals local `HEAD`; detached HEAD, nonstandard worktrees, permanently mismatched remote heads, and already acknowledged heads remain inert. Pi leaves a temporarily unavailable or stale candidate unevaluated and retries it at root agent-end, settled, or resumed-session recovery until authoritative state resolves. A synchronized closed or merged head never launches review. Each runtime emits one visibility notice only when that head lacks its acknowledgement checkpoint; a matching checkpoint stays silent, and neither closed path consumes the one-shot bypass.
 
 After merging a feature, switching to and synchronizing the merge-target branch naturally exposes that branch's changed PR head without merge-command parsing. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLOSED_NOTICE_FILE -->
 
@@ -690,7 +746,9 @@ Only the reminder head can be acknowledged. Normally, the first same-head launch
 
 Every required reviewer must then have either a correlated successful native notification or a successful public result retrieval, followed by the fixed triage table; `agent_end` reads the live session, writes the existing full-SHA acknowledgement, and queues one separate FIX follow-up, with `agent_settled` as the idempotent fallback. The explicit user bypass surfaces instead acknowledge that same freshly validated open-PR head immediately, preventing missing-review recovery for it without fabricating reviewer evidence. Both paths write a PR-number-specific checkpoint in the normal checkout's `.git` directory, preserving each PR's acknowledged head as its next incremental range base ([REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)).
 
-Reload alone cannot fabricate completion, but it may recover a missing initial plan for a successful boundary that the live handler never evaluated. An already-correlated plan relaunches only after session resume and a new authoritative candidate; that recovery also restores deferred Goal-pause handling. A persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable lane/result execution state; develop-merge handling begins only after successful tool completion and authoritative GitHub confirmation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+Same-session agent-end and settled recovery retry an unevaluated boundary before reload is needed. Reload still cannot fabricate completion, but resumed-session recovery may continue a successful boundary whose authoritative state had not resolved or whose live handler never emitted its initial plan. An already-correlated plan relaunches only after session resume and a new authoritative candidate; that recovery also restores deferred Goal-pause handling.
+
+A persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable lane/result execution state; develop-merge handling begins only after successful tool completion and authoritative GitHub confirmation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), [REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads), and [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection).
 

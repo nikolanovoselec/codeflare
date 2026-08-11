@@ -39,6 +39,10 @@ import type { ActivityTracker, Logger, WsEvent } from './types.js';
  */
 let vscodeWarmingSince: number | undefined;
 
+const GIT_CLONE_TIMEOUT_MS = 120_000;
+export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
+const FINAL_SYNC_POLL_MS = 500;
+
 /** A localhost upstream the host proxies to (SilverBullet / code-server). */
 export interface ProxyTarget {
   host: string;
@@ -62,6 +66,13 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
+  finalSync?: {
+    now(): number;
+    readStatus(): { status?: string; ts?: number };
+    signalDaemon(): void;
+    poll(delayMs: number): Promise<void>;
+  };
 }
 
 // Hop-by-hop headers and any auth we injected for the container boundary
@@ -379,7 +390,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           child.kill('SIGKILL');
           res.writeHead(504, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Clone timed out', code: 'CLONE_TIMEOUT' }));
-        }, 120_000);
+        }, GIT_CLONE_TIMEOUT_MS);
         child.on('error', () => {
           if (settled) return;
           settled = true;
@@ -417,15 +428,22 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
     // ts lands after our trigger.
     if (pathname === '/internal/final-sync' && method === 'POST') {
-      const triggerTs = Date.now();
-      const readStatus = (): { status?: string; ts?: number } => {
-        try { return JSON.parse(fs.readFileSync('/tmp/sync-status.json', 'utf8')); }
-        catch { return {}; }
+      const finalSync = deps.finalSync ?? {
+        now: () => Date.now(),
+        readStatus: (): { status?: string; ts?: number } => {
+          try { return JSON.parse(fs.readFileSync('/tmp/sync-status.json', 'utf8')); }
+          catch { return {}; }
+        },
+        signalDaemon: () => {
+          const pid = Number(fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim());
+          if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid daemon PID');
+          process.kill(pid, 'SIGUSR1');
+        },
+        poll: (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
       };
+      const triggerTs = finalSync.now();
       try {
-        const pid = Number(fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim());
-        if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid daemon PID');
-        process.kill(pid, 'SIGUSR1');
+        finalSync.signalDaemon();
       } catch {
         // No daemon: container is mid-init or already tearing down. Nothing to
         // drain; let the caller proceed to stop.
@@ -441,14 +459,14 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       // the last edits unsynced. The previous value (115_000, < 120s) inverted
       // exactly that: every final bisync landing in the 115-120s band was lost -
       // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
-      const INTERNAL_TIMEOUT_MS = 125_000;
-      const POLL_MS = 500;
+      const timeoutMs = FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+      const pollMs = FINAL_SYNC_POLL_MS;
       // Two-phase completion detection lives in the pure evaluateFinalSync state
       // machine (final-sync.ts) so the syncing->success/failed discrimination is
       // unit-testable without spawning the daemon; this loop owns only the I/O.
       let runStartedTs = -1;
-      while (Date.now() - triggerTs < INTERNAL_TIMEOUT_MS) {
-        const ev = evaluateFinalSync(readStatus(), triggerTs, runStartedTs);
+      while (finalSync.now() - triggerTs < timeoutMs) {
+        const ev = evaluateFinalSync(finalSync.readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -460,7 +478,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+        await finalSync.poll(pollMs);
       }
       res.writeHead(504, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ synced: false, reason: 'timeout' }));

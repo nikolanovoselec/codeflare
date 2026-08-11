@@ -78,6 +78,7 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   replyTo?: string;
+  idempotencyKey?: string;
   env: {
     RESEND_API_KEY?: string;
     RESEND_EMAIL?: string;
@@ -90,7 +91,7 @@ interface SendEmailOptions {
  * Never throws — callers can fire-and-forget.
  */
 export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
-  const { to, subject, html, replyTo, env } = opts;
+  const { to, subject, html, replyTo, idempotencyKey, env } = opts;
 
   if (!env.RESEND_API_KEY || to.length === 0) {
     return false;
@@ -102,6 +103,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
@@ -128,6 +130,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
 export async function sendWelcomeEmail(opts: {
   userEmail: string;
   instanceUrl?: string;
+  idempotencyKey?: string;
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const safeEmail = escapeXml(opts.userEmail);
@@ -144,6 +147,7 @@ export async function sendWelcomeEmail(opts: {
       '<p>Codeflare is the agentic engineering engine: autonomous agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. Persistent memory across sessions, advanced skills and workflows, voice input, and more. All from any device with a browser.</p>',
       subscribeLink,
     ].filter(Boolean).join('\n'),
+    idempotencyKey: opts.idempotencyKey,
     env: opts.env,
   });
 }

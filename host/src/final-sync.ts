@@ -32,7 +32,7 @@
  * endpoint owns the file read, the SIGUSR1, the poll interval and the timeout.
  */
 
-export interface SyncStatusRecord {
+interface SyncStatusRecord {
   status?: string;
   ts?: number;
 }

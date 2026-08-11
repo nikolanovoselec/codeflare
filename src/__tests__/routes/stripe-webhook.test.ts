@@ -4,7 +4,7 @@
  * Tests the three webhook handlers:
  *   1. checkout.session.completed - maps email→customer, writes checkout fields, calls syncSubscriptionState
  *   2. customer.subscription.updated - delegates to syncSubscriptionState
- *   3. customer.subscription.deleted - writes canceled/free directly (CF-004)
+ *   3. customer.subscription.deleted - applies canceled/free through Timekeeper (CF-004)
  *
  * Also tests: syncSubscriptionState integration through webhook handlers.
  *
@@ -12,11 +12,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { createMockBillingCoordinator } from '../helpers/mock-billing-coordinator';
 import { resetTierConfigCache } from '../../lib/subscription';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
+import { AppError } from '../../lib/error-types';
 
 // ---------------------------------------------------------------------------
 // Mock stripe lib
@@ -50,23 +53,39 @@ import {
 } from '../../lib/stripe';
 
 import stripeWebhookRoute from '../../routes/stripe-webhook';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: Env, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------
 let mockKV: ReturnType<typeof createMockKV>;
 
-function createApp() {
+function createApp(envOverrides: Partial<Env> = {}) {
   const app = new Hono<{ Bindings: Env }>();
+  const mockTimekeeper = createMockBillingCoordinator(mockKV);
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
+      TIMEKEEPER: mockTimekeeper,
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
+      ...envOverrides,
     } as Env;
     return next();
   });
   app.route('/', stripeWebhookRoute);
+  app.onError((err, c) => {
+    if (err instanceof AppError) {
+      return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+    }
+    return c.json({ error: 'Unexpected error' }, 500);
+  });
   return app;
 }
 
@@ -122,6 +141,30 @@ beforeEach(() => {
   vi.mocked(parseStripeEvent).mockImplementation((body: string) => JSON.parse(body));
   vi.mocked(isStripeConfigured).mockReturnValue(true);
   vi.mocked(fetchSubscription).mockResolvedValue(null);
+});
+
+describe('DEEP-22-006: enterprise webhook acknowledgement precedes limiter', () => {
+  it('preserves the normal SaaS webhook limit', async () => {
+    const app = createApp();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      expect((await postWebhook(app, buildEvent('unhandled.test', {}))).status).toBe(200);
+    }
+    expect((await postWebhook(app, buildEvent('unhandled.test', {}))).status).toBe(429);
+  });
+
+  it('acknowledges beyond the SaaS limit without verification or mutation', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    mockKV._set('user:enterprise@example.com', { subscriptionTier: 'unlimited' });
+
+    for (let attempt = 0; attempt < 31; attempt++) {
+      const response = await postWebhook(app, buildEvent('customer.subscription.deleted', { customer: 'cus_1' }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ received: true });
+    }
+
+    expect(verifyWebhookSignature).not.toHaveBeenCalled();
+    expect(await mockKV.get('user:enterprise@example.com', 'json')).toEqual({ subscriptionTier: 'unlimited' });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -357,11 +400,61 @@ describe('handleSubscriptionUpdated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// customer.subscription.deleted - direct write (CF-004)
+// customer.subscription.deleted - ordered canceled/free apply (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
-  it('resets subscriptionTier and accessTier to free and sets billingStatus to canceled', async () => {
-    seedCustomer('cus_del_1', 'del@example.com', { subscriptionTier: 'advanced', accessTier: 'advanced' });
+  it('REQ-SUB-015 AC3: a deletion prevents an older in-flight update from restoring entitlements', async () => {
+    seedCustomer('cus_del_ordered', 'ordered-delete@example.com', {
+      subscriptionTier: 'advanced', accessTier: 'advanced', subscribedMode: 'advanced',
+      stripeSubscriptionId: 'sub_del_ordered', stripePriceId: 'price_advanced',
+    });
+
+    let resolveOlderUpdate!: (snapshot: ReturnType<typeof mockSubscriptionSnapshot>) => void;
+    let markOlderFetchStarted!: () => void;
+    const olderFetchStarted = new Promise<void>((resolve) => { markOlderFetchStarted = resolve; });
+    vi.mocked(fetchSubscription).mockImplementationOnce(() => {
+      markOlderFetchStarted();
+      return new Promise((resolve) => { resolveOlderUpdate = resolve; });
+    });
+
+    const app = createApp();
+    const olderUpdate = postWebhook(app, JSON.stringify({
+      id: 'evt_older_update',
+      type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_del_ordered', customer: 'cus_del_ordered' } },
+    }));
+    await olderFetchStarted;
+
+    const deletion = await postWebhook(app, JSON.stringify({
+      id: 'evt_newer_deletion',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: 'sub_del_ordered', customer: 'cus_del_ordered' } },
+    }));
+    expect(deletion.status).toBe(200);
+
+    resolveOlderUpdate(mockSubscriptionSnapshot({
+      subscriptionId: 'sub_del_ordered', customerId: 'cus_del_ordered',
+      tier: 'advanced', mode: 'advanced', status: 'active',
+    }));
+    expect((await olderUpdate).status).toBe(200);
+
+    const user = await mockKV.get('user:ordered-delete@example.com', 'json') as Record<string, unknown>;
+    expect(user).toEqual(expect.objectContaining({
+      billingStatus: 'canceled',
+      subscriptionTier: 'free',
+      accessTier: 'free',
+      subscribedMode: 'default',
+    }));
+    expect(user.stripeSubscriptionId).toBeUndefined();
+    expect(user.stripePriceId).toBeUndefined();
+  });
+
+  it('resets tiers and removes stale provider fields on deletion', async () => {
+    seedCustomer('cus_del_1', 'del@example.com', {
+      subscriptionTier: 'advanced', accessTier: 'advanced',
+      stripeSubscriptionId: 'sub_del_1', stripePriceId: 'price_old',
+      billingPeriodEnd: '2026-09-01T00:00:00.000Z', checkoutSessionId: 'cs_old',
+    });
 
     const body = buildEvent('customer.subscription.deleted', {
       id: 'sub_del_1',
@@ -375,6 +468,10 @@ describe('handleSubscriptionDeleted', () => {
     expect(user.subscriptionTier).toBe('free');
     expect(user.accessTier).toBe('free');
     expect(user.billingStatus).toBe('canceled');
+    expect(user.stripeSubscriptionId).toBeUndefined();
+    expect(user.stripePriceId).toBeUndefined();
+    expect(user.billingPeriodEnd).toBeUndefined();
+    expect(user.checkoutSessionId).toBeUndefined();
   });
 
   it('resets a max-tier user to free on subscription deletion', async () => {

@@ -2,22 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 
 // Mock dependencies before imports
+const mockResolveBucketName = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/access', () => ({
-  getBucketName: vi.fn((email: string, workerName?: string) => {
-    const sanitized = email
-      .toLowerCase()
-      .trim()
-      .replace(/@/g, '-')
-      .replace(/\./g, '-')
-      .replace(/[^a-z0-9-]/g, '')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-    const prefix = workerName || 'codeflare';
-    return `${prefix}-${sanitized.substring(0, 63 - prefix.length - 1)}`;
-  }),
+  resolveBucketName: mockResolveBucketName,
 }));
 
 const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/cloudflare-token', () => ({
+  disconnectCloudflare: vi.fn(async () => undefined),
+}));
+
 vi.mock('../../lib/r2-admin', () => ({
   deleteScopedR2Token: mockDeleteScopedR2Token,
 }));
@@ -81,11 +75,21 @@ describe('cleanupUserData', () => {
     mockContainerDestroy.mockResolvedValue(undefined);
     mockEmptyR2Bucket.mockResolvedValue(0);
     mockCreateR2Client.mockReturnValue({});
+    mockResolveBucketName.mockResolvedValue(bucketName);
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.clearAllMocks();
+  });
+
+  it('resolves verified bucket ownership before deleting user state', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+
+    await cleanupUserData(email, createEnv());
+
+    expect(mockResolveBucketName).toHaveBeenCalledWith(expect.anything(), email);
+    expect(mockResolveBucketName.mock.invocationCallOrder[0]).toBeLessThan(mockKV.delete.mock.invocationCallOrder[0]);
   });
 
   it('destroys active sessions and their containers', async () => {

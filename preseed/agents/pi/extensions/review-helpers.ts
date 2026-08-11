@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from "./guard-helpers.js";
 
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export const REVIEW_TRIAGE_HEADER = "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |";
 export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push";
+export type ReviewBoundaryEvent = "push" | "pr-create";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
@@ -29,14 +30,13 @@ export type TranscriptFacts = {
   reviewPrNumber?: number;
   reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
+  reviewCiEvent?: ReviewBoundaryEvent;
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
-
-type ShellWords = string[];
 
 type Heredoc = { delimiter: string; stripTabs: boolean };
 
@@ -170,58 +170,27 @@ export function shellSegments(command: string): string[] {
   return executableShellSegments(command).map((segment) => segment.command);
 }
 
-function shellWords(segment: string): ShellWords {
-  const words: string[] = [];
-  let current = "";
-  let quote = "";
-  let escaped = false;
-  for (const char of segment) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-    } else if (char === "\\" && quote !== "'") {
-      escaped = true;
-    } else if ((char === "'" || char === '"') && !quote) {
-      quote = char;
-    } else if (char === quote) {
-      quote = "";
-    } else if (!quote && /\s/.test(char)) {
-      if (current) words.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  if (current) words.push(current);
-  return words;
-}
-
-function commandWords(command: string): ShellWords[] {
-  return shellSegments(command).map(shellWords).map((words) => {
-    let index = words[0] === "env" ? 1 : 0;
-    while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index] ?? "")) index += 1;
-    return words.slice(index);
-  });
-}
-
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  const candidate = commandWords(command).some((words) => words[0] === "git" || words[0] === "gh");
+  let candidate = false;
+  let event: ReviewBoundaryEvent | undefined;
+  for (const words of executableShellCommands(command)) {
+    const executable = shellCommandExecutable(words);
+    if (executable !== "git" && executable !== "gh") continue;
+    candidate = true;
+    const args = shellCommandArguments(words, executable);
+    if (executable === "git" && args[0] === "push") event = "push";
+    if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
+  }
   return candidate
-    ? { reminder: true, settled: true, event: "push" }
+    ? { reminder: true, settled: true, ...(event ? { event } : {}) }
     : { reminder: false, settled: false };
-}
-
-function firstExisting(paths: string[]): string | undefined {
-  return paths.find(existsSync);
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
   const nested = existsSync(join(repo, "sdd/spec/config.yml"));
   const config = nested ? join(repo, "sdd/spec/config.yml") : join(repo, "sdd/config.yml");
-  const triage = firstExisting(nested
-    ? [join(repo, "sdd/spec/.init-triage.md"), join(repo, "sdd/spec/.review-queue.md")]
-    : [join(repo, "sdd/.init-triage.md"), join(repo, "sdd/.review-needed.md")]);
-  if (!existsSync(config) || !triage) return false;
+  const triage = nested ? join(repo, "sdd/spec/.init-triage.md") : join(repo, "sdd/.init-triage.md");
+  if (!existsSync(config) || !existsSync(triage)) return false;
   const transition = /^transition:\s*true\s*$/mi.test(readFileSync(config, "utf8"));
   const open = /^\*\*Status:\*\*\s*open\b/mi.test(readFileSync(triage, "utf8"));
   return transition && open;
@@ -404,10 +373,13 @@ export function roundLimitReached(repo: string, lane: ReviewLane): boolean {
     if (!record.trim()) continue;
     const [header, ...fileLines] = record.split("\n");
     const subject = header.slice(header.indexOf(" ") + 1).trim();
+    const touchedLane = fileLines.some((file) => file.trim().startsWith(rule.tree));
     if (BULK_PREFIXES.some((prefix) => subject.startsWith(prefix))) continue;
-    if (!rule.tags.some((tag) => rule.match(subject, tag))) continue;
-    if (!fileLines.some((file) => file.trim().startsWith(rule.tree))) continue;
-    counted += 1;
+    if (!rule.tags.some((tag) => rule.match(subject, tag))) {
+      if (touchedLane) break;
+      continue;
+    }
+    if (touchedLane) counted += 1;
   }
   return counted >= 5;
 }
@@ -494,6 +466,7 @@ type ReviewWindow = {
   prNumber?: number;
   base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
+  ciEvent?: ReviewBoundaryEvent;
 };
 
 function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
@@ -516,7 +489,10 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const boundaryToolUseId = typeof entry.details?.boundaryToolUseId === "string"
     ? entry.details.boundaryToolUseId
     : undefined;
-  return { head, range, repo, branch, prNumber, base, boundaryToolUseId };
+  const ciEvent = entry.details?.ciEvent === "push" || entry.details?.ciEvent === "pr-create"
+    ? entry.details.ciEvent
+    : undefined;
+  return { head, range, repo, branch, prNumber, base, boundaryToolUseId, ciEvent };
 }
 
 export function reviewTranscriptFacts(input: {
@@ -692,6 +668,7 @@ export function reviewTranscriptFacts(input: {
     reviewPrNumber: window?.prNumber,
     reviewBase: window?.base,
     reviewBoundaryToolUseId: window?.boundaryToolUseId,
+    reviewCiEvent: window?.ciEvent,
     bypassed,
     ciLaunched,
     triageComplete,

@@ -35,15 +35,17 @@ describe('getCurrencyForCountry', () => {
       'BG', 'CZ', 'DK', 'HU', 'PL', 'RO', 'SE',
       // Non-EU European
       'AD', 'AL', 'AX', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME',
-      'MK', 'NO', 'RS', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
+      'MK', 'NO', 'RS', 'RU', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
     ];
     for (const country of european) {
       expect(getCurrencyForCountry(country)).toBe('eur');
     }
   });
 
-  it('returns EUR for non-Eurozone European countries', () => {
+  it('returns EUR for non-Eurozone and transcontinental European countries', () => {
     expect(getCurrencyForCountry('NO')).toBe('eur');
+    expect(getCurrencyForCountry('RU')).toBe('eur');
+    expect(getCurrencyForCountry('TR')).toBe('eur');
     expect(getCurrencyForCountry('SE')).toBe('eur');
     expect(getCurrencyForCountry('PL')).toBe('eur');
     expect(getCurrencyForCountry('UA')).toBe('eur');

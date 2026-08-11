@@ -10,8 +10,221 @@
 
 export const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 
+type Heredoc = { value: string; stripTabs: boolean };
+
+function heredocDeclarations(line: string): Heredoc[] {
+  const declarations: Heredoc[] = [];
+  let quote = "";
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? "";
+    if (quote) {
+      if (char === "\\" && quote === '"') index += 1;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (char === "\\") { index += 1; continue; }
+    if (char !== "<" || line[index + 1] !== "<" || line[index + 2] === "<") continue;
+
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === "-";
+    if (stripTabs) cursor += 1;
+    while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+
+    let value = "";
+    let delimiterQuote = "";
+    while (cursor < line.length) {
+      const token = line[cursor] ?? "";
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = "";
+        else if (token === "\\" && delimiterQuote === '"' && cursor + 1 < line.length) {
+          cursor += 1;
+          value += line[cursor] ?? "";
+        } else value += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === "\\" && cursor + 1 < line.length) {
+        cursor += 1;
+        value += line[cursor] ?? "";
+      } else if (/\s/.test(token) || ";&|<>".includes(token)) break;
+      else value += token;
+      cursor += 1;
+    }
+    if (value) declarations.push({ value, stripTabs });
+    index = cursor - 1;
+  }
+  return declarations;
+}
+
+function withoutHeredocBodies(command: string): string {
+  const executableLines: string[] = [];
+  const pendingDelimiters: Heredoc[] = [];
+
+  for (const line of command.split(/\r?\n/)) {
+    const active = pendingDelimiters[0];
+    if (active) {
+      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === active.value) pendingDelimiters.shift();
+      continue;
+    }
+
+    executableLines.push(line);
+    pendingDelimiters.push(...heredocDeclarations(line));
+  }
+
+  return executableLines.join('\n');
+}
+
+const COMMAND_PREFIXES = new Set(["command", "builtin", "exec", "sudo", "time", "env"]);
+const CONTROL_WORDS = new Set(["if", "then", "elif", "else", "fi", "while", "until", "do", "!", "{"]);
+
+/**
+ * Returns argv for syntactically executable shell commands. Quoted arguments and
+ * heredoc bodies stay inert, while command substitutions are scanned recursively.
+ * This is intentionally a boundary parser, not a shell evaluator: authoritative
+ * repository and PR state still decide whether a parsed candidate matters.
+ */
+export function executableShellCommands(command: string): string[][] {
+  const commands: string[][] = [];
+
+  const scan = (source: string): void => {
+    let words: string[] = [];
+    let word = "";
+    let commandPosition = true;
+    let prefix = false;
+
+    const finishWord = () => {
+      if (!word) return;
+      const value = word;
+      word = "";
+      if (!commandPosition) {
+        words.push(value);
+        return;
+      }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || CONTROL_WORDS.has(value)) return;
+      words.push(value);
+      if (COMMAND_PREFIXES.has(value)) {
+        prefix = true;
+        return;
+      }
+      if (prefix && value.startsWith("-")) return;
+      commandPosition = false;
+      prefix = false;
+    };
+    const finishCommand = () => {
+      finishWord();
+      if (words.length) commands.push(words);
+      words = [];
+      commandPosition = true;
+      prefix = false;
+    };
+    const substitution = (start: number): number => {
+      let depth = 1;
+      let quote = "";
+      let escaped = false;
+      for (let index = start; index < source.length; index += 1) {
+        const char = source[index] ?? "";
+        if (escaped) { escaped = false; continue; }
+        if (char === "\\" && quote !== "'") { escaped = true; continue; }
+        if (quote) {
+          if (char === quote) quote = "";
+          continue;
+        }
+        if (char === "'" || char === '"') { quote = char; continue; }
+        if (char === "(") depth += 1;
+        else if (char === ")" && --depth === 0) {
+          scan(source.slice(start, index));
+          return index;
+        }
+      }
+      return source.length;
+    };
+
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index] ?? "";
+      if (char === "'") {
+        for (index += 1; index < source.length && source[index] !== "'"; index += 1) word += source[index] ?? "";
+        continue;
+      }
+      if (char === '"') {
+        for (index += 1; index < source.length && source[index] !== '"'; index += 1) {
+          if (source[index] === "\\" && index + 1 < source.length) word += source[++index] ?? "";
+          else if (source[index] === "$" && source[index + 1] === "(") index = substitution(index + 2);
+          else if (source[index] === "`") {
+            const end = source.indexOf("`", index + 1);
+            if (end === -1) { index = source.length; break; }
+            scan(source.slice(index + 1, end));
+            index = end;
+          } else word += source[index] ?? "";
+        }
+        continue;
+      }
+      if (char === "\\" && index + 1 < source.length) { word += source[++index] ?? ""; continue; }
+      if (char === "$" && source[index + 1] === "(") { index = substitution(index + 2); continue; }
+      if (char === "`") {
+        const end = source.indexOf("`", index + 1);
+        if (end === -1) break;
+        scan(source.slice(index + 1, end));
+        index = end;
+        continue;
+      }
+      if (/\s/.test(char) || ";&|(){}".includes(char)) {
+        finishWord();
+        if (";&|(){}\n\r".includes(char)) {
+          finishCommand();
+          if ((char === "&" || char === "|") && source[index + 1] === char) index += 1;
+        }
+        continue;
+      }
+      word += char;
+    }
+    finishCommand();
+  };
+
+  scan(withoutHeredocBodies(command));
+  return commands;
+}
+
+export function shellCommandExecutable(words: string[]): string | undefined {
+  let index = 0;
+  while (index < words.length) {
+    const value = words[index] ?? "";
+    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value)) { index += 1; continue; }
+    if (!COMMAND_PREFIXES.has(value)) return value;
+    index += 1;
+    while ((words[index] ?? "").startsWith("-")) index += 1;
+  }
+  return undefined;
+}
+
+export function shellCommandArguments(words: string[], executable: "git" | "gh"): string[] {
+  const executableIndex = words.findIndex((word, index) => word === executable
+    && shellCommandExecutable(words.slice(0, index + 1)) === executable);
+  let index = executableIndex + 1;
+  const takesValue = executable === "git"
+    ? new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"])
+    : new Set(["-R", "--repo", "--hostname", "--config"]);
+  while (executableIndex >= 0 && index > 0 && index < words.length) {
+    const value = words[index] ?? "";
+    if (value === "--") return words.slice(index + 1);
+    if (!value.startsWith("-")) return words.slice(index);
+    if (takesValue.has(value) && !value.includes("=")) index += 1;
+    index += 1;
+  }
+  return [];
+}
+
+function operationAfterGlobalOptions(words: string[], executable: "git" | "gh"): string | undefined {
+  return shellCommandArguments(words, executable)[0];
+}
+
 export function attributionBlockReason(command: string): string | undefined {
-  if (!/(^|[;&|]\s*)(git\s+(commit|merge|tag|notes)|gh\s+(pr|issue|release)\s+\w+)\b/.test(command)) return undefined;
+  const guarded = executableShellCommands(command).some((words) => {
+    const gitOperation = operationAfterGlobalOptions(words, "git");
+    const ghOperation = operationAfterGlobalOptions(words, "gh");
+    return Boolean(gitOperation && ["commit", "merge", "tag", "notes"].includes(gitOperation))
+      || Boolean(ghOperation && ["pr", "issue", "release"].includes(ghOperation));
+  });
+  if (!guarded) return undefined;
   // Match the canonical block-attributed-commits.sh detection set: genuine attribution
   // signatures only (co-author trailer, bot noreply email, generated-with footer, emoji,
   // ChatGPT). Deliberately NOT bare model/product names ("claude code", "claude opus"):
@@ -21,31 +234,6 @@ export function attributionBlockReason(command: string): string | undefined {
     return "Codeflare blocks AI attribution in commits, PRs, issues, releases, and tags. Remove Co-Authored-By, generated-by text, model-name attribution, and emoji attribution.";
   }
   return undefined;
-}
-
-function withoutHeredocBodies(command: string): string {
-  const lines = command.split('\n');
-  const executableLines: string[] = [];
-  const pendingDelimiters: Array<{ value: string; stripTabs: boolean }> = [];
-
-  for (const line of lines) {
-    const active = pendingDelimiters[0];
-    if (active) {
-      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
-      if (candidate === active.value) pendingDelimiters.shift();
-      continue;
-    }
-
-    executableLines.push(line);
-    const declarations = line.matchAll(/<<(-)?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g);
-    for (const declaration of declarations) {
-      const value = declaration[2] ?? declaration[3] ?? declaration[4];
-      if (!value) continue;
-      pendingDelimiters.push({ value, stripTabs: declaration[1] === '-' });
-    }
-  }
-
-  return executableLines.join('\n');
 }
 
 export function isLocalBuildCommand(command: string): boolean {

@@ -25,6 +25,8 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 ## Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
+Per-user bucket identities are serialized by a bucket-keyed Durable Object rather than inferred solely from a lossy email slug. KV owner records are non-authoritative observability only. Unambiguous legacy buckets remain stable, later collisions receive deterministic digest-suffixed names, and ambiguous legacy collisions are blocked pending operator resolution.
+
 Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota - enforcement is in application code.
 
 **Tier defaults:** Configurable per tier in admin Subscription Management panel (Storage Quota field, in MB). Custom tier defaults to unlimited.

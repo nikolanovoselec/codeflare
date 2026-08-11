@@ -6,6 +6,30 @@ import { AppError, AuthError, ForbiddenError } from '../../lib/error-types';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
+
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
 
 describe('Auth Middleware', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -17,11 +41,13 @@ describe('Auth Middleware', () => {
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+    const containerNamespace = createBucketOwnerNamespace();
 
     // Set up mock env
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: containerNamespace,
         ...envOverrides,
       } as Env;
       return next();
@@ -146,6 +172,7 @@ describe('Auth Middleware', () => {
     function makeEnv(overrides: Partial<Env> = {}): Env {
       return {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: createBucketOwnerNamespace(),
         ...overrides,
       } as Env;
     }
@@ -203,6 +230,7 @@ describe('Auth Middleware', () => {
       app.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          CONTAINER: createBucketOwnerNamespace(),
           ...envOverrides,
         } as Env;
         return next();
@@ -331,7 +359,11 @@ describe('Auth Middleware', () => {
     function createAdminApp(envOverrides: Partial<Env> = { ENTERPRISE_MODE: 'active' }) {
       const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
       app.use('*', async (c, next) => {
-        c.env = { KV: mockKV as unknown as KVNamespace, ...envOverrides } as Env;
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CONTAINER: createBucketOwnerNamespace(),
+          ...envOverrides,
+        } as Env;
         return next();
       });
       app.use('*', authMiddleware);
@@ -357,6 +389,7 @@ describe('Auth Middleware', () => {
     it('elevates a non-admin who is in a configured admin group to admin (200)', async () => {
       mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
       mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      mockKV._set('user:groupadmin@example.com', { role: 'user', addedBy: 'setup', addedAt: '2026-01-01' });
       const spy = mockGetIdentity([{ name: 'ops_admins' }]);
 
       const app = createAdminApp();

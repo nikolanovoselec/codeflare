@@ -307,6 +307,22 @@ export class container extends Container<Env> implements ContainerEnvState {
     return configGetBucketName(this.host);
   }
 
+  /** Strongly consistent ownership arbitration for one derived R2 bucket. */
+  async claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<'owned' | 'conflict' | 'ambiguous'> {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail !== email) return 'conflict';
+
+    return this.ctx.storage.transaction(async (txn) => {
+      const owner = await txn.get<string>('bucketOwnerEmail');
+      if (owner === normalizedEmail) return 'owned';
+      if (owner) return 'conflict';
+      if (!allowInitialClaim) return 'ambiguous';
+
+      await txn.put('bucketOwnerEmail', normalizedEmail);
+      return 'owned';
+    });
+  }
+
   /** Update envVars with current bucket name and credentials. */
   private updateEnvVars(): void {
     configUpdateEnvVars(this.host);

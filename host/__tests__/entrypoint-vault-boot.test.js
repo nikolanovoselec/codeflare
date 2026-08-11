@@ -38,6 +38,7 @@ import {
   existsSync,
   statSync,
   readdirSync,
+  rmSync,
   utimesSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -186,7 +187,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
   //  - stub `graphify` lookups (command -v graphify -> not found) so the
   //    global-add block is a no-op and needs no real graphify binary
   // Returns the rendered script that runs init_user_vault N times.
-  function buildInitVaultHarness({ userHome, preseedDir, runs = 1 }) {
+  function buildInitVaultHarness({ userHome, preseedDir, pluginDir = join(preseedDir, 'plugins'), runs = 1 }) {
     let body = extractFunctionBody('init_user_vault');
     // Repoint the function's local PRESEED_DIR at our temp preseed root.
     body = body.replace(
@@ -203,7 +204,8 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
         builtin command "$@"
       }
       USER_HOME=${userHome}
-      export USER_HOME
+      PLUGIN_DIR=${pluginDir}
+      export USER_HOME PLUGIN_DIR
 
       ${body}
 
@@ -417,6 +419,67 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
       populatedGraph,
       'init_user_vault must leave a pre-existing populated graph.json untouched',
     );
+  });
+
+  it('removes orphaned legacy graph markdown and HTML independently (REQ-VAULT-010 AC5)', () => {
+    for (const orphan of ['Global Graph.md', 'global-graph.html']) {
+      const root = mkTmp('vault-legacy-graph-');
+      const userHome = join(root, 'home');
+      const preseedDir = join(root, 'preseed');
+      const graphDir = join(userHome, 'Vault', 'Raw', 'Graphs');
+      mkdirSync(preseedDir, { recursive: true });
+      mkdirSync(graphDir, { recursive: true });
+      writeFileSync(join(graphDir, orphan), 'stale\n');
+
+      const res = runBash(buildInitVaultHarness({ userHome, preseedDir }));
+      assert.equal(res.status, 0, `legacy cleanup must run cleanly; stderr: ${res.stderr}`);
+      assert.equal(existsSync(join(graphDir, orphan)), false, `${orphan} must be removed without its sibling`);
+    }
+  });
+
+  it('baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)', () => {
+    const root = mkTmp('vault-manifest-init-');
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const pluginDir = join(root, 'plugins');
+    const manifestScriptDir = join(pluginDir, 'codeflare-vault', 'scripts');
+    const vault = join(userHome, 'Vault');
+    const manifest = join(vault, 'graphify-out', 'vault-extract-manifest.json');
+    const initialized = join(vault, 'graphify-out', 'vault-extract-initialized');
+    mkdirSync(preseedDir, { recursive: true });
+    mkdirSync(manifestScriptDir, { recursive: true });
+    writeFileSync(join(manifestScriptDir, 'vault-manifest.py'), [
+      'import json, pathlib, sys',
+      'target = pathlib.Path(sys.argv[3])',
+      'if target.with_name("vault-extract-initialized").exists(): raise SystemExit("initialization marker written before baseline")',
+      'target.write_text(json.dumps({"version": 1, "files": {"Notes/first.md": "baseline"}}))',
+    ].join('\n'));
+
+    let res = runBash(buildInitVaultHarness({ userHome, preseedDir, pluginDir }));
+    assert.equal(res.status, 0, `first initialization must run cleanly; stderr: ${res.stderr}`);
+    assert.ok(existsSync(manifest), 'first initialization must create the baseline manifest');
+    assert.equal(readFileSync(initialized, 'utf8'), '1\n', 'durable initialization state must be non-empty for R2 sync');
+
+    rmSync(manifest, { force: true });
+    mkdirSync(join(vault, 'Notes'), { recursive: true });
+    writeFileSync(join(vault, 'Notes', 'later.md'), 'unextracted\n');
+    res = runBash(buildInitVaultHarness({ userHome, preseedDir, pluginDir }));
+    assert.equal(res.status, 0, `returning initialization must run cleanly; stderr: ${res.stderr}`);
+    assert.equal(existsSync(manifest), false, 'a returning Vault with a missing restore must not rebaseline current bytes');
+    assert.equal(readFileSync(initialized, 'utf8'), '1\n', 'returning initialization state must remain durable');
+
+    const legacyHome = join(root, 'legacy-home');
+    const legacyVault = join(legacyHome, 'Vault');
+    mkdirSync(join(legacyVault, 'Notes'), { recursive: true });
+    writeFileSync(join(legacyVault, 'Notes', 'pre-marker.md'), 'unextracted on older release\n');
+    res = runBash(buildInitVaultHarness({ userHome: legacyHome, preseedDir, pluginDir }));
+    assert.equal(res.status, 0, `legacy migration must run cleanly; stderr: ${res.stderr}`);
+    assert.equal(
+      existsSync(join(legacyVault, 'graphify-out', 'vault-extract-manifest.json')),
+      false,
+      'an existing pre-marker Vault must stay full-delta eligible instead of receiving a new baseline',
+    );
+    assert.equal(readFileSync(join(legacyVault, 'graphify-out', 'vault-extract-initialized'), 'utf8'), '1\n');
   });
 
   it('init_user_vault copies preseeded plugs into Library/Codeflare and is idempotent overwrite-on-diff (REQ-VAULT-007 AC5)', () => {

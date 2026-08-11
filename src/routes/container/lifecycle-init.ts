@@ -51,13 +51,13 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     fastStartEnabled: params.fastStartEnabled,
     ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),
     ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),
-    // REQ-AGENT-029 AC2: a stored `null` on any of the three deploy creds is an
-    // explicit clear that must reach the container so a revoked credential is
-    // unset, not silently left stale. `undefined` stays omitted (no change); a
-    // string sets the value.
-    ...(params.deployKeys?.githubToken !== undefined && { githubToken: params.deployKeys.githubToken }),
-    ...(params.deployKeys?.cloudflareApiToken !== undefined && { cloudflareApiToken: params.deployKeys.cloudflareApiToken }),
-    ...(params.deployKeys?.cloudflareAccountId !== undefined && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
+    // REQ-AGENT-029 AC2: this start-time payload is an authoritative snapshot.
+    // Send absent deploy credentials as explicit null so a restart clears stale
+    // in-memory values in the container DO. The receiver reserves omission for
+    // partial updates (no change), and this boundary never serializes undefined.
+    githubToken: params.deployKeys?.githubToken ?? null,
+    cloudflareApiToken: params.deployKeys?.cloudflareApiToken ?? null,
+    cloudflareAccountId: params.deployKeys?.cloudflareAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     // REQ-ENTERPRISE-018: forward the bucket's Governed Mode regime so the container's
     // rclone drops SSE-C and enables checksums. Always sent as a definite boolean (like
@@ -162,9 +162,10 @@ export async function ensureBucketAndSeed(params: {
   // every seed write below and is forwarded to the container so rclone matches the bucket's regime.
   const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
 
-  // Seed agent configs once, when the bucket is newly created. Agent configs have
-  // additional reseed paths (the Recreate button, mode-change reconcile, and the
-  // REQ-AGENT-049 preseed-hash upgrade), so the create-time gate keeps them healthy.
+  // Seed agent configs once, when the bucket is newly created. Track provider
+  // success separately: enterprise must not stamp Pro when this initial
+  // reconciliation failed, because the unstamped preference is the retry marker.
+  let initialAgentConfigReady = bucketResult.created !== true;
   if (bucketResult.created) {
     try {
       const agentResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, sessionMode, {
@@ -173,6 +174,7 @@ export async function ensureBucketAndSeed(params: {
         contextModeEnabled,
         r2SseDisabled,
       });
+      initialAgentConfigReady = true;
       logger.info('Seeded initial agent configs', {
         bucketName,
         mode: sessionMode,
@@ -245,8 +247,10 @@ export async function ensureBucketAndSeed(params: {
             deletedCount: upgradeResult.deleted.length,
           });
         }
-        const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
-        await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
+        if (initialAgentConfigReady) {
+          const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
+          await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
+        }
       }
     } catch (error) {
       logger.warn('Enterprise advanced-mode upgrade failed; will retry next session', {

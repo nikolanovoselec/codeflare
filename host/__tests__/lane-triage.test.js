@@ -154,14 +154,16 @@ describe('lane-triage.mjs — round counter', () => {
     assert.equal(t.decision, 'proceed');
   });
 
-  it('resets below the limit when a plain user commit lands', () => {
+  it('stops counting at the newest user-directed lane reset', () => {
     const cwd = repo();
     for (let i = 0; i < 4; i += 1) {
-      commit(cwd, `sdd/spec/f${i}.md`, `${i}\n`, `[autonomous] spec change ${i}`);
+      commit(cwd, `sdd/spec/prior-${i}.md`, `${i}\n`, `[autonomous] prior cycle ${i}`);
     }
     commit(cwd, 'sdd/spec/user.md', 'u\n', 'spec: a normal user-directed change');
+    commit(cwd, 'sdd/spec/current.md', 'current\n', '[autonomous] current cycle');
     const t = triage(cwd, 'spec-reviewer');
-    assert.ok(t.roundLimit.counted < 5, `expected under the limit, got ${t.roundLimit.counted}`);
+    assert.equal(t.roundLimit.counted, 1,
+      'the newer user-directed lane commit closes the window before the four prior-cycle rounds');
     assert.equal(t.decision, 'proceed');
   });
 

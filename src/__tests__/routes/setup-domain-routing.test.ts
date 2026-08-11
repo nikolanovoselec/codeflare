@@ -7,6 +7,13 @@ import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../li
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 // REQ-ENTERPRISE-022: per-route context windows persist, validate, and round-trip through setup.
 // URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
@@ -465,6 +472,8 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
     it('continues when DNS record already exists (code 81057)', async () => {
       const app = createTestApp();
+      let dnsLookupAttempts = 0;
+      let dnsCorrectionApplied = false;
 
       globalThis.fetch = createUrlMockFetch({
         ...baseFlowMocks(),
@@ -472,7 +481,19 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         '/workers/subdomain': mockResponses.subdomainLookup,
         '~/dns_records': (_url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
-            return mockResponses.dnsRecordLookupEmpty();
+            dnsLookupAttempts += 1;
+            if (dnsLookupAttempts === 1) return mockResponses.dnsRecordLookupEmpty();
+            return new Response(
+              JSON.stringify({
+                success: true,
+                result: [{ id: 'dns-existing', type: 'CNAME', content: 'old.example.net', proxied: false }],
+              }),
+              { status: 200, headers: jsonHeaders }
+            );
+          }
+          if (init.method === 'PUT') {
+            dnsCorrectionApplied = true;
+            return mockResponses.dnsRecordCreate();
           }
           // POST create - "already exists" error
           return new Response(
@@ -497,6 +518,8 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       const lines = await readNdjson(res);
       const summary = getNdjsonSummary(lines);
       expect(summary.success).toBe(true);
+      expect(dnsLookupAttempts).toBe(2);
+      expect(dnsCorrectionApplied).toBe(true);
       expect(lines).toContainEqual(
         expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );

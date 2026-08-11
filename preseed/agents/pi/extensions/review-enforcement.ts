@@ -49,13 +49,17 @@ type Dependencies = {
 
 type ReviewContext = {
   cwd: string;
+  hasUI: boolean;
   sessionManager: {
     getSessionFile(): string | undefined;
     getBranch?(): Record<string, any>[];
     getEntries?(): Record<string, any>[];
     getHeader?(): { parentSession?: string } | undefined;
   };
-  ui?: { notify(message: string, level?: "info" | "warning" | "error"): void };
+  ui?: {
+    select(title: string, options: string[]): Promise<string | undefined>;
+    notify(message: string, level?: "info" | "warning" | "error"): void;
+  };
 };
 
 type ReviewPi = ToolActivationPi & {
@@ -485,27 +489,38 @@ async function currentReview(
   target: string | undefined,
   revision = "HEAD",
   preferredRepo?: string,
+  markRetryable?: () => void,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx, preferredRepo);
   if (!context || !gitMetadataDirectory(context.repo)) return undefined;
   let branch = target;
   if (!branch) branch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
-  if (!branch) return undefined;
+  if (!branch) {
+    markRetryable?.();
+    return undefined;
+  }
   const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
-  if (!head) return undefined;
-  const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
+  if (!head) {
+    markRetryable?.();
+    return undefined;
+  }
+  const delays = dependencies.headRetryDelaysMs ?? [0];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, branch);
-    if (pr === PR_LOOKUP_FAILED) continue;
+    if (pr === PR_LOOKUP_FAILED) {
+      markRetryable?.();
+      continue;
+    }
     if (!isProtectedPr(pr) || pr.headRefName !== branch) return undefined;
     if (head === pr.headRefOid) return { ...context, pr };
+    markRetryable?.();
   }
   return undefined;
 }
 
-type CiBoundaryEvent = "push";
+type CiBoundaryEvent = ReviewBoundaryEvent;
 
 type CiLaunchIdentity = {
   repo: string;
@@ -526,7 +541,7 @@ type LaunchMessage = {
 };
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
-  return event === "push" ? "push" : undefined;
+  return event;
 }
 
 function ciLaunchIdentity(event: any): CiLaunchIdentity | undefined {
@@ -576,6 +591,7 @@ async function checkpointCiLaunch(
 }
 
 type BoundaryLaunch = { head: string; pauseGoal: boolean };
+type BoundaryLaunchResult = BoundaryLaunch | "retry";
 
 async function launchBoundaryPlan(
   pi: ReviewPi,
@@ -583,11 +599,20 @@ async function launchBoundaryPlan(
   dependencies: Dependencies,
   boundary: ClassifiedBoundary,
   recoverExistingPlan = false,
-): Promise<BoundaryLaunch | undefined> {
+): Promise<BoundaryLaunchResult | undefined> {
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
-  const review = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
-  if (!review || !isEnforcedPr(review.pr)) return undefined;
+  let retryable = false;
+  const review = await currentReview(
+    ctx,
+    dependencies,
+    undefined,
+    "HEAD",
+    eventRepo,
+    () => { retryable = true; },
+  );
+  if (!review) return retryable ? "retry" : undefined;
+  if (!isEnforcedPr(review.pr)) return undefined;
 
   const reviewsEnabled = reviewEnabled(review.repo);
   const priorAckHead = readAck(review.repo, review.pr.number);
@@ -597,7 +622,6 @@ async function launchBoundaryPlan(
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
     if (!boundary.classification.settled) consumeBypassSentinel();
   }
-  const ackHead = readAck(review.repo, review.pr.number);
   const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
   const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
   if (existing.reviewHead === review.pr.headRefOid
@@ -607,12 +631,38 @@ async function launchBoundaryPlan(
     && existing.reviewPrNumber === review.pr.number
     && existing.reviewBase === review.pr.baseRefName
     && !recoverExistingPlan) return undefined;
+  let confirmedEvent = boundary.classification.event;
+  if (reviewsEnabled && !skipReview && !confirmedEvent) {
+    if (!ctx.hasUI || !ctx.ui) return undefined;
+    let decision: string | undefined;
+    while (decision !== "Launch review and CI" && decision !== "Acknowledge without review") {
+      decision = await ctx.ui.select(
+        `PR #${review.pr.number} (${review.pr.headRefName} at ${review.pr.headRefOid})`,
+        ["Launch review and CI", "Acknowledge without review"],
+      );
+    }
+    const refreshed = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
+    if (!refreshed
+      || refreshed.repo !== review.repo
+      || refreshed.pr.number !== review.pr.number
+      || refreshed.pr.baseRefName !== review.pr.baseRefName
+      || refreshed.pr.headRefName !== review.pr.headRefName
+      || refreshed.pr.headRefOid !== review.pr.headRefOid) return undefined;
+    if (readAck(review.repo, review.pr.number) === review.pr.headRefOid) return undefined;
+    if (decision === "Acknowledge without review") {
+      acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
+      return undefined;
+    }
+    if (decision !== "Launch review and CI") return undefined;
+    confirmedEvent = "push";
+  }
+  const ackHead = readAck(review.repo, review.pr.number);
   const requiredLanes = reviewsEnabled && !skipReview
     ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
     : [];
   const ciEvent = readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
     ? undefined
-    : ciBoundaryEvent(boundary.classification.event);
+    : ciBoundaryEvent(confirmedEvent);
   if (requiredLanes.length === 0 && !ciEvent) return undefined;
 
   sendLaunchMessage(pi, {
@@ -936,7 +986,7 @@ async function acknowledgeCompletedReview(
 
   if (reviewedFacts.ciLaunched) checkpointCi(context.repo, reviewedPr.number, reviewedHead);
   if (!acknowledge(context.repo, reviewedPr.number, reviewedHead)) return false;
-  const ciEvent = ciBoundaryEvent(classification.event);
+  const ciEvent = reviewedFacts.reviewCiEvent ?? ciBoundaryEvent(classification.event);
   if (!reviewedFacts.ciLaunched && ciEvent) {
     sendLaunchMessage(pi, {
       phase: "follow-up",
@@ -957,11 +1007,26 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
+  let pendingBoundary: ClassifiedBoundary | undefined;
+
+  const retryPendingBoundary = async (ctx: ReviewContext): Promise<void> => {
+    const boundary = pendingBoundary;
+    if (!boundary) return;
+    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+    if (launch === "retry") return;
+    pendingBoundary = undefined;
+    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+    if (!launch) return;
+    resumedWithoutBoundary = false;
+    if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+    deferredSettledRecoveryHead = launch.head;
+  };
 
   pi.on("session_start", (event) => {
     resumedWithoutBoundary = event?.reason === "resume";
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
+    pendingBoundary = undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -971,6 +1036,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = latestBoundary(event, ctx.cwd);
     if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
     const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, resumedWithoutBoundary);
+    if (launch === "retry") {
+      pendingBoundary = boundary;
+      return;
+    }
     pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     if (!launch) return;
     resumedWithoutBoundary = false;
@@ -979,6 +1048,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    await retryPendingBoundary(ctx);
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
     const goal = currentGoal(ctx);
@@ -1000,6 +1070,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    await retryPendingBoundary(ctx);
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
@@ -1007,14 +1078,19 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         && recoveryFacts.reviewBoundaryToolUseId !== recoveryFacts.boundary.toolUseId
         && !boundaryWasEvaluated(ctx, recoveryFacts.boundary.toolUseId)) {
         const boundary = persistedBoundary(ctx, recoveryFile);
-        const launch = boundary
-          ? await launchBoundaryPlan(pi, ctx, dependencies, boundary)
-          : undefined;
-        if (launch) {
-          resumedWithoutBoundary = false;
-          if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-          deferredSettledRecoveryHead = launch.head;
-          return;
+        if (boundary) {
+          const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary);
+          if (launch === "retry") {
+            pendingBoundary = boundary;
+            return;
+          }
+          if (launch) {
+            pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+            resumedWithoutBoundary = false;
+            if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+            deferredSettledRecoveryHead = launch.head;
+            return;
+          }
         }
       }
     }
@@ -1099,7 +1175,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const ciEvent = facts.ciLaunched
       || readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
       ? undefined
-      : ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
+      : facts.reviewCiEvent ?? ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
     if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
 
     if (shouldReview && requiredLanes.length > 0

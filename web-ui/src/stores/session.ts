@@ -477,11 +477,15 @@ async function stopSession(id: string): Promise<void> {
         let pollCount = 0;
         let consecutiveErrors = 0;
 
-        const cleanupStopPolling = () => {
+        const finishStopPolling = (confirmed: boolean) => {
           clearInterval(interval);
           startupCleanups.delete(id);
-          updateSessionStatus(id, 'stopped');
-          terminalStore.disposeSession(id);
+          if (confirmed) {
+            updateSessionStatus(id, 'stopped');
+            terminalStore.disposeSession(id);
+          } else {
+            setState('error', 'Stop could not be confirmed. Refresh status or retry stopping.');
+          }
           resolve();
         };
 
@@ -489,7 +493,7 @@ async function stopSession(id: string): Promise<void> {
           pollCount++;
 
           if (pollCount >= MAX_STOP_POLL_ATTEMPTS) {
-            cleanupStopPolling();
+            finishStopPolling(false);
             return;
           }
 
@@ -498,12 +502,12 @@ async function stopSession(id: string): Promise<void> {
             consecutiveErrors = 0;
             const sessionStatus = batchResp.statuses[id];
             if (!sessionStatus || sessionStatus.status === 'stopped') {
-              cleanupStopPolling();
+              finishStopPolling(true);
             }
           } catch {
             consecutiveErrors++;
             if (consecutiveErrors >= MAX_STOP_POLL_ERRORS) {
-              cleanupStopPolling();
+              finishStopPolling(false);
             }
           }
         }, STOP_POLL_INTERVAL_MS);

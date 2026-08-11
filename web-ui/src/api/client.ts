@@ -444,10 +444,10 @@ const CheckoutResponseSchema = z.object({
   checkoutUrl: z.string(),
 });
 
-export async function createCheckoutSession(tier: string, mode?: string): Promise<{ checkoutUrl: string }> {
+export async function createCheckoutSession(tier: string, mode?: string, turnstileToken?: string): Promise<{ checkoutUrl: string }> {
   return fetchApi('/billing/checkout', {
     method: 'POST',
-    body: JSON.stringify({ tier, mode }),
+    body: JSON.stringify({ tier, mode, turnstileToken }),
   }, CheckoutResponseSchema);
 }
 

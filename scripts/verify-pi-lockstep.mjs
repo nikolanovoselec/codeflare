@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 
@@ -24,6 +25,24 @@ export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
     throw new Error(`jiti cache artifact is missing at ${artifactPath}`);
   }
   return artifactPath;
+}
+
+export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths) {
+  if (!piBinary || !cacheDirectory || sourcePaths.length === 0) {
+    throw new Error('Pi binary, cache directory, and at least one entrypoint are required');
+  }
+  const artifactPaths = sourcePaths.map((sourcePath) => resolveJitiCachePath(sourcePath, cacheDirectory));
+  for (const artifactPath of artifactPaths) rmSync(artifactPath, { force: true, recursive: true });
+  const extensionArgs = sourcePaths.flatMap((sourcePath) => ['--extension', sourcePath]);
+  const result = spawnSync(
+    piBinary,
+    ['--no-extensions', ...extensionArgs, '--list-models'],
+    { encoding: 'utf8', env: process.env, timeout: 240_000 },
+  );
+  if (result.error) throw new Error(`Pi JITI warm failed: ${result.error.message}`);
+  if (result.signal) throw new Error(`Pi JITI warm terminated by ${result.signal}`);
+  if (result.status !== 0) throw new Error(`Pi JITI warm exited ${result.status}`);
+  return sourcePaths.map((sourcePath) => verifyJitiCacheArtifact(sourcePath, cacheDirectory));
 }
 
 export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, installedPackagePath) {
@@ -60,6 +79,10 @@ try {
       ? verifyJitiCacheArtifact(sourcePath, cacheDirectory)
       : resolveJitiCachePath(sourcePath, cacheDirectory);
     process.stdout.write(`${artifactPath}\n`);
+  } else if (args[0] === '--warm-jiti-entrypoints') {
+    const [, piBinary, cacheDirectory, ...sourcePaths] = args;
+    const artifacts = warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths);
+    process.stdout.write(`${artifacts.join('\n')}\n`);
   } else {
     const [runtimeManifestPath, prewarmManifestPath, installedPackagePath] = args;
     if (!runtimeManifestPath || !prewarmManifestPath) {

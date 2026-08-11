@@ -164,6 +164,7 @@ jobs:
             landing:
               - *shared
               - 'landing/**'
+              - 'src/lib/design-ready.ts'
             ide:
               - *shared
               - 'host/package.json'
@@ -562,9 +563,8 @@ jobs:
     name: Coverage (backend)
     needs: changes
     if: >-
-      github.event_name != 'pull_request' &&
-      (needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.backend == 'true')
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -578,14 +578,15 @@ jobs:
           key-prefix: root
           slug: backend
           tolerate-pool-crash: 'true'
+          changed-base: ${{ github.event.pull_request.base.sha }}
+          changed-line-threshold: '80'
 
   coverage-frontend:
     name: Coverage (frontend)
     needs: changes
     if: >-
-      github.event_name != 'pull_request' &&
-      (needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.webui == 'true')
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -598,6 +599,8 @@ jobs:
           working-directory: web-ui
           key-prefix: webui
           slug: frontend
+          changed-base: ${{ github.event.pull_request.base.sha }}
+          changed-line-threshold: '70'
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})

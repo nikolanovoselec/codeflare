@@ -22,6 +22,13 @@ import { ValidationError, SetupError, ForbiddenError } from '../lib/error-types'
 import { resetAuthConfigCache } from '../lib/access';
 import { createMockKV } from './helpers/mock-kv';
 import { isAllowedOrigin, resetCorsOriginsCache } from '../lib/cors-cache';
+vi.mock('../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/access')>();
+  return {
+    ...actual,
+    resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
+  };
+});
 
 vi.mock('../lib/circuit-breakers', () => ({
   cfApiCB: { execute: (fn: () => Promise<unknown>) => fn() },
