@@ -869,6 +869,10 @@ retroactive_ack_scan() {
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$total" -gt 0 ] || return
 
+  # Reads from TRANSCRIPT_SCAN, the script-wide snapshot taken once near the top,
+  # not from a fresh parse. The [ -f "$TRANSCRIPT" ] guard above still earns its
+  # place gating the wc -l below, but it is not a freshness check on this data.
+  #
   # Windows are bounded by deliveries, not by any Git activity. This scan once
   # carried its own narrower matcher; #814 deleted it and repointed the scan at
   # the broad candidate list while leaving a comment claiming the two had always
