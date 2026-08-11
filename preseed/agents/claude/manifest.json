@@ -144,6 +144,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/build-memory-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
     "modes": [
       "advanced"

@@ -285,6 +285,24 @@ describe('enforce-review-spawn.sh — event scoping', () => {
   });
 });
 
+// The FIX directive keeps its own head-keyed counter. It used to read the
+// shared demand file, which the lane demand had already bumped to 1 before any
+// FIX phase began, so the full directive never emitted and the one-line form
+// silently carried the whole contract.
+describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
+  it('uses a counter file distinct from the lane and verdict demand counters', () => {
+    const src = readFileSync(HOOK, 'utf-8');
+    const fixLine = src.split('\n').find((l) => l.includes('FIX_COUNT_FILE='));
+    assert.ok(fixLine, 'the FIX phase declares its own counter file');
+    // Distinct basename, same directory and helper as the verdict counter.
+    assert.match(fixLine, /sdd-review-fix-count-pr-/);
+    assert.ok(!src.includes('read_count)" -ge 1'),
+      'the FIX gate must not read the shared per-head demand counter');
+    assert.ok(src.includes('read_count_from "$FIX_COUNT_FILE"'),
+      'it reads its own counter through the shared head-keyed helper');
+  });
+});
+
 // REQ-AGENT-104 AC7: mid-turn triage gate. Once every spawned lane completed
 // and no canonical table follows the last completion, every tool outside the
 // read-only set is refused (exit 2 + stderr directive) until the table exists.

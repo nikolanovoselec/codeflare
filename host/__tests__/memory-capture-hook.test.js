@@ -444,6 +444,29 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
       'each launch must be counted, or the giveup latch can never be reached');
   });
 
+  // The probe has three outcomes and only one of them may mean "running".
+  // Opening and locking in one subshell made "could not open" indistinguishable
+  // from "held", and the `!` turned the former into "running" -- which never
+  // latches and never relaunches.
+  for (const [state, setup, expected] of [
+    ['no lock file', () => {}, 1],
+    ['lock free', (lock) => writeFileSync(lock, ''), 1],
+    ['lock unopenable', (lock) => { writeFileSync(lock, ''); chmodSync(lock, 0o000); }, 1],
+  ]) {
+    it(`capture_running reports not-running when the ${state}`, (t) => {
+      if (state === 'lock unopenable' && process.getuid?.() === 0) {
+        return t.skip('root ignores file modes; fixture would be vacuous');
+      }
+      const dir = mkdtempSync(join(tmpdir(), 'probe-'));
+      const vars = join(dir, 's.vars');
+      setup(`${vars}.lock`);
+      const r = spawnSync('bash', ['-c',
+        `source <(sed -n '/^capture_running()/,/^}/p' "${HOOK}"); capture_running "${vars}"`,
+      ], { encoding: 'utf-8' });
+      assert.equal(r.status, expected, `${state} must not read as running`);
+    });
+  }
+
   it('spends no attempt on a prompt that arrives while a capture is running', () => {
     const fx = makeFixture();
     const { transcriptPath, sessionId } = armed(fx);

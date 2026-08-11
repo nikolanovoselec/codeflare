@@ -104,11 +104,13 @@ capture_running() {
     # in a subshell releases the lock immediately; run-memory-capture.sh's own
     # `flock -n` settles any real race.
     [[ -e "${1}.lock" ]] && command -v flock >/dev/null 2>&1 || return 1
-    # Openability is its own question. With the file present but unopenable the
-    # combined probe failed and `!` read that as "running" -- the one answer
-    # this helper must never give by accident.
-    ( exec 8>"${1}.lock" ) 2>/dev/null || return 1
-    ! ( exec 8>"${1}.lock" && flock -n 8 ) 2>/dev/null
+    # One open, three outcomes. Opening and locking in the same subshell made
+    # "could not open" indistinguishable from "held", and `!` turned the former
+    # into "running" -- the one answer this helper must never give by accident.
+    local probe
+    probe=$( exec 8>"${1}.lock" 2>/dev/null || { echo unopenable; exit 0; }
+             flock -n 8 2>/dev/null && echo free || echo held )
+    [[ "$probe" == held ]]
 }
 
 launch_capture() {
@@ -218,7 +220,13 @@ if [[ -f "$VARS_FILE" ]]; then
                 count_failed=1
                 echo "memory-capture: cannot record launch count or latch; dropped request at $VARS_FILE" >&2
             else
-                echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE will relaunch" >&2
+                # Nothing writable: the count cannot advance, the latch cannot
+                # be set and the carrier cannot be removed, so no bound can be
+                # enforced. Relaunching every prompt would spawn a subprocess
+                # forever, so this request goes inert and says so until the
+                # write failure clears.
+                count_failed=1
+                echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE is inert until writes succeed" >&2
             fi
         fi
         [[ -n "${count_failed:-}" ]] && emit_context "$MEMORY_SCAN"
