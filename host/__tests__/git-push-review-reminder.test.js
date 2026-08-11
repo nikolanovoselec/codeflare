@@ -836,30 +836,43 @@ exit 99
       'one initial query plus exactly three retries');
   });
 
-  // The ancestor guard is the difference between waiting out an API lag and
-  // waiting on a push that never landed. Inverting its two arguments would
-  // break every legitimate lagging delivery while leaving the other tests
-  // green, so the zero-retry path needs its own oracle.
+  // The ancestor guard separates waiting out an API lag from waiting on a push
+  // that never landed, and transposing its two arguments would break every
+  // legitimate lagging delivery. A nonexistent SHA cannot pin that: git exits
+  // 128 in BOTH argument orders, so an inverted guard would break at call 1 and
+  // pass this test. The reported head must be a REAL commit that local does not
+  // contain, so ancestry decides. Inverted, base is an ancestor of the side
+  // commit, the loop would not break, and the count would be 4.
   it('does not spend the retry budget on a push that never landed', () => {
     const cwd = makeFixture();
     withSdd(cwd);
+    const sha = () => spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8' })
+      .stdout.trim();
+    spawnSync('git', ['checkout', '-q', '-b', 'divergent'], { cwd });
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'never delivered here'], { cwd });
+    const unreachable = sha();
+    spawnSync('git', ['checkout', '-q', branch], { cwd });
+    assert.equal(
+      spawnSync('git', ['merge-base', '--is-ancestor', unreachable, 'HEAD'], { cwd }).status, 1,
+      'fixture must present a real commit that local does not contain',
+    );
     const binDir = join(cwd, 'fake-bin');
     mkdirSync(binDir, { recursive: true });
-    const unrelated = 'f'.repeat(40);
     writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
 ARGS="$*"
 if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
   n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
-  echo '{"number":42,"state":"OPEN","headRefOid":"${unrelated}","baseRefName":"main"}'
+  echo '{"number":42,"state":"OPEN","headRefOid":"${unreachable}","baseRefName":"main"}'
   exit 0
 fi
 exit 99
 `);
     chmodSync(join(binDir, 'gh'), 0o755);
     const r = runHook(cwd, 'git push origin HEAD', binDir);
-    assert.equal(r.stdout, '', 'a head this checkout cannot reach is ineligible');
+    assert.equal(r.stdout, '', 'a head this checkout does not contain is ineligible');
     assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
-      'the reported head is unreachable from local, so nothing landed and there is nothing to wait for');
+      'nothing landed, so there is nothing to wait for: one authoritative query and out');
   });
 
   it('never retries for non-delivery activity', () => {

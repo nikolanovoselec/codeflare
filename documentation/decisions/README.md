@@ -3532,3 +3532,19 @@ Staleness is answered by naming the head. Every terminal `CI_RESULT` line carrie
 **Consequences:** The skill keeps one bash block and no `git` calls beyond the caller's `rev-parse`. A stale monitor still runs to its deadline and still writes a result; that result names a head that is not current, which costs nothing and cannot be misread. `container-image.yml` and `nightly-pr-checks.yml` need no concurrency key, being `workflow_call` and `schedule` only, and `promotion-source.yml` is a seconds-long pull-request check with nothing to burn.
 
 A future agent that notices a superseded matrix still running must add or fix a `concurrency` block in the workflow, never a `gh run cancel` loop in a client script. One that notices a stale verdict must check `head=`, not teach the monitor to poll the remote.
+
+### AD123: The Claude fix directive owns delivery; Pi leaves it to standing rules
+
+**Status:** Accepted
+
+**Context:** Both runtimes end a review round the same way: acknowledge the reviewed head, then hand the accepted findings to a separate FIX turn. Pi's FIX follow-up says only that the head is acknowledged and fixes may begin. It names no push, so delivery falls to the agent's standing rules, which forbid pushing while a review is incomplete and require a CI result first. That absence is why a Pi round never delivers a head whose CI is still in flight.
+
+Claude was aligned to that shape on the reasoning that Pi is authoritative. The result was a loop that stopped after the fix commit and waited to be told to push. The reason is asymmetric between the runtimes: in Claude the FIX directive arrives as a hook-injected instruction, and a hook directive outranks a standing rule. Moving the delivery condition into `git-workflow.md` therefore did not relocate it, it demoted it. The rule was correct and inert.
+
+The original defect that prompted removing the push order was real but different. The order fired unconditionally, so a fix landed on the remote while the reviewed head's CI was still running, discarding that run and opening a round on a head whose predecessor was never verified.
+
+**Decision:** Claude's FIX directive orders the delivery push, and carries the condition with it rather than delegating it. It commits, waits for this head's terminal `CI_RESULT` if one has not landed, then pushes without asking. The wait may only delay the push, never cancel it: no monitor, or a log that has not advanced, means push now. Pi is unchanged and continues to rely on its standing rules.
+
+**Consequences:** The two runtimes diverge at exactly one point, deliberately, and this record is why. A reader comparing them will find Pi's follow-up silent on delivery and Claude's explicit; that is not drift and should not be "fixed" by deleting either.
+
+Anyone weakening the Claude directive must move the instruction, not merely restate it somewhere quieter, because a rule cannot outrank the directive it is meant to constrain. Anyone adding a wait to that directive must give it a terminal escape, or the round stalls on a line that never lands, which is the same failure the push order exists to prevent.
