@@ -88,6 +88,14 @@ describe('planGlobalGraphReconcile / REQ-VAULT-014 AC5 (Pi holds the same single
     expect(plan.remove).toEqual(['repo-a']);
   });
 
+  it('refuses the dedup when the manifest records no source path at all', () => {
+    // Degrading to "never skip" is the safe direction, but it has to be stated:
+    // if graphify stopped recording source_path the optimisation would go dead
+    // while still looking healthy.
+    const noPath = JSON.stringify({ repos: { 'repo-b': { source_hash: '0123456789abcdef' } } });
+    expect(planGlobalGraphReconcile(noPath, '/w/repo-b', true, '0123456789abcdef').add?.tag).toBe('repo-b');
+  });
+
   it('refuses the dedup on a malformed stored hash rather than trusting it', () => {
     // graphify records exactly 16 lowercase hex chars. Both a resized value and
     // a right-sized non-hex one fall back to publishing.
