@@ -66,6 +66,11 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # Placed before any sentinel handling so a subagent can never consume the
 # one-shot bypass the main session is owed.
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+# Both the Stop path's transcript scan and the PreToolUse gate classify shell
+# text the same way, so they load the same parser. Absent, the gate refuses and
+# the scan finds nothing -- both fail toward enforcement, which is where a
+# seeding gap should land.
+CLASSIFIER_LIB="$(dirname "$0")/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
 case "$HOOK_EVENT" in
@@ -112,19 +117,17 @@ if [ -n "$PRETOOL_MODE" ]; then
   # triage, a lane relaunched) and let inspection through, which is the same
   # correction the capture hard block needed: deny what matters, not everything.
   #
-  # The test is structural, not a substring, and it is anchored at a command
-  # position so `grep "git push" file` stays an investigation. A delivery can
-  # arrive wearing any of four things the naive forms miss, and each was a real
-  # bypass in an earlier revision of this check: flags on the tool itself
-  # (`git -C /repo push`, `gh -R o/r pr merge`), a leading environment
-  # assignment (`GIT_SSH_COMMAND=x git push`), a wrapper or absolute path
-  # (`env git push`, `/usr/bin/git push`), and a shell keyword rather than a
-  # separator in front of it (`if true; then git push; fi`). All four are
-  # skipped before the tool name is matched.
+  # The question is not "does this text contain a delivery verb" but "does this
+  # shell run one", and only a shell-aware parse answers it. Three consecutive
+  # regex revisions each closed the bypasses one review report named and left
+  # the next set open, so the check now calls lib/boundary-classifier.cjs -- the
+  # same parser the Stop path uses -- which tracks command position through
+  # quoting, substitution, heredocs, env assignments, wrappers and their option
+  # values, and paths. `grep "git push" file` is not a delivery to it;
+  # `sudo -u me /usr/bin/git push` is.
   #
-  # It over-refuses in one known way: a separator inside a quoted argument, as
-  # in `grep "; git push" file`, reads as a command position. That is the safe
-  # direction and is left alone deliberately.
+  # `git commit` counts here and not on the Stop path: a commit minted mid-window
+  # becomes a head the round never covered.
   case "$TOOL_NAME" in
     Bash|mcp__*ctx_execute|mcp__*ctx_execute_file|mcp__*ctx_batch_execute)
       PRETOOL_CMD=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_input.code // "", ([.tool_input.commands[]?.command // ""] | join("\n"))] | join("\n")' 2>/dev/null) || PRETOOL_CMD=""
@@ -135,7 +138,14 @@ if [ -n "$PRETOOL_MODE" ]; then
         case "$PRETOOL_CMD" in
           *run-review-lane.sh*) ;;
           *)
-            printf '%s' "$PRETOOL_CMD" | grep -qE '(^|[;&|(]|\bthen\b|\bdo\b)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|sudo|nohup|time|command|exec)[[:space:]]+)*([^[:space:]]*/)?(git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit)|gh([[:space:]]+-[^[:space:]]+[[:space:]]+[^[:space:]]+)*[[:space:]]+pr[[:space:]]+(create|merge))' || exit 0
+            PRETOOL_VERDICT=$(printf '%s' "$PRETOOL_CMD" | node -e '
+              const { boundaryOf } = require(process.argv[1]);
+              const event = boundaryOf(require("node:fs").readFileSync(0, "utf8"), { commit: true });
+              process.stdout.write(event && event !== "-" ? "deliver" : "allow");
+            ' "$CLASSIFIER_LIB" 2>/dev/null) || PRETOOL_VERDICT=""
+            # An empty verdict means the classifier could not run, not that the
+            # command is clean. Refuse, same as an unreadable payload above.
+            [ "$PRETOOL_VERDICT" = "allow" ] && exit 0
             ;;
         esac
       fi
@@ -262,145 +272,9 @@ if [ -z "$PRETOOL_MODE" ]; then
 # unacknowledged PR head.
 # ---------------------------------------------------------------------------
 transcript_scan() {
-  node - "$TRANSCRIPT" <<'NODE'
+  node - "$TRANSCRIPT" "$CLASSIFIER_LIB" <<'NODE'
 const fs = require('node:fs');
-const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
-const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
-// Boundary classification mirrors Pi's classifyReviewBoundaryCommand
-// (preseed/agents/pi/extensions/review-helpers.ts) and reuses its global-option
-// sets from guard-helpers.ts verbatim. Any git/gh in command position is still
-// recognised; the SUBCOMMAND is what says a delivery boundary happened, and
-// Layer 2 (`gh pr view` below) remains the authority on whether that boundary is
-// an eligible, open, unacknowledged PR head.
-const takesValue = {
-  git: new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix']),
-  gh: new Set(['-R', '--repo', '--hostname', '--config']),
-};
-function boundaryEvent(executable, rest) {
-  let index = 0;
-  while (index < rest.length) {
-    const value = rest[index] ?? '';
-    if (value === '--') { index++; break; }
-    if (!value.startsWith('-')) break;
-    if (takesValue[executable].has(value) && !value.includes('=')) index++;
-    index++;
-  }
-  const args = rest.slice(index);
-  if (executable === 'git' && args[0] === 'push') return 'push';
-  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) return args[1];
-  return '';
-}
-function heredocDeclarations(line) {
-  const declarations = [];
-  let quote = '';
-  for (let index = 0; index < line.length; index++) {
-    const char = line[index] || '';
-    if (quote) {
-      if (char === '\\' && quote === '"') index++;
-      else if (char === quote) quote = '';
-      continue;
-    }
-    if (char === "'" || char === '"') { quote = char; continue; }
-    if (char === '\\') { index++; continue; }
-    if (char !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
-    let cursor = index + 2;
-    const stripTabs = line[cursor] === '-';
-    if (stripTabs) cursor++;
-    while (line[cursor] === ' ' || line[cursor] === '\t') cursor++;
-    let delimiter = '', delimiterQuote = '';
-    while (cursor < line.length) {
-      const token = line[cursor] || '';
-      if (delimiterQuote) {
-        if (token === delimiterQuote) delimiterQuote = '';
-        else if (token === '\\' && delimiterQuote === '"' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
-        else delimiter += token;
-      } else if (token === "'" || token === '"') delimiterQuote = token;
-      else if (token === '\\' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
-      else if (/\s/.test(token) || ';&|<>'.includes(token)) break;
-      else delimiter += token;
-      cursor++;
-    }
-    if (delimiter) declarations.push({ delimiter, stripTabs });
-    index = cursor - 1;
-  }
-  return declarations;
-}
-function stripHeredocs(text) {
-  const out = [], pending = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (pending.length) {
-      const active = pending[0];
-      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
-      if (candidate === active.delimiter) pending.shift();
-      continue;
-    }
-    out.push(line);
-    pending.push(...heredocDeclarations(line));
-  }
-  return out.join('\n');
-}
-// Returns '' when the text runs no git/gh at all, '-' when it does but none is a
-// delivery subcommand, and the event name otherwise. Candidacy stays broad on
-// purpose: enforcement triggers on any git/gh activity, which is the contract
-// the structural-boundary tests pin. Only the coverage window narrows.
-function boundaryOf(text) {
-  let candidate = false, found = '';
-  function scan(source) {
-    let word = '', command = true, prefix = false;
-    // Set once git/gh is seen in command position; `rest` collects that simple
-    // command's remaining words so the subcommand can be read at its end.
-    let tool = '', rest = [];
-    const decide = () => {
-      if (tool) { const event = boundaryEvent(tool, rest); if (event) found = event; }
-      tool = ''; rest = [];
-    };
-    const finish = () => {
-      if (!word) return;
-      const value = word; word = '';
-      if (tool) { rest.push(value); return; }
-      if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
-      if (value === 'git' || value === 'gh') { candidate = true; tool = value; command = false; return; }
-      if (prefix && value.startsWith('-')) return;
-      prefix = prefixes.has(value); command = prefix;
-    };
-    const boundary = () => { finish(); decide(); command = true; prefix = false; };
-    function substitution(start) {
-      let depth = 1, quote = '', escaped = false;
-      for (let i = start; i < source.length; i++) {
-        const c = source[i];
-        if (escaped) { escaped = false; continue; }
-        if (c === '\\' && quote !== "'") { escaped = true; continue; }
-        if (quote) { if (c === quote) quote = ''; continue; }
-        if (c === "'" || c === '"') { quote = c; continue; }
-        if (c === '(') depth++;
-        else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
-      }
-      return source.length;
-    }
-    for (let i = 0; i < source.length && !found; i++) {
-      const c = source[i];
-      if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
-      if (c === '"') {
-        for (i++; i < source.length && source[i] !== '"'; i++) {
-          if (source[i] === '\\') word += source[++i] || '';
-          else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
-          else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
-          else word += source[i];
-        }
-        continue;
-      }
-      if (c === '\\') { word += source[++i] || ''; continue; }
-      if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
-      if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
-      if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
-      word += c;
-    }
-    finish();
-    decide();
-  }
-  scan(stripHeredocs(text));
-  return candidate ? (found || '-') : '';
-}
+const { boundaryOf } = require(process.argv[3]);
 fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
   let entry; try { entry = JSON.parse(raw); } catch { return; }
   for (const call of entry?.message?.content?.filter?.((part) => part?.type === 'tool_use') || []) {

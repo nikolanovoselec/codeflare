@@ -396,6 +396,14 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     'for i in 1; do git push; done',
     'GH_TOKEN=x gh pr create',
     'bash run-review-lane.sh --lane code-reviewer',
+    'if false; then :; else git push; fi',
+    '{ git push; }',
+    '! git push',
+    'env FOO=bar git push',
+    'sudo -u me git push',
+    'nice git push',
+    'timeout 60 git push',
+    'xargs git push',
   ]) {
     it(`refuses a delivery in the blocked window: ${cmd}`, () => {
       const cwd = makeFixture();

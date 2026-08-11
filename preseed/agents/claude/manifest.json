@@ -119,6 +119,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
     "modes": [
       "advanced"
