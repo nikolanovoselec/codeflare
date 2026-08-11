@@ -189,12 +189,48 @@ if [ -z "$PRETOOL_MODE" ]; then
 # and heredoc bodies remain inert; authoritative Layer 2 still decides whether
 # the parsed activity corresponds to an eligible PR boundary.
 #
+# A line qualifies on the SUBCOMMAND (`git push`, `gh pr create`, `gh pr merge`),
+# not on the bare words `git`/`gh`. The bare-word form matched every read-only
+# Git call, and because PUSH_LINE is the LAST match while lane coverage is
+# measured strictly after it, one `git log` between a lane spawn and the Stop
+# event moved the window past that spawn and the gate re-demanded a lane that had
+# already returned. Measured on one session's transcript before this change: 58
+# matches against 8 real pushes, with PUSH_LINE resolving to a `git diff`.
+#
+# Deciding the event here does not make this authoritative. It says only which
+# transcript line a delivery boundary happened on; Layer 2 (`gh pr view`) still
+# decides whether that boundary is an open, eligible, unacknowledged PR head.
+#
 # ---------------------------------------------------------------------------
-candidate_line_numbers() {
+boundary_line_numbers() {
   node - "$TRANSCRIPT" <<'NODE'
 const fs = require('node:fs');
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
 const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
+// Boundary classification mirrors Pi's classifyReviewBoundaryCommand
+// (preseed/agents/pi/extensions/review-helpers.ts) and reuses its global-option
+// sets from guard-helpers.ts verbatim. Any git/gh in command position is still
+// recognised; the SUBCOMMAND is what says a delivery boundary happened, and
+// Layer 2 (`gh pr view` below) remains the authority on whether that boundary is
+// an eligible, open, unacknowledged PR head.
+const takesValue = {
+  git: new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix']),
+  gh: new Set(['-R', '--repo', '--hostname', '--config']),
+};
+function boundaryEvent(executable, rest) {
+  let index = 0;
+  while (index < rest.length) {
+    const value = rest[index] ?? '';
+    if (value === '--') { index++; break; }
+    if (!value.startsWith('-')) break;
+    if (takesValue[executable].has(value) && !value.includes('=')) index++;
+    index++;
+  }
+  const args = rest.slice(index);
+  if (executable === 'git' && args[0] === 'push') return 'push';
+  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) return args[1];
+  return '';
+}
 function heredocDeclarations(line) {
   const declarations = [];
   let quote = '';
@@ -244,19 +280,27 @@ function stripHeredocs(text) {
   }
   return out.join('\n');
 }
-function hasCandidate(text) {
-  let found = false;
+function boundaryOf(text) {
+  let found = '';
   function scan(source) {
     let word = '', command = true, prefix = false;
+    // Set once git/gh is seen in command position; `rest` collects that simple
+    // command's remaining words so the subcommand can be read at its end.
+    let tool = '', rest = [];
+    const decide = () => {
+      if (tool) { const event = boundaryEvent(tool, rest); if (event) found = event; }
+      tool = ''; rest = [];
+    };
     const finish = () => {
       if (!word) return;
       const value = word; word = '';
+      if (tool) { rest.push(value); return; }
       if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
-      if (value === 'git' || value === 'gh') { found = true; command = false; return; }
+      if (value === 'git' || value === 'gh') { tool = value; command = false; return; }
       if (prefix && value.startsWith('-')) return;
       prefix = prefixes.has(value); command = prefix;
     };
-    const boundary = () => { finish(); command = true; prefix = false; };
+    const boundary = () => { finish(); decide(); command = true; prefix = false; };
     function substitution(start) {
       let depth = 1, quote = '', escaped = false;
       for (let i = start; i < source.length; i++) {
@@ -289,6 +333,7 @@ function hasCandidate(text) {
       word += c;
     }
     finish();
+    decide();
   }
   scan(stripHeredocs(text));
   return found;
@@ -300,12 +345,12 @@ fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
     if (call.name === 'Bash' && typeof input.command === 'string') commands = [input.command];
     else if (/ctx_execute$/.test(call.name) && input.language === 'shell' && typeof input.code === 'string') commands = [input.code];
     else if (/ctx_batch_execute$/.test(call.name) && Array.isArray(input.commands)) commands = input.commands.map((item) => item?.command).filter((value) => typeof value === 'string');
-    if (commands.some(hasCandidate)) { process.stdout.write(`${index + 1}\n`); return; }
+    if (commands.some(boundaryOf)) { process.stdout.write(`${index + 1}\n`); return; }
   }
 });
 NODE
 }
-PUSH_LINE=$(candidate_line_numbers 2>/dev/null | tail -1)
+PUSH_LINE=$(boundary_line_numbers 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
@@ -799,7 +844,7 @@ retroactive_ack_scan() {
   # old_string/new_string content quotes the phrase (e.g. an edit to
   # this hook itself).
   local all_push_lines
-  all_push_lines=$(candidate_line_numbers 2>/dev/null)
+  all_push_lines=$(boundary_line_numbers 2>/dev/null)
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.
