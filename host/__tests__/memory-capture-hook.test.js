@@ -362,6 +362,10 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     assert.equal(vars.capture_timestamp, '1999-12-31T23-59-59-1234',
       'the hook must use the helper\'s value verbatim, not derive a timestamp');
     assert.ok(vars.capture_file.endsWith('1999-12-31T23-59-59-1234-sess-stu.md'));
+    // Delegation is only worth anything if the thing delegated to still ships:
+    // the stub proves the hook calls its sibling, not that the sibling exists.
+    assert.equal(existsSync(join(dirname(HOOK), 'assert-iso-ts.sh')), true,
+      'the real helper must ship beside the hook, or production timestamping breaks while this stays green');
   });
 
   it('arms nothing and says why when the timestamp helper fails its assertions', () => {

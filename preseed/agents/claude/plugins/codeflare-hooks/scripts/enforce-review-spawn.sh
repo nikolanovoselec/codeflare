@@ -112,18 +112,26 @@ if [ -n "$PRETOOL_MODE" ]; then
   # triage, a lane relaunched) and let inspection through, which is the same
   # correction the capture hard block needed: deny what matters, not everything.
   #
-  # This substring test is cruder than the shell-aware classifier used for
-  # boundary detection, which lives inside transcript_scan's node program and
-  # is not callable per command. Crude in this direction is safe: the worst
-  # case is refusing a command that merely mentions a delivery verb, which is
-  # exactly what this window did to every command before.
+  # The test is structural, not a substring. A literal "git push" match misses
+  # `git -C /repo push`, `git -c user.email=x commit` and `gh -R o/r pr merge`,
+  # which are the ordinary flag-carrying forms, so it would admit precisely the
+  # deliveries this window exists to refuse. Options are skipped the way
+  # bash_line_runs_lane already tolerates env prefixes and paths, and anchoring
+  # on a command position keeps `grep "git push" file` an investigation.
   case "$TOOL_NAME" in
     Bash|mcp__*ctx_execute|mcp__*ctx_execute_file|mcp__*ctx_batch_execute)
       PRETOOL_CMD=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_input.code // "", ([.tool_input.commands[]?.command // ""] | join("\n"))] | join("\n")' 2>/dev/null) || PRETOOL_CMD=""
-      case "$PRETOOL_CMD" in
-        *"git push"*|*"git commit"*|*"gh pr create"*|*"gh pr merge"*|*run-review-lane.sh*) ;;
-        *) exit 0 ;;
-      esac
+      # Fail closed on an unreadable payload. "No delivery verb seen" and "could
+      # not look" are different answers, and collapsing them into allow is how a
+      # malformed envelope would walk a push straight through the gate.
+      if [ -n "$PRETOOL_CMD" ]; then
+        case "$PRETOOL_CMD" in
+          *run-review-lane.sh*) ;;
+          *)
+            printf '%s' "$PRETOOL_CMD" | grep -qE '(^|[;&|])[[:space:]]*(git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit)|gh([[:space:]]+-[^[:space:]]+[[:space:]]+[^[:space:]]+)*[[:space:]]+pr[[:space:]]+(create|merge))' || exit 0
+            ;;
+        esac
+      fi
       ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0

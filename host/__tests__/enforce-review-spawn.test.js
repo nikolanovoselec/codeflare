@@ -132,7 +132,7 @@ function runReminder(cwd, command, binDir) {
   });
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType, command }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Always isolate hook state from the live Claude session. Tests exercising a
@@ -146,6 +146,7 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
       hook_event_name: event,
       transcript_path: transcriptPath,
       ...(toolName ? { tool_name: toolName } : {}),
+      ...(command ? { tool_input: { command } } : {}),
       // Claude Code adds agent_type/agent_id only when the caller is a
       // subagent; a main-agent payload carries neither.
       ...(agentType ? { agent_type: agentType, agent_id: `agent_${agentType}` } : {}),
@@ -296,12 +297,13 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
     DONE_LINE('toolu_du1'),
   ];
-  const pretool = (cwd, t, toolName, agentType) =>
+  const pretool = (cwd, t, toolName, agentType, command) =>
     runHook(cwd, {
       event: 'PreToolUse',
       transcriptPath: t,
       toolName,
       agentType,
+      command,
       tmpDir: cwd,
       bypassFile: join(cwd, 'absent-bypass'),
     });
@@ -335,12 +337,40 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   it('does not gate a subagent on the main session review round', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    for (const tool of ['Write', 'Edit', 'Bash']) {
+    for (const tool of ['Write', 'Edit']) {
       assert.equal(pretool(cwd, t, tool).status, 2,
         `${tool} blocks the main agent in this state`);
       assert.equal(pretool(cwd, t, tool, 'memory-capture').status, 0,
         `${tool} is allowed for a subagent in the same state`);
     }
+    // Bash is no longer blocked as a tool, only as a delivery, so the pairing
+    // has to carry a command to stay meaningful on both sides.
+    assert.equal(pretool(cwd, t, 'Bash', undefined, 'git push').status, 2,
+      'a delivery blocks the main agent in this state');
+    assert.equal(pretool(cwd, t, 'Bash', 'memory-capture', 'git push').status, 0,
+      'the same delivery is allowed for a subagent in the same state');
+  });
+
+  // The window exists to stop the round being spoiled, not to stop the agent
+  // looking things up: judging a finding regularly needs to run something.
+  it('lets investigation through the blocked window but not a delivery', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Grep', 'Glob']) {
+      assert.equal(pretool(cwd, t, tool).status, 0, `${tool} is read-only`);
+    }
+    for (const cmd of ['diff a b | head -20', 'grep -n "git push" file', 'git status --porcelain']) {
+      assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 0, cmd);
+    }
+    // Options must not smuggle a delivery past the check, which a literal
+    // substring test allowed, and an unreadable payload must not read as safe.
+    for (const cmd of ['git -C /repo push', 'git -c user.email=x commit -m y',
+                       'gh -R o/r pr merge 1', 'cd /x && git push',
+                       'bash run-review-lane.sh --lane code-reviewer']) {
+      assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 2, cmd);
+    }
+    assert.equal(pretool(cwd, t, 'Bash').status, 2,
+      'a Bash call with no readable command fails closed');
   });
 
   it('scopes out every subagent, not one by name', () => {
