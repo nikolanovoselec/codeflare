@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -808,5 +808,72 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(graphifyCalls, [], 'a non-checkout must not touch the global graph');
     assert.equal(sentinel(sentinelDir), repoA, 'the active repo must survive a tool call outside any checkout');
+  });
+
+  // graphify records the first 16 hex chars of the graph file's SHA-256.
+  const graphHash = (repo) =>
+    createHash('sha256').update(readFileSync(join(repo, 'graphify-out', 'graph.json'))).digest('hex').slice(0, 16);
+
+  it('skips republishing a graph the manifest already records (REQ-VAULT-014 AC5)', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: {
+        user_vault: {},
+        'repo-a': { source_hash: graphHash(repoA), source_path: join(repoA, 'graphify-out', 'graph.json') },
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(graphifyCalls, [], 'an already-published unchanged graph must cost no global add');
+  });
+
+  it('republishes when another checkout of the same basename holds the tag (REQ-VAULT-014 AC5)', () => {
+    // Tags are keyed by basename, and two checkouts named repo-a can hold
+    // byte-identical graphs, so the hash matches while the tag still resolves
+    // to the checkout the user left. Skipping the add there is the stale-tag
+    // drift this reconcile exists to remove.
+    const elsewhere = makeRepoWithGraph(mkdtempSync(join(baseTmp, 'other-ws-')), 'repo-a');
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: {
+        user_vault: {},
+        'repo-a': { source_hash: graphHash(repoA), source_path: join(elsewhere, 'graphify-out', 'graph.json') },
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(additions(graphifyCalls), [
+      `global add ${join(repoA, 'graphify-out', 'graph.json')} --as repo-a`,
+    ]);
+  });
+
+  it('refuses the dedup when the manifest records no source path at all (REQ-VAULT-014 AC5)', () => {
+    // If graphify ever stops recording source_path, the skip must fail toward
+    // publishing rather than toward trusting a hash it cannot attribute. Stated
+    // explicitly so that degradation cannot pass for a working optimisation.
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: { user_vault: {}, 'repo-a': { source_hash: graphHash(repoA) } },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(additions(graphifyCalls), [
+      `global add ${join(repoA, 'graphify-out', 'graph.json')} --as repo-a`,
+    ]);
+  });
+
+  it('refuses the dedup on a non-hex recorded hash rather than trusting it (REQ-VAULT-014 AC5)', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: {
+        user_vault: {},
+        'repo-a': { source_hash: 'zzzzzzzzzzzzzzzz', source_path: join(repoA, 'graphify-out', 'graph.json') },
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(additions(graphifyCalls), [
+      `global add ${join(repoA, 'graphify-out', 'graph.json')} --as repo-a`,
+    ]);
   });
 });

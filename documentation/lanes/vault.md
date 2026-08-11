@@ -179,10 +179,10 @@ The Pi subagent authors a request-specific canonical chunk, then holds one 300-s
 
 Write sites that touch the global graph:
 
-- `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the empty `graph.json` scaffold beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
+- `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the derived `graph.json` beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
 - The capture agent, after writing a vault file ([REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)).
 - The vault-extract agent, after user-edit extraction ([REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)).
-- `graphify-active-repo.sh`, whenever reconciliation finds the manifest's repo entries out of step with the active checkout (single-active-repo invariant; see below).
+- `graphify-active-repo.sh` (Claude) and `codeflare-pi.ts::reconcileGlobalGraph` (Pi), whenever reconciliation finds the manifest's repo entries out of step with the active checkout (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
 A first boot has no cumulative graph yet, because no capture has run, so the boot step publishes nothing and reports no failure ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC6).
@@ -205,7 +205,15 @@ The removal set is enumerated from the manifest rather than derived from the pre
 
 The vault skip canonicalizes `$HOME` via `cd && pwd` to match `REPO` resolution and also matches basename `Vault`, guarding against symlink paths into the vault from outside `$HOME` and against a `git init` inside the vault.
 
-Same-basename repo transitions issue no removal, because the active tag is excluded from the removal set and the add replaces the existing entry via graphify's `source_hash` dedup. The add pre-check truncates `sha256sum` to graphify's 16-hex format and has a length sanity guard so a future format change does not silently degrade to "always re-add".
+Same-basename repo transitions issue no removal, because the active tag is excluded from the removal set and the add replaces the existing entry via graphify's `source_hash` dedup. The add pre-check truncates `sha256sum` to graphify's 16-hex format and skips publication only when the manifest records both that hash and a `source_path` equal to this checkout's graph.
+
+The path half is load-bearing rather than belt-and-braces: tags are keyed by directory basename, so two checkouts sharing a basename can hold byte-identical graphs (a freshly scaffolded `graph.json` is the common case), and a hash-only skip would leave the tag resolving to the checkout the user just left. A recorded hash that is not 16 lowercase hex characters refuses the optimisation instead of silently degrading to "always skip".
+
+Pi holds the same invariant through `codeflare-pi.ts::reconcileGlobalGraph`, called on `session_start` and after every repository transition. `planGlobalGraphReconcile` reads the same manifest and computes the same removal set, every tag but `user_vault` and the active checkout's, plus the add when that checkout has a graph; both run inside one `flock -w 5 /tmp/graphify-global.lock` invocation so a concurrent writer never sees a partial reconciliation ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC6). It applies the hook's dedup on the same terms, matching the recorded hash and the recorded `source_path` before skipping, so an unchanged graph costs no `global add` while another checkout's identically-hashed graph still forces one.
+
+Pi has no fast-path comparison and does not need one: it reconciles on session start and transitions rather than on every tool call, and reading a manifest is not what the fast path exists to avoid. It also has no sentinel to withhold on failure, so a genuine failure notifies at session start instead of leaving a retry marker. A missing CLI is not a failure: that is the supported disabled-plugin configuration, and it stays silent.
+
+The two binaries report their absence differently, because `flock` is the process Pi spawns while `graphify` runs inside the locked script. An absent `flock` therefore arrives as `ENOENT`, an absent `graphify` as the script's own exit 127, and Pi tolerates both while still surfacing every other non-zero exit.
 
 Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. A branch switch triggers reconciliation, not a rebuild: the hook re-evaluates which tags belong in the global graph, so a branch where the graph is absent stops publishing, but the graph's contents are refreshed only when the user rebuilds (`graphify update` or `/graphify`). Until that rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
 
@@ -678,4 +686,4 @@ or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#tr
 
 - [architecture.md](./architecture.md) -- Container layout, Worker proxy boundary.
 - [deployment.md](./deployment.md) -- How Dockerfile + preseed land in a new session.
-- [`sdd/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.
+- [`sdd/spec/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.

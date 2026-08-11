@@ -2161,11 +2161,13 @@ init_user_vault() {
     # (e.g. graphify plugin disabled), continue.
     #
     # Source is vault-graph.json, the cumulative graph the capture and
-    # vault-extract pipelines merge into (REQ-MEM-009). The sibling
-    # graph.json is an empty scaffold graphify leaves in graphify-out/;
-    # seeding from it republished user_vault with zero nodes on every boot
-    # and dropped the accumulated vault memory out of the global graph until
-    # the next capture happened to run.
+    # vault-extract pipelines read back and merge into (REQ-MEM-009). The
+    # sibling graph.json is a copy those merges refresh for the local
+    # visualization, and the scaffold created below leaves it empty until the
+    # first extraction runs. Seeding from it therefore republished user_vault
+    # with zero nodes on exactly the boots where the vault had been restored
+    # but not yet re-extracted, dropping accumulated memory out of the global
+    # graph until the next capture happened to run.
     #
     # The -f guard keeps a first-ever boot (no captures yet, no cumulative
     # graph on disk) silent instead of emitting a deferred-add warning for a
