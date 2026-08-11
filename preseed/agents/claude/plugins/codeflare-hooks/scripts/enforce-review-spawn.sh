@@ -3,7 +3,8 @@
 #
 # Architecture: authoritative checked-out branch state plus a per-PR checkpoint.
 #
-#   Layer 1 (CANDIDATE) finds executable `git` or `gh` commands.
+#   Layer 1 (BOUNDARY) finds executable delivery commands: `git push`,
+#     `gh pr create`, `gh pr merge` (AD121).
 #   Layer 2 (TRUTH) requires a normal checked-out branch whose open
 #     main/master/develop PR head exactly equals local HEAD.
 #   Layer 3 (CHECKPOINT) stores the acknowledged SHA by PR number.
@@ -838,11 +839,15 @@ retroactive_ack_scan() {
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$total" -gt 0 ] || return
 
-  # Push line detection - SAME precise regex as the main PUSH_LINE
-  # detector at the top of this file. A loose `index($0, "git push")`
-  # would false-positive on Edit/Read tool_use envelopes whose
-  # old_string/new_string content quotes the phrase (e.g. an edit to
-  # this hook itself).
+  # Windows are bounded by the SAME detector the main PUSH_LINE uses,
+  # `boundary_line_numbers`, so both agree on what a delivery boundary is by
+  # construction rather than by two rules kept in step by hand. That is not
+  # incidental: this scan once carried its own narrower matcher, #814 repointed
+  # it at the broad one while leaving a comment claiming the two were identical,
+  # and windows then ended at the next read-only Git call instead of the next
+  # push, so they could not complete and no head was ever retroactively
+  # acknowledged. Structural parsing also keeps an Edit/Read envelope quoting
+  # `git push` (an edit to this hook, say) from opening a window.
   local all_push_lines
   all_push_lines=$(boundary_line_numbers 2>/dev/null)
   [ -n "$all_push_lines" ] || return

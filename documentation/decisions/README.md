@@ -3486,3 +3486,21 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 - [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
 - [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
+
+### AD121: A review boundary is a delivery subcommand, not any Git invocation
+
+**Category:** Architecture, Build / Container
+
+**Status:** Accepted (2026-08-11). Amends [AD115](#ad115-review-acknowledgement-requires-a-published-verdict).
+
+**Context:** `enforce-review-spawn.sh` measures lane coverage strictly after `PUSH_LINE`, the last transcript line its Layer 1 detector matched. That detector matched the bare words `git` and `gh` in command position, so every `git log`, `git status`, and `git diff` was a boundary. Reading a lane report is done with exactly those commands, so the anchor routinely moved past the spawns of the round being read and the gate re-demanded lanes that had already returned. Replayed against one session's transcript: 58 matches against 8 real pushes, with `PUSH_LINE` resolving to a `git diff` issued while diagnosing this.
+
+The same breadth reached `retroactive_ack_scan`. That scan carried its own narrower matcher until #814 deleted it and repointed the scan at the shared broad function, leaving a comment claiming the two had always been identical. Windows then ended at the next read-only Git call rather than the next push, so real-push windows still containing their own lane spawns fell from 7 of 8 to 5 of 8; those windows could not complete and no head was retroactively acknowledged.
+
+`git-push-review-reminder.sh` had already solved the classification, and Pi's `classifyReviewBoundaryCommand` solves it the same way: parse any `git`/`gh` in command position, then read the subcommand to name the event.
+
+**Decision:** The delivery-boundary vocabulary is `git push`, `gh pr create`, and `gh pr merge`. `enforce-review-spawn.sh` classifies on that vocabulary, reusing the global-option sets both siblings already share, and one detector serves both `PUSH_LINE` and `retroactive_ack_scan` by construction. Deciding the event stays advisory about *where*: Layer 2 (`gh pr view`) remains the sole authority on whether a boundary is an open, eligible, unacknowledged PR head.
+
+The two hooks keep different surfaces on purpose. The reminder still treats any executable `git`/`gh` as a candidate and varies only its message, because prompting early is cheap and wrong prompts cost a sentence. The Stop hook's window must be a genuine boundary, because a window anchored anywhere else silently uncovers a reviewed round.
+
+**Consequences:** A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.

@@ -1201,7 +1201,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Any executable `git` or `gh` command is a cheap candidate in both hooks. They emit or enforce review only when the normal checkout's current branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD` and differs from that PR's checkpoint.
+The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. The two hooks scope their cheap first pass differently. `git-push-review-reminder.sh` treats any executable `git` or `gh` command as a candidate and varies only which message it emits; the Stop hook's measurement window requires a delivery subcommand, `git push`, `gh pr create`, or `gh pr merge`, because a window anchored on a read-only call silently uncovers a round whose lanes already returned ([AD121](../decisions/README.md#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)). <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::boundaryEvent -->
+
+Both emit or enforce review only when the normal checkout's current branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD` and differs from that PR's checkpoint.
 
 A synchronized closed or merged head never launches review: the Stop hook stays silent when its checkpoint matches, otherwise it emits one visibility notice without writing acknowledgement or consuming the one-shot bypass. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLOSED_NOTICE_FILE -->
 
