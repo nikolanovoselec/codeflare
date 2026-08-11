@@ -304,6 +304,10 @@ if command -v graphify >/dev/null 2>&1; then
     # KEEP_TAG is empty when this checkout has no graph, and jq compares
     # against "" without matching any real tag, so every repo entry is
     # removed and the global graph falls back to the vault alone.
+    #
+    # An absent jq would make this yield nothing, indistinguishable from "no
+    # stale tags", but it cannot happen here: the tool-name parse at the top
+    # of the script needs jq too and exits 0 when it comes back empty.
     if [ -f "$GLOBAL_MANIFEST" ]; then
         while IFS= read -r STALE; do
             [ -n "$STALE" ] && STALE_TAGS+=("$STALE")
