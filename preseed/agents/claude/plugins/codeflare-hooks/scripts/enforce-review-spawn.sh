@@ -3,8 +3,10 @@
 #
 # Architecture: authoritative checked-out branch state plus a per-PR checkpoint.
 #
-#   Layer 1 (BOUNDARY) finds executable delivery commands: `git push`,
-#     `gh pr create`, `gh pr merge` (AD121).
+#   Layer 1 (CANDIDATE) finds executable `git` or `gh` commands, and separately
+#     marks the delivery ones (`git push`, `gh pr create`, `gh pr merge`).
+#     Candidates trigger enforcement; only a delivery anchors the coverage
+#     window (AD121).
 #   Layer 2 (TRUTH) requires a normal checked-out branch whose open
 #     main/master/develop PR head exactly equals local HEAD.
 #   Layer 3 (CHECKPOINT) stores the acknowledged SHA by PR number.
@@ -190,20 +192,19 @@ if [ -z "$PRETOOL_MODE" ]; then
 # and heredoc bodies remain inert; authoritative Layer 2 still decides whether
 # the parsed activity corresponds to an eligible PR boundary.
 #
-# A line qualifies on the SUBCOMMAND (`git push`, `gh pr create`, `gh pr merge`),
-# not on the bare words `git`/`gh`. The bare-word form matched every read-only
-# Git call, and because PUSH_LINE is the LAST match while lane coverage is
-# measured strictly after it, one `git log` between a lane spawn and the Stop
-# event moved the window past that spawn and the gate re-demanded a lane that had
-# already returned. Measured on one session's transcript before this change: 58
-# matches against 8 real pushes, with PUSH_LINE resolving to a `git diff`.
+# Candidacy stays broad: any executable `git`/`gh` triggers enforcement, and
+# Layer 2 decides eligibility. What narrowed is the COVERAGE anchor. Lane
+# coverage is measured strictly after that anchor, and while it was the last
+# candidate, one `git log` run between a lane spawn and the Stop event moved it
+# past that spawn and the gate re-demanded a lane that had already returned.
+# Measured on one session's transcript: 58 candidates against 8 real deliveries,
+# with the anchor resolving to a `git diff` issued while diagnosing this.
 #
-# Deciding the event here does not make this authoritative. It says only which
-# transcript line a delivery boundary happened on; Layer 2 (`gh pr view`) still
-# decides whether that boundary is an open, eligible, unacknowledged PR head.
-#
+# Marking the event here decides only WHERE a delivery happened. Layer 2
+# (`gh pr view`) remains the sole authority on whether it is an open, eligible,
+# unacknowledged PR head.
 # ---------------------------------------------------------------------------
-boundary_line_numbers() {
+transcript_scan() {
   node - "$TRANSCRIPT" <<'NODE'
 const fs = require('node:fs');
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
@@ -281,8 +282,12 @@ function stripHeredocs(text) {
   }
   return out.join('\n');
 }
+// Returns '' when the text runs no git/gh at all, '-' when it does but none is a
+// delivery subcommand, and the event name otherwise. Candidacy stays broad on
+// purpose: enforcement triggers on any git/gh activity, which is the contract
+// the structural-boundary tests pin. Only the coverage window narrows.
 function boundaryOf(text) {
-  let found = '';
+  let candidate = false, found = '';
   function scan(source) {
     let word = '', command = true, prefix = false;
     // Set once git/gh is seen in command position; `rest` collects that simple
@@ -297,7 +302,7 @@ function boundaryOf(text) {
       const value = word; word = '';
       if (tool) { rest.push(value); return; }
       if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
-      if (value === 'git' || value === 'gh') { tool = value; command = false; return; }
+      if (value === 'git' || value === 'gh') { candidate = true; tool = value; command = false; return; }
       if (prefix && value.startsWith('-')) return;
       prefix = prefixes.has(value); command = prefix;
     };
@@ -337,7 +342,7 @@ function boundaryOf(text) {
     decide();
   }
   scan(stripHeredocs(text));
-  return found;
+  return candidate ? (found || '-') : '';
 }
 fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
   let entry; try { entry = JSON.parse(raw); } catch { return; }
@@ -346,13 +351,33 @@ fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
     if (call.name === 'Bash' && typeof input.command === 'string') commands = [input.command];
     else if (/ctx_execute$/.test(call.name) && input.language === 'shell' && typeof input.code === 'string') commands = [input.code];
     else if (/ctx_batch_execute$/.test(call.name) && Array.isArray(input.commands)) commands = input.commands.map((item) => item?.command).filter((value) => typeof value === 'string');
-    if (commands.some(boundaryOf)) { process.stdout.write(`${index + 1}\n`); return; }
+    // One line can hold several commands; a delivery event anywhere in it wins
+    // over a plain candidate, so `git log && git push` is a boundary.
+    let mark = '';
+    for (const command of commands) {
+      const result = boundaryOf(command);
+      if (result && result !== '-') { mark = result; break; }
+      if (result) mark = '-';
+    }
+    if (mark) { process.stdout.write(`${index + 1} ${mark}\n`); return; }
   }
 });
 NODE
 }
-PUSH_LINE=$(boundary_line_numbers 2>/dev/null | tail -1)
+# Two views over one parse. Enforcement triggers on any git/gh activity, which is
+# the long-standing contract; the coverage window narrows to a real delivery so a
+# read-only call cannot move it past a round's own lane spawns.
+candidate_line_numbers() { transcript_scan 2>/dev/null | awk 'NF { print $1 }'; }
+delivery_line_numbers() { transcript_scan 2>/dev/null | awk 'NF && $2 != "-" { print $1 }'; }
+
+PUSH_LINE=$(candidate_line_numbers | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
+
+# Anchor for lane coverage and retroactive acknowledgement. Falls back to the
+# candidate line when the transcript holds no delivery at all, which preserves
+# the pre-existing behaviour for a session that has not pushed yet.
+COVERAGE_LINE=$(delivery_line_numbers | tail -1)
+[ -n "$COVERAGE_LINE" ] || COVERAGE_LINE="$PUSH_LINE"
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 
@@ -839,17 +864,18 @@ retroactive_ack_scan() {
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$total" -gt 0 ] || return
 
-  # Windows are bounded by the SAME detector the main PUSH_LINE uses,
-  # `boundary_line_numbers`, so both agree on what a delivery boundary is by
-  # construction rather than by two rules kept in step by hand. That is not
-  # incidental: this scan once carried its own narrower matcher, #814 repointed
-  # it at the broad one while leaving a comment claiming the two were identical,
-  # and windows then ended at the next read-only Git call instead of the next
-  # push, so they could not complete and no head was ever retroactively
-  # acknowledged. Structural parsing also keeps an Edit/Read envelope quoting
-  # `git push` (an edit to this hook, say) from opening a window.
+  # Windows are bounded by deliveries, not by any Git activity. This scan once
+  # carried its own narrower matcher; #814 deleted it and repointed the scan at
+  # the broad candidate list while leaving a comment claiming the two had always
+  # been identical. Windows then ended at the next read-only Git call instead of
+  # the next push, so a real push's window no longer contained its own lane
+  # spawns, could not complete, and no head was retroactively acknowledged.
+  # `delivery_line_numbers` is one view over the same parse that produces the
+  # candidate list, so the two cannot drift apart again. Structural parsing also
+  # keeps an Edit/Read envelope quoting `git push` (an edit to this hook, say)
+  # from opening a window.
   local all_push_lines
-  all_push_lines=$(boundary_line_numbers 2>/dev/null)
+  all_push_lines=$(delivery_line_numbers)
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.
@@ -1285,7 +1311,7 @@ lane_has_coverage_after_line() {
 latest_required_completion_line() {
   local lane spawn_line line max=0
   for lane in $REQUIRED_LANES; do
-    spawn_line=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+    spawn_line=$(latest_lane_spawn_after_line "$lane" "$COVERAGE_LINE")
     [ -n "$spawn_line" ] || return 1
     line=$(spawn_completion_line "$spawn_line") || return 1
     [ -n "$line" ] || return 1
@@ -1305,11 +1331,11 @@ lane_completed_after_line() {
 }
 
 lane_has_current_coverage() {
-  lane_has_coverage_after_line "$1" "$PUSH_LINE"
+  lane_has_coverage_after_line "$1" "$COVERAGE_LINE"
 }
 
 lane_completed_for_current_head() {
-  lane_completed_after_line "$1" "$PUSH_LINE"
+  lane_completed_after_line "$1" "$COVERAGE_LINE"
 }
 
 all_required_lanes_completed_for_current_head() {
@@ -1354,7 +1380,7 @@ fi
 # Name it in the demand so a lost lane is re-run rather than silently absorbed.
 FAILED=""
 for lane in $REQUIRED_LANES; do
-  failed_spawn=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
+  failed_spawn=$(latest_lane_spawn_after_line "$lane" "$COVERAGE_LINE")
   [ -n "$failed_spawn" ] || continue
   if spawn_ended_unsuccessfully "$failed_spawn"; then
     FAILED="$FAILED $lane"

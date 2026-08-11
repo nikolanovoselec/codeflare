@@ -2289,13 +2289,11 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
   });
 });
 
-// PUSH_LINE is the anchor lane coverage is measured after, so what qualifies as
-// a delivery boundary decides whether a completed round stays completed. The
-// detector recognised the bare words `git`/`gh`, which made a boundary of every
-// read-only Git call. Classification now mirrors Pi's
-// classifyReviewBoundaryCommand: the subcommand names the event, and Layer 2
-// (`gh pr view`) still decides whether that boundary is an eligible PR head.
-describe('enforce-review-spawn.sh — delivery-boundary detection', () => {
+// Lane coverage is measured strictly after an anchor. Candidacy stays broad (any
+// executable git/gh enforces -- see the structural-boundary suite above), but the
+// anchor is the last DELIVERY, so reading lane reports with git log/git diff
+// cannot uncover a round whose lanes already returned.
+describe('enforce-review-spawn.sh — coverage anchor is the last delivery', () => {
   const reviewedRound = (...trailing) => [
     PUSH_LINE('2026-05-03T12:00:00.000Z'),
     LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_d1'),
@@ -2308,74 +2306,48 @@ describe('enforce-review-spawn.sh — delivery-boundary detection', () => {
     ...trailing,
   ];
 
-  const drive = (lines, gh) => {
+  const drive = (lines) => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = gh === 'poison' ? ghPoison(cwd) : fakeGh(cwd, gh);
-    const r = runHook(cwd, { transcriptPath: writeTranscript(cwd, lines), binDir });
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, lines),
+      binDir: fakeGh(cwd, ghReturning('OPEN', 'realhead')),
+    });
     return { cwd, r };
   };
 
   const DEMANDS_A_LANE = /run code-reviewer|run spec-reviewer|run doc-updater/;
 
   it('a read-only Git call after a reviewed round does not reopen that round', () => {
-    // The regression: reading lane reports involves running `git log`/`git diff`,
-    // which moved the anchor past the round's own spawns, so lanes that had
-    // already returned were demanded again.
-    const control = drive(reviewedRound(), ghReturning('OPEN', 'realhead'));
+    const control = drive(reviewedRound());
     assert.equal(ackOf(control.cwd), currentHead(control.cwd), 'baseline: the round acknowledges');
 
-    const probed = drive(
-      reviewedRound(COMMAND_LINE('git log --oneline -5', '2026-05-03T12:10:00.000Z')),
-      ghReturning('OPEN', 'realhead'),
-    );
+    const probed = drive(reviewedRound(
+      COMMAND_LINE('git log --oneline -5', '2026-05-03T12:10:00.000Z'),
+      COMMAND_LINE('git diff --stat HEAD~1', '2026-05-03T12:11:00.000Z'),
+    ));
     assert.doesNotMatch(probed.r.stdout, DEMANDS_A_LANE,
-      'a read-only Git call cannot uncover a round whose lanes all returned');
+      'reading lane reports must not uncover the round being read');
     assert.equal(ackOf(probed.cwd), currentHead(probed.cwd),
-      'the reviewed head stays acknowledged across an intervening read-only Git call');
+      'the reviewed head stays acknowledged across intervening read-only Git calls');
   });
 
-  it('read-only Git activity alone reaches no PR round-trip at all', () => {
-    const { r } = drive([
-      COMMAND_LINE('git status --short'),
-      COMMAND_LINE('git diff --stat origin/main...HEAD'),
-      COMMAND_LINE('gh run list --limit 5'),
-    ], 'poison');
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '', 'no delivery boundary means no block');
-    // stdout alone does not prove this: a bare-word match also ends at exit 0,
-    // just after paying for a PR round-trip that could never have mattered. The
-    // poison marker is what separates "declined" from "never asked".
-    assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/,
-      'read-only Git use must not reach Layer 2 at all');
+  it('a new push after a reviewed round does reopen it', () => {
+    // The complement, and the reason the anchor cannot simply be pinned: a real
+    // delivery must still move the window and demand a fresh round.
+    const { r } = drive(reviewedRound(
+      COMMAND_LINE('git push 2>&1 | tail -2', '2026-05-03T12:20:00.000Z'),
+    ));
+    assert.match(r.stdout, DEMANDS_A_LANE,
+      'a delivery after the reviewed round starts a new one');
   });
 
-  it('recognises each shape a delivery boundary arrives in', () => {
-    for (const command of [
-      'git push',
-      'git push -u origin HEAD',
-      'git -C /srv/repo push',
-      'gh pr create --base develop --title x',
-      'gh pr merge 824 --squash --delete-branch',
-      "cd /repo\ngit add -A && git commit -m x\ngit push 2>&1 | tail -2",
-    ]) {
-      const { r } = drive([COMMAND_LINE(command)], ghReturning('OPEN', 'unackedSHA', 'develop'));
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `unrecognised boundary: ${command}`);
-    }
-  });
-
-  it('a heredoc body quoting a push is inert, while a real push after it counts', () => {
-    // Every fix commit in this repo is `git commit -F - <<'EOF' ... EOF` followed
-    // by `git push`, so the message body routinely names the thing being gated.
+  it('a heredoc body naming a push does not move the anchor', () => {
+    // Every fix commit here is `git commit -F - <<EOF ... EOF`, so the message
+    // body routinely names the thing being gated.
     const quoted = "git add -A && git commit -q -F - <<'EOF'\nfix: explain why git push is gated\nEOF";
-    const inert = drive([COMMAND_LINE(quoted)], 'poison');
-    assert.equal(inert.r.stdout, '', 'a commit message naming a push is not a push');
-
-    const real = drive(
-      [COMMAND_LINE(`${quoted}\ngit push 2>&1 | tail -2`)],
-      ghReturning('OPEN', 'unackedSHA', 'develop'),
-    );
-    assert.match(real.r.stdout, /"decision"\s*:\s*"block"/,
-      'the push after the heredoc terminator is the boundary');
+    const { cwd, r } = drive(reviewedRound(COMMAND_LINE(quoted, '2026-05-03T12:30:00.000Z')));
+    assert.doesNotMatch(r.stdout, DEMANDS_A_LANE, 'a quoted push is not a delivery');
+    assert.equal(ackOf(cwd), currentHead(cwd), 'and cannot uncover the reviewed round');
   });
 });
