@@ -17,7 +17,10 @@
 # Usage: run-memory-capture.sh --vars <VARS_FILE>
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || {
+  echo "run-memory-capture: cannot resolve script directory" >&2
+  exit 3
+}
 
 VARS_FILE=""
 while [ $# -gt 0 ]; do
@@ -93,9 +96,10 @@ fi
 CHUNK_COUNT=$(find "$PAYLOAD_DIR" -maxdepth 1 -name 'chunk-*.md' | wc -l)
 [ "$CHUNK_COUNT" -gt 0 ] || { echo "run-memory-capture: prefilter produced no chunks" >&2; exit 4; }
 
-# Frontmatter configures a subagent. Passed raw as a system prompt it would show
-# the model its own `tools:`/`model:` keys as instructions, so it is stripped --
-# the same reason run-review-lane.sh strips it.
+# Strip frontmatter if the prompt ever grows any. It has none today, so this is
+# defence rather than a transformation: passed raw, a `tools:`/`model:` block
+# would reach the model as instructions, which is why run-review-lane.sh strips
+# it from the agent documents that do carry one.
 SYSTEM_PROMPT=$(awk 'BEGIN{fm=0} NR==1 && $0=="---"{fm=1; next} fm==1 && $0=="---"{fm=2; next} fm!=1' "$PROMPT_FILE")
 
 # stdin, not argv: Linux caps a single argument at MAX_ARG_STRLEN (128 KB) and
@@ -115,6 +119,12 @@ TASK=$(
 CAPTURE_TIMEOUT="${MEMORY_CAPTURE_TIMEOUT:-900}"
 case "$CAPTURE_TIMEOUT" in ''|*[!0-9]*|0) CAPTURE_TIMEOUT=900 ;; esac
 
+# Sonnet at medium effort, and stated here rather than left to whatever the
+# runner defaults to. Capture is a fidelity job, not a reasoning one: the file
+# embeds verbatim REQ IDs, ADR numbers and commit SHAs that later sessions cite,
+# and the smallest models confabulated adjacent IDs in benchmarking (AD58). It
+# is also the most frequent agent in the system, so the tier above is not worth
+# paying on every fifteenth prompt. Both stay overridable.
 set -- \
   -p \
   --output-format json \
@@ -123,8 +133,9 @@ set -- \
   --system-prompt "$SYSTEM_PROMPT" \
   --tools Read,Write,Bash \
   --max-turns 4 \
+  --model "${CODEFLARE_MEMORY_MODEL:-sonnet}" \
+  --effort "${CODEFLARE_MEMORY_EFFORT:-medium}" \
   --permission-mode bypassPermissions
-[ -n "${CODEFLARE_MEMORY_MODEL:-}" ] && set -- "$@" --model "$CODEFLARE_MEMORY_MODEL"
 
 printf '%s' "$TASK" | timeout -k 30 "$CAPTURE_TIMEOUT" claude "$@" >/dev/null 2>"$CAPTURE_STDERR"
 STATUS=$?

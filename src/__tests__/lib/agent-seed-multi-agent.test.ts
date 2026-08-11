@@ -798,6 +798,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'post-compaction-recall.sh',
       'prefilter-transcript.sh',
       'publish-memory-capture.sh',
+      'run-memory-capture.sh',
     ]);
     for (const doc of pluginDocs) {
       expect(doc.modes).toEqual(['advanced']);

@@ -33,8 +33,6 @@ You will also derive:
 
 - `SESSION_ID`: the segment of `COUNTER_FILE` after the last `/`
   (the file is `/tmp/.memory-counter/{SESSION_ID}`)
-- `SID_SHORT`: first 8 characters of `SESSION_ID`
-- `WORK_DIR`: a temp dir at `/tmp/memory-capture-{SID_SHORT}`
 
 ## Steps
 

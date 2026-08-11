@@ -7,10 +7,13 @@
 // writing to the vault.
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const RUNNER = resolve(
   __dirname,
@@ -109,17 +112,27 @@ describe('run-memory-capture.sh — headless capture transport', () => {
 
   it('does not start a second capture for a carrier already running', () => {
     const fx = fixture();
-    // A detached holder keeps the carrier lock for the duration of the launch
-    // below, which is the situation the arming hook creates every prompt while
-    // a slow capture is still running.
-    spawnSync('bash', ['-c', `setsid bash -c 'exec 9>"${fx.vars}.lock"; flock 9; sleep 5' >/dev/null 2>&1 &`], {
-      encoding: 'utf-8',
+    const lock = `${fx.vars}.lock`;
+    // Hold the lock in a detached process, then wait for it to actually be held
+    // rather than guessing: a fixed sleep decides this test's outcome under
+    // load, and the assertion inverts when the holder loses the race.
+    const holder = spawn('setsid', ['bash', '-c', `exec 9>"${lock}"; flock 9; sleep 30`], {
+      detached: true, stdio: 'ignore',
     });
-    spawnSync('bash', ['-c', 'sleep 0.3']);
-    const r = run(fx, ['--vars', fx.vars]);
-    assert.equal(r.status, 0, 'a second launch evaporates rather than racing the first');
-    assert.match(r.stderr, /already running/);
-    assert.ok(!existsSync(join(fx.dir, 'argv.txt')), 'the model was never invoked twice');
+    try {
+      let held = false;
+      for (let i = 0; i < 100 && !held; i++) {
+        held = spawnSync('bash', ['-c', `exec 9>"${lock}"; flock -n 9`]).status !== 0;
+        if (!held) spawnSync('bash', ['-c', 'sleep 0.05']);
+      }
+      assert.ok(held, 'the holder took the lock');
+      const r = run(fx, ['--vars', fx.vars]);
+      assert.equal(r.status, 0, 'a second launch evaporates rather than racing the first');
+      assert.match(r.stderr, /already running/);
+      assert.ok(!existsSync(join(fx.dir, 'argv.txt')), 'the model was never invoked twice');
+    } finally {
+      try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
   });
 
   it('exits without launching when the slice holds nothing new', () => {

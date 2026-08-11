@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -221,10 +221,10 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout);
     const vars = join(fx.counterDir, 'sess-t.vars');
-    assert.ok(
-      out.hookSpecificOutput.additionalContext.includes(vars),
-      `additionalContext should mention vars path; got: ${out.hookSpecificOutput.additionalContext}`,
-    );
+    // The carrier is the whole contract now. The hook used to name it in
+    // additionalContext because the agent had to be told to spawn a capture;
+    // the hook launches the subprocess itself, so it says nothing and the
+    // written request is the only thing arming is observable through.
     assert.equal(existsSync(vars), true,
       'capture path must write the .vars file');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
@@ -438,14 +438,38 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     const { transcriptPath, sessionId } = armed(fx);
     const second = runHook(fx, { transcriptPath, sessionId });
     assert.equal(second.status, 0);
-    // The re-delivery is observable in two independent places: the hook spoke
-    // again, and the request's own attempt count moved. Neither is prose.
-    assert.equal(
-      JSON.parse(second.stdout).hookSpecificOutput.hookEventName,
-      'UserPromptSubmit',
-    );
+    // The relaunch is observable in the request's own attempt count. The hook
+    // no longer speaks on this path, so its stdout proves nothing either way.
     assert.equal(varsOf(fx, sessionId).attempts, 2,
-      'each delivery must be counted, or the giveup latch can never be reached');
+      'each launch must be counted, or the giveup latch can never be reached');
+  });
+
+  it('spends no attempt on a prompt that arrives while a capture is running', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx);
+    const vars = join(fx.counterDir, `${sessionId}.vars`);
+    const before = varsOf(fx, sessionId).attempts;
+    // Hold the carrier lock the way a live capture does, and wait until it is
+    // actually held rather than sleeping a guessed interval.
+    const holder = spawn('setsid', ['bash', '-c', `exec 9>"${vars}.lock"; flock 9; sleep 30`], {
+      detached: true, stdio: 'ignore',
+    });
+    try {
+      let held = false;
+      for (let i = 0; i < 100 && !held; i++) {
+        held = spawnSync('bash', ['-c', `exec 9>"${vars}.lock"; flock -n 9`]).status !== 0;
+        if (!held) spawnSync('bash', ['-c', 'sleep 0.05']);
+      }
+      assert.ok(held, 'the holder took the lock');
+      runHook(fx, { transcriptPath, sessionId });
+      // Counting prompts rather than launches is what let six messages typed
+      // during one long capture latch a request that was working, after which
+      // the re-arm deleted the carrier out from under it.
+      assert.equal(varsOf(fx, sessionId).attempts, before,
+        'a running capture is not a failed launch');
+    } finally {
+      try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
   });
 
   it('latches after the sixth delivery and stops reminding', () => {

@@ -71,7 +71,13 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
-HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || HOOK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# Fail closed rather than falling back to a relative path. launch_capture
+# swallows a failed launch by design, so a wrong directory here would make
+# captures vanish with nothing said.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || {
+    echo "memory-capture: cannot resolve hook directory; not arming this prompt" >&2
+    exit 0
+}
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
 LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
 # Pi's extractionDue latch: retry a request at most six times, then stop
@@ -155,6 +161,17 @@ if [[ -f "$VARS_FILE" ]]; then
         fi
         rm -f "$LATCH_FILE" "$VARS_FILE"
     else
+        # A capture holding the carrier lock is running, not failed, and must
+        # not spend an attempt. Counting prompts instead of launches measured
+        # how much the user typed: six prompts inside one 900s capture latched
+        # a request that was working, and the re-arm then deleted the carrier
+        # out from under it, after which the publisher had nothing to commit.
+        # Pi draws the same line -- extractionDue returns `none` while the
+        # state is `running`. The subshell releases the probe immediately, and
+        # run-memory-capture.sh's own `flock -n` settles any real race.
+        if ! ( exec 8>"${VARS_FILE}.lock"; flock -n 8 ) 2>/dev/null; then
+            emit_context "$MEMORY_SCAN"
+        fi
         attempts=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null) || attempts=0
         [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
         if [[ $attempts -ge $MAX_ATTEMPTS ]]; then
@@ -163,35 +180,23 @@ if [[ -f "$VARS_FILE" ]]; then
         fi
         attempts=$((attempts + 1))
         # jq cannot edit in place, and the request is the only copy of the
-        # window being captured — write beside it and rename, so a crashed
+        # window being captured -- write beside it and rename, so a crashed
         # write cannot truncate it.
         if tmp=$(mktemp "${VARS_FILE}.XXXXXX" 2>/dev/null) \
            && jq --argjson n "$attempts" '.attempts = $n' "$VARS_FILE" > "$tmp" 2>/dev/null; then
             mv -f "$tmp" "$VARS_FILE"
         else
+            rm -f "$tmp" 2>/dev/null
             # A launch that cannot be counted is a launch that never stops:
-            # every later prompt re-reads the same attempts value, re-emits, and
-            # never reaches the bound this design exists to enforce. Latch so the
-            # failure ends the loop rather than opening it.
-            #
-            # The latch lives in the same directory whose unwritability is the
-            # usual reason for landing here, so it can fail too. When it does,
-            # drop the request outright: one lost capture window is the small
-            # failure, an unbounded reminder loop is the large one.
-            [[ -n "${tmp:-}" ]] && rm -f "$tmp"
+            # every later prompt re-reads the same attempts value and never
+            # reaches the bound. Latch so the failure ends the loop.
             if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
                 echo "memory-capture: cannot record launch count; latching request at $VARS_FILE" >&2
             elif rm -f "$VARS_FILE" 2>/dev/null; then
                 echo "memory-capture: cannot record launch count or latch; dropped request at $VARS_FILE" >&2
             else
-                # Report what happened, not what was attempted. The drop runs in
-                # the same directory that defeated the count and the latch, so it
-                # can fail too, and a message asserting an outcome it never
-                # checked is worse than none: it says the loop stopped while the
-                # loop continues.
                 echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE will relaunch" >&2
             fi
-            emit_context "$MEMORY_SCAN"
         fi
         launch_capture "$VARS_FILE"
         emit_context "$MEMORY_SCAN"

@@ -528,12 +528,12 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 5. **Counter update** - writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
-   - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - There is no blocking hook. An armed request is re-delivered once per user prompt, counted, and latched after six deliveries; a latched request stays silent until fifteen further prompts allow a replacement. Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a capture that fails leaves its window uncommitted for a later request to cover ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
-   - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
+   - The hook launches the capture subprocess itself; nothing is asked of the main agent before other work.
+   - There is no blocking hook. An armed request is re-delivered once per user prompt, counted, and latched after six failed launches, with a prompt arriving mid-capture spending no attempt; a latched request stays silent until fifteen further prompts allow a replacement. Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a capture that fails leaves its window uncommitted for a later request to cover ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
+   - `run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`; the agent frontmatter is not read on this path ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
-The capture agent retains the `.vars` retry carrier, runs
-`prefilter-transcript.sh` (jq filter that strips tool I/O, slash-command
+`run-memory-capture.sh` retains the `.vars` retry carrier, runs
+`prefilter-transcript.sh` before the capture subprocess starts (jq filter that strips tool I/O, slash-command
 wrappers, and meta records - 76x size reduction on a typical transcript),
 splits the clean NDJSON into chunks, processes each chunk into a scratchpad,
 then synthesises the final vault note. One locked fail-closed command merges
