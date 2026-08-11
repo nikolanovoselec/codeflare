@@ -123,15 +123,36 @@ if ! find "$PAYLOAD_DIR" -maxdepth 1 -name 'chunk-*.md' | sort | xargs cat > "$J
   echo "run-memory-capture: could not assemble the transcript" >&2
   exit 4
 fi
-if ! head -c "$MAX_PAYLOAD_BYTES" "$JOINED" \
-     | jq -Rs --arg sid "$SESSION_ID" --arg ts "$(jq -r '.capture_timestamp // empty' "$VARS_FILE")" \
-            --arg cf "$CAPTURE_FILE" --arg cc "$(jq -r '.current_count // 0' "$VARS_FILE")" \
-       '{session_id:$sid, current_count:($cc|tonumber? // 0), capture_timestamp:$ts,
-         capture_file:$cf, transcript:.}' \
-     > "$REQUEST"; then
+# Truncation has to be visible, in the log and in the payload. Dropping the
+# tail silently hands the model a conversation that stops mid-sentence, which
+# reads exactly like a session that really was that short -- so it summarises a
+# partial window as if it were the whole one and nothing anywhere says otherwise.
+JOINED_BYTES=$(wc -c < "$JOINED" 2>/dev/null || echo 0)
+case "$JOINED_BYTES" in ''|*[!0-9]*) JOINED_BYTES=0 ;; esac
+if [ "$JOINED_BYTES" -gt "$MAX_PAYLOAD_BYTES" ]; then
+  echo "run-memory-capture: transcript is $JOINED_BYTES bytes, bounding to $MAX_PAYLOAD_BYTES" >&2
+  {
+    head -c "$MAX_PAYLOAD_BYTES" "$JOINED"
+    printf '\n\n[transcript truncated by the launcher at %s of %s bytes]\n' \
+      "$MAX_PAYLOAD_BYTES" "$JOINED_BYTES"
+  } > "$JOINED.bounded"
+  mv -f "$JOINED.bounded" "$JOINED"
+fi
+
+if ! jq -Rs --arg sid "$SESSION_ID" --arg ts "$(jq -r '.capture_timestamp // empty' "$VARS_FILE")" \
+          --arg cf "$CAPTURE_FILE" --arg cc "$(jq -r '.current_count // 0' "$VARS_FILE")" \
+     '{session_id:$sid, current_count:($cc|tonumber? // 0), capture_timestamp:$ts,
+       capture_file:$cf, transcript:.}' \
+     < "$JOINED" > "$REQUEST"; then
   echo "run-memory-capture: could not build the request payload" >&2
   exit 4
 fi
+
+# The payload directory outlives this script so a failed capture can be
+# inspected. The joined copy has no such use once the request exists, and
+# leaving it there puts a second full transcript under /tmp on every capture --
+# the same slow fill this round is already cleaning up after.
+rm -f "$JOINED"
 
 # Frontmatter would reach the model as instructions if the prompt ever grew any.
 SYSTEM_PROMPT=$(awk 'BEGIN{fm=0} NR==1 && $0=="---"{fm=1; next} fm==1 && $0=="---"{fm=2; next} fm!=1' "$PROMPT_FILE")

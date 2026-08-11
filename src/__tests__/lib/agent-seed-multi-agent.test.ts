@@ -791,6 +791,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
     expect(fileNames).toEqual([
       'assert-iso-ts.sh',
+      'build-memory-graph.py',
       'memory-agent-prompt.md',
       'memory-capture.sh',
       'memory-context-inject.sh',

@@ -285,6 +285,34 @@ describe('enforce-review-spawn.sh — event scoping', () => {
   });
 });
 
+// The PreToolUse gate refuses through a permission decision rather than a
+// non-zero exit, because a gate doing exactly its job rendered as
+// "PreToolUse:Edit hook error" reads as a broken tool. Allow and deny now share
+// exit 0, so the decision is the only discriminator: asserting the status alone
+// would let a deny pass as an allow and vice versa. One place, so the next
+// change to the refusal transport is one edit.
+function denialOf(r) {
+  if (!r.stdout) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    return null;
+  }
+  const out = parsed && parsed.hookSpecificOutput;
+  return out && out.permissionDecision === 'deny' ? out.permissionDecisionReason || '' : null;
+}
+
+function assertRefused(r, message = 'the gate refuses') {
+  assert.equal(r.status, 0, `${message}: a rendered deny exits 0`);
+  assert.notEqual(denialOf(r), null, `${message}: expected a deny decision`);
+}
+
+function assertAllowed(r, message = 'the gate allows') {
+  assert.equal(r.status, 0, message);
+  assert.equal(denialOf(r), null, `${message}: expected no deny decision`);
+}
+
 // The FIX directive keeps its own head-keyed counter. It used to read the
 // shared demand file, which the lane demand had already bumped to 1 before any
 // FIX phase began, so the full directive never emitted and the one-line form
@@ -378,20 +406,19 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     const r = pretool(cwd, t, 'Edit');
-    assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes(TRIAGE_HEADER), 'directive carries the canonical header contract');
-    assert.equal(r.stdout, '');
-    assert.equal(pretool(cwd, t, 'Write').status, 2,
-      'Write carries no exemption while blocked');
-    assert.equal(pretool(cwd, t, 'AskUserQuestion').status, 2,
-      'questions cannot bypass a completed round awaiting its verdict table');
+    assertRefused(r, 'a mutating tool is refused while the round awaits its table');
+    assert.ok(denialOf(r).includes(TRIAGE_HEADER),
+      'the decision carries the canonical header contract');
+    assert.equal(r.stderr, '', 'a refusal is a decision, not an error stream');
+    assertRefused(pretool(cwd, t, 'Write'), 'Write carries no exemption while blocked');
+    assertRefused(pretool(cwd, t, 'AskUserQuestion'), 'questions cannot bypass a completed round awaiting its verdict table');
   });
 
   it('allows read-only tools during the blocked window', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     for (const tool of ['Read', 'TaskOutput']) {
-      assert.equal(pretool(cwd, t, tool).status, 0, tool);
+      assertAllowed(pretool(cwd, t, tool), tool);
     }
   });
 
@@ -404,17 +431,13 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     for (const tool of ['Write', 'Edit']) {
-      assert.equal(pretool(cwd, t, tool).status, 2,
-        `${tool} blocks the main agent in this state`);
-      assert.equal(pretool(cwd, t, tool, 'memory-capture').status, 0,
-        `${tool} is allowed for a subagent in the same state`);
+      assertRefused(pretool(cwd, t, tool), `${tool} blocks the main agent in this state`);
+      assertAllowed(pretool(cwd, t, tool, 'memory-capture'), `${tool} is allowed for a subagent in the same state`);
     }
     // Bash is no longer blocked as a tool, only as a delivery, so the pairing
     // has to carry a command to stay meaningful on both sides.
-    assert.equal(pretool(cwd, t, 'Bash', undefined, 'git push').status, 2,
-      'a delivery blocks the main agent in this state');
-    assert.equal(pretool(cwd, t, 'Bash', 'memory-capture', 'git push').status, 0,
-      'the same delivery is allowed for a subagent in the same state');
+    assertRefused(pretool(cwd, t, 'Bash', undefined, 'git push'), 'a delivery blocks the main agent in this state');
+    assertAllowed(pretool(cwd, t, 'Bash', 'memory-capture', 'git push'), 'the same delivery is allowed for a subagent in the same state');
   });
 
   // The window exists to stop the round being spoiled, not to stop the agent
@@ -428,7 +451,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     for (const tool of ['Grep', 'Glob']) {
-      assert.equal(pretool(cwd, t, tool).status, 0, `${tool} is read-only`);
+      assertAllowed(pretool(cwd, t, tool), `${tool} is read-only`);
     }
     for (const cmd of [
       'diff a.json b.json | head -20',
@@ -438,7 +461,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       'gh run view 123 --log-failed',
       'gh pr view 827 --json state',
     ]) {
-      assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 0, cmd);
+      assertAllowed(pretool(cwd, t, 'Bash', undefined, cmd), cmd);
     }
   });
 
@@ -591,7 +614,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     it(`refuses a delivery in the blocked window: ${cmd}`, () => {
       const cwd = makeFixture();
       const t = writeTranscript(cwd, completedRound());
-      assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 2, cmd);
+      assertRefused(pretool(cwd, t, 'Bash', undefined, cmd), cmd);
     });
   }
 
@@ -599,7 +622,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     // "No delivery verb seen" and "could not look" are different answers.
-    assert.equal(pretool(cwd, t, 'Bash').status, 2);
+    assertRefused(pretool(cwd, t, 'Bash'));
   });
 
   it('scopes out every subagent, not one by name', () => {
@@ -607,7 +630,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const t = writeTranscript(cwd, completedRound());
     for (const agent of ['memory-capture', 'vault-extract', 'Explore', 'general-purpose']) {
       const r = pretool(cwd, t, 'Write', agent);
-      assert.equal(r.status, 0, agent);
+      assertAllowed(r, agent);
       assert.equal(r.stderr, '', `${agent} receives no directive`);
     }
   });
@@ -633,25 +656,25 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   it('allows once a finding triage table is published after the last completion', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('accepts a fully clean table without synthetic lane rows', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), CLEAN_TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('allows while any lane is still in flight', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound().slice(0, 5));
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('does not treat a failed lane as a completed round', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound().slice(0, 5), FAILED_LINE('toolu_du1')]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('demands a fresh table when a lane re-runs after the previous round was triaged', () => {
@@ -662,20 +685,20 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       AGENT_LINE('spec-reviewer', '2026-05-03T12:10:00.000Z', 'toolu_sr2'),
       DONE_LINE('toolu_sr2'),
     ]);
-    assert.equal(pretool(cwd, t, 'Bash').status, 2);
+    assertRefused(pretool(cwd, t, 'Bash'));
   });
 
   it('re-blocks after a cleared round when a new completion lands', () => {
     const cwd = makeFixture();
     const cleared = [...completedRound(), TRIAGE_LINE()];
     const t = writeTranscript(cwd, cleared);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
     writeTranscript(cwd, [
       ...cleared,
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:20:00.000Z', 'toolu_b9'),
       LANE_BASH_DONE_LINE('toolu_b9'),
     ]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+    assertRefused(pretool(cwd, t, 'Edit'));
   });
 
   it('covers the headless Bash lane transport', () => {
@@ -684,13 +707,13 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
       LANE_BASH_DONE_LINE('toolu_b1'),
     ]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+    assertRefused(pretool(cwd, t, 'Edit'));
   });
 
   it('exits 0 for a transcript with no review lanes', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('honors the bypass sentinel without consuming it', () => {
@@ -716,13 +739,12 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       message: { content: [{ type: 'text', text: 'z'.repeat(2500) }] },
     });
     const t = writeTranscript(cwd, [filler('a'), ...completedRound(), TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
     // History rewrite: different prefix, completions end BEFORE the cached
     // offset, trailing junk keeps the file at least as large - the appended-
     // bytes count alone would see nothing new and fail open.
     writeTranscript(cwd, [filler('b'), ...completedRound(), junk]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'prefix fingerprint mismatch must force the full pass');
+    assertRefused(pretool(cwd, t, 'Edit'), 'prefix fingerprint mismatch must force the full pass');
   });
 
   it('treats a legacy or malformed cache entry as no cache', () => {
@@ -735,8 +757,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     // The one-field malformed shape keeps its own coverage alongside.
     for (const entry of ['3\n', `1:${statSync(t).size}\n`]) {
       writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), entry);
-      assert.equal(pretool(cwd, t, 'Edit').status, 2,
-        `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
+      assertRefused(pretool(cwd, t, 'Edit'), `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
     }
   });
 
@@ -758,8 +779,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       },
     });
     const t = writeTranscript(cwd, [...completedRound(), toolOnlyTable]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'table text inside a tool_use input must not clear the checkpoint');
+    assertRefused(pretool(cwd, t, 'Edit'), 'table text inside a tool_use input must not clear the checkpoint');
   });
 
   it('accepts a table sharing its message with the first fix tool call', () => {
@@ -777,16 +797,18 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       },
     });
     const t = writeTranscript(cwd, [...completedRound(), tableWithTool]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0,
-      'a tool-free message ends the turn, so the table must count alongside fixes');
+    assertAllowed(pretool(cwd, t, 'Edit'), 'a tool-free message ends the turn, so the table must count alongside fixes');
   });
 
   it('gives up after five refused calls for the same round, then stays released', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    const statuses = [];
-    for (let index = 0; index < 7; index += 1) statuses.push(pretool(cwd, t, 'Edit').status);
-    assert.deepEqual(statuses, [2, 2, 2, 2, 2, 0, 0]);
+    const decisions = [];
+    for (let index = 0; index < 7; index += 1) {
+      decisions.push(denialOf(pretool(cwd, t, 'Edit')) === null ? 'allow' : 'deny');
+    }
+    assert.deepEqual(decisions, ['deny', 'deny', 'deny', 'deny', 'deny', 'allow', 'allow'],
+      'five refusals for the same round, then released and staying released');
   });
 
   it('never writes the Stop-side acknowledgement from a PreToolUse pass', () => {

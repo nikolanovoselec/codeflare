@@ -37,20 +37,6 @@ flock -w 300 "$LOCK_FILE" bash -c '
   set -e
   "$1" "$2"
   "$3" global add "$4" --as user_vault
-  # Re-render the viz. The capture prompt owned this step until the two-call
-  # rewrite dropped it, and nothing picked it up: Raw/Graphs/vault-graph.html
-  # then drifts behind the JSON after every capture until some unrelated
-  # vault-extract run happens to fix it. Non-fatal for the same reason
-  # vault-extract treats it as non-fatal -- the graph data is committed on the
-  # line above, and the only thing at stake here is a stale HTML.
-  # cluster-only takes a PROJECT root and writes to <root>/graphify-out/, so
-  # this passes . from the vault root; passing graphify-out nests it.
-  (
-    cd /home/user/Vault \
-      && mkdir -p Raw/Graphs \
-      && "$3" cluster-only . >/dev/null 2>&1 \
-      && cp -f graphify-out/graph.html Raw/Graphs/vault-graph.html
-  ) || echo "publish-memory-capture: viz re-render skipped; vault-graph.html may be stale" >&2
   # The counter advances here and nowhere else. The arming hook used to do it,
   # which meant a capture that died still marked its window as covered and
   # those messages were never revisited. Monotonic, like Pi'"'"'s
@@ -63,3 +49,23 @@ flock -w 300 "$LOCK_FILE" bash -c '
   fi
   rm -f -- "$5" "$9"
 ' memory-capture-publish "$PYTHON_BIN" "$MERGE_SCRIPT" "$GRAPHIFY_BIN" "$VAULT_GRAPH" "$VARS_FILE" "$COUNTER_FILE" "$CURRENT_COUNT" "$TOTAL_LINES" "${VARS_FILE%.vars}.latched"
+
+# Re-render the viz, outside the lock on purpose. It reads data the lock above
+# already committed, so holding the global graph lock through a whole-vault
+# clustering pass only makes every concurrent publisher wait out someone else's
+# render. The capture prompt owned this step until the two-call rewrite dropped
+# it and nothing picked it up, so Raw/Graphs/vault-graph.html drifted behind the
+# JSON after every capture. Non-fatal for the same reason vault-extract treats
+# it as non-fatal: the graph data is committed, only the HTML is at stake.
+#
+# The root is derived from VAULT_GRAPH rather than written literally, because
+# every other path here is MEMCAP_*-overridable and the fixtures do override it.
+# A literal would send a test run into the real vault. cluster-only takes a
+# PROJECT root and writes to <root>/graphify-out/, so it gets "." from there.
+VAULT_ROOT=$(dirname "$(dirname "$VAULT_GRAPH")")
+(
+  cd "$VAULT_ROOT" \
+    && mkdir -p Raw/Graphs \
+    && "$GRAPHIFY_BIN" cluster-only . >/dev/null 2>/dev/null \
+    && cp -f graphify-out/graph.html Raw/Graphs/vault-graph.html
+) || echo "publish-memory-capture: viz re-render skipped; vault-graph.html may be stale" >&2
