@@ -819,7 +819,27 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn." >&2
+  # Say it once, and say it as a decision rather than a failure. Two separate
+  # things were wrong. Every refused call in the same round repeated the entire
+  # table spec, so trying two edits before publishing produced two identical
+  # walls of text; and `exit 2` renders as "PreToolUse:Edit hook error", which
+  # reads as a broken tool rather than as a gate doing exactly its job. The
+  # strike counter above is already keyed to this round, and the deny shape
+  # below is the one block-attributed-commits.sh already uses in this plugin.
+  if [ "$PRETOOL_STRIKES" -le 1 ]; then
+    PRETOOL_REASON="Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn."
+  else
+    PRETOOL_REASON="Still no triage table for this round. Publish it in a TOOL-FREE response that ends the turn, then fixes may begin."
+  fi
+  # A deny that cannot be rendered must still block. Falling back to exit 2 is
+  # ugly; exit 0 carrying no decision is the gate failing open, which is worse.
+  if PRETOOL_DENY=$(jq -n --arg r "$PRETOOL_REASON" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"deny", permissionDecisionReason:$r}}' 2>/dev/null) \
+     && [ -n "$PRETOOL_DENY" ]; then
+    printf '%s\n' "$PRETOOL_DENY"
+    exit 0
+  fi
+  printf '%s\n' "$PRETOOL_REASON" >&2
   exit 2
 fi
 
@@ -1394,7 +1414,7 @@ else
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   if [ -n "$FAILED" ]; then
     REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
   fi
@@ -1425,7 +1445,7 @@ if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     if ! write_acknowledgement; then
-      emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
+      emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
     fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
@@ -1449,12 +1469,18 @@ if all_required_lanes_completed_for_current_head; then
     # the lane demand already bumped to 1 before any FIX phase begins, so
     # gating on it meant the full directive never emitted at all and the
     # short line carried the whole contract. Same file shape, same helper.
-    FIX_COUNT_FILE="$GIT_DIR/sdd-review-fix-count-pr-$CURRENT"
+    #
+    # Keyed by PR number like ACK_FILE and COUNT_FILE, and emphatically not by
+    # $CURRENT: that is the branch name, and a branch name containing a slash
+    # made this a path through a directory that does not exist. The write then
+    # failed, `|| true` swallowed it, the counter never persisted, and the full
+    # directive re-emitted on every single turn.
+    FIX_COUNT_FILE="$GIT_DIR/sdd-review-fix-count-pr-$PR_NUMBER"
     if [ "$(read_count_from "$FIX_COUNT_FILE")" -ge 1 ] 2>/dev/null; then
-      emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — still in FIX phase. Keep applying the accepted rows, then commit and push when they are all done and this head's CI is green."
+      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — still in FIX phase. Keep applying the accepted rows, then commit and push when they are all done and this head's CI is green."
     fi
     echo "$CURRENT_PR_HEAD:1" > "$FIX_COUNT_FILE" 2>/dev/null || true
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
+    emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
@@ -1470,7 +1496,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0

@@ -33,7 +33,7 @@ done
 [ -n "$VARS_FILE" ] || { echo "run-memory-capture: --vars is required" >&2; exit 2; }
 [ -r "$VARS_FILE" ] || { echo "run-memory-capture: carrier unreadable: $VARS_FILE" >&2; exit 2; }
 
-for tool in claude timeout jq flock; do
+for tool in claude timeout jq flock python3; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "run-memory-capture: $tool is required; refusing to launch" >&2
     exit 3
@@ -69,6 +69,12 @@ START_LINE=$((LAST_LINE + 1))
 PROMPT_FILE="$SCRIPT_DIR/memory-agent-prompt.md"
 [ -r "$PROMPT_FILE" ] || { echo "run-memory-capture: missing $PROMPT_FILE" >&2; exit 3; }
 
+# The prompt mandates this helper for the graph chunk, so it belongs in the
+# same cheap gate as the tools above. Discovering it missing inside the
+# four-turn budget costs the whole capture; discovering it here costs nothing.
+GRAPH_BUILDER="$SCRIPT_DIR/build-memory-graph.py"
+[ -r "$GRAPH_BUILDER" ] || { echo "run-memory-capture: missing $GRAPH_BUILDER" >&2; exit 3; }
+
 # The payload directory is the one the prompt already names, derived the same
 # way (`/tmp/memory-capture-{first 8 of SESSION_ID}`), so the capture reads its
 # chunks from where it has always read them. It outlives this script on purpose:
@@ -101,10 +107,27 @@ CHUNK_COUNT=$(find "$PAYLOAD_DIR" -maxdepth 1 -name 'chunk-*.md' | wc -l)
 # to reread. Chunk files stay on disk for inspection but the capture never sees
 # them -- rereading them was worth a model round-trip each.
 REQUEST="$PAYLOAD_DIR/request.json"
-if ! find "$PAYLOAD_DIR" -maxdepth 1 -name 'chunk-*.md' | sort | xargs cat \
+JOINED="$PAYLOAD_DIR/joined.md"
+
+# The prompt tells the capture its transcript is "bounded by the launcher".
+# It was not -- every chunk was inlined regardless of size -- so the one
+# property the model is told to rely on was the one nobody enforced. Bound it
+# here, where the claim is made.
+MAX_PAYLOAD_BYTES="${CODEFLARE_MEMORY_MAX_PAYLOAD_BYTES:-400000}"
+case "$MAX_PAYLOAD_BYTES" in ''|*[!0-9]*|0) MAX_PAYLOAD_BYTES=400000 ;; esac
+
+# Joined to a file first, then bounded from that file. Piping straight into
+# `head -c` closes the pipe under `set -o pipefail`, so an ordinary truncation
+# would surface as "could not build the request payload".
+if ! find "$PAYLOAD_DIR" -maxdepth 1 -name 'chunk-*.md' | sort | xargs cat > "$JOINED"; then
+  echo "run-memory-capture: could not assemble the transcript" >&2
+  exit 4
+fi
+if ! head -c "$MAX_PAYLOAD_BYTES" "$JOINED" \
      | jq -Rs --arg sid "$SESSION_ID" --arg ts "$(jq -r '.capture_timestamp // empty' "$VARS_FILE")" \
             --arg cf "$CAPTURE_FILE" --arg cc "$(jq -r '.current_count // 0' "$VARS_FILE")" \
-       '{session_id:$sid, current_count:$cc, capture_timestamp:$ts, capture_file:$cf, transcript:.}' \
+       '{session_id:$sid, current_count:($cc|tonumber? // 0), capture_timestamp:$ts,
+         capture_file:$cf, transcript:.}' \
      > "$REQUEST"; then
   echo "run-memory-capture: could not build the request payload" >&2
   exit 4
@@ -122,6 +145,12 @@ TASK=$(printf 'VARS_FILE=%s\n' "$REQUEST")
 CAPTURE_TIMEOUT="${MEMORY_CAPTURE_TIMEOUT:-900}"
 case "$CAPTURE_TIMEOUT" in ''|*[!0-9]*|0) CAPTURE_TIMEOUT=900 ;; esac
 
+# Same guard as the timeout above, for the same reason: an override that is not
+# a number reaches `claude` as an argv it rejects, and every capture then fails
+# for a reason no log explains.
+CAPTURE_TURNS="${CODEFLARE_MEMORY_MAX_TURNS:-4}"
+case "$CAPTURE_TURNS" in ''|*[!0-9]*|0) CAPTURE_TURNS=4 ;; esac
+
 # Sonnet at medium effort, and stated here rather than left to whatever the
 # runner defaults to. Capture is a fidelity job, not a reasoning one: the file
 # embeds verbatim REQ IDs, ADR numbers and commit SHAs that later sessions cite,
@@ -135,7 +164,7 @@ set -- \
   --strict-mcp-config \
   --system-prompt "$SYSTEM_PROMPT" \
   --tools Read,Write,Bash \
-  --max-turns "${CODEFLARE_MEMORY_MAX_TURNS:-4}" \
+  --max-turns "$CAPTURE_TURNS" \
   --model "${CODEFLARE_MEMORY_MODEL:-sonnet}" \
   --effort "${CODEFLARE_MEMORY_EFFORT:-medium}" \
   --permission-mode bypassPermissions

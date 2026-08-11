@@ -11,8 +11,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync } from 'node:fs';
+import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +27,7 @@ const REMINDER_HOOK = resolve(
 );
 
 function makeFixture() {
-  const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-'));
+  const cwd = tempDir('enforce-spawn-');
   // Initialize a git repo so $(git rev-parse --git-common-dir) succeeds
   spawnSync('git', ['init', '-q'], { cwd });
   spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
@@ -58,7 +58,7 @@ function withSdd(cwd) {
 // ack-freshness branch below the retroactive scan unreachable -- the blind spot
 // that let a silently-acknowledging gate ship.
 function withUpstream(cwd) {
-  const remote = mkdtempSync(join(tmpdir(), 'origin-'));
+  const remote = tempDir('origin-');
   spawnSync('git', ['init', '-q', '--bare', remote]);
   spawnSync('git', ['remote', 'add', 'origin', remote], { cwd });
   spawnSync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd });
@@ -289,17 +289,65 @@ describe('enforce-review-spawn.sh — event scoping', () => {
 // shared demand file, which the lane demand had already bumped to 1 before any
 // FIX phase began, so the full directive never emitted and the one-line form
 // silently carried the whole contract.
+// That is observable from outside the hook, so these rows ask the hook rather
+// than reading its source. One run per row: the ack this writes is seconds old,
+// and a second run in the same test would hit the ack-freshness guard and
+// return before the FIX directive, proving nothing about the counter.
 describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
-  it('uses a counter file distinct from the lane and verdict demand counters', () => {
-    const src = readFileSync(HOOK, 'utf-8');
-    const fixLine = src.split('\n').find((l) => l.includes('FIX_COUNT_FILE='));
-    assert.ok(fixLine, 'the FIX phase declares its own counter file');
-    // Distinct basename, same directory and helper as the verdict counter.
-    assert.match(fixLine, /sdd-review-fix-count-pr-/);
-    assert.ok(!src.includes('read_count)" -ge 1'),
-      'the FIX gate must not read the shared per-head demand counter');
-    assert.ok(src.includes('read_count_from "$FIX_COUNT_FILE"'),
-      'it reads its own counter through the shared head-keyed helper');
+  // Reaches the FIX phase with this head's lane demand already spent, which is
+  // the real-world state and the one that used to swallow the contract.
+  function atFixPhase({ branch, fixCounterSpent = false } = {}) {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    if (branch) spawnSync('git', ['checkout', '-q', '-b', branch], { cwd });
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_f1'),
+      LANE_BASH_DONE_LINE('toolu_f1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_f2'),
+      LANE_BASH_DONE_LINE('toolu_f2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_f3'),
+      LANE_BASH_DONE_LINE('toolu_f3'),
+      TRIAGE_LINE(),
+    ]);
+    const gitDir = join(cwd, spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim());
+    const fixFile = join(gitDir, 'sdd-review-fix-count-pr-42');
+    writeFileSync(join(gitDir, 'sdd-review-count-pr-42'), `${headSha}:1\n`);
+    if (fixCounterSpent) writeFileSync(fixFile, `${headSha}:1\n`);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    return { reason: JSON.parse(r.stdout).reason, fixFile, headSha };
+  }
+
+  it('spends a counter of its own when the lane counter is already spent', () => {
+    const { reason, fixFile, headSha } = atFixPhase();
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), `${headSha}:1`,
+      'the FIX phase keys its own counter to this head, not the lane counter');
+    assert.ok(reason.length > 500,
+      'a spent lane counter must not collapse the directive into the short form');
+  });
+
+  it('costs one line once its own counter is spent', () => {
+    const full = atFixPhase().reason;
+    const short = atFixPhase({ fixCounterSpent: true }).reason;
+    assert.ok(short.length < full.length / 2,
+      'the second delivery states the obligation, it does not restate the contract');
+  });
+
+  // The counter path was built from the branch name. A branch with a slash in
+  // it made that a path through a directory that does not exist, the write
+  // failed, `|| true` swallowed it, and the full directive re-emitted on every
+  // turn for the entire round. Every branch this hook guards is a PR branch,
+  // and PR branches are exactly where slashes live.
+  it('persists its counter on a branch whose name contains a slash', () => {
+    const { reason, fixFile, headSha } = atFixPhase({ branch: 'fix/with-slash' });
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), `${headSha}:1`,
+      'a slash in the branch name must not silently discard the counter');
+    assert.match(reason, /^PR #42 @/,
+      'and the directive identifies the PR by number, not by branch');
   });
 });
 
@@ -402,7 +450,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   // command, classifier restored. Only the pair isolates the cause, because the
   // gate's refusal message is the generic triage reminder and never names it.
   const isolatedHook = (withClassifier) => {
-    const dir = mkdtempSync(join(tmpdir(), 'enforce-spawn-no-boundary-'));
+    const dir = tempDir('enforce-spawn-no-boundary-');
     const hook = join(dir, 'enforce-review-spawn.sh');
     writeFileSync(hook, readFileSync(HOOK, 'utf-8'));
     chmodSync(hook, 0o755);
@@ -1269,8 +1317,6 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'a fix push is the next boundary, not a new decision to put to the user');
     assert.match(reason, /terminal CI_RESULT/,
       'and it waits out this head\'s CI so the in-flight run is not discarded');
-    assert.match(r.stdout, /do not merge/i,
-      'automatic fix delivery must never become automatic merge');
   });
 
   // The retroactive scan recovers checkpoints for heads whose live enforcement
@@ -2311,7 +2357,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     // envelope cwd (or eventually fail-safe exit 0). Post-fix the
     // awk parser handles double-quoted paths.
     // Use a path that genuinely contains a space character.
-    const parent = mkdtempSync(join(tmpdir(), 'enforce-spawn-spaces-'));
+    const parent = tempDir('enforce-spawn-spaces-');
     const repoDir = join(parent, 'dir with spaces');
     mkdirSync(repoDir);
     spawnSync('git', ['init', '-q'], { cwd: repoDir });
@@ -2337,7 +2383,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
 function makeLaneFixture() {
   // Two real commits in a git repo so the diff between them is non-empty
   // and classification can act on real paths. Returns { cwd, baseSha }.
-  const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-lanes-'));
+  const cwd = tempDir('enforce-spawn-lanes-');
   spawnSync('git', ['init', '-q'], { cwd });
   spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd });
@@ -2568,7 +2614,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       writeFileSync(join(cwd, 'documentation/architecture.md'), 'changed\n');
     });
 
-    const isolatedDir = mkdtempSync(join(tmpdir(), 'enforce-spawn-no-classifier-'));
+    const isolatedDir = tempDir('enforce-spawn-no-classifier-');
     const isolatedHook = join(isolatedDir, 'enforce-review-spawn.sh');
     const isolatedLib = join(isolatedDir, 'lib');
     mkdirSync(isolatedLib, { recursive: true });

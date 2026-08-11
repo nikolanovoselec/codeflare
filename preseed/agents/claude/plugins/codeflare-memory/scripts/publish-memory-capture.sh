@@ -37,6 +37,20 @@ flock -w 300 "$LOCK_FILE" bash -c '
   set -e
   "$1" "$2"
   "$3" global add "$4" --as user_vault
+  # Re-render the viz. The capture prompt owned this step until the two-call
+  # rewrite dropped it, and nothing picked it up: Raw/Graphs/vault-graph.html
+  # then drifts behind the JSON after every capture until some unrelated
+  # vault-extract run happens to fix it. Non-fatal for the same reason
+  # vault-extract treats it as non-fatal -- the graph data is committed on the
+  # line above, and the only thing at stake here is a stale HTML.
+  # cluster-only takes a PROJECT root and writes to <root>/graphify-out/, so
+  # this passes . from the vault root; passing graphify-out nests it.
+  (
+    cd /home/user/Vault \
+      && mkdir -p Raw/Graphs \
+      && "$3" cluster-only . >/dev/null 2>&1 \
+      && cp -f graphify-out/graph.html Raw/Graphs/vault-graph.html
+  ) || echo "publish-memory-capture: viz re-render skipped; vault-graph.html may be stale" >&2
   # The counter advances here and nowhere else. The arming hook used to do it,
   # which meant a capture that died still marked its window as covered and
   # those messages were never revisited. Monotonic, like Pi'"'"'s

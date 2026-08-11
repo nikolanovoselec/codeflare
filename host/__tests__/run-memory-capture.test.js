@@ -8,10 +8,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { tempDir } from './helpers/temp-dirs.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +24,7 @@ const SESSION = 'abcdef1234567890';
 const PAYLOAD_DIR = `/tmp/memory-capture-${SESSION.slice(0, 8)}`;
 
 function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'memcap-'));
+  const dir = tempDir('memcap-');
   const bin = join(dir, 'bin');
   mkdirSync(bin, { recursive: true });
   const capture = join(dir, 'capture.md');
@@ -87,8 +87,18 @@ describe('run-memory-capture.sh — headless capture transport', () => {
 
     assert.ok(existsSync(join(PAYLOAD_DIR, 'clean.ndjson')), 'prefilter ran before the model started');
     const task = readFileSync(join(fx.dir, 'stdin.txt'), 'utf-8');
-    assert.match(task, new RegExp(`WORK_DIR=${PAYLOAD_DIR}`), 'the payload directory is named');
+    const request = join(PAYLOAD_DIR, 'request.json');
+    assert.match(task, new RegExp(`VARS_FILE=${request}`), 'the model is pointed at the prepared request');
     assert.doesNotMatch(task, new RegExp(fx.transcript), 'the raw transcript path is not handed over');
+
+    // Self-contained by contract: the conversation travels inside the request,
+    // so the capture has no path to derive, no directory to walk and nothing
+    // to reread. Each reread cost a model round-trip out of a budget of four.
+    const payload = JSON.parse(readFileSync(request, 'utf-8'));
+    assert.equal(payload.capture_file, fx.capture, 'the capture target is carried, not recomputed');
+    assert.equal(typeof payload.current_count, 'number', 'a count crosses as a number, not a string');
+    assert.ok(payload.transcript.includes('prompt number 0'),
+      'the prefiltered conversation is embedded, not referenced');
   });
 
   it('bounds the run and isolates it from session configuration', () => {

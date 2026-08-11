@@ -9,8 +9,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync } from 'node:fs';
+import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,8 +21,8 @@ const HOOK = resolve(
 );
 
 function makeFixture() {
-  const home = mkdtempSync(join(tmpdir(), 'memcap-home-'));
-  const counterDir = mkdtempSync(join(tmpdir(), 'memcap-counter-'));
+  const home = tempDir('memcap-home-');
+  const counterDir = tempDir('memcap-counter-');
   return { home, counterDir };
 }
 
@@ -341,7 +341,7 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     // question: the hook resolves it next to itself, so a stub with a sentinel
     // proves delegation on every machine and fails the moment anyone inlines.
     const fx = makeFixture();
-    const shadowDir = mkdtempSync(join(tmpdir(), 'memcap-shadow-'));
+    const shadowDir = tempDir('memcap-shadow-');
     copyFileSync(HOOK, join(shadowDir, 'memory-capture.sh'));
     writeFileSync(
       join(shadowDir, 'assert-iso-ts.sh'),
@@ -457,7 +457,7 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
       if (state === 'lock unopenable' && process.getuid?.() === 0) {
         return t.skip('root ignores file modes; fixture would be vacuous');
       }
-      const dir = mkdtempSync(join(tmpdir(), 'probe-'));
+      const dir = tempDir('probe-');
       const vars = join(dir, 's.vars');
       setup(`${vars}.lock`);
       const r = spawnSync('bash', ['-c',
@@ -531,7 +531,7 @@ describe('publish-memory-capture.sh - artifact-gated commit / REQ-MEM-020', () =
   );
 
   function setup() {
-    const dir = mkdtempSync(join(tmpdir(), 'memcap-pub-'));
+    const dir = tempDir('memcap-pub-');
     const counterFile = join(dir, 'sess-pub');
     const varsFile = join(dir, 'sess-pub.vars');
     const captureFile = join(dir, 'capture.md');

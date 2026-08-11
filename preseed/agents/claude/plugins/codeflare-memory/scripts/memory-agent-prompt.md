@@ -119,9 +119,14 @@ co-occurring in a bullet. With no wikilinks it emits the document node alone.
 Then, still in the same call, rename both artifacts atomically:
 
 ```bash
+mkdir -p "$(dirname "$TARGET")" /home/user/Vault/graphify-out
 mv -f "$TARGET_WORK" "$TARGET"
 mv -f "$WORK_CHUNK" "$CHUNK"
 ```
+
+The `mkdir -p` is not ceremony. On a fresh container, or one restored from R2
+before the vault tree exists, the rename fails, the publisher refuses because
+the capture file is absent, and the window retries until it gives up.
 
 Do not merge the vault graph, do not run `graphify global add`, and do not
 advance any counter. `publish-memory-capture.sh` does all three under one lock
