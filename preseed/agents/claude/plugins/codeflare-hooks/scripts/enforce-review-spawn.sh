@@ -112,12 +112,19 @@ if [ -n "$PRETOOL_MODE" ]; then
   # triage, a lane relaunched) and let inspection through, which is the same
   # correction the capture hard block needed: deny what matters, not everything.
   #
-  # The test is structural, not a substring. A literal "git push" match misses
-  # `git -C /repo push`, `git -c user.email=x commit` and `gh -R o/r pr merge`,
-  # which are the ordinary flag-carrying forms, so it would admit precisely the
-  # deliveries this window exists to refuse. Options are skipped the way
-  # bash_line_runs_lane already tolerates env prefixes and paths, and anchoring
-  # on a command position keeps `grep "git push" file` an investigation.
+  # The test is structural, not a substring, and it is anchored at a command
+  # position so `grep "git push" file` stays an investigation. A delivery can
+  # arrive wearing any of four things the naive forms miss, and each was a real
+  # bypass in an earlier revision of this check: flags on the tool itself
+  # (`git -C /repo push`, `gh -R o/r pr merge`), a leading environment
+  # assignment (`GIT_SSH_COMMAND=x git push`), a wrapper or absolute path
+  # (`env git push`, `/usr/bin/git push`), and a shell keyword rather than a
+  # separator in front of it (`if true; then git push; fi`). All four are
+  # skipped before the tool name is matched.
+  #
+  # It over-refuses in one known way: a separator inside a quoted argument, as
+  # in `grep "; git push" file`, reads as a command position. That is the safe
+  # direction and is left alone deliberately.
   case "$TOOL_NAME" in
     Bash|mcp__*ctx_execute|mcp__*ctx_execute_file|mcp__*ctx_batch_execute)
       PRETOOL_CMD=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_input.code // "", ([.tool_input.commands[]?.command // ""] | join("\n"))] | join("\n")' 2>/dev/null) || PRETOOL_CMD=""
@@ -128,7 +135,7 @@ if [ -n "$PRETOOL_MODE" ]; then
         case "$PRETOOL_CMD" in
           *run-review-lane.sh*) ;;
           *)
-            printf '%s' "$PRETOOL_CMD" | grep -qE '(^|[;&|])[[:space:]]*(git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit)|gh([[:space:]]+-[^[:space:]]+[[:space:]]+[^[:space:]]+)*[[:space:]]+pr[[:space:]]+(create|merge))' || exit 0
+            printf '%s' "$PRETOOL_CMD" | grep -qE '(^|[;&|(]|\bthen\b|\bdo\b)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*((env|sudo|nohup|time|command|exec)[[:space:]]+)*([^[:space:]]*/)?(git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+(push|commit)|gh([[:space:]]+-[^[:space:]]+[[:space:]]+[^[:space:]]+)*[[:space:]]+pr[[:space:]]+(create|merge))' || exit 0
             ;;
         esac
       fi

@@ -353,24 +353,62 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
 
   // The window exists to stop the round being spoiled, not to stop the agent
   // looking things up: judging a finding regularly needs to run something.
-  it('lets investigation through the blocked window but not a delivery', () => {
+  //
+  // Every refused case gets its OWN fixture on purpose. The gate carries a
+  // 5-strike breaker keyed on the completion line, so more than five refusals
+  // against one transcript make the sixth pass -- which silently turned a real
+  // refusal into an allow and cost a CI run to notice.
+  it('lets investigation through the blocked window', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     for (const tool of ['Grep', 'Glob']) {
       assert.equal(pretool(cwd, t, tool).status, 0, `${tool} is read-only`);
     }
-    for (const cmd of ['diff a b | head -20', 'grep -n "git push" file', 'git status --porcelain']) {
+    for (const cmd of [
+      'diff a.json b.json | head -20',
+      'grep -n "git push" file',
+      'git status --porcelain',
+      'git log --oneline -5',
+      'gh run view 123 --log-failed',
+      'gh pr view 827 --json state',
+    ]) {
       assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 0, cmd);
     }
-    // Options must not smuggle a delivery past the check, which a literal
-    // substring test allowed, and an unreadable payload must not read as safe.
-    for (const cmd of ['git -C /repo push', 'git -c user.email=x commit -m y',
-                       'gh -R o/r pr merge 1', 'cd /x && git push',
-                       'bash run-review-lane.sh --lane code-reviewer']) {
+  });
+
+  // A delivery reaches the shell wearing flags, an env assignment, a wrapper or
+  // an absolute path, or behind a shell keyword. Each of these was a live
+  // bypass in an earlier revision of this check, so each is pinned by name.
+  for (const cmd of [
+    'git push',
+    'git -C /repo push',
+    'git -c user.email=x commit -m y',
+    'gh pr create --base develop',
+    'gh -R o/r pr merge 827',
+    'cd /x && git push',
+    'GIT_SSH_COMMAND=x git push',
+    '/usr/bin/git push',
+    'env git push',
+    'sudo git push',
+    'time git commit -m x',
+    '( git push )',
+    'if true; then git push; fi',
+    'for i in 1; do git push; done',
+    'GH_TOKEN=x gh pr create',
+    'bash run-review-lane.sh --lane code-reviewer',
+  ]) {
+    it(`refuses a delivery in the blocked window: ${cmd}`, () => {
+      const cwd = makeFixture();
+      const t = writeTranscript(cwd, completedRound());
       assert.equal(pretool(cwd, t, 'Bash', undefined, cmd).status, 2, cmd);
-    }
-    assert.equal(pretool(cwd, t, 'Bash').status, 2,
-      'a Bash call with no readable command fails closed');
+    });
+  }
+
+  it('refuses a Bash call whose command cannot be read', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    // "No delivery verb seen" and "could not look" are different answers.
+    assert.equal(pretool(cwd, t, 'Bash').status, 2);
   });
 
   it('scopes out every subagent, not one by name', () => {
