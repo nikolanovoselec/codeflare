@@ -6,6 +6,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
@@ -449,23 +450,38 @@ export type GlobalGraphPlan = {
  * previous active repo, so a tag left behind by a crashed run is swept too.
  * An unreadable or malformed manifest yields no removals, which is the
  * conservative direction: adding is idempotent, removing is not.
+ *
+ * `currentGraphHash` carries the same source-hash dedup the shell hook applies
+ * (graphify-active-repo.sh): when the manifest already records this graph's
+ * hash there is nothing to publish, so a repo transition stops paying a
+ * synchronous `global add` under the lock for a no-op. A malformed stored hash
+ * refuses the optimisation rather than trusting it.
  */
 export function planGlobalGraphReconcile(
   manifestRaw: string | undefined,
   repo: string,
   repoHasGraph: boolean,
+  currentGraphHash?: string,
 ): GlobalGraphPlan {
   const keepTag = repoHasGraph ? basename(repo) : "";
   let tags: string[] = [];
+  let storedHash: string | undefined;
   try {
-    const parsed = manifestRaw ? (JSON.parse(manifestRaw) as { repos?: Record<string, unknown> }) : undefined;
+    const parsed = manifestRaw
+      ? (JSON.parse(manifestRaw) as { repos?: Record<string, { source_hash?: unknown }> })
+      : undefined;
     const repos = parsed?.repos;
-    if (repos && typeof repos === "object") tags = Object.keys(repos);
+    if (repos && typeof repos === "object") {
+      tags = Object.keys(repos);
+      const recorded = keepTag ? repos[keepTag]?.source_hash : undefined;
+      if (typeof recorded === "string" && recorded.length === 16) storedHash = recorded;
+    }
   } catch {
     tags = [];
   }
   const remove = tags.filter((tag) => tag !== "user_vault" && tag !== keepTag);
-  return keepTag
+  const alreadyPublished = !!currentGraphHash && !!storedHash && currentGraphHash === storedHash;
+  return keepTag && !alreadyPublished
     ? { remove, add: { graph: join(repo, "graphify-out", "graph.json"), tag: keepTag } }
     : { remove };
 }
@@ -478,8 +494,28 @@ function readGlobalManifest(): string | undefined {
   }
 }
 
-function reconcileGlobalGraph(repo: string): boolean {
-  const plan = planGlobalGraphReconcile(readGlobalManifest(), repo, existsSync(join(repo, "graphify-out", "graph.json")));
+function graphSourceHash(graph: string): string | undefined {
+  try {
+    // graphify records the first 16 hex chars of the file SHA-256.
+    return createHash("sha256").update(readFileSync(graph)).digest("hex").slice(0, 16);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Returns false only for a genuine reconcile failure, which is what the
+ * session_start handler surfaces. A missing CLI returns true (see the catch).
+ */
+export function reconcileGlobalGraph(repo: string): boolean {
+  const graph = join(repo, "graphify-out", "graph.json");
+  const hasGraphFile = existsSync(graph);
+  const plan = planGlobalGraphReconcile(
+    readGlobalManifest(),
+    repo,
+    hasGraphFile,
+    hasGraphFile ? graphSourceHash(graph) : undefined,
+  );
   if (plan.remove.length === 0 && !plan.add) return true;
   try {
     // Removals and the addition share one lock acquisition, so a concurrent
@@ -502,12 +538,17 @@ function reconcileGlobalGraph(repo: string): boolean {
       { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
     return true;
-  } catch {
-    // A failed removal aborts the shared script before the add, so the active
-    // repo can end up absent from the global graph. Unlike the Claude hook
-    // there is no sentinel to withhold and no next tool call that retries, so
-    // the caller surfaces this rather than letting queries return nothing for
-    // a reason the user cannot see.
+  } catch (error) {
+    // A missing flock or graphify binary is a supported configuration, named
+    // as such by entrypoint.sh ("graphify plugin disabled"). Warning about it
+    // on every session start would nag about something the user cannot act on,
+    // so it stays the silent no-op it has always been.
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return true;
+    // A genuine non-zero exit is different: a failed removal aborts the shared
+    // script before the add, so the active repo can end up absent from the
+    // global graph. Unlike the Claude hook there is no sentinel to withhold and
+    // no next tool call that retries, so the caller surfaces this rather than
+    // letting queries return nothing for a reason the user cannot see.
     return false;
   }
 }
@@ -769,8 +810,8 @@ export default function (pi: ExtensionAPI) {
     // must remove the previous repo's tag rather than leave it published.
     // Failure is not surfaced here, unlike session_start: a repo transition
     // can happen many times per session and the next one reconciles anyway,
-    // so warning on each would be noise.
-    if (repo) reconcileGlobalGraph(repo);
+    // so warning on each would be noise. `void` marks the discard as deliberate.
+    if (repo) void reconcileGlobalGraph(repo);
 
     if (decision && !existsSync(decision.marker)) {
       writeFileSync(decision.marker, "1", "utf8");
