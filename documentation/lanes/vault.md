@@ -686,4 +686,4 @@ or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#tr
 
 - [architecture.md](./architecture.md) -- Container layout, Worker proxy boundary.
 - [deployment.md](./deployment.md) -- How Dockerfile + preseed land in a new session.
-- [`sdd/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.
+- [`sdd/spec/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.
