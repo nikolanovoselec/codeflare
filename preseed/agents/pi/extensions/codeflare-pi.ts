@@ -225,7 +225,7 @@ function existingGraphCloneNotice(repo: string): { message: string; level: "info
 function graphSummary(repo: string): string | undefined {
   const graphPath = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graphPath)) return undefined;
-  const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/graph.json. Global graph: /home/user/.graphify/global-graph.json.";
+  const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/vault-graph.json, the cumulative graph; the graph.json beside it is an empty scaffold. Global graph: /home/user/.graphify/global-graph.json.";
   try {
     // Skip the synchronous parse on very large graphs; reading a multi-MB graph at
     // session start would block the agent. 30MB mirrors the Claude session-start guard.
@@ -580,7 +580,7 @@ export default function (pi: ExtensionAPI) {
     description: "Run Codeflare vault operations",
     handler: async (args, ctx) => {
       const action = args.trim() || "status";
-      await sendWorkflowMessage(pi, ctx, `/vault ${action}`, `${skillPrompt("vault-operations", "Use Codeflare vault operations.")}\n\nIf action is index, update the Vault graph at ~/Vault/graphify-out and merge it into the global graph.`);
+      await sendWorkflowMessage(pi, ctx, `/vault ${action}`, `${skillPrompt("vault-operations", "Use Codeflare vault operations.")}\n\nIf action is index, update the cumulative Vault graph at ~/Vault/graphify-out/vault-graph.json and merge it into the global graph.`);
     },
   });
 
