@@ -71,7 +71,7 @@ AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 # specifier as a package name: invoked as `bash path/to/enforce-review-spawn.sh`
 # the relative form throws MODULE_NOT_FOUND, which is the one input that makes
 # the scan look like a transcript with nothing in it.
-SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR="$(dirname "$0")"
 CLASSIFIER_LIB="$SCRIPT_DIR/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
@@ -313,7 +313,12 @@ NODE
 # file's own fail-safe contract. The word test is deliberately cruder than the
 # parser it stands in for: it decides whether to refuse, never whether to admit,
 # so its only error is refusing a turn that merely talks about git.
-if [ ! -r "$CLASSIFIER_LIB" ] && grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; then
+#
+# A transcript we cannot read counts as one that might carry a delivery. `grep`
+# answers "no match" and "could not look" with 1 and 2, and a bare `&&` reads
+# both as nothing-to-see -- the exact conflation this guard exists to end, and
+# only `-f` is checked upstream, never `-r`.
+if [ ! -r "$CLASSIFIER_LIB" ] && { [ ! -r "$TRANSCRIPT" ] || grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; }; then
   printf '%s\n' "Review enforcement cannot run: $CLASSIFIER_LIB is missing or unreadable. Restore the codeflare-hooks plugin before pushing." >&2
   exit 2
 fi

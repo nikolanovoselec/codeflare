@@ -442,6 +442,48 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assert.equal(r.status, 0, 'no git/gh activity means no candidate, classifier or not');
   });
 
+  // The permitted error. A transcript that mentions git without running a
+  // delivery is refused while the classifier is unreadable, because the word
+  // test cannot tell the two apart and refusing is the safe direction. Nothing
+  // else pins this, so a later tightening could flip it to fail-open silently.
+  it('refuses a Stop turn that only mentions git when the classifier is missing', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Bash', id: 'toolu_m', input: { command: 'cat .git/config' } }],
+        },
+        timestamp: '2026-05-03T12:00:01.000Z',
+      }),
+    ]);
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'a git mention is refused, not read as nothing to classify');
+  });
+
+  // `grep` answers "no match" and "could not look" with 1 and 2, and the guard
+  // must not read the second as the first. Root reads every file regardless of
+  // mode, so a chmod fixture proves nothing there and the row is skipped rather
+  // than left to pass for the wrong reason; CI runners are unprivileged.
+  it('refuses a Stop turn whose transcript cannot be read when the classifier is missing', (t) => {
+    if (process.getuid?.() === 0) return t.skip('root ignores file modes; fixture would be vacuous');
+    const cwd = makeFixture();
+    const transcript = writeTranscript(cwd, [PUSH_LINE()]);
+    chmodSync(transcript, 0o000);
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: transcript }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'an unreadable transcript is not "nothing to classify"');
+  });
+
   // A delivery reaches the shell wearing flags, an env assignment, a wrapper or
   // an absolute path, or behind a shell keyword. Each of these was a live
   // bypass in an earlier revision of this check, so each is pinned by name.
