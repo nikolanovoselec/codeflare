@@ -376,6 +376,52 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     }
   });
 
+  // Both callers refuse when the shared classifier will not load. Enforcement
+  // reads an absent parser as a transcript with no delivery in it, which is the
+  // one wrong answer that costs nothing to give and disables the whole gate.
+  const hookWithoutClassifier = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enforce-spawn-no-boundary-'));
+    const hook = join(dir, 'enforce-review-spawn.sh');
+    writeFileSync(hook, readFileSync(HOOK, 'utf-8'));
+    chmodSync(hook, 0o755);
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(
+      join(dir, 'lib/gh-pr-state.sh'),
+      readFileSync(join(dirname(HOOK), 'lib/gh-pr-state.sh'), 'utf-8'),
+    );
+    return hook;
+  };
+
+  it('refuses a Bash call when the boundary classifier cannot load', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const r = spawnSync('bash', [hookWithoutClassifier()], {
+      cwd,
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        transcript_path: t,
+        tool_name: 'Bash',
+        tool_input: { command: 'git log --oneline -5' },
+      }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'an unloadable classifier is refused, not read as clean');
+  });
+
+  it('blocks the Stop path when the boundary classifier cannot load', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = spawnSync('bash', [hookWithoutClassifier()], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'a scan that could not run must not exit as "no candidate"');
+    assert.match(r.stderr, /boundary-classifier\.cjs/, 'the block names the file to restore');
+  });
+
   // A delivery reaches the shell wearing flags, an env assignment, a wrapper or
   // an absolute path, or behind a shell keyword. Each of these was a live
   // bypass in an earlier revision of this check, so each is pinned by name.
@@ -2444,6 +2490,10 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     // install where the classifier file failed to deploy.
     const ghPrStateSrc = join(dirname(HOOK), 'lib/gh-pr-state.sh');
     writeFileSync(join(isolatedLib, 'gh-pr-state.sh'), readFileSync(ghPrStateSrc, 'utf-8'));
+    // The boundary classifier is a different lib with its own fail-closed row
+    // below; omitting it here would make this fixture prove that instead.
+    const classifierSrc = join(dirname(HOOK), 'lib/boundary-classifier.cjs');
+    writeFileSync(join(isolatedLib, 'boundary-classifier.cjs'), readFileSync(classifierSrc, 'utf-8'));
 
     const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
     const t = writeTranscript(cwd, [PUSH_LINE()]);

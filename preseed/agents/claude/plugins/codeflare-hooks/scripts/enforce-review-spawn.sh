@@ -67,10 +67,11 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # one-shot bypass the main session is owed.
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 # Both the Stop path's transcript scan and the PreToolUse gate classify shell
-# text the same way, so they load the same parser. Absent, the gate refuses and
-# the scan finds nothing -- both fail toward enforcement, which is where a
-# seeding gap should land.
-CLASSIFIER_LIB="$(dirname "$0")/lib/boundary-classifier.cjs"
+# text with the same parser. Absolute, because `require` reads a bare relative
+# specifier as a package name: invoked as `bash path/to/enforce-review-spawn.sh`
+# the relative form throws MODULE_NOT_FOUND, which is the one input that makes
+# the scan look like a transcript with nothing in it.
+CLASSIFIER_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
 case "$HOOK_EVENT" in
@@ -299,6 +300,17 @@ NODE
 # the same output. Enforcement triggers on any git/gh activity, which is the
 # long-standing contract; the coverage window narrows to a real delivery so a
 # read-only call cannot move it past a round's own lane spawns.
+# `transcript_scan` cannot distinguish "no delivery in the transcript" from
+# "could not look", and the swallowed stderr below collapses them: an absent
+# classifier leaves PUSH_LINE empty and the next line exits as "no candidate",
+# which silently disables review enforcement altogether. Refuse the turn
+# instead. This is the Stop-side twin of the gate's empty-verdict refusal, and
+# it is checked here rather than at the assignment above so a session with no
+# review activity is unaffected by a plugin it never reaches for.
+if [ ! -r "$CLASSIFIER_LIB" ]; then
+  printf '%s\n' "Review enforcement cannot run: $CLASSIFIER_LIB is missing or unreadable. Restore the codeflare-hooks plugin before pushing." >&2
+  exit 2
+fi
 TRANSCRIPT_SCAN=$(transcript_scan 2>/dev/null)
 candidate_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF { print $1 }'; }
 delivery_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF && $2 != "-" { print $1 }'; }
