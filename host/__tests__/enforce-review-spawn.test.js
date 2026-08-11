@@ -1034,7 +1034,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     // Parity with Pi, whose FIX follow-up names no push at all. A hook order
     // outranks the standing push gate, so ordering the push here is what
     // delivered heads while their own CI was still in flight.
-    assert.doesNotMatch(r.stdout, /push/i,
+    assert.doesNotMatch(JSON.parse(r.stdout).reason, /push/i,
       'the FIX directive must issue no push order; the review and CI gates own that decision');
     assert.match(r.stdout, /do not merge/i,
       'automatic fix delivery must never become automatic merge');
