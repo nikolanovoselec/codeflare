@@ -379,40 +379,48 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   // Both callers refuse when the shared classifier will not load. Enforcement
   // reads an absent parser as a transcript with no delivery in it, which is the
   // one wrong answer that costs nothing to give and disables the whole gate.
-  const hookWithoutClassifier = () => {
+  // Every lib except the one under test, so a refusal cannot come from a
+  // different missing file. `withClassifier` is the control: same fixture, same
+  // command, classifier restored. Only the pair isolates the cause, because the
+  // gate's refusal message is the generic triage reminder and never names it.
+  const isolatedHook = (withClassifier) => {
     const dir = mkdtempSync(join(tmpdir(), 'enforce-spawn-no-boundary-'));
     const hook = join(dir, 'enforce-review-spawn.sh');
     writeFileSync(hook, readFileSync(HOOK, 'utf-8'));
     chmodSync(hook, 0o755);
     mkdirSync(join(dir, 'lib'), { recursive: true });
-    writeFileSync(
-      join(dir, 'lib/gh-pr-state.sh'),
-      readFileSync(join(dirname(HOOK), 'lib/gh-pr-state.sh'), 'utf-8'),
-    );
+    const libs = ['gh-pr-state.sh', 'lane-classifier.sh'];
+    if (withClassifier) libs.push('boundary-classifier.cjs');
+    for (const lib of libs) {
+      writeFileSync(join(dir, 'lib', lib), readFileSync(join(dirname(HOOK), 'lib', lib), 'utf-8'));
+    }
     return hook;
   };
 
-  it('refuses a Bash call when the boundary classifier cannot load', () => {
-    const cwd = makeFixture();
-    const t = writeTranscript(cwd, completedRound());
-    const r = spawnSync('bash', [hookWithoutClassifier()], {
-      cwd,
-      input: JSON.stringify({
-        hook_event_name: 'PreToolUse',
-        transcript_path: t,
-        tool_name: 'Bash',
-        tool_input: { command: 'git log --oneline -5' },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
-    });
-    assert.equal(r.status, 2, 'an unloadable classifier is refused, not read as clean');
+  it('refuses a Bash call only because the boundary classifier cannot load', () => {
+    const gateCall = (withClassifier) => {
+      const cwd = makeFixture();
+      const t = writeTranscript(cwd, completedRound());
+      return spawnSync('bash', [isolatedHook(withClassifier)], {
+        cwd,
+        input: JSON.stringify({
+          hook_event_name: 'PreToolUse',
+          transcript_path: t,
+          tool_name: 'Bash',
+          tool_input: { command: 'git log --oneline -5' },
+        }),
+        encoding: 'utf-8',
+        env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+      });
+    };
+    assert.equal(gateCall(false).status, 2, 'an unloadable classifier is refused, not read as clean');
+    assert.equal(gateCall(true).status, 0, 'the same call passes once the classifier loads');
   });
 
   it('blocks the Stop path when the boundary classifier cannot load', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    const r = spawnSync('bash', [hookWithoutClassifier()], {
+    const r = spawnSync('bash', [isolatedHook(false)], {
       cwd,
       input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
       encoding: 'utf-8',
@@ -420,6 +428,18 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     });
     assert.equal(r.status, 2, 'a scan that could not run must not exit as "no candidate"');
     assert.match(r.stderr, /boundary-classifier\.cjs/, 'the block names the file to restore');
+  });
+
+  it('does not block a Stop turn with nothing to classify when the classifier is missing', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 0, 'no git/gh activity means no candidate, classifier or not');
   });
 
   // A delivery reaches the shell wearing flags, an env assignment, a wrapper or

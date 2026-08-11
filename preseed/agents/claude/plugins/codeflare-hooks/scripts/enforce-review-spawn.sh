@@ -71,7 +71,8 @@ AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 # specifier as a package name: invoked as `bash path/to/enforce-review-spawn.sh`
 # the relative form throws MODULE_NOT_FOUND, which is the one input that makes
 # the scan look like a transcript with nothing in it.
-CLASSIFIER_LIB="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/lib/boundary-classifier.cjs"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+CLASSIFIER_LIB="$SCRIPT_DIR/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
 case "$HOOK_EVENT" in
@@ -304,10 +305,15 @@ NODE
 # "could not look", and the swallowed stderr below collapses them: an absent
 # classifier leaves PUSH_LINE empty and the next line exits as "no candidate",
 # which silently disables review enforcement altogether. Refuse the turn
-# instead. This is the Stop-side twin of the gate's empty-verdict refusal, and
-# it is checked here rather than at the assignment above so a session with no
-# review activity is unaffected by a plugin it never reaches for.
-if [ ! -r "$CLASSIFIER_LIB" ]; then
+# instead -- the Stop-side twin of the gate's empty-verdict refusal.
+#
+# Only for a transcript that mentions git or gh at all. A turn with nothing to
+# classify has no candidate whatever state the classifier is in, so refusing it
+# would lock the session out over a plugin it never reaches for, against this
+# file's own fail-safe contract. The word test is deliberately cruder than the
+# parser it stands in for: it decides whether to refuse, never whether to admit,
+# so its only error is refusing a turn that merely talks about git.
+if [ ! -r "$CLASSIFIER_LIB" ] && grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; then
   printf '%s\n' "Review enforcement cannot run: $CLASSIFIER_LIB is missing or unreadable. Restore the codeflare-hooks plugin before pushing." >&2
   exit 2
 fi
@@ -438,7 +444,7 @@ GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 CURRENT=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
 LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
-. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+. "$SCRIPT_DIR/lib/gh-pr-state.sh" 2>/dev/null || exit 0
 PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
 PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
@@ -835,7 +841,7 @@ retroactive_ack_scan() {
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.
-  . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null || return
+  . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null || return
 
   # Convert space-separated push lines to an array for indexed access.
   local -a push_arr
@@ -1154,7 +1160,7 @@ emit_block() {
 # without ever acking a commit the PR does not carry.
 REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
-if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
+if . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null; then
   REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD")
 fi
 
