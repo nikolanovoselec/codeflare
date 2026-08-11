@@ -154,6 +154,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/run-memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/publish-memory-capture.sh": {
     "modes": [
       "advanced"

@@ -71,14 +71,15 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || HOOK_DIR="$(dirname "${BASH_SOURCE[0]}")"
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
 LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
-# Pi's extractionDue latch: deliver a request at most six times, then stop
+# Pi's extractionDue latch: retry a request at most six times, then stop
 # reminding and let a later arm replace it (memory-vault-helpers.ts::extractionDue,
-# memory-vault.ts:630). Bounded re-delivery is what replaced the hard block —
+# memory-vault.ts:630). Bounded retry is what replaced the hard block —
 # a directive the agent skips comes back next prompt instead of freezing the
 # session, so an ignored capture can no longer vanish silently.
-MAX_DELIVERIES=6
+MAX_ATTEMPTS=6
 REARM_AFTER=15
 MEMORY_SCAN=""
 FORCE_RESUME=""
@@ -89,8 +90,18 @@ emit_context() {
     exit 0
 }
 
-capture_directive() {
-    printf '%s' "MEMORY CAPTURE (background, non-blocking): a capture request is outstanding at ${1} (delivery ${2}/${MAX_DELIVERIES}). Spawn the memory-capture subagent with run_in_background=true and carry on with the user's work in the same turn; nothing is gated on it. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${1}. The request names the capture file to write, so write that exact path. If you do not spawn it, this reminder returns on the next prompt and is dropped after ${MAX_DELIVERIES} deliveries."
+launch_capture() {
+    # Detached, and the session never waits on it. This used to be a directive
+    # asking the agent to spawn a subagent, which made every capture cost a
+    # copy of the main conversation the extraction has no use for. The runner
+    # is a headless `claude -p` on the review lanes' transport (AD115): it
+    # builds its own payload and reads nothing from this session.
+    #
+    # Failure is silent by design here. Nothing in the user's turn is gated on
+    # a capture, so a launcher that cannot start must not interrupt them; the
+    # carrier stays on disk, the next prompt relaunches, and the attempt bound
+    # below stops that repeating forever.
+    setsid bash "$HOOK_DIR/run-memory-capture.sh" --vars "$1" >/dev/null 2>&1 &
 }
 if [[ -f "$COUNTER_FILE" ]]; then
     # Mid-session: counter present, normal 15-prompt cadence.
@@ -131,7 +142,7 @@ else
 fi
 
 # An outstanding request owns the session until it is published or latched.
-# Pi returns { kind: "none" } for a request already delivered or still running
+# Pi returns { kind: "none" } for a request already launched or still running
 # rather than stacking a second one, so arming is skipped entirely below.
 if [[ -f "$VARS_FILE" ]]; then
     if [[ -f "$LATCH_FILE" ]]; then
@@ -146,9 +157,9 @@ if [[ -f "$VARS_FILE" ]]; then
     else
         attempts=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null) || attempts=0
         [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
-        if [[ $attempts -ge $MAX_DELIVERIES ]]; then
+        if [[ $attempts -ge $MAX_ATTEMPTS ]]; then
             printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
-            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_DELIVERIES} undelivered reminders. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Do not spawn a capture now."
+            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_ATTEMPTS} failed launches. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Nothing is asked of you."
         fi
         attempts=$((attempts + 1))
         # jq cannot edit in place, and the request is the only copy of the
@@ -158,7 +169,7 @@ if [[ -f "$VARS_FILE" ]]; then
            && jq --argjson n "$attempts" '.attempts = $n' "$VARS_FILE" > "$tmp" 2>/dev/null; then
             mv -f "$tmp" "$VARS_FILE"
         else
-            # A delivery that cannot be counted is a delivery that never stops:
+            # A launch that cannot be counted is a launch that never stops:
             # every later prompt re-reads the same attempts value, re-emits, and
             # never reaches the bound this design exists to enforce. Latch so the
             # failure ends the loop rather than opening it.
@@ -169,20 +180,21 @@ if [[ -f "$VARS_FILE" ]]; then
             # failure, an unbounded reminder loop is the large one.
             [[ -n "${tmp:-}" ]] && rm -f "$tmp"
             if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
-                echo "memory-capture: cannot record delivery count; latching request at $VARS_FILE" >&2
+                echo "memory-capture: cannot record launch count; latching request at $VARS_FILE" >&2
             elif rm -f "$VARS_FILE" 2>/dev/null; then
-                echo "memory-capture: cannot record delivery count or latch; dropped request at $VARS_FILE" >&2
+                echo "memory-capture: cannot record launch count or latch; dropped request at $VARS_FILE" >&2
             else
                 # Report what happened, not what was attempted. The drop runs in
                 # the same directory that defeated the count and the latch, so it
                 # can fail too, and a message asserting an outcome it never
                 # checked is worse than none: it says the loop stopped while the
                 # loop continues.
-                echo "memory-capture: cannot record delivery count, latch, or drop; request at $VARS_FILE will re-deliver" >&2
+                echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE will relaunch" >&2
             fi
             emit_context "$MEMORY_SCAN"
         fi
-        emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" "$attempts")"
+        launch_capture "$VARS_FILE"
+        emit_context "$MEMORY_SCAN"
     fi
 fi
 
@@ -206,7 +218,6 @@ TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 # inline `date` silently narrowed it to UTC whenever both env vars were unset,
 # which is the #416 class of bug in a new place. Resolve the helper next to
 # this script so it is found from preseed, from ~/.claude, and under test.
-HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ISO_OUT=$(bash "$HOOK_DIR/assert-iso-ts.sh" 2>&1) || true
 CAPTURE_TS=$(printf '%s\n' "$ISO_OUT" | sed -n 's/^ISO_TS=//p')
 if [[ -z "$CAPTURE_TS" ]]; then
@@ -245,4 +256,5 @@ jq -n \
 # of a verified publication, which is where Pi advances it too
 # (finalizeMemorySuccess, gated on memorySuccessQualifies).
 
-emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" 1)"
+launch_capture "$VARS_FILE"
+emit_context "$MEMORY_SCAN"

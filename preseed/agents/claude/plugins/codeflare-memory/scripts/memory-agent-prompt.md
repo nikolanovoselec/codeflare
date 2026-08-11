@@ -51,35 +51,21 @@ that dies partway leaves the window uncommitted and the next request covers it
 again. An agent-side write would mark the window captured before the artifact
 existed, which is precisely the failure this design removes.
 
-### 2. Prefilter and chunk the transcript
+### 2. Your payload is already prepared
 
-A raw Claude Code transcript is ~99% tool_use / tool_result JSON noise.
-Run `prefilter-transcript.sh` to strip everything except real user
-prompts and assistant text blocks, then chunk the result into small
-files. This is the single biggest fix against the recency-bias failure
-mode -- without it the agent reads dialogue diluted in megabytes of
-tool I/O and ends up only summarising whatever was freshest.
+A raw Claude Code transcript is ~99% tool_use / tool_result JSON noise, and an
+agent reading dialogue diluted in megabytes of tool I/O ends up summarising
+only whatever was freshest. So the launcher prefilters and chunks it before you
+are started: `{WORK_DIR}` already holds `clean.ndjson` and `chunk-aa.md`,
+`chunk-ab.md`, ... `chunk-??.md` at 20 entries per chunk. Its path is given to
+you; do not derive it, and do not read `{TRANSCRIPT}` yourself.
 
-```bash
-mkdir -p {WORK_DIR}
-PREFILTER=/home/user/.claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh
-bash "$PREFILTER" "{TRANSCRIPT}" "{LAST_LINE}" "{TOTAL_LINES}" "{WORK_DIR}" 20
-```
+You have four turns. Spending one to rebuild a payload that is already on disk
+is the difference between finishing and being reaped.
 
-Invoke it through `bash`, not directly. The seed transports file *content*
-only -- no POSIX mode -- so every seeded script lands non-executable and a
-bare `"$PREFILTER"` fails with EACCES on a fresh lay-down. `bash <path>` is
-what every hook in `settings.json` already uses, and it does not depend on
-the mode bit.
-
-The script writes `{WORK_DIR}/clean.ndjson` plus `chunk-aa.md`,
-`chunk-ab.md`, ... `chunk-??.md` (20 entries per chunk by default) and
-prints a summary line you can log. Continue even if the chunk count is
-1; the chunked flow still works.
-
-If `clean.ndjson` is empty (e.g. the new range contained only tool
-output), write a minimal note that says "no substantive content in
-range" and skip to step 5. Do not invent observations.
+If `clean.ndjson` is empty (e.g. the new range contained only tool output),
+write a minimal note that says "no substantive content in range" and skip to
+step 5. Do not invent observations.
 
 ### 3. Per-chunk extraction into a scratchpad
 
