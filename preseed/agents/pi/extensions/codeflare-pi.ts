@@ -452,9 +452,13 @@ export type GlobalGraphPlan = {
  * conservative direction: adding is idempotent, removing is not.
  *
  * `currentGraphHash` carries the same source-hash dedup the shell hook applies
- * (graphify-active-repo.sh): when the manifest already records this graph's
- * hash there is nothing to publish, so a repo transition stops paying a
- * synchronous `global add` under the lock for a no-op. A malformed stored hash
+ * (graphify-active-repo.sh): when the manifest already records this graph there
+ * is nothing to publish, so a repo transition stops paying a synchronous
+ * `global add` under the lock for a no-op. The recorded path has to match as
+ * well as the hash. Tags are keyed by basename, so two checkouts sharing one
+ * basename and an identical graph compare equal on hash alone, and skipping the
+ * add would leave the tag resolving to the checkout the user just left, which is
+ * the drift this reconcile exists to remove. A non-hex or resized stored hash
  * refuses the optimisation rather than trusting it.
  */
 export function planGlobalGraphReconcile(
@@ -464,26 +468,32 @@ export function planGlobalGraphReconcile(
   currentGraphHash?: string,
 ): GlobalGraphPlan {
   const keepTag = repoHasGraph ? basename(repo) : "";
+  const graph = join(repo, "graphify-out", "graph.json");
   let tags: string[] = [];
   let storedHash: string | undefined;
+  let storedPath: string | undefined;
   try {
     const parsed = manifestRaw
-      ? (JSON.parse(manifestRaw) as { repos?: Record<string, { source_hash?: unknown }> })
+      ? (JSON.parse(manifestRaw) as {
+          repos?: Record<string, { source_hash?: unknown; source_path?: unknown }>;
+        })
       : undefined;
     const repos = parsed?.repos;
     if (repos && typeof repos === "object") {
       tags = Object.keys(repos);
-      const recorded = keepTag ? repos[keepTag]?.source_hash : undefined;
-      if (typeof recorded === "string" && recorded.length === 16) storedHash = recorded;
+      const entry = keepTag ? repos[keepTag] : undefined;
+      if (typeof entry?.source_hash === "string" && /^[0-9a-f]{16}$/.test(entry.source_hash)) {
+        storedHash = entry.source_hash;
+      }
+      if (typeof entry?.source_path === "string") storedPath = entry.source_path;
     }
   } catch {
     tags = [];
   }
   const remove = tags.filter((tag) => tag !== "user_vault" && tag !== keepTag);
-  const alreadyPublished = !!currentGraphHash && !!storedHash && currentGraphHash === storedHash;
-  return keepTag && !alreadyPublished
-    ? { remove, add: { graph: join(repo, "graphify-out", "graph.json"), tag: keepTag } }
-    : { remove };
+  const alreadyPublished =
+    !!currentGraphHash && currentGraphHash === storedHash && storedPath === graph;
+  return keepTag && !alreadyPublished ? { remove, add: { graph, tag: keepTag } } : { remove };
 }
 
 function readGlobalManifest(): string | undefined {
@@ -527,6 +537,10 @@ export function reconcileGlobalGraph(repo: string): boolean {
       [
         "-w", "5", GLOBAL_GRAPH_LOCK, "bash", "-c",
         'graph_json="$1"; repo_tag="$2"; need_add="$3"; shift 3\n' +
+          // Distinguishes "graphify is not installed" from "graphify failed".
+          // Without it both surface as exit 1 and the disabled-plugin
+          // configuration would warn on every session start.
+          'command -v graphify >/dev/null 2>&1 || exit 127\n' +
           'for stale_tag in "$@"; do graphify global remove "$stale_tag" >/dev/null 2>&1 || exit 1; done\n' +
           'if [ "$need_add" = "1" ]; then graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1; fi',
         "_",
@@ -542,8 +556,12 @@ export function reconcileGlobalGraph(repo: string): boolean {
     // A missing flock or graphify binary is a supported configuration, named
     // as such by entrypoint.sh ("graphify plugin disabled"). Warning about it
     // on every session start would nag about something the user cannot act on,
-    // so it stays the silent no-op it has always been.
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return true;
+    // so it stays the silent no-op it has always been. The two absences arrive
+    // differently: flock is what execFileSync spawns, so its absence is ENOENT,
+    // while graphify runs inside the locked script and reports itself through
+    // the sentinel exit above.
+    const failure = error as NodeJS.ErrnoException & { status?: number };
+    if (failure?.code === "ENOENT" || failure?.status === 127) return true;
     // A genuine non-zero exit is different: a failed removal aborts the shared
     // script before the add, so the active repo can end up absent from the
     // global graph. Unlike the Claude hook there is no sentinel to withhold and

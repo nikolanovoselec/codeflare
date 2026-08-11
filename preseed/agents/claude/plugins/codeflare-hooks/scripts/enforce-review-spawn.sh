@@ -53,20 +53,6 @@ case "$HOOK_EVENT" in
 esac
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 
-# Subagents are not the review-driving session and have no triage table to
-# publish, so the PreToolUse gate must never block their tool calls. Observed
-# 2026-08-11: the background memory-capture agent had two Write calls refused
-# by this gate and completed only by routing around it with a bash heredoc,
-# which is both a worse write path and proof the block stopped nothing it was
-# meant to stop. The check is on the transcript's most recent entry rather than
-# on a hook-input field, so it holds whether a sidechain shares the main
-# transcript or gets its own. The main session's entries are isSidechain:false,
-# so its enforcement is untouched.
-if [ -n "$PRETOOL_MODE" ] \
-   && tail -n 1 "$TRANSCRIPT" 2>/dev/null | grep -qF '"isSidechain":true'; then
-  exit 0
-fi
-
 # ---------------------------------------------------------------------------
 # PreToolUse triage gate - prefilters. The full check lives after the shared
 # transcript helpers it reuses (search "PreToolUse triage gate - full check").
@@ -1352,29 +1338,6 @@ if [ -n "$MISSING" ]; then
   if [ -n "$FAILED" ]; then
     REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
   fi
-  # Report the evidence behind each demand. Observed 2026-08-11: lanes that had
-  # already completed successfully were demanded roughly once per round across
-  # six rounds, with no ATTENTION clause, so they arrived indistinguishable from
-  # a lane that had never run. That is the expensive failure: a demand nobody
-  # can tell apart from noise gets complied with mechanically, and a genuinely
-  # lost lane would be waved through the same way. Root cause is not yet
-  # established - the coverage predicate resolves correctly when replayed
-  # against the same transcript - so this does not change the decision, only
-  # what the demand can be held to. If a line below says a spawn was found and
-  # completed, the demand contradicts its own evidence and the predicate is at
-  # fault, not the agent.
-  EVIDENCE=""
-  for lane in $MISSING; do
-    lane_spawn=$(latest_lane_spawn_after_line "$lane" "$PUSH_LINE")
-    if [ -z "$lane_spawn" ]; then
-      EVIDENCE="$EVIDENCE $lane=no-spawn-after-push-line-$PUSH_LINE;"
-    elif spawn_completed "$lane_spawn"; then
-      EVIDENCE="$EVIDENCE $lane=spawn-line-$lane_spawn-COMPLETED-BUT-NOT-CREDITED;"
-    else
-      EVIDENCE="$EVIDENCE $lane=spawn-line-$lane_spawn-no-completion-yet;"
-    fi
-  done
-  [ -n "$EVIDENCE" ] && REASON="$REASON EVIDENCE:$EVIDENCE"
   emit_block "$REASON"
 fi
 

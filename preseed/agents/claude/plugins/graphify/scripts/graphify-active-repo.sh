@@ -290,10 +290,17 @@ if command -v graphify >/dev/null 2>&1; then
         NEED_ADD=1
         if [ -f "$GLOBAL_MANIFEST" ]; then
             STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-            # graphify stores the first 16 hex chars of the file SHA-256.
-            # A malformed or changed format refuses the optimisation and forces
-            # graphify's own source-hash dedup to make the decision.
-            if [ -n "$STORED_HASH" ] && [ "${#STORED_HASH}" -eq 16 ]; then
+            STORED_PATH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_path // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+            # graphify stores the first 16 hex chars of the file SHA-256 next to
+            # the path it read them from. The hash alone cannot carry the skip:
+            # tags are keyed by basename, so two checkouts sharing a basename and
+            # an identical graph compare equal and the tag would stay pointing at
+            # the checkout the user just left - the drift this reconcile exists to
+            # remove. The recorded path must be this checkout's graph too. A
+            # non-hex or resized hash refuses the optimisation and lets graphify's
+            # own source-hash dedup make the decision.
+            if [ "$STORED_PATH" = "$GRAPH_JSON" ] \
+               && printf '%s' "$STORED_HASH" | grep -Eq '^[0-9a-f]{16}$'; then
                 CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
                 [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
             fi

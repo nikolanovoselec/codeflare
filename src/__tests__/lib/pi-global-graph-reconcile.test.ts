@@ -2,7 +2,7 @@
 // ever ran `graphify global add`, so the global manifest accumulated every repo
 // a session touched and a graph-less checkout kept publishing the repo before
 // it. These assert the reconcile plan Pi now computes before taking the lock.
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -51,11 +51,32 @@ describe('planGlobalGraphReconcile / REQ-VAULT-014 AC5 (Pi holds the same single
     expect(planGlobalGraphReconcile('{not json', '/w/repo-b', true).add?.tag).toBe('repo-b');
   });
 
-  it('skips the add when the manifest already records this graph hash, matching the shell hook', () => {
-    const published = JSON.stringify({ repos: { 'repo-b': { source_hash: '0123456789abcdef' } } });
+  it('skips the add when the manifest already records this graph, matching the shell hook', () => {
+    const published = JSON.stringify({
+      repos: {
+        'repo-b': { source_hash: '0123456789abcdef', source_path: '/w/repo-b/graphify-out/graph.json' },
+      },
+    });
     const plan = planGlobalGraphReconcile(published, '/w/repo-b', true, '0123456789abcdef');
     expect(plan.add).toBeUndefined();
     expect(plan.remove).toEqual([]);
+  });
+
+  it('still adds when another checkout of the same basename published an identical graph', () => {
+    // Tags are keyed by basename, so /elsewhere/repo-b owns the tag here. Its
+    // graph hashes the same (an empty or freshly scaffolded graph.json is the
+    // common case), so a hash-only dedup would skip the add and leave the tag
+    // resolving to a repo the user is no longer in.
+    const otherCheckout = JSON.stringify({
+      repos: {
+        'repo-b': {
+          source_hash: '0123456789abcdef',
+          source_path: '/elsewhere/repo-b/graphify-out/graph.json',
+        },
+      },
+    });
+    const plan = planGlobalGraphReconcile(otherCheckout, '/w/repo-b', true, '0123456789abcdef');
+    expect(plan.add).toEqual({ graph: '/w/repo-b/graphify-out/graph.json', tag: 'repo-b' });
   });
 
   it('still adds when the recorded hash differs, and still removes other tags alongside it', () => {
@@ -68,9 +89,15 @@ describe('planGlobalGraphReconcile / REQ-VAULT-014 AC5 (Pi holds the same single
   });
 
   it('refuses the dedup on a malformed stored hash rather than trusting it', () => {
-    // Wrong length: graphify records exactly 16 hex chars.
-    const malformed = JSON.stringify({ repos: { 'repo-b': { source_hash: 'abc' } } });
-    expect(planGlobalGraphReconcile(malformed, '/w/repo-b', true, 'abc').add?.tag).toBe('repo-b');
+    // graphify records exactly 16 lowercase hex chars. Both a resized value and
+    // a right-sized non-hex one fall back to publishing.
+    const path = '/w/repo-b/graphify-out/graph.json';
+    const short = JSON.stringify({ repos: { 'repo-b': { source_hash: 'abc', source_path: path } } });
+    expect(planGlobalGraphReconcile(short, '/w/repo-b', true, 'abc').add?.tag).toBe('repo-b');
+    const notHex = JSON.stringify({
+      repos: { 'repo-b': { source_hash: 'zzzzzzzzzzzzzzzz', source_path: path } },
+    });
+    expect(planGlobalGraphReconcile(notHex, '/w/repo-b', true, 'zzzzzzzzzzzzzzzz').add?.tag).toBe('repo-b');
   });
 });
 
@@ -117,10 +144,30 @@ describe('reconcileGlobalGraph failure semantics / REQ-VAULT-014 AC6', () => {
     expect(reconcileGlobalGraph(repo)).toBe(false);
   });
 
-  it('stays silent when the CLI is absent, a supported configuration rather than a failure', () => {
+  it('stays silent when flock is absent, a supported configuration rather than a failure', () => {
     // Empty PATH: spawning flock raises ENOENT. Warning here would nag about
     // a disabled graphify plugin the user cannot act on from the session.
     process.env.PATH = bin;
     expect(reconcileGlobalGraph(repo)).toBe(true);
+  });
+
+  it('stays silent when graphify is absent, which reaches the caller as an exit status', () => {
+    // The disabled-plugin case entrypoint.sh actually produces: flock is
+    // present, graphify is not. graphify runs inside the locked script, so its
+    // absence can never surface as ENOENT the way flock's does; the script
+    // reports it as 127 instead. Treating that as a failure would warn on every
+    // session start about something the user cannot act on from the session.
+    stub('flock', 'shift 3\nexec "$@"');
+    symlinkSync('/bin/bash', join(bin, 'bash'));
+    process.env.PATH = bin;
+    expect(reconcileGlobalGraph(repo)).toBe(true);
+  });
+
+  it('still reports failure when graphify is present and the transaction fails', () => {
+    // Guards the test above: 127 must not become a blanket "any error is fine".
+    stub('flock', 'shift 3\nexec "$@"');
+    stub('graphify', 'exit 3');
+    process.env.PATH = `${bin}:${realPath}`;
+    expect(reconcileGlobalGraph(repo)).toBe(false);
   });
 });
