@@ -836,6 +836,32 @@ exit 99
       'one initial query plus exactly three retries');
   });
 
+  // The ancestor guard is the difference between waiting out an API lag and
+  // waiting on a push that never landed. Inverting its two arguments would
+  // break every legitimate lagging delivery while leaving the other tests
+  // green, so the zero-retry path needs its own oracle.
+  it('does not spend the retry budget on a push that never landed', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    const unrelated = 'f'.repeat(40);
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
+  n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
+  echo '{"number":42,"state":"OPEN","headRefOid":"${unrelated}","baseRefName":"main"}'
+  exit 0
+fi
+exit 99
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    const r = runHook(cwd, 'git push origin HEAD', binDir);
+    assert.equal(r.stdout, '', 'a head this checkout cannot reach is ineligible');
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
+      'the reported head is unreachable from local, so nothing landed and there is nothing to wait for');
+  });
+
   it('never retries for non-delivery activity', () => {
     const cwd = makeFixture();
     withSdd(cwd);

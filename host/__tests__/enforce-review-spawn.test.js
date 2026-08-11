@@ -62,6 +62,12 @@ function withUpstream(cwd) {
   spawnSync('git', ['init', '-q', '--bare', remote]);
   spawnSync('git', ['remote', 'add', 'origin', remote], { cwd });
   spawnSync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd });
+  // None of the three calls above is checked, so a setup failure would leave
+  // `@{u}` unresolved, REMOTE_HEAD empty and the freshness guard unreachable --
+  // and the regression test would still reach the FIX directive and pass, for
+  // the wrong reason, re-hiding the exact bug it exists to catch.
+  assert.equal(spawnSync('git', ['rev-parse', '@{u}'], { cwd }).status, 0,
+    'fixture upstream must resolve or the guard under test is never reached');
 }
 
 function fakeGh(cwd, body) {
