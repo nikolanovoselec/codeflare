@@ -53,6 +53,17 @@ function withSdd(cwd) {
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
 }
 
+// A fixture with a real origin, so `git rev-parse @{u}` resolves. Every other
+// fixture here has no upstream, which leaves REMOTE_HEAD empty and makes the
+// ack-freshness branch below the retroactive scan unreachable -- the blind spot
+// that let a silently-acknowledging gate ship.
+function withUpstream(cwd) {
+  const remote = mkdtempSync(join(tmpdir(), 'origin-'));
+  spawnSync('git', ['init', '-q', '--bare', remote]);
+  spawnSync('git', ['remote', 'add', 'origin', remote], { cwd });
+  spawnSync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd });
+}
+
 function fakeGh(cwd, body) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
@@ -1038,6 +1049,35 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'the FIX directive must issue no push order; the review and CI gates own that decision');
     assert.match(r.stdout, /do not merge/i,
       'automatic fix delivery must never become automatic merge');
+  });
+
+  // The retroactive scan recovers checkpoints for heads whose live enforcement
+  // was missed, but it used to claim the CURRENT head too. That advanced the
+  // checkpoint and then the freshness guard read the mtime of the ack the scan
+  // had just written -- zero seconds old, trivially inside the 300s window --
+  // and returned before the FIX directive. The round was acknowledged with no
+  // handoff and no counter touched, indistinguishable from the gate never
+  // running. Needs a real upstream or the guard is not even reachable.
+  it('hands off to FIX when an upstream makes the just-written ack look fresh', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withUpstream(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_u1'),
+      LANE_BASH_DONE_LINE('toolu_u1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_u2'),
+      LANE_BASH_DONE_LINE('toolu_u2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_u3'),
+      LANE_BASH_DONE_LINE('toolu_u3'),
+      TRIAGE_LINE(),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), headSha, 'the round is acknowledged');
+    assert.match(r.stdout, /FIX phase/,
+      'and acknowledgement must hand off to FIX rather than exiting silently');
   });
 
   it('blocks FIX when the PR-specific acknowledgement cannot be persisted', () => {

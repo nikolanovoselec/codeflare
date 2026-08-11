@@ -1028,7 +1028,18 @@ retroactive_ack_scan() {
 }
 
 RETRO_SHA=$(retroactive_ack_scan 2>/dev/null)
-if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ]; then
+# The scan recovers checkpoints for heads whose live enforcement was missed. It
+# must never claim the CURRENT head: that one belongs to the live path below,
+# and only the live path hands off to FIX. When the scan took it, two things
+# followed in the same run. It advanced the checkpoint, and then the freshness
+# guard below read the ack it had itself just written -- zero seconds old, so
+# trivially under the 300s window -- and exited before the FIX directive. The
+# round was acknowledged with no fix handoff and no counter touched, which is
+# indistinguishable from the gate having never run. Excluding the current head
+# costs the scan nothing: the live path acknowledges it in this same
+# invocation, and does it with the handoff attached.
+if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ] \
+   && [ "$RETRO_SHA" != "$CURRENT_PR_HEAD" ]; then
   # Only advance forward. The merge-base check covers the rebase / force-
   # push edge case: if RETRO_SHA is not an ancestor of (or equal to) the
   # current HEAD chain, the transcript is referring to an obsolete tip and

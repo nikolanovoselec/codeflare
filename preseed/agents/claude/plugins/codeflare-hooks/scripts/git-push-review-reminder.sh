@@ -236,10 +236,20 @@ printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 # eligibility asks (what the PR carries). Only a delivery can be
 # mid-synchronization, so every other mismatch stays inert and waits for
 # nothing.
+# The fractional delays need coreutils/BSD `sleep`; POSIX `sleep` takes whole
+# seconds only. On a host without it each call fails, the loop runs back to
+# back, the lag window is never ridden out, and this fix silently does nothing.
+# The container image this preseed targets ships coreutils, so the dependency is
+# recorded rather than probed.
 case "$BOUNDARY_KIND" in
   push|pr-create)
     for RETRY_DELAY in 0.3 0.6 1.2; do
       [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] && break
+      # Only wait when the checkout could plausibly be what the PR is about to
+      # report. A push that never landed leaves the reported head unreachable
+      # from local, and waiting on it just spends the budget before exiting
+      # inert -- the failure path used to cost nothing.
+      git merge-base --is-ancestor "$CURRENT_PR_HEAD" "$LOCAL_HEAD" 2>/dev/null || break
       sleep "$RETRY_DELAY"
       PR_INFO=$(gh_pr_state "$CURRENT") || break
       CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)

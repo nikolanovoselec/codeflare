@@ -830,5 +830,19 @@ exit 99
     const r = runHook(cwd, 'git push origin HEAD', binDir);
     assert.equal(r.stdout, '',
       'the retry is bounded: a head that never matches stays ineligible rather than looping');
+    // Without this the bound has no oracle: widening 3 attempts to 30 keeps the
+    // assertion above green, merely slower. Only non-termination would fail.
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 4,
+      'one initial query plus exactly three retries');
+  });
+
+  it('never retries for non-delivery activity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
+    const r = runHook(cwd, 'git status --short', binDir);
+    assert.equal(r.stdout, '', 'an unsynchronized checkout is ineligible either way');
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
+      'a single authoritative query: ordinary Git activity must never pay the retry wait');
   });
 });
