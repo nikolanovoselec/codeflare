@@ -55,7 +55,8 @@ while [ $SECONDS -lt $deadline ]; do
   tip=$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1)
   if [ -n "$tip" ] && [ "$tip" != "$head" ]; then
     # A differing tip has two causes and only one is safe to ignore. Fetch the
-    # ref so ancestry is answerable at all; this runs once, on the way out.
+    # ref so ancestry is answerable at all. This runs on every pass where the
+    # tip differs, and is only terminal once the tip resolves to a local object.
     git fetch -q origin "refs/heads/$branch" >/dev/null 2>&1 || true
     if git cat-file -e "$tip^{commit}" 2>/dev/null; then
       if git merge-base --is-ancestor "$head" "$tip" >/dev/null 2>&1; then
@@ -118,30 +119,6 @@ echo "CI_RESULT timeout" >> "$log"
 exit 124
 BASH
 chmod +x "$SCRIPT"
-# Cancel in-flight runs from superseded heads on this branch. Folded in here
-# on purpose: as a separate step it gets skipped, and a superseded head then
-# burns a full matrix nobody reads.
-#
-# Cancelling is irreversible, so the one guard that matters is that this
-# checkout really is the remote tip; otherwise a stale checkout or a concurrent
-# push would cancel the CURRENT head's CI. Once that holds, every in-flight run
-# on the branch whose headSha is not HEAD is stale by definition, so no ancestry
-# test is needed - and testing it would skip the amend and force-push cases,
-# which are the ones that leave a matrix burning. Failures are reported, never
-# swallowed: a silently failed cancel leaves a branch that never goes green with
-# nothing saying why.
-TIP=$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1)
-if [ -n "$TIP" ] && [ "$TIP" = "$HEAD" ]; then
-  gh run list --branch "$BRANCH" --limit 24 --json databaseId,headSha,status \
-    --jq ".[] | select(.status != \"completed\") | select(.headSha != \"$HEAD\") | .databaseId" \
-    | while read -r run_id; do
-        [ -n "$run_id" ] || continue
-        gh run cancel "$run_id" >/dev/null 2>&1 \
-          || printf 'warning: could not cancel superseded run %s\n' "$run_id" >&2
-      done
-else
-  printf 'warning: local HEAD %s is not the remote tip %s; skipping stale-run cancellation\n' "$HEAD" "${TIP:-unknown}" >&2
-fi
 setsid bash "$SCRIPT" "$PWD" "$BRANCH" "$HEAD" "$LOG" >/dev/null 2>&1 &
 printf 'CI_MONITOR_STARTED head=%s pid=%s log=%s\n' "$HEAD" "$!" "$LOG"
 ```
@@ -175,15 +152,23 @@ indistinguishable from one reporting a real state.
 
 Never claim CI is passing from the launcher output alone. Only a terminal `CI_RESULT success` line in the durable log for the current HEAD is green.
 
-## Stale-run cancellation
+## Stale-run cancellation: not your job
 
-Before pushing a new commit, cancel still-running runs from the previous pushed HEAD:
+Do not cancel runs from here. The workflows decide this themselves, and they are
+the only thing that knows which runs are safe to cancel.
 
-```bash
-gh run list --branch <branch> --limit 12 --json databaseId,status \
-  --jq '.[] | select(.status != "completed") | .databaseId' \
-  | xargs -r -I{} gh run cancel {}
-```
+Every workflow whose superseded runs are worth killing already declares
+`concurrency: cancel-in-progress: true` keyed on `github.ref`, which for a
+`pull_request` event is the per-PR merge ref. That is stricter than anything a
+client script can reconstruct: two PRs sharing a head branch name never cancel
+each other, while superseded pushes of the same PR always do.
+
+The ones that omit it omit it deliberately. `deploy.yml` sets
+`cancel-in-progress: false` because a cancelled deploy leaves the worker,
+secrets, KV, and registry half-configured; `sign-release.yml` and
+`bump-shadow-pins.yml` do the same. A `gh run cancel` loop driven from a branch
+name cannot see any of that, so it eventually cancels the one run that must
+never be cancelled.
 
 ## Binding invocation rule
 
