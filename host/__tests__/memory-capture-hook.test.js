@@ -153,15 +153,15 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
       /query the unified graph/i,
       'AC7: must re-emit graph-query directive on resume',
     );
-    // Capture directive also present (compound directive)
-    assert.match(
-      out.hookSpecificOutput.additionalContext,
-      /MANDATORY MEMORY CAPTURE/,
-      'AC7: capture directive must accompany graph-query directive',
-    );
-    // Counter advanced past the captured range
-    const counter = readFileSync(join(fx.counterDir, 'sess-resume'), 'utf-8').trim().split('\n');
-    assert.equal(counter[0], '8', 'AC7: counter advances to CURRENT_COUNT after force-fire');
+    // Capture directive also present, evidenced by the armed request rather
+    // than by matching the directive's wording back to itself.
+    assert.equal(v.attempts, 1, 'AC7: the resume capture must be armed for delivery');
+    assert.match(v.capture_file, /\/Vault\/Raw\/Sessions\/.+\.md$/);
+    // The counter must NOT advance here. It used to, which meant a resume
+    // capture that then failed silently discarded the entire prior session's
+    // tail — the exact window AC7 exists to rescue.
+    assert.equal(existsSync(join(fx.counterDir, 'sess-resume')), false,
+      'AC7: arming must not commit the window; publish-memory-capture.sh does that');
   });
 
   // REQ-MEM-002 AC7 boundary: counter absent but transcript has exactly 1 prompt
@@ -179,11 +179,6 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
       existsSync(join(fx.counterDir, 'sess-edge.vars')),
       false,
       'AC7 boundary: CURRENT_COUNT=1 is brand-new, not resume',
-    );
-    // No MANDATORY MEMORY CAPTURE wrapper text
-    assert.equal(
-      out.hookSpecificOutput.additionalContext.includes('MANDATORY MEMORY CAPTURE'),
-      false,
     );
   });
 });
@@ -252,23 +247,25 @@ describe('memory-capture.sh - user-message counting', () => {
     );
   });
 
-  // REQ-MEM-002 AC5: counter updated BEFORE emitting; subsequent invocations within window silent
-  it('counter advances on capture so the next run starts a fresh window', () => {
+  // REQ-MEM-002 AC5: an outstanding request suppresses a second arm. The
+  // window is not closed by arming — publish-memory-capture.sh closes it — so
+  // what keeps the hook from stacking requests is the carrier, not the counter.
+  it('an armed request suppresses a second arm without closing the window', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-x'), '0\n0\n');
     const lines = [];
     for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
     runHook(fx, { transcriptPath: t, sessionId: 'sess-x' });
-    const counter = readFileSync(
-      join(fx.counterDir, 'sess-x'),
-      'utf-8',
-    ).trim().split('\n');
-    assert.equal(counter[0], '16',
-      'counter[0] must advance to CURRENT_COUNT after capture');
-    const r2 = runHook(fx, { transcriptPath: t, sessionId: 'sess-x' });
-    assert.equal(r2.stdout, '',
-      'after capture, repeat invocations on same transcript must be silent');
+    const first = JSON.parse(readFileSync(join(fx.counterDir, 'sess-x.vars'), 'utf-8'));
+    assert.equal(readFileSync(join(fx.counterDir, 'sess-x'), 'utf-8'), '0\n0\n',
+      'arming must not commit the window before an artifact exists');
+
+    runHook(fx, { transcriptPath: t, sessionId: 'sess-x' });
+    const second = JSON.parse(readFileSync(join(fx.counterDir, 'sess-x.vars'), 'utf-8'));
+    assert.equal(second.capture_file, first.capture_file,
+      'the second fire must re-deliver the same request, not mint a new one');
+    assert.equal(second.attempts, 2);
   });
 });
 
@@ -299,5 +296,165 @@ describe('memory-capture.sh - output protocol', () => {
     assert.equal(out.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
     assert.equal(out.decision, undefined,
       'UserPromptSubmit hook must not emit decision field');
+  });
+});
+
+// Bounded re-delivery replaced the hard block (AD124). These tests pin the
+// state machine: a request that is not picked up comes back, a request nobody
+// ever picks up stops coming back, and no path marks a window captured before
+// an artifact exists to prove it was.
+describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () => {
+  function armed(fx, sessionId = 'sess-redeliver') {
+    // A committed counter makes this a mid-session fixture. Without one the
+    // hook reads a fresh container and prepends the graph-query directive to
+    // every emission, which would mask what these tests are asserting.
+    writeFileSync(join(fx.counterDir, sessionId), '0\n1\n');
+    const lines = [];
+    for (let i = 0; i < 16; i++) lines.push(realUserLine(`prompt ${i}`));
+    const t = writeTranscript(fx.home, lines);
+    const first = runHook(fx, { transcriptPath: t, sessionId });
+    return { transcriptPath: t, sessionId, first };
+  }
+
+  function varsOf(fx, sessionId) {
+    return JSON.parse(readFileSync(join(fx.counterDir, `${sessionId}.vars`), 'utf-8'));
+  }
+
+  it('arms a request carrying the capture path the publisher will verify', () => {
+    const fx = makeFixture();
+    const { sessionId, first } = armed(fx);
+    assert.equal(first.status, 0);
+    const vars = varsOf(fx, sessionId);
+    // The filename must be decided here, not by the subagent: the publisher
+    // checks this exact path, so a request without it cannot be verified.
+    assert.match(vars.capture_file, /\/Vault\/Raw\/Sessions\/.+\.md$/);
+    assert.ok(vars.capture_file.includes(vars.capture_timestamp),
+      'capture_file must embed capture_timestamp so the two cannot drift');
+    assert.ok(vars.capture_file.endsWith(`${sessionId.slice(0, 8)}.md`));
+    assert.equal(vars.attempts, 1);
+  });
+
+  it('does not advance the counter when arming, so a failed capture is retried not lost', () => {
+    const fx = makeFixture();
+    const { sessionId } = armed(fx);
+    // The old hook wrote the counter here. If that write comes back, the
+    // window is marked captured before any capture file exists and those
+    // messages are never revisited.
+    assert.equal(readFileSync(join(fx.counterDir, sessionId), 'utf-8'), '0\n1\n',
+      'arming must leave the counter uncommitted; publish-memory-capture.sh owns it');
+  });
+
+  it('never advances the counter across the whole give-up path', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx);
+    for (let i = 0; i < 8; i++) runHook(fx, { transcriptPath, sessionId });
+    assert.equal(readFileSync(join(fx.counterDir, sessionId), 'utf-8'), '0\n1\n',
+      'a window nobody captured must stay uncommitted so a later request re-covers it');
+  });
+
+  it('re-delivers an outstanding request on the next prompt instead of dropping it', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx);
+    const second = runHook(fx, { transcriptPath, sessionId });
+    assert.equal(second.status, 0);
+    // The re-delivery is observable in two independent places: the hook spoke
+    // again, and the request's own attempt count moved. Neither is prose.
+    assert.equal(
+      JSON.parse(second.stdout).hookSpecificOutput.hookEventName,
+      'UserPromptSubmit',
+    );
+    assert.equal(varsOf(fx, sessionId).attempts, 2,
+      'each delivery must be counted, or the giveup latch can never be reached');
+  });
+
+  it('latches after the sixth delivery and stops reminding', () => {
+    const fx = makeFixture();
+    const { transcriptPath, sessionId } = armed(fx);
+    const latch = join(fx.counterDir, `${sessionId}.latched`);
+    // Deliveries 2..6 keep incrementing and leave no latch.
+    for (let i = 0; i < 5; i++) runHook(fx, { transcriptPath, sessionId });
+    assert.equal(varsOf(fx, sessionId).attempts, 6);
+    assert.equal(existsSync(latch), false, 'must not latch while deliveries remain');
+
+    // The seventh fire is the giveup: it latches and stops counting, which is
+    // what separates giving up from delivering once more.
+    runHook(fx, { transcriptPath, sessionId });
+    assert.equal(existsSync(latch), true);
+    assert.equal(varsOf(fx, sessionId).attempts, 6,
+      'giving up must not consume another delivery');
+
+    // Latched means silent, not merely quieter.
+    const after = runHook(fx, { transcriptPath, sessionId });
+    assert.equal(after.stdout, '');
+  });
+
+});
+
+// The counter moved out of the hook and into the publisher, behind an artifact
+// check. These two tests are the reason that is safe: a capture that produced
+// no file must not be able to mark its window covered.
+describe('publish-memory-capture.sh - artifact-gated commit / REQ-MEM-020', () => {
+  const PUBLISH = resolve(
+    __dirname,
+    '../../preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh',
+  );
+
+  function setup() {
+    const dir = mkdtempSync(join(tmpdir(), 'memcap-pub-'));
+    const counterFile = join(dir, 'sess-pub');
+    const varsFile = join(dir, 'sess-pub.vars');
+    const captureFile = join(dir, 'capture.md');
+    writeFileSync(counterFile, '3\n9\n');
+    writeFileSync(varsFile, JSON.stringify({
+      capture_file: captureFile,
+      counter_file: counterFile,
+      current_count: '16',
+      total_lines: '400',
+    }));
+    return { dir, counterFile, varsFile, captureFile };
+  }
+
+  function publish(fx) {
+    return spawnSync('bash', [PUBLISH, fx.varsFile], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        MEMCAP_GRAPH_LOCK: join(fx.dir, 'lock'),
+        MEMCAP_PYTHON_BIN: '/bin/true',
+        MEMCAP_MERGE_SCRIPT: 'ignored',
+        MEMCAP_GRAPHIFY_BIN: '/bin/true',
+        MEMCAP_VAULT_GRAPH: 'ignored',
+      },
+    });
+  }
+
+  it('refuses to publish and keeps the carrier when the capture file is absent', () => {
+    const fx = setup();
+    const r = publish(fx);
+    assert.notEqual(r.status, 0, 'a capture with no artifact must not report success');
+    assert.equal(readFileSync(fx.counterFile, 'utf-8'), '3\n9\n',
+      'a refused publication must leave the window uncommitted');
+    assert.equal(existsSync(fx.varsFile), true,
+      'the carrier must survive so the hook re-delivers the request');
+  });
+
+  it('commits the counter and drains the carrier once the artifact exists', () => {
+    const fx = setup();
+    writeFileSync(fx.captureFile, '# capture\n');
+    const r = publish(fx);
+    assert.equal(r.status, 0);
+    assert.equal(readFileSync(fx.counterFile, 'utf-8'), '16\n400\n');
+    assert.equal(existsSync(fx.varsFile), false);
+  });
+
+  it('never drags the committed counter backwards', () => {
+    const fx = setup();
+    // A stale request publishing late: its window is older than what is
+    // already committed, so committing it would re-capture old messages.
+    writeFileSync(fx.counterFile, '40\n900\n');
+    writeFileSync(fx.captureFile, '# capture\n');
+    const r = publish(fx);
+    assert.equal(r.status, 0);
+    assert.equal(readFileSync(fx.counterFile, 'utf-8'), '40\n900\n');
   });
 });

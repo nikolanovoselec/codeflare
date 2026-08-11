@@ -529,7 +529,7 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
    - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - `memory-capture-block.sh` uses the proven in-flight sentinel flow: the parent `Task`/`Agent(subagent_type="memory-capture")` call creates a session-local 600-second sentinel before the child starts. While `.vars` and that sentinel coexist, the capture child's first `Read` and later tools proceed without relying on `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata. Successful publication removes `.vars`; the next hook call cleans the sentinel. A stalled capture leaves `.vars`, the sentinel expires, and blocking resumes.
+   - There is no blocking hook. An armed request is re-delivered once per user prompt, counted, and latched after six deliveries; a latched request stays silent until fifteen further prompts allow a replacement. Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a capture that fails leaves its window uncommitted for a later request to cover ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
    - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
 The capture agent retains the `.vars` retry carrier, runs
@@ -595,7 +595,7 @@ in the user's vault.
 
 ### Specification Coverage (Memory)
 
-- [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
+- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) - Capture requests are re-delivered under a bound and committed only against an artifact
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ## Troubleshooting

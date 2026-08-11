@@ -159,10 +159,10 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     assert.ok(commandFor('PreToolUse', 'block-local-builds.sh'), 'local-build blocker belongs on PreToolUse');
     assert.ok(commandFor('PostToolUse', 'git-push-review-reminder.sh'), 'push reminder belongs on PostToolUse');
     assert.ok(commandFor('UserPromptSubmit', 'memory-capture.sh'), 'memory capture belongs on UserPromptSubmit');
-    assert.ok(commandFor('PreToolUse', 'memory-capture-block.sh'),
-      'the deferred-capture gate belongs on PreToolUse');
-    assert.equal(commandFor('PostToolUse', 'memory-capture-block.sh'), undefined,
-      'the in-flight sentinel needs no PostToolUse correlation handshake');
+    assert.equal(commandFor('PreToolUse', 'memory-capture-block.sh'), undefined,
+      'the capture hard block is retired (AD124): registering it again reintroduces the deadlock with the review gate, which refuses the very spawn the block demands');
+    assert.ok(commandFor('PreToolUse', 'enforce-review-spawn.sh'),
+      'the review triage gate belongs on PreToolUse');
     assert.ok(commandFor('Stop', 'enforce-review-spawn.sh'), 'review-spawn enforcement belongs on Stop');
   });
 

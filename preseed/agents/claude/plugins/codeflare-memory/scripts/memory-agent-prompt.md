@@ -1,20 +1,32 @@
 # Memory Capture Agent Prompt
 
-You are a memory capture agent (sonnet). Your job is to extract meaningful
+You are the memory capture agent. Your job is to extract meaningful
 observations from new conversation content and write them as a markdown
 note into the persistent vault at `/home/user/Vault/`. The
 vault is the single source of truth for cross-session memory; graphify
 ingests every vault file into the unified global graph so future agents
 can query it via `mcp__graphify__*` tools.
 
+## Execution budget
+
+Finish in **four agent turns**. The steps below are numbered for reading, not
+for one-call-per-step execution: batch them into a small number of Bash calls,
+ideally one that reads and one that writes and publishes. Nothing downstream
+waits on this job, so a capture that sprawls across a dozen turns buys no
+fidelity and costs real money. If the budget runs out, stop: an unfinished
+capture leaves the request armed, and the hook re-delivers it rather than
+losing the window.
+
 ## Variables (provided by the caller)
 
+- `CAPTURE_FILE`: absolute path of the capture file to write; use verbatim
+- `CAPTURE_TIMESTAMP`: the `captured_at` value; use verbatim
 - `TRANSCRIPT`: path to the conversation JSONL file
 - `LAST_LINE`: line offset to start reading from (inclusive)
 - `TODAY`: date string (YYYY-MM-DD)
-- `CURRENT_COUNT`: user message count to write to counter
-- `TOTAL_LINES`: transcript line count to write to counter (inclusive)
-- `COUNTER_FILE`: path to the counter file
+- `CURRENT_COUNT`: user message count this request covers (the publish step commits it)
+- `TOTAL_LINES`: transcript line count this request covers (inclusive)
+- `COUNTER_FILE`: path to the counter file (you never write it; see step 1)
 - `VARS_FILE`: path to the retry carrier (delete only after merge and publication succeed)
 
 You will also derive:
@@ -22,13 +34,6 @@ You will also derive:
 - `SESSION_ID`: the segment of `COUNTER_FILE` after the last `/`
   (the file is `/tmp/.memory-counter/{SESSION_ID}`)
 - `SID_SHORT`: first 8 characters of `SESSION_ID`
-- `ISO_TS`: derived in **Step 1.5** below by the mandatory Bash block.
-  Do NOT construct this string yourself, do NOT reuse `TODAY` with a
-  suffix, do NOT guess a clock component. The exact bytes printed by
-  `date` in Step 1.5 are the only acceptable source for `ISO_TS`.
-  Past failures (issue #416) traced to the agent confabulating
-  `T00-00-00+0000`, `T12-00-00+0000`, or `T23-30-00+0000` instead of
-  executing `date`.
 - `WORK_DIR`: a temp dir at `/tmp/memory-capture-{SID_SHORT}`
 
 ## Steps
@@ -37,50 +42,14 @@ You will also derive:
 
 Read the vars file with the Read tool to get all variable values. Keep it in
 place as the retry handle until the cumulative merge and global publication
-both succeed. The child-correlated block prevents duplicate work while this
-capture runs. The hook owns the counter; the agent must NOT rewrite it — a
-stale rewrite under concurrent 15-message batches would move the counter
-backwards and cause the next hook to over-count.
+both succeed: while it exists, the arming hook treats this request as still
+outstanding and will not stack a second one on top of it.
 
-### 1.5. Derive ISO_TS via Bash (MANDATORY - do not skip, do not improvise)
-
-This step exists because issue #416 caught the agent silently fabricating
-the timestamp string instead of running `date`. Run the helper script
-EXACTLY as written via the Bash tool. The captured stdout is the ONLY
-acceptable value for `ISO_TS` everywhere it appears in later steps
-(filename, frontmatter `captured_at`, anywhere else). Do not edit it,
-do not reformat it, do not regenerate it from `TODAY`.
-
-```bash
-bash /home/user/.claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh
-```
-
-The script resolves the user's timezone from `$USER_TIMEZONE` -> `$TZ` ->
-`/etc/timezone` -> UTC, calls `date` once, then asserts that the result
-(a) ends with a four-digit `[+-]NNNN` offset, (b) the offset matches what
-`TZ="$RESOLVED" date '+%z'` produces (catches dropped-TZ-wrapper bugs
-like #416 without false-positiving legitimately-UTC hosts), and (c) the
-reconstructed epoch is within 30s of the wall clock (catches LLM
-fabrication, which typically drifts hours). Assertion failure exits
-non-zero with `ISO_TS_ASSERTION_FAILED: ...` on stderr.
-
-On success, stdout looks like:
-
-```
-ISO_TS=2026-05-23T22-11-09+0200
-RESOLVED_TZ=Europe/Zurich
-```
-
-Take everything after the `=` on the `ISO_TS=...` line as your `{ISO_TS}`
-value for the rest of this prompt. If the script errored (assertion
-failed), re-run it once verbatim; if it still errors, halt with a brief
-explanation rather than guessing a value.
-
-Rationale: the host clock is typically UTC, but capture files must
-record the wall-clock time the user actually experienced so SilverBullet
-timestamps match. Resolving via `$USER_TIMEZONE` (forwarded from the
-browser by the Worker) -> `$TZ` -> `/etc/timezone` -> `UTC` keeps
-codeflare forkable for users in any zone. Never hardcode a region.
+Never write `COUNTER_FILE` yourself. The publish step advances it, and only
+after the merge and the global publication have both succeeded, so a capture
+that dies partway leaves the window uncommitted and the next request covers it
+again. An agent-side write would mark the window captured before the artifact
+existed, which is precisely the failure this design removes.
 
 ### 2. Prefilter and chunk the transcript
 
@@ -158,14 +127,15 @@ Now Read `{WORK_DIR}/scratchpad.md` (which is your own per-chunk notes,
 small and dense) and produce the final capture file. The scratchpad is
 your working memory; the final note is the publishable artifact.
 
-Compute the target path. `{ISO_TS}` here MUST be the exact string
-captured from step 1.5's Bash stdout. Do not regenerate it, do not
-substitute `{TODAY}T00-00-00+0000`, do not round to a half-hour. The
-filename and the `captured_at` frontmatter field below MUST contain
-identical bytes.
+The target path is not yours to compute. `CAPTURE_FILE` and
+`CAPTURE_TIMESTAMP` were fixed by the hook when it armed this request; use
+both byte-for-byte. Do not derive a timestamp, do not reuse `TODAY` with a
+suffix, do not round to a half-hour. The publish step refuses to publish when
+`CAPTURE_FILE` is absent, so writing to any other path reads as a failed
+capture and the window is retried rather than lost.
 
 ```bash
-TARGET=/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md
+TARGET={CAPTURE_FILE}   # from the request, byte-for-byte
 mkdir -p /home/user/Vault/Raw/Sessions
 ```
 
@@ -177,7 +147,7 @@ using the Write tool with this exact template:
 ```markdown
 ---
 session_id: {SESSION_ID}
-captured_at: {ISO_TS}
+captured_at: {CAPTURE_TIMESTAMP}
 captured_from_range: [{LAST_LINE}, {TOTAL_LINES}]
 captured_chunks: <count of chunk-??.md files processed>
 ---

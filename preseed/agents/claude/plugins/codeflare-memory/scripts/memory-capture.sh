@@ -71,8 +71,27 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
+VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
+# Pi's extractionDue latch: deliver a request at most six times, then stop
+# reminding and let a later arm replace it (memory-vault-helpers.ts::extractionDue,
+# memory-vault.ts:630). Bounded re-delivery is what replaced the hard block —
+# a directive the agent skips comes back next prompt instead of freezing the
+# session, so an ignored capture can no longer vanish silently.
+MAX_DELIVERIES=6
+REARM_AFTER=15
 MEMORY_SCAN=""
 FORCE_RESUME=""
+
+emit_context() {
+    [[ -z "$1" ]] && exit 0
+    jq -n --arg ctx "$1" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
+    exit 0
+}
+
+capture_directive() {
+    printf '%s' "MEMORY CAPTURE (background, non-blocking): a capture request is outstanding at ${1} (delivery ${2}/${MAX_DELIVERIES}). Spawn the memory-capture subagent with run_in_background=true and carry on with the user's work in the same turn; nothing is gated on it. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${1}. The request names the capture file to write, so write that exact path. If you do not spawn it, this reminder returns on the next prompt and is dropped after ${MAX_DELIVERIES} deliveries."
+}
 if [[ -f "$COUNTER_FILE" ]]; then
     # Mid-session: counter present, normal 15-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
@@ -111,20 +130,61 @@ else
     fi
 fi
 
+# An outstanding request owns the session until it is published or latched.
+# Pi returns { kind: "none" } for a request already delivered or still running
+# rather than stacking a second one, so arming is skipped entirely below.
+if [[ -f "$VARS_FILE" ]]; then
+    if [[ -f "$LATCH_FILE" ]]; then
+        latched_at=$(head -1 "$LATCH_FILE" 2>/dev/null) || latched_at=0
+        [[ "$latched_at" =~ ^[0-9]+$ ]] || latched_at=0
+        # A latched request is never retried; a later arm replaces it. This is
+        # Pi's `facts.giveup && currentCount >= request.promptCount + 15`.
+        if [[ $CURRENT_COUNT -lt $((latched_at + REARM_AFTER)) ]]; then
+            emit_context "$MEMORY_SCAN"
+        fi
+        rm -f "$LATCH_FILE" "$VARS_FILE"
+    else
+        attempts=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null) || attempts=0
+        [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
+        if [[ $attempts -ge $MAX_DELIVERIES ]]; then
+            printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
+            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_DELIVERIES} undelivered reminders. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Do not spawn a capture now."
+        fi
+        attempts=$((attempts + 1))
+        # jq cannot edit in place, and the request is the only copy of the
+        # window being captured — write beside it and rename, so a crashed
+        # write cannot truncate it.
+        if tmp=$(mktemp "${VARS_FILE}.XXXXXX" 2>/dev/null) \
+           && jq --argjson n "$attempts" '.attempts = $n' "$VARS_FILE" > "$tmp" 2>/dev/null; then
+            mv -f "$tmp" "$VARS_FILE"
+        else
+            [[ -n "${tmp:-}" ]] && rm -f "$tmp"
+        fi
+        emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" "$attempts")"
+    fi
+fi
+
 DELTA=$((CURRENT_COUNT - last_count))
 if [[ $DELTA -lt 15 ]] && [[ -z "$FORCE_RESUME" ]]; then
-    # No capture needed, but still emit memory scan directive if set
-    if [[ -n "$MEMORY_SCAN" ]]; then
-        jq -n --arg ctx "$MEMORY_SCAN" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
-    fi
-    exit 0
+    emit_context "$MEMORY_SCAN"
 fi
 
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 
-# Write variables to file so the additionalContext string stays short
-VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+# The capture filename is fixed HERE, at arm time, rather than invented by the
+# subagent at run time. Pi does the same (createMemoryRequest computes
+# captureTimestamp and captureFilename up front) and it buys two things: the
+# session's graph identity is deterministic, and a filename the hook chose is a
+# filename the hook can later look for — which is what lets success be read off
+# an artifact instead of taken from the subagent's own word for it.
+CAPTURE_TS=$(TZ="${USER_TIMEZONE:-${TZ:-UTC}}" date +%Y-%m-%dT%H-%M-%S%z)
+CAPTURE_FILE="${USER_HOME}/Vault/Raw/Sessions/${CAPTURE_TS}-${SESSION_ID:0:8}.md"
+
+# A capture that published while latched removes the carrier but can leave the
+# latch behind; a fresh request must not inherit it and be born given-up.
+rm -f "$LATCH_FILE"
+
 jq -n \
   --arg transcript "$TRANSCRIPT" \
   --arg last_line "$last_line" \
@@ -133,20 +193,16 @@ jq -n \
   --arg total_lines "$TOTAL_LINES" \
   --arg counter_file "$COUNTER_FILE" \
   --arg vars_file "$VARS_FILE" \
-  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file}' \
+  --arg capture_file "$CAPTURE_FILE" \
+  --arg capture_ts "$CAPTURE_TS" \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file,capture_file:$capture_file,capture_timestamp:$capture_ts,attempts:1}' \
   > "$VARS_FILE"
 
-# Update counter so subsequent hook invocations see delta < 15.
-# Agent reads line range from .vars, not from the counter file.
-printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
+# The counter is deliberately NOT advanced here. It used to be, which made a
+# failed capture indistinguishable from a successful one: the window it covered
+# was skipped forever, because the next delta was measured from an arm that
+# never produced a file. publish-memory-capture.sh advances it as the last act
+# of a verified publication, which is where Pi advances it too
+# (finalizeMemorySuccess, gated on memorySuccessQualifies).
 
-# UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="MANDATORY MEMORY CAPTURE: A .vars file at ${VARS_FILE} has just been written by the UserPromptSubmit hook. You MUST spawn the **memory-capture** subagent NOW (Task tool with subagent_type=\"memory-capture\", run_in_background=true) before doing any other work. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${VARS_FILE}; the subagent reads both and executes the contract in the prompt file. Frontmatter pins model to sonnet (AD58); do NOT pass a model override. This is not optional and not conditional. The companion PreToolUse hook (memory-capture-block.sh) will hard-block all tool calls until the subagent is spawned."
-
-# Append memory scan directive if set (first message)
-if [[ -n "$MEMORY_SCAN" ]]; then
-    CONTEXT="${MEMORY_SCAN} ${CONTEXT}"
-fi
-
-jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
-exit 0
+emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }$(capture_directive "$VARS_FILE" 1)"

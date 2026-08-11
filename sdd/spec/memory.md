@@ -325,10 +325,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - common path / REQ-MEM-012 AC1) -->
-2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking. <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - input gating / REQ-MEM-012 AC2) --> <!-- @manual -->
-3. A `Task` or `Agent` launch with `subagent_type="memory-capture"` creates a session-local in-flight sentinel before returning. While the carrier and a fresh sentinel coexist, parent and child tool calls proceed without requiring `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::SENTINEL --> <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - in-flight capture sentinel / REQ-MEM-012 AC3+AC4) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
-4. When a carrier exists without a fresh in-flight sentinel, every non-capture-spawn tool remains blocked. Successful publication removes the carrier and the next hook call cleans the sentinel; if capture stalls while the carrier remains, the sentinel expires after 600 seconds and blocking resumes. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::SENTINEL_TTL_SEC --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - in-flight capture sentinel / REQ-MEM-012 AC3+AC4) --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - no in-flight bypass / REQ-MEM-012 AC4 stop-hook) -->
+1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds.
+2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking.
+3. A `Task` or `Agent` launch with `subagent_type="memory-capture"` creates a session-local in-flight sentinel before returning. While the carrier and a fresh sentinel coexist, parent and child tool calls proceed without requiring `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata.
+4. When a carrier exists without a fresh in-flight sentinel, every non-capture-spawn tool remains blocked. Successful publication removes the carrier and the next hook call cleans the sentinel; if capture stalls while the carrier remains, the sentinel expires after 600 seconds and blocking resumes.
 
 **Constraints:**
 
@@ -339,7 +339,40 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Automated test ([memory-capture-block](../../host/__tests__/memory-capture-block.test.js))
+**Verification:** Superseded; see [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact)
+
+**Status:** Deprecated
+
+**Superseded by:** [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) ([AD124](../../documentation/decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)). The intent above still holds and REQ-MEM-020 carries it: a capture directive that is ignored must not vanish. The mechanism does not. Blocking every tool call made this hook the sole arbiter of whether any work could proceed, and the review gate refuses the very spawn the block demanded, so the two hooks could deadlock a session with no bypass. Bounded re-delivery keeps the guarantee without the wedge.
+
+---
+
+### REQ-MEM-020: Capture requests are re-delivered under a bound and committed only against an artifact
+
+**Intent:** A capture directive that the agent does not act on must come back rather than disappear, and a capture that never produced a file must not be recorded as done. Replaces [REQ-MEM-012](#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred)'s hard block, which bought the first guarantee by making one hook able to wedge the session.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Arming a capture writes a durable request carrying the absolute capture path and timestamp the subagent must use verbatim, so success is decided by an artifact rather than by self-report. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (arms a request carrying the capture path the publisher will verify) -->
+2. Arming does not advance the committed counter, so a capture that fails leaves its window uncommitted for a later request to cover. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (does not advance the counter when arming, so a failed capture is retried not lost) -->
+3. While a request is outstanding the hook re-delivers it once per user prompt and counts each delivery, instead of arming a second request. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MAX_DELIVERIES --> <!-- @test: host/__tests__/memory-capture-hook.test.js (re-delivers an outstanding request on the next prompt instead of dropping it) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (an armed request suppresses a second arm without closing the window) -->
+4. After six deliveries the request latches, consumes no further delivery, and the hook falls silent until a replacement may arm. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::LATCH_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (latches after the sixth delivery and stops reminding) -->
+5. Publication refuses and retains the carrier when the request's capture file is absent. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (refuses to publish and keeps the carrier when the capture file is absent) -->
+6. Publication commits the counter and drains the carrier once the capture file exists, and never moves the counter backwards. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::COUNTER_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (commits the counter and drains the carrier once the artifact exists) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (never drags the committed counter backwards) -->
+7. No hook blocks tool calls on behalf of memory capture. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
+
+**Constraints:**
+
+- The capture agent carries no `model:` pin; fidelity is selected by `CODEFLARE_MEMORY_MODEL`.
+- The capture contract is bounded to four agent turns.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages)
+
+**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js), [entrypoint hook merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
 
 **Status:** Implemented
 
