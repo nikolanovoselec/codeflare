@@ -25,7 +25,7 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
       : `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`;
     return [
       lead,
-      "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is the cumulative /home/user/Vault/graphify-out/vault-graph.json, not the empty graph.json scaffold beside it; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
+      "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is the cumulative /home/user/Vault/graphify-out/vault-graph.json; the graph.json beside it is a copy each merge refreshes, empty until the first extraction, so never read or publish it as the vault graph; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
       "Check freshness by comparing graph.json built_at_commit to git HEAD.",
       "Do not update the graph automatically. If the graph is stale or freshness is unknown, ask the user which graph action to take before running any graph update:",
       "1. Use the existing graph as-is — no files are modified.",
@@ -37,7 +37,7 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
   }
   return [
     `Repository cloned at ${action.repo}; no graphify graph exists yet at ${action.repo}/graphify-out/graph.json.`,
-    "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is the cumulative /home/user/Vault/graphify-out/vault-graph.json, not the empty graph.json scaffold beside it; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
+    "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is the cumulative /home/user/Vault/graphify-out/vault-graph.json; the graph.json beside it is a copy each merge refreshes, empty until the first extraction, so never read or publish it as the vault graph; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
     "Before doing anything else with this repo, ask the user which graph action to take. Offer exactly these choices: Full repo AST-only build, Full repo semantic build, or no graph action.",
     "If the user chooses Full repo AST-only build, invoke `/graphify` from the repo root and tell the skill the user already selected AST-only so it does not ask the same mode question again after detection.",
     "If the user chooses Full repo semantic build, invoke `/graphify` from the repo root and tell the skill the user chose Full semantic intent at clone time; after detection, the skill must show the actual uncached file/subagent counts and get confirmation before dispatching semantic subagents.",

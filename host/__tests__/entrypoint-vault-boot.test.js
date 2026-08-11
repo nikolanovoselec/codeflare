@@ -632,12 +632,12 @@ describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM
       `global add ${join(vault, 'graphify-out', 'vault-graph.json')} --as user_vault`,
       'the boot seed must publish the cumulative vault graph under the user_vault tag',
     );
-    // The scaffold exists alongside the cumulative graph in this fixture, so
-    // the assertion above is a real choice between two present files rather
-    // than the only available one.
+    // The derived graph.json exists alongside the cumulative graph in this
+    // fixture, so the assertion above is a real choice between two present
+    // files rather than the only available one.
     assert.ok(
       existsSync(join(vault, 'graphify-out', 'graph.json')),
-      'the empty graph.json scaffold is present and was passed over as the seed source',
+      'the derived graph.json is present and was passed over as the seed source',
     );
   });
 

@@ -57,6 +57,7 @@ const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
+const GLOBAL_MANIFEST = "/home/user/.graphify/global-manifest.json";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
 
 export type PiSettings = {
@@ -225,7 +226,7 @@ function existingGraphCloneNotice(repo: string): { message: string; level: "info
 function graphSummary(repo: string): string | undefined {
   const graphPath = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graphPath)) return undefined;
-  const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/vault-graph.json, the cumulative graph; the graph.json beside it is an empty scaffold. Global graph: /home/user/.graphify/global-graph.json.";
+  const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/vault-graph.json, the cumulative graph; the graph.json beside it is a copy each merge refreshes and is empty until the first extraction. Global graph: /home/user/.graphify/global-graph.json.";
   try {
     // Skip the synchronous parse on very large graphs; reading a multi-MB graph at
     // session start would block the agent. 30MB mirrors the Claude session-start guard.
@@ -431,11 +432,75 @@ async function sendWorkflowMessage(pi: ExtensionAPI, ctx: ExtensionCommandContex
   pi.sendUserMessage(message);
 }
 
-function maybeMergeGlobalGraph(repo: string): void {
-  const graph = join(repo, "graphify-out", "graph.json");
-  if (!existsSync(graph)) return;
+export type GlobalGraphPlan = {
+  remove: string[];
+  add?: { graph: string; tag: string };
+};
+
+/**
+ * The same invariant graphify-active-repo.sh enforces on the Claude runtime
+ * (REQ-VAULT-004 AC6, REQ-VAULT-014 AC5): the global manifest holds
+ * `user_vault` plus the active checkout's tag when that checkout has a graph,
+ * and nothing else. Pi previously only ever added, so every repo a session
+ * touched accumulated in the global graph and queries answered from repos the
+ * user had already left.
+ *
+ * Removals are enumerated from the manifest rather than derived from the
+ * previous active repo, so a tag left behind by a crashed run is swept too.
+ * An unreadable or malformed manifest yields no removals, which is the
+ * conservative direction: adding is idempotent, removing is not.
+ */
+export function planGlobalGraphReconcile(
+  manifestRaw: string | undefined,
+  repo: string,
+  repoHasGraph: boolean,
+): GlobalGraphPlan {
+  const keepTag = repoHasGraph ? basename(repo) : "";
+  let tags: string[] = [];
   try {
-    execFileSync("flock", ["-w", "5", GLOBAL_GRAPH_LOCK, "graphify", "global", "add", graph, "--as", basename(repo)], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const parsed = manifestRaw ? (JSON.parse(manifestRaw) as { repos?: Record<string, unknown> }) : undefined;
+    const repos = parsed?.repos;
+    if (repos && typeof repos === "object") tags = Object.keys(repos);
+  } catch {
+    tags = [];
+  }
+  const remove = tags.filter((tag) => tag !== "user_vault" && tag !== keepTag);
+  return keepTag
+    ? { remove, add: { graph: join(repo, "graphify-out", "graph.json"), tag: keepTag } }
+    : { remove };
+}
+
+function readGlobalManifest(): string | undefined {
+  try {
+    return readFileSync(GLOBAL_MANIFEST, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+function reconcileGlobalGraph(repo: string): void {
+  const plan = planGlobalGraphReconcile(readGlobalManifest(), repo, existsSync(join(repo, "graphify-out", "graph.json")));
+  if (plan.remove.length === 0 && !plan.add) return;
+  try {
+    // Removals and the addition share one lock acquisition, so a concurrent
+    // writer cannot observe the manifest mid-reconciliation
+    // (REQ-VAULT-014 AC1). Arguments are passed positionally rather than
+    // interpolated, so a repo basename containing shell metacharacters is inert.
+    execFileSync(
+      "flock",
+      [
+        "-w", "5", GLOBAL_GRAPH_LOCK, "bash", "-c",
+        'graph_json="$1"; repo_tag="$2"; need_add="$3"; shift 3\n' +
+          'for stale_tag in "$@"; do graphify global remove "$stale_tag" >/dev/null 2>&1 || exit 1; done\n' +
+          'if [ "$need_add" = "1" ]; then graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1; fi',
+        "_",
+        plan.add?.graph ?? "",
+        plan.add?.tag ?? "",
+        plan.add ? "1" : "0",
+        ...plan.remove,
+      ],
+      { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
   } catch {
     // Best effort; graphify CLI or global graph may be unavailable.
   }
@@ -598,7 +663,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", (_event, ctx) => {
     const repo = activeRepo(ctx);
-    if (repo) maybeMergeGlobalGraph(repo);
+    if (repo) reconcileGlobalGraph(repo);
     const summary = repo ? graphSummary(repo) : undefined;
     if (summary) ctx.ui.notify(summary, "info");
   });
@@ -689,7 +754,9 @@ export default function (pi: ExtensionAPI) {
       : undefined;
     const repo = updateActiveRepoFromPath(decision?.repo ?? (command ? effectivePathForCommand(command, cwd) : cwd));
 
-    if (repo && hasGraph(repo)) maybeMergeGlobalGraph(repo);
+    // No hasGraph guard: a checkout without a graph is exactly the case that
+    // must remove the previous repo's tag rather than leave it published.
+    if (repo) reconcileGlobalGraph(repo);
 
     if (decision && !existsSync(decision.marker)) {
       writeFileSync(decision.marker, "1", "utf8");

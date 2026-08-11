@@ -179,7 +179,7 @@ The Pi subagent authors a request-specific canonical chunk, then holds one 300-s
 
 Write sites that touch the global graph:
 
-- `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the empty `graph.json` scaffold beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
+- `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the derived `graph.json` beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
 - The capture agent, after writing a vault file ([REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)).
 - The vault-extract agent, after user-edit extraction ([REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)).
 - `graphify-active-repo.sh`, whenever reconciliation finds the manifest's repo entries out of step with the active checkout (single-active-repo invariant; see below).

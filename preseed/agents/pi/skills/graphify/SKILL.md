@@ -22,11 +22,21 @@ Hard rules:
 
 ```text
 Repo graph:   <repo>/graphify-out/graph.json
-Vault graph:  /home/user/Vault/graphify-out/graph.json
+Vault graph:  /home/user/Vault/graphify-out/vault-graph.json
 Global graph: /home/user/.graphify/global-graph.json
 ```
 
-There is normally no `/home/user/workspace/graphify-out/graph.json`.
+There is normally no `/home/user/workspace/graphify-out/graph.json`. The vault's `graphify-out/` also holds a `graph.json`, but that one is a copy each merge refreshes for the local visualization, and it is empty until the first extraction runs. `vault-graph.json` beside it is the cumulative store every capture and extraction reads back and merges into, and the only file to publish as `user_vault`.
+
+**The on-disk edge key is `links`, not `edges`.** Every graph graphify writes uses NetworkX node-link JSON in this shape:
+
+```json
+{"directed": true, "multigraph": false, "graph": {},
+ "nodes": [{"id": "...", "type": "...", "repo": "<tag>", "...": "..."}],
+ "links": [{"source": "<node id>", "target": "<node id>", "type": "..."}]}
+```
+
+A script that reads `data["edges"]` gets nothing and reports an edgeless graph, which is a lookup bug and never a real finding. NetworkX 3.6 flipped the default key from `links` to `edges`, so anything calling `node_link_data` / `node_link_graph` directly must pass `edges="links"` to stay compatible with what is already on disk; graphify pins that explicitly. Nodes in the global graph carry a `repo` attribute holding the tag they were added under (`user_vault`, `codeflare`, ...), and that attribute is what `graphify global remove <tag>` prunes on. Prefer the `graphify_query` / `graphify_path` / `graphify_explain` tools over parsing these files by hand; they answer against the global graph and cannot get the key wrong.
 
 ## Query workflow
 
