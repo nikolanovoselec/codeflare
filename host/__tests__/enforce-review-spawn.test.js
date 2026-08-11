@@ -1029,10 +1029,13 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.equal(ackOf(cwd), headSha);
     assert.match(r.stdout, /FIX phase/,
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
-    assert.match(r.stdout, /commit and push/i,
-      'accepted fixes must be delivered to the PR rather than left in a local commit');
-    assert.match(r.stdout, /without asking/i,
-      'a fix push is a delivery boundary and does not require renewed consent');
+    assert.match(r.stdout, /commit/i,
+      'accepted fixes are committed rather than left in the working tree');
+    // Parity with Pi, whose FIX follow-up names no push at all. A hook order
+    // outranks the standing push gate, so ordering the push here is what
+    // delivered heads while their own CI was still in flight.
+    assert.doesNotMatch(r.stdout, /push/i,
+      'the FIX directive must issue no push order; the review and CI gates own that decision');
     assert.match(r.stdout, /do not merge/i,
       'automatic fix delivery must never become automatic merge');
   });

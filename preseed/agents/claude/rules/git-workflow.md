@@ -20,6 +20,6 @@
 
 - Do not auto-start CI monitoring after non-boundary routine pushes. Invoke `ci-monitoring` for an eligible PR-boundary plan, when the user explicitly asks, or when deploy/merge requires a fresh CI result.
 - A successful `git push` or `gh pr create` on an eligible protected-base PR is a delivery boundary: launch review and CI automatically without asking for renewed consent. A later command also auto-recovers a synchronized same-PR descendant of its acknowledged review head; consent applies to other Git/GitHub activity, and acknowledgement must be offered neutrally rather than recommended from agent self-verification.
-- After acknowledged triage, apply accepted fixes, commit, and push the checked-out PR branch without asking; end after the push so the next exact incremental review and CI round can start. Never merge automatically, relaunch an in-flight lane, or create a no-op fix commit.
+- After acknowledged triage, apply accepted fixes and commit without asking. Do not push on that turn: the review push gate and the CI-result gate decide when a head is delivered, and the push they permit then starts the next exact incremental review and CI round. Never merge automatically, relaunch an in-flight lane, or create a no-op fix commit.
 - Never deploy to integration until every required CI run is green.
 - If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.
