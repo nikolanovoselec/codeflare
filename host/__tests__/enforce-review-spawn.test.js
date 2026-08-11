@@ -1048,11 +1048,16 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
     assert.match(r.stdout, /commit/i,
       'accepted fixes are committed rather than left in the working tree');
-    // Parity with Pi, whose FIX follow-up names no push at all. A hook order
-    // outranks the standing push gate, so ordering the push here is what
-    // delivered heads while their own CI was still in flight.
-    assert.doesNotMatch(JSON.parse(r.stdout).reason, /push/i,
-      'the FIX directive must issue no push order; the review and CI gates own that decision');
+    // The directive owns delivery. Stating the condition in a rule instead left
+    // the round stopping after the commit, because a hook directive outranks a
+    // standing rule and there was no order here to obey.
+    const reason = JSON.parse(r.stdout).reason;
+    assert.match(reason, /push the checked-out PR branch/i,
+      'the FIX directive must order the delivery push, not leave it to a weaker rule');
+    assert.match(reason, /without asking/i,
+      'a fix push is the next boundary, not a new decision to put to the user');
+    assert.match(reason, /terminal CI_RESULT/,
+      'and it waits out this head\'s CI so the in-flight run is not discarded');
     assert.match(r.stdout, /do not merge/i,
       'automatic fix delivery must never become automatic merge');
   });

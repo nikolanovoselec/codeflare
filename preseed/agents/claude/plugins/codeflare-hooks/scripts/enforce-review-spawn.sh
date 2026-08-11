@@ -1488,14 +1488,13 @@ if all_required_lanes_completed_for_current_head; then
     fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
-    # This directive deliberately issues NO push order, matching Pi's FIX
-    # follow-up, which says only that the head is acknowledged and fixes may
-    # begin. A hook order outranks a standing rule, so ordering the push here
-    # is what let a fix land on the remote while this head's CI was still in
-    # flight -- discarding that run and opening a round on a head whose
-    # predecessor was never verified. Silence hands the decision back to the
-    # review and CI gates that already own it. Do not reintroduce the word.
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks and commit. Do not merge. If no fix was accepted, create no commit. State what you fixed and anything you deliberately left."
+    # This directive owns the push. Stating the condition in a rule instead was
+    # the weaker half of the same idea: a hook directive outranks a standing
+    # rule, so with no order here the round simply stopped after the commit and
+    # waited to be prodded. The condition rides along with the order rather
+    # than replacing it -- wait out this head's CI, then deliver, without
+    # asking, because a fix push is the next boundary and not a new decision.
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks and commit. Then push the checked-out PR branch WITHOUT asking - never stop after the commit and never ask whether to deliver. If this head's CI monitor has not yet written a terminal CI_RESULT naming it, read its log until that line lands and push immediately afterwards, so the run you would otherwise discard finishes and its outcome rides the same push. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
