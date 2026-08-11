@@ -71,7 +71,10 @@ AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
 # specifier as a package name: invoked as `bash path/to/enforce-review-spawn.sh`
 # the relative form throws MODULE_NOT_FOUND, which is the one input that makes
 # the scan look like a transcript with nothing in it.
-SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || case "$0" in
+  /*) SCRIPT_DIR="$(dirname "$0")" ;;
+  *) SCRIPT_DIR="$PWD/$(dirname "$0")" ;;
+esac
 CLASSIFIER_LIB="$SCRIPT_DIR/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
@@ -301,24 +304,27 @@ NODE
 # the same output. Enforcement triggers on any git/gh activity, which is the
 # long-standing contract; the coverage window narrows to a real delivery so a
 # read-only call cannot move it past a round's own lane spawns.
-# `transcript_scan` cannot distinguish "no delivery in the transcript" from
-# "could not look", and the swallowed stderr below collapses them: an absent
-# classifier leaves PUSH_LINE empty and the next line exits as "no candidate",
-# which silently disables review enforcement altogether. Refuse the turn
-# instead -- the Stop-side twin of the gate's empty-verdict refusal.
+# Two ways this scan can answer "no delivery" without having looked, and each
+# gets its own guard because each is a separate failure. `transcript_scan`
+# swallows stderr, so either one leaves PUSH_LINE empty and the line below exits
+# as "no candidate", silently disabling review enforcement altogether.
 #
-# Only for a transcript that mentions git or gh at all. A turn with nothing to
-# classify has no candidate whatever state the classifier is in, so refusing it
-# would lock the session out over a plugin it never reaches for, against this
-# file's own fail-safe contract. The word test is deliberately cruder than the
-# parser it stands in for: it decides whether to refuse, never whether to admit,
-# so its only error is refusing a turn that merely talks about git.
-#
-# A transcript we cannot read counts as one that might carry a delivery. `grep`
-# answers "no match" and "could not look" with 1 and 2, and a bare `&&` reads
-# both as nothing-to-see -- the exact conflation this guard exists to end, and
-# only `-f` is checked upstream, never `-r`.
-if [ ! -r "$CLASSIFIER_LIB" ] && { [ ! -r "$TRANSCRIPT" ] || grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; }; then
+# A transcript we cannot read might carry anything, including a delivery. This
+# runs first so the word test underneath only ever sees a readable file, which
+# is what makes that test's exit status trustworthy: `grep` reports "no match"
+# and "could not look" as 1 and 2, and a bare `&&` cannot tell them apart.
+if [ ! -r "$TRANSCRIPT" ]; then
+  printf '%s\n' "Review enforcement cannot run: $TRANSCRIPT is unreadable, so a delivery in it cannot be ruled out." >&2
+  exit 2
+fi
+# An absent classifier, on a transcript that mentions git or gh at all. A turn
+# with nothing to classify has no candidate whatever state the classifier is in,
+# so refusing it would lock the session out over a plugin it never reaches for,
+# against this file's own fail-safe contract. The word test is deliberately
+# cruder than the parser it stands in for: it decides whether to refuse, never
+# whether to admit, so its only error is refusing a turn that merely talks
+# about git.
+if [ ! -r "$CLASSIFIER_LIB" ] && grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; then
   printf '%s\n' "Review enforcement cannot run: $CLASSIFIER_LIB is missing or unreadable. Restore the codeflare-hooks plugin before pushing." >&2
   exit 2
 fi

@@ -470,19 +470,24 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   // must not read the second as the first. Root reads every file regardless of
   // mode, so a chmod fixture proves nothing there and the row is skipped rather
   // than left to pass for the wrong reason; CI runners are unprivileged.
-  it('refuses a Stop turn whose transcript cannot be read when the classifier is missing', (t) => {
-    if (process.getuid?.() === 0) return t.skip('root ignores file modes; fixture would be vacuous');
-    const cwd = makeFixture();
-    const transcript = writeTranscript(cwd, [PUSH_LINE()]);
-    chmodSync(transcript, 0o000);
-    const r = spawnSync('bash', [isolatedHook(false)], {
-      cwd,
-      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: transcript }),
-      encoding: 'utf-8',
-      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+  // Both classifier states, because nesting this test inside the classifier
+  // condition left the present-classifier path failing open while the comment
+  // above it claimed otherwise.
+  for (const withClassifier of [false, true]) {
+    it(`refuses a Stop turn whose transcript cannot be read (classifier ${withClassifier ? 'present' : 'missing'})`, (t) => {
+      if (process.getuid?.() === 0) return t.skip('root ignores file modes; fixture would be vacuous');
+      const cwd = makeFixture();
+      const transcript = writeTranscript(cwd, [PUSH_LINE()]);
+      chmodSync(transcript, 0o000);
+      const r = spawnSync('bash', [isolatedHook(withClassifier)], {
+        cwd,
+        input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: transcript }),
+        encoding: 'utf-8',
+        env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+      });
+      assert.equal(r.status, 2, 'an unreadable transcript is not "nothing to classify"');
     });
-    assert.equal(r.status, 2, 'an unreadable transcript is not "nothing to classify"');
-  });
+  }
 
   // A delivery reaches the shell wearing flags, an env assignment, a wrapper or
   // an absolute path, or behind a shell keyword. Each of these was a live
