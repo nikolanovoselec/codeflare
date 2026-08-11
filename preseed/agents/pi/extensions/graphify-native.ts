@@ -54,7 +54,10 @@ function repoGraphCandidate(repo: string): ResolvedGraph | undefined {
 function repoRootFromPath(start: string): string | undefined {
   let current = start;
   while (current) {
-    if (existsSync(join(current, ".git")) || existsSync(join(current, "graphify-out", "graph.json"))) return current;
+    // .git only, matching findGitRoot in codeflare-pi.ts. Accepting a bare
+    // graphify-out/ here scoped queries to any directory holding graph output,
+    // so a stray one beside the clones answered in place of the real repo.
+    if (existsSync(join(current, ".git"))) return current;
     const parent = dirname(current);
     if (parent === current) return undefined;
     current = parent;

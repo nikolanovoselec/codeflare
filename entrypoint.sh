@@ -2159,9 +2159,20 @@ init_user_vault() {
     # Seed the global graph with the vault. Hash-keyed idempotent - safe to
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.
-    if command -v graphify >/dev/null 2>&1; then
+    #
+    # Source is vault-graph.json, the cumulative graph the capture and
+    # vault-extract pipelines merge into (REQ-MEM-009). The sibling
+    # graph.json is an empty scaffold graphify leaves in graphify-out/;
+    # seeding from it republished user_vault with zero nodes on every boot
+    # and dropped the accumulated vault memory out of the global graph until
+    # the next capture happened to run.
+    #
+    # The -f guard keeps a first-ever boot (no captures yet, no cumulative
+    # graph on disk) silent instead of emitting a deferred-add warning for a
+    # file that is not supposed to exist yet.
+    if command -v graphify >/dev/null 2>&1 && [ -f "$VAULT/graphify-out/vault-graph.json" ]; then
         flock -w 5 /tmp/graphify-global.lock graphify global add \
-            "$VAULT/graphify-out/graph.json" --as user_vault 2>/dev/null \
+            "$VAULT/graphify-out/vault-graph.json" --as user_vault 2>/dev/null \
             || echo "[entrypoint] vault global-add deferred (graphify not ready or lock timeout)"
     fi
 

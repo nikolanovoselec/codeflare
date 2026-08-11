@@ -40,6 +40,7 @@ import {
   readdirSync,
   rmSync,
   utimesSync,
+  chmodSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -550,6 +551,109 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
       readFileSync(userPlug, 'utf8'),
       'USER PLUG — keep me\n',
       'init_user_vault must only manage Library/Codeflare, never other Library subdirs',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQ-MEM-009 / REQ-VAULT-004 AC2 — the boot seed must publish the cumulative
+// vault graph, not the empty scaffold init_user_vault creates beside it.
+//
+// init_user_vault writes an empty graphify-out/graph.json when one is missing.
+// Seeding the global graph from that scaffold republished user_vault with zero
+// nodes on every boot, so accumulated vault memory silently vanished from the
+// unified graph until the next capture happened to run.
+// ---------------------------------------------------------------------------
+
+describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM-009 (cumulative vault graph is the source of truth)', () => {
+  // Runs the real init_user_vault with a fake graphify + flock on PATH so the
+  // global-add branch actually executes and records which file it published.
+  function runSeed({ withCumulativeGraph }) {
+    const root = mkTmp('vault-seed-');
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const binDir = join(root, 'bin');
+    const logFile = join(root, 'graphify-calls.log');
+    const vault = join(userHome, 'Vault');
+
+    mkdirSync(preseedDir, { recursive: true });
+    mkdirSync(binDir, { recursive: true });
+    mkdirSync(join(vault, 'graphify-out'), { recursive: true });
+    writeFileSync(join(preseedDir, 'Index.md'), 'PRESEED INDEX V1\n');
+
+    if (withCumulativeGraph) {
+      writeFileSync(
+        join(vault, 'graphify-out', 'vault-graph.json'),
+        '{"directed":true,"multigraph":false,"graph":{},"nodes":[{"id":"captured"}],"links":[]}',
+      );
+    }
+
+    writeFileSync(join(binDir, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${logFile}"\n`);
+    // Mirrors the real call shape: flock -w <secs> <lockfile> <cmd...>
+    writeFileSync(join(binDir, 'flock'), '#!/bin/sh\nshift 3\nexec "$@"\n');
+    chmodSync(join(binDir, 'graphify'), 0o755);
+    chmodSync(join(binDir, 'flock'), 0o755);
+
+    let body = extractFunctionBody('init_user_vault');
+    body = body.replace(
+      /local PRESEED_DIR=\/opt\/silverbullet-preseed/,
+      `local PRESEED_DIR=${preseedDir}`,
+    );
+
+    const res = runBash(`
+      set +e
+      export PATH="${binDir}:$PATH"
+      USER_HOME=${userHome}
+      PLUGIN_DIR=${join(preseedDir, 'plugins')}
+      export USER_HOME PLUGIN_DIR
+
+      ${body}
+
+      init_user_vault >/dev/null 2>&1
+    `);
+
+    return {
+      res,
+      vault,
+      calls: existsSync(logFile)
+        ? readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean)
+        : [],
+    };
+  }
+
+  it('publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)', () => {
+    const { res, vault, calls } = runSeed({ withCumulativeGraph: true });
+    assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);
+
+    const adds = calls.filter((c) => c.startsWith('global add'));
+    assert.equal(adds.length, 1, `expected exactly one global add, got ${JSON.stringify(calls)}`);
+    assert.equal(
+      adds[0],
+      `global add ${join(vault, 'graphify-out', 'vault-graph.json')} --as user_vault`,
+      'the boot seed must publish the cumulative vault graph under the user_vault tag',
+    );
+    // The scaffold exists alongside the cumulative graph in this fixture, so
+    // the assertion above is a real choice between two present files rather
+    // than the only available one.
+    assert.ok(
+      existsSync(join(vault, 'graphify-out', 'graph.json')),
+      'the empty graph.json scaffold is present and was passed over as the seed source',
+    );
+  });
+
+  it('publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)', () => {
+    const { res, vault, calls } = runSeed({ withCumulativeGraph: false });
+    assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);
+
+    // The scaffold is still created, so a path-only guard would have fired here.
+    assert.ok(
+      existsSync(join(vault, 'graphify-out', 'graph.json')),
+      'init_user_vault still creates the graph.json scaffold',
+    );
+    assert.deepEqual(
+      calls.filter((c) => c.startsWith('global')),
+      [],
+      'a first boot with no captures must not publish anything to the global graph',
     );
   });
 });
