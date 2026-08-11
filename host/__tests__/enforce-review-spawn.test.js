@@ -53,6 +53,23 @@ function withSdd(cwd) {
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
 }
 
+// A fixture with a real origin, so `git rev-parse @{u}` resolves. Every other
+// fixture here has no upstream, which leaves REMOTE_HEAD empty and makes the
+// ack-freshness branch below the retroactive scan unreachable -- the blind spot
+// that let a silently-acknowledging gate ship.
+function withUpstream(cwd) {
+  const remote = mkdtempSync(join(tmpdir(), 'origin-'));
+  spawnSync('git', ['init', '-q', '--bare', remote]);
+  spawnSync('git', ['remote', 'add', 'origin', remote], { cwd });
+  spawnSync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd });
+  // None of the three calls above is checked, so a setup failure would leave
+  // `@{u}` unresolved, REMOTE_HEAD empty and the freshness guard unreachable --
+  // and the regression test would still reach the FIX directive and pass, for
+  // the wrong reason, re-hiding the exact bug it exists to catch.
+  assert.equal(spawnSync('git', ['rev-parse', '@{u}'], { cwd }).status, 0,
+    'fixture upstream must resolve or the guard under test is never reached');
+}
+
 function fakeGh(cwd, body) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
@@ -115,7 +132,7 @@ function runReminder(cwd, command, binDir) {
   });
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Always isolate hook state from the live Claude session. Tests exercising a
@@ -129,6 +146,9 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
       hook_event_name: event,
       transcript_path: transcriptPath,
       ...(toolName ? { tool_name: toolName } : {}),
+      // Claude Code adds agent_type/agent_id only when the caller is a
+      // subagent; a main-agent payload carries neither.
+      ...(agentType ? { agent_type: agentType, agent_id: `agent_${agentType}` } : {}),
     }),
     encoding: 'utf-8',
     env,
@@ -276,11 +296,12 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
     DONE_LINE('toolu_du1'),
   ];
-  const pretool = (cwd, t, toolName) =>
+  const pretool = (cwd, t, toolName, agentType) =>
     runHook(cwd, {
       event: 'PreToolUse',
       transcriptPath: t,
       toolName,
+      agentType,
       tmpDir: cwd,
       bypassFile: join(cwd, 'absent-bypass'),
     });
@@ -304,6 +325,50 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     for (const tool of ['Read', 'TaskOutput']) {
       assert.equal(pretool(cwd, t, tool).status, 0, tool);
     }
+  });
+
+  // A subagent's tool call arrives on this same hook, carrying the PARENT's
+  // transcript_path, so without a scope check the gate reads the main session's
+  // review state and refuses work that has nothing to do with the round. The
+  // pairing is the oracle: the identical state must block the main agent and
+  // allow the subagent, so a gutted guard cannot pass both halves.
+  it('does not gate a subagent on the main session review round', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Write', 'Edit', 'Bash']) {
+      assert.equal(pretool(cwd, t, tool).status, 2,
+        `${tool} blocks the main agent in this state`);
+      assert.equal(pretool(cwd, t, tool, 'memory-capture').status, 0,
+        `${tool} is allowed for a subagent in the same state`);
+    }
+  });
+
+  it('scopes out every subagent, not one by name', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const agent of ['memory-capture', 'vault-extract', 'Explore', 'general-purpose']) {
+      const r = pretool(cwd, t, 'Write', agent);
+      assert.equal(r.status, 0, agent);
+      assert.equal(r.stderr, '', `${agent} receives no directive`);
+    }
+  });
+
+  it('leaves the one-shot bypass sentinel for the session it belongs to', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const bypassFile = join(cwd, 'one-shot-bypass');
+    writeFileSync(bypassFile, '');
+    const r = runHook(cwd, {
+      event: 'PreToolUse',
+      transcriptPath: t,
+      toolName: 'Write',
+      agentType: 'memory-capture',
+      tmpDir: cwd,
+      bypassFile,
+    });
+    assert.equal(r.status, 0);
+    assert.ok(existsSync(bypassFile),
+      'a subagent must not consume the sentinel the main session is owed');
   });
 
   it('allows once a finding triage table is published after the last completion', () => {
@@ -981,12 +1046,49 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.equal(ackOf(cwd), headSha);
     assert.match(r.stdout, /FIX phase/,
       'the ack alone does not apply anything; the fix phase must be driven, not remembered');
-    assert.match(r.stdout, /commit and push/i,
-      'accepted fixes must be delivered to the PR rather than left in a local commit');
-    assert.match(r.stdout, /without asking/i,
-      'a fix push is a delivery boundary and does not require renewed consent');
+    assert.match(r.stdout, /commit/i,
+      'accepted fixes are committed rather than left in the working tree');
+    // The directive owns delivery. Stating the condition in a rule instead left
+    // the round stopping after the commit, because a hook directive outranks a
+    // standing rule and there was no order here to obey.
+    const reason = JSON.parse(r.stdout).reason;
+    assert.match(reason, /push the checked-out PR branch/i,
+      'the FIX directive must order the delivery push, not leave it to a weaker rule');
+    assert.match(reason, /without asking/i,
+      'a fix push is the next boundary, not a new decision to put to the user');
+    assert.match(reason, /terminal CI_RESULT/,
+      'and it waits out this head\'s CI so the in-flight run is not discarded');
     assert.match(r.stdout, /do not merge/i,
       'automatic fix delivery must never become automatic merge');
+  });
+
+  // The retroactive scan recovers checkpoints for heads whose live enforcement
+  // was missed, but it used to claim the CURRENT head too. That advanced the
+  // checkpoint and then the freshness guard read the mtime of the ack the scan
+  // had just written -- zero seconds old, trivially inside the 300s window --
+  // and returned before the FIX directive. The round was acknowledged with no
+  // handoff and no counter touched, indistinguishable from the gate never
+  // running. Needs a real upstream or the guard is not even reachable.
+  it('hands off to FIX when an upstream makes the just-written ack look fresh', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withUpstream(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_u1'),
+      LANE_BASH_DONE_LINE('toolu_u1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_u2'),
+      LANE_BASH_DONE_LINE('toolu_u2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_u3'),
+      LANE_BASH_DONE_LINE('toolu_u3'),
+      TRIAGE_LINE(),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), headSha, 'the round is acknowledged');
+    assert.match(r.stdout, /FIX phase/,
+      'and acknowledgement must hand off to FIX rather than exiting silently');
   });
 
   it('blocks FIX when the PR-specific acknowledgement cannot be persisted', () => {

@@ -49,6 +49,25 @@ INPUT=$(cat 2>/dev/null) || exit 0
 HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 
+# Main session only, as the header says. Claude Code fires PreToolUse for a
+# subagent's tool calls exactly as for the main agent's, and hands them the
+# PARENT's transcript_path, so the triage gate below would read the main
+# session's review state and refuse a subagent's Write or Bash for a round it
+# takes no part in. Memory capture lost writes to this, the vault capture file
+# among them.
+#
+# agent_type/agent_id are present only on a subagent's payload; a main-agent
+# call carries neither. That is the whole discriminator, and it is why this
+# needs no transcript inspection: reading the calling identity out of the
+# transcript is a race, reading it off the payload is not. The Stop path never
+# needed the guard (SubagentStop is its own event and the case below drops it),
+# but scoping both here keeps the contract in one place.
+#
+# Placed before any sentinel handling so a subagent can never consume the
+# one-shot bypass the main session is owed.
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+[ -n "$AGENT_TYPE" ] && exit 0
+
 case "$HOOK_EVENT" in
   Stop) PRETOOL_MODE="" ;;
   PreToolUse) PRETOOL_MODE=1 ;;
@@ -1009,7 +1028,18 @@ retroactive_ack_scan() {
 }
 
 RETRO_SHA=$(retroactive_ack_scan 2>/dev/null)
-if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ]; then
+# The scan recovers checkpoints for heads whose live enforcement was missed. It
+# must never claim the CURRENT head: that one belongs to the live path below,
+# and only the live path hands off to FIX. When the scan took it, two things
+# followed in the same run. It advanced the checkpoint, and then the freshness
+# guard below read the ack it had itself just written -- zero seconds old, so
+# trivially under the 300s window -- and exited before the FIX directive. The
+# round was acknowledged with no fix handoff and no counter touched, which is
+# indistinguishable from the gate having never run. Excluding the current head
+# costs the scan nothing: the live path acknowledges it in this same
+# invocation, and does it with the handoff attached.
+if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ] \
+   && [ "$RETRO_SHA" != "$CURRENT_PR_HEAD" ]; then
   # Only advance forward. The merge-base check covers the rebase / force-
   # push edge case: if RETRO_SHA is not an ancestor of (or equal to) the
   # current HEAD chain, the transcript is referring to an obsolete tip and
@@ -1458,7 +1488,13 @@ if all_required_lanes_completed_for_current_head; then
     fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks, commit and push the checked-out PR branch without asking. That push is a delivery boundary and must start the next incremental review and CI round; end the turn immediately after the push. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
+    # This directive owns the push. Stating the condition in a rule instead was
+    # the weaker half of the same idea: a hook directive outranks a standing
+    # rule, so with no order here the round simply stopped after the commit and
+    # waited to be prodded. The condition rides along with the order rather
+    # than replacing it -- wait out this head's CI, then deliver, without
+    # asking, because a fix push is the next boundary and not a new decision.
+    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks and commit. Then push the checked-out PR branch WITHOUT asking - never stop after the commit and never ask whether to deliver. If this head's CI monitor has not yet written a terminal CI_RESULT naming it, read its log until that line lands and push immediately afterwards, so the run you would otherwise discard finishes and its outcome rides the same push. That wait may only ever delay the push, never cancel it: if no CI monitor exists for this head, or its log has not advanced since your previous read, push now. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
