@@ -198,14 +198,33 @@ OLD=$(cat "$SENTINEL" 2>/dev/null || true)
 GRAPH_JSON="$REPO/graphify-out/graph.json"
 GLOBAL_MANIFEST="${GRAPHIFY_GLOBAL_MANIFEST:-$HOME/.graphify/global-manifest.json}"
 
-# Current branch, read straight out of .git/HEAD rather than by shelling out
-# to git, which the fast path exists to avoid. Detached HEAD yields the raw
-# SHA, which is fine: it only has to differ when the checkout differs.
-# A worktree or submodule .git is a file pointing elsewhere, so HEAD is not
-# readable here and this stays empty, which the compare treats as unknown.
+# Current branch, read straight out of HEAD rather than by shelling out to
+# git, which the fast path exists to avoid. Detached HEAD yields the raw SHA,
+# which is fine: it only has to differ when the checkout differs.
+#
+# In a worktree or submodule, .git is a file holding `gitdir: <path>` and HEAD
+# lives at that path, so resolving it is what makes the branch compare work
+# for those checkouts at all. An empty BRANCH compares equal to an empty
+# OLD_BRANCH, so failing to resolve here would silently disable the branch
+# trigger rather than fall back to reconciling.
+GIT_DIR="$REPO/.git"
+if [ -f "$GIT_DIR" ]; then
+    GITDIR_LINE=$(cat "$GIT_DIR" 2>/dev/null || true)
+    case "$GITDIR_LINE" in
+        "gitdir: "*)
+            GIT_DIR="${GITDIR_LINE#gitdir: }"
+            # A relative gitdir is relative to the checkout that named it.
+            case "$GIT_DIR" in
+                /*) ;;
+                *) GIT_DIR="$REPO/$GIT_DIR" ;;
+            esac
+            ;;
+    esac
+fi
+
 BRANCH=""
-if [ -f "$REPO/.git/HEAD" ]; then
-    HEAD_REF=$(cat "$REPO/.git/HEAD" 2>/dev/null || true)
+if [ -f "$GIT_DIR/HEAD" ]; then
+    HEAD_REF=$(cat "$GIT_DIR/HEAD" 2>/dev/null || true)
     case "$HEAD_REF" in
         "ref: refs/heads/"*) BRANCH="${HEAD_REF#ref: refs/heads/}" ;;
         *) BRANCH="$HEAD_REF" ;;

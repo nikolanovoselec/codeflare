@@ -513,6 +513,21 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     return repo;
   }
 
+  // A worktree's .git is a file holding `gitdir: <path>`; HEAD lives at that
+  // path, not under the checkout. Returns the HEAD path so a test can move
+  // the branch the way `git checkout` would.
+  function makeWorktreeWithGraph(parent, name) {
+    const worktree = join(parent, name);
+    const gitDir = join(parent, `${name}.gitdir`);
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(worktree, '.git'), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+    mkdirSync(join(worktree, 'graphify-out'), { recursive: true });
+    writeFileSync(join(worktree, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+    return { worktree, head: join(gitDir, 'HEAD') };
+  }
+
   it('fast-path: same repo + graph mtime <= sentinel mtime -> exit 0, sentinel mtime unchanged', () => {
     const repoA = makeRepoWithGraph(workspace, 'repo-a');
     // Prime sentinel with repoA
@@ -679,7 +694,7 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
   // the manifest holds user_vault plus the active checkout's tag when it has
   // a graph, and nothing else. The four tests below each break a case that a
   // previous-sentinel diff cannot reach.
-  it('a checkout without a graph leaves the vault alone in the global graph (REQ-VAULT-004 AC7)', () => {
+  it('a checkout without a graph leaves the vault alone in the global graph (REQ-VAULT-004 AC6)', () => {
     const repoA = makeRepoWithGraph(workspace, 'repo-a');
     const repoB = makeRepo(workspace, 'repo-b'); // checkout, no graphify-out
     const { result, graphifyCalls } = runReconcile({
@@ -756,6 +771,27 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(additions(graphifyCalls)[0] ?? '', /^global add .*repo-a\/graphify-out\/graph\.json --as repo-a$/);
+  });
+
+  it('a branch switch in a worktree triggers reconciliation too, not just in a plain clone', () => {
+    // A worktree's HEAD is not at <repo>/.git/HEAD. Reading only that path
+    // leaves BRANCH empty forever, and empty compares equal to the empty
+    // recorded branch, so the trigger would be silently dead here.
+    const { worktree, head } = makeWorktreeWithGraph(workspace, 'wt-repo');
+    runHookNoGraphify({ tool_name: 'Bash', cwd: worktree, tool_input: { command: 'ls' } }, sentinelDir);
+    const past = Date.now() / 1000 - 3600;
+    utimesSync(join(worktree, 'graphify-out', 'graph.json'), past, past);
+    const future = Date.now() / 1000 + 1;
+    utimesSync(join(sentinelDir, 'graphify-active-cwd'), future, future);
+
+    writeFileSync(head, 'ref: refs/heads/feature\n');
+
+    const { result, graphifyCalls } = runReconcile({
+      cwd: worktree,
+      manifestRepos: { user_vault: {}, 'wt-repo': { source_hash: '0123456789abcdef' } },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(additions(graphifyCalls)[0] ?? '', /^global add .*wt-repo\/graphify-out\/graph\.json --as wt-repo$/);
   });
 
   it('a directory holding only graph output cannot evict the active repo', () => {
