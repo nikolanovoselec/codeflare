@@ -49,12 +49,20 @@ deadline=$((SECONDS + 1800))
 while [ $SECONDS -lt $deadline ]; do
   # A monitor outlives its head: pushing again leaves this one polling a head
   # nobody is waiting on, and its CI_RESULT is shaped exactly like an
-  # authoritative one. Exit on a distinct token instead, which satisfies no
-  # merge gate and cannot be misread as the current head's verdict.
+  # authoritative one. Exit on a distinct token instead. The exit codes differ
+  # from success (0) too, because the ctx_execute background path surfaces a
+  # status and a wrapper keying on it would otherwise read this as green.
   tip=$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1)
   if [ -n "$tip" ] && [ "$tip" != "$head" ]; then
-    echo "CI_RESULT superseded head=$head tip=$tip" >> "$log"
-    exit 0
+    # A differing tip has two causes and only one is safe to ignore. Fetch the
+    # ref so ancestry is answerable at all; this runs once, on the way out.
+    git fetch -q origin "refs/heads/$branch" >/dev/null 2>&1 || true
+    if git merge-base --is-ancestor "$head" "$tip" >/dev/null 2>&1; then
+      echo "CI_RESULT superseded head=$head tip=$tip" >> "$log"
+      exit 125
+    fi
+    echo "CI_RESULT unpushed head=$head tip=$tip" >> "$log"
+    exit 126
   fi
   if ! gh run list --branch "$branch" --limit 24 \
     --json databaseId,workflowName,headSha,status,conclusion,event,url \
@@ -104,9 +112,26 @@ chmod +x "$SCRIPT"
 # Cancel in-flight runs from superseded heads on this branch. Folded in here
 # on purpose: as a separate step it gets skipped, and a superseded head then
 # burns a full matrix nobody reads.
-gh run list --branch "$BRANCH" --limit 24 --json databaseId,headSha,status \
-  --jq ".[] | select(.status != \"completed\") | select(.headSha != \"$HEAD\") | .databaseId" 2>/dev/null \
-  | xargs -r -I{} gh run cancel {} >/dev/null 2>&1 || true
+#
+# Cancelling is irreversible, so it is guarded HARDER than polling, not less.
+# Two conditions: this checkout must actually be the remote tip (otherwise a
+# stale checkout or a concurrent push would cancel the CURRENT head's CI), and
+# each candidate must be an ancestor of it (so an unrelated lineage sharing the
+# ref is never touched). Failures are reported, never swallowed: a silently
+# failed cancel leaves a branch that never goes green with nothing saying why.
+TIP=$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1)
+if [ -n "$TIP" ] && [ "$TIP" = "$HEAD" ]; then
+  gh run list --branch "$BRANCH" --limit 24 --json databaseId,headSha,status \
+    --jq ".[] | select(.status != \"completed\") | select(.headSha != \"$HEAD\") | [.databaseId, .headSha] | @tsv" \
+    | while IFS="$(printf '\t')" read -r run_id run_sha; do
+        [ -n "$run_id" ] || continue
+        git merge-base --is-ancestor "$run_sha" "$HEAD" >/dev/null 2>&1 || continue
+        gh run cancel "$run_id" >/dev/null 2>&1 \
+          || printf 'warning: could not cancel superseded run %s\n' "$run_id" >&2
+      done
+else
+  printf 'warning: local HEAD %s is not the remote tip %s; skipping stale-run cancellation\n' "$HEAD" "${TIP:-unknown}" >&2
+fi
 setsid bash "$SCRIPT" "$PWD" "$BRANCH" "$HEAD" "$LOG" >/dev/null 2>&1 &
 printf 'CI_MONITOR_STARTED head=%s pid=%s log=%s\n' "$HEAD" "$!" "$LOG"
 ```
@@ -125,10 +150,14 @@ Read the printed log path until it contains a terminal result line for the curre
 - `CI_RESULT success` and every row is `completed/success` or `completed/skipped` -> CI passed.
 - `CI_RESULT failure` -> inspect failing runs with `gh run view <id> --log-failed`, fix, commit, push, and start a new detached monitor for the new HEAD.
 - `CI_RESULT timeout` -> stop and escalate to the user; do not claim green.
-- `CI_RESULT superseded head=<sha> tip=<sha>` -> the branch moved on while this
-  monitor was polling. It is NOT a verdict: it satisfies no merge or deploy gate,
-  and the head it names needs no investigation. Report it as superseded and read
-  the current head's log instead.
+- `CI_RESULT superseded head=<sha> tip=<sha>` (exit 125) -> the branch moved on
+  while this monitor was polling, and the head it names is an ancestor of the new
+  tip. It is NOT a verdict: it satisfies no merge or deploy gate, and that head
+  needs no investigation. Report it as superseded and read the current head's log.
+- `CI_RESULT unpushed head=<sha> tip=<sha>` (exit 126) -> the monitored head is
+  NOT an ancestor of the remote tip, so it never reached the remote. This one does
+  need investigation: the push failed, or the monitor was launched against the
+  wrong branch. Never treat it as superseded.
 
 Never claim CI is passing from the launcher output alone. Only a terminal `CI_RESULT success` line in the durable log for the current HEAD is green.
 

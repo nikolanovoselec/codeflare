@@ -869,9 +869,13 @@ retroactive_ack_scan() {
   total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
   [ "$total" -gt 0 ] || return
 
-  # Reads from TRANSCRIPT_SCAN, the script-wide snapshot taken once near the top,
-  # not from a fresh parse. The [ -f "$TRANSCRIPT" ] guard above still earns its
-  # place gating the wc -l below, but it is not a freshness check on this data.
+  # Window BOUNDARIES come from TRANSCRIPT_SCAN, the script-wide snapshot taken
+  # once near the top. Everything else here reads the live file: the wc -l above,
+  # and the per-window awk that extracts each push's destination SHA. Mixing the
+  # two is safe only because the transcript is append-only, so a line number from
+  # the snapshot still addresses the same line in the live file; nothing may
+  # renumber it. The [ -f "$TRANSCRIPT" ] guard above is a real check on those
+  # live reads, not a freshness check on the snapshot.
   #
   # Windows are bounded by deliveries, not by any Git activity. This scan once
   # carried its own narrower matcher; #814 deleted it and repointed the scan at
