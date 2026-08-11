@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -131,6 +131,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Seed provenance is carried in R2 custom metadata, verified before it was relied on | Storage, Agents |
 | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Replace OpenVSCode with pinned code-server behind the existing session proxy | Architecture, Security, Build / Container |
 | [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Browser IDE uses fixed public workspace selection and exported UI-state continuity | Architecture, Security, Storage, Build / Container |
+| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | A review boundary is a delivery subcommand, not any Git invocation | Architecture, Build / Container |
+| [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | The CI monitor observes and reports; it does not cancel runs or chase the remote | Architecture, Build / Container |
 
 ---
 
@@ -3486,3 +3488,47 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 - [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
 - [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
+
+### AD121: A review boundary is a delivery subcommand, not any Git invocation
+
+**Category:** Architecture, Build / Container
+
+**Status:** Accepted (2026-08-11).
+
+**Context:** `enforce-review-spawn.sh` measures lane coverage strictly after `PUSH_LINE`, the last transcript line its Layer 1 detector matched. That detector matched the bare words `git` and `gh` in command position, so every `git log`, `git status`, and `git diff` was a boundary. Reading a lane report is done with exactly those commands, so the anchor routinely moved past the spawns of the round being read and the gate re-demanded lanes that had already returned. Replayed against one session's transcript: 58 matches against 8 real pushes, with `PUSH_LINE` resolving to a `git diff` issued while diagnosing this.
+
+The same breadth reached `retroactive_ack_scan`. That scan carried its own narrower matcher until #814 deleted it and repointed the scan at the shared broad function, leaving a comment claiming the two had always been identical. Windows then ended at the next read-only Git call rather than the next push, so real-push windows still containing their own lane spawns fell from 7 of 8 to 5 of 8; those windows could not complete and no head was retroactively acknowledged.
+
+`git-push-review-reminder.sh` had already solved the classification, and Pi's `classifyReviewBoundaryCommand` solves it the same way: parse any `git`/`gh` in command position, then read the subcommand to name the event.
+
+**Decision:** Separate what triggers enforcement from what anchors the coverage window. Candidacy stays exactly as broad as it has always been: any executable `git` or `gh` command triggers the gate, and Layer 2 (`gh pr view`) decides eligibility. That breadth is a tested contract, not an accident, and narrowing it silently disables enforcement for read-only activity that a reviewed head still depends on.
+
+What narrows is the anchor. The delivery vocabulary is `git push`, `gh pr create`, and `gh pr merge`, classified with the global-option sets both siblings already share, and lane coverage plus `retroactive_ack_scan` measure from the last delivery rather than the last candidate. Both views come from one parse, so they cannot drift apart the way the two matchers did. Marking the event decides only *where* a delivery happened; it grants no authority over whether that delivery is reviewable.
+
+`git-push-review-reminder.sh` needs no anchor and keeps only the candidate surface, varying which message it emits.
+
+**Consequences:** With no delivery anywhere in the transcript the anchor is the start of the file, so every lane spawn present counts; anchoring on the last candidate instead would subtract earned coverage and would reinstate this decision's own defect whenever the delivery sits outside a rotated transcript.
+
+A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.
+
+### AD122: The CI monitor observes and reports; it does not cancel runs or chase the remote
+
+**Status:** Accepted (2026-08-11). Amends [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)'s sibling work on the CI monitor.
+
+**Context:** Two mechanisms were added to the CI-monitoring skill and both were the wrong answer to a real problem.
+
+The first was a launcher step that listed in-flight runs on the branch and cancelled the ones whose head was not the current HEAD. It was wrong three times in a row: an ancestry guard that excluded exactly the amended and force-pushed heads worth cancelling, then no guard at all, which exposed fork pull requests sharing a branch name, then a lineage guard that was merely less wrong. An older section of the same skill told the agent to cancel every non-completed run on the branch with no head filter at all, which cancels the run it is about to monitor.
+
+The second was supersession detection: on every poll the monitor compared the branch tip to its own head and exited on a distinct token when they diverged. It was added because stale results were arriving after a newer monitor had started. But the reason a stale result was indistinguishable from a fresh one is that `CI_RESULT success` and `CI_RESULT failure` carried no head at all. Only `timeout` did. The machinery grew to a `git ls-remote` per fifteen seconds, a conditional `git fetch`, an object-existence probe, an ancestry test, two terminal tokens and two exit codes, and it generated a review finding in every round it survived.
+
+In both cases each fix repaired the previous fix. That is the signal that the mechanism, not the guard, was the mistake.
+
+**Decision:** The monitor observes GitHub and reports what it sees. It does not cancel runs, and it does not consult the remote about its own relevance.
+
+Cancellation belongs to the workflows. Every one whose superseded runs are worth killing declares `concurrency` with `cancel-in-progress: true`; most key the group on `github.ref`, which for a `pull_request` event is the per-PR merge ref, so two pull requests sharing a head branch name never cancel each other while superseded pushes of the same pull request always do. A client reconstructing that from a branch name cannot match it, because the branch name is precisely the ambiguous part. The workflows that omit `cancel-in-progress` omit it on purpose: `deploy.yml` mutates the worker, secrets, KV, and registry in sequence and sets it false so a cancelled deploy cannot leave a half-configured target, and `sign-release.yml` and `bump-shadow-pins.yml` serialise for the same reason. A cancel loop keyed on a branch name cannot see that policy and will eventually cancel the one run that must never be cancelled.
+
+Staleness is answered by naming the head. Every terminal `CI_RESULT` line carries `head=<sha>`, so a result is self-identifying and a reader comparing it against the current HEAD needs nothing else. That check already exists as an obligation: the CI-result handoff gate requires the monitored head to be reported. The data was missing, not the discipline.
+
+**Consequences:** The skill keeps one bash block and no `git` calls beyond the caller's `rev-parse`. A stale monitor still runs to its deadline and still writes a result; that result names a head that is not current, which costs nothing and cannot be misread. `container-image.yml` and `nightly-pr-checks.yml` need no concurrency key, being `workflow_call` and `schedule` only, and `promotion-source.yml` is a seconds-long pull-request check with nothing to burn.
+
+A future agent that notices a superseded matrix still running must add or fix a `concurrency` block in the workflow, never a `gh run cancel` loop in a client script. One that notices a stale verdict must check `head=`, not teach the monitor to poll the remote.
