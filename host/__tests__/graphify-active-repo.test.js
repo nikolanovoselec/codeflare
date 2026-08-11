@@ -2,8 +2,8 @@
 // the agent's current repo root to ~/.cache/codeflare-hooks/graphify-active-cwd
 // across all matcher shapes (Bash, Edit/Write/Read/NotebookEdit,
 // mcp__context-mode__ctx_execute / _file / batch). Resolution walks up
-// from the candidate dir to the nearest ancestor containing .git/ or
-// graphify-out/. Sentinel is only rewritten on change.
+// from the candidate dir to the nearest ancestor that is a checkout (.git).
+// Sentinel is only rewritten on change.
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
@@ -19,17 +19,42 @@ const HOOK = resolve(
   '../../preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh'
 );
 
+// Resolution-only harness: these tests assert which directory the hook
+// picks, never what it publishes. graphify is stripped from PATH (no
+// /usr/local/bin) and the manifest is pointed at a path that does not
+// exist, so a reconcile can neither read nor mutate the developer's real
+// ~/.graphify if one of these fixtures is ever mistaken for an active repo.
+function hermeticEnv(sentinelDir, extra = {}) {
+  return {
+    ...process.env,
+    GRAPHIFY_SENTINEL_DIR: sentinelDir,
+    GRAPHIFY_GLOBAL_MANIFEST: join(sentinelDir, 'absent-manifest.json'),
+    PATH: '/usr/bin:/bin',
+    ...extra,
+  };
+}
+
 function runHook(input, sentinelDir) {
   const result = spawnSync('bash', [HOOK], {
     input: JSON.stringify(input),
     encoding: 'utf-8',
-    env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir },
+    env: hermeticEnv(sentinelDir),
   });
   return {
     stdout: result.stdout.trim(),
     stderr: result.stderr,
     status: result.status,
   };
+}
+
+// Same isolation, plus an overridden $HOME so the vault guard can be
+// exercised against a temporary vault instead of the real one.
+function runHookWithHome(input, sentinelDir, home) {
+  return spawnSync('bash', [HOOK], {
+    input: JSON.stringify(input),
+    encoding: 'utf-8',
+    env: hermeticEnv(sentinelDir, { HOME: home }),
+  });
 }
 
 function sentinel(sentinelDir) {
@@ -297,16 +322,33 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
     assert.equal(sentinel(sentinelDir), repoB);
   });
 
-  it('graphify-out/ also counts as a repo-root marker (not just .git/)', () => {
+  // A checkout is identified by .git and nothing else. graphify-out/ used to
+  // count as a repo-root marker too, which let any directory holding graph
+  // output mint a repo tag from its basename. Because that tag is what the
+  // reconcile adds and removes, a stray graphify-out/ beside the clones was
+  // enough to evict the real repo from the global graph.
+  it('a bare graphify-out/ directory is NOT a repo root', () => {
     const repoX = join(workspace, 'repo-x');
     mkdirSync(join(repoX, 'graphify-out'), { recursive: true });
-    // No .git/, but graphify-out/ exists - should still be detected
+    writeFileSync(join(repoX, 'graphify-out', 'graph.json'), '{"nodes":[]}');
     const { status } = runHook(
       { tool_name: 'Bash', cwd: repoX, tool_input: { command: 'ls' } },
       sentinelDir
     );
     assert.equal(status, 0);
-    assert.equal(sentinel(sentinelDir), repoX);
+    assert.equal(sentinel(sentinelDir), null, 'graph output alone must not resolve as an active repo');
+  });
+
+  it('a worktree .git file counts as a repo root, not just a .git directory', () => {
+    const worktree = join(workspace, 'wt');
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(worktree, '.git'), 'gitdir: /elsewhere/.git/worktrees/wt\n');
+    const { status } = runHook(
+      { tool_name: 'Bash', cwd: worktree, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(status, 0);
+    assert.equal(sentinel(sentinelDir), worktree);
   });
 
   it('cd inside echo string is NOT a false positive', () => {
@@ -340,14 +382,11 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
 
-    const result = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({
-        tool_name: 'Read',
-        tool_input: { file_path: join(vault, 'notes', 'foo.md') },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: fakeHome },
-    });
+    const result = runHookWithHome(
+      { tool_name: 'Read', tool_input: { file_path: join(vault, 'notes', 'foo.md') } },
+      sentinelDir,
+      fakeHome
+    );
     assert.equal(result.status, 0);
     assert.equal(sentinel(sentinelDir), null, 'vault must not be written to the active-repo sentinel');
   });
@@ -369,14 +408,11 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
 
     // Now simulate a tool call inside the vault (capture sonnet etc).
     // The hook must NOT rewrite the sentinel away from repoA.
-    const result = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({
-        tool_name: 'Read',
-        tool_input: { file_path: join(vault, 'raw', 'sessions', 'x.md') },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: fakeHome },
-    });
+    const result = runHookWithHome(
+      { tool_name: 'Read', tool_input: { file_path: join(vault, 'raw', 'sessions', 'x.md') } },
+      sentinelDir,
+      fakeHome
+    );
     assert.equal(result.status, 0);
     assert.equal(sentinel(sentinelDir), repoA, 'active repo must remain unchanged by a vault tool call');
   });
@@ -402,14 +438,11 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
 
-    const result = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({
-        tool_name: 'Read',
-        tool_input: { file_path: join(symHome, 'Vault', 'notes', 'foo.md') },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: symHome },
-    });
+    const result = runHookWithHome(
+      { tool_name: 'Read', tool_input: { file_path: join(symHome, 'Vault', 'notes', 'foo.md') } },
+      sentinelDir,
+      symHome
+    );
     assert.equal(result.status, 0);
     assert.equal(
       sentinel(sentinelDir),
@@ -430,14 +463,11 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
 
-    const result = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({
-        tool_name: 'Read',
-        tool_input: { file_path: join(vault, 'notes', 'foo.md') },
-      }),
-      encoding: 'utf-8',
-      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: realHome },
-    });
+    const result = runHookWithHome(
+      { tool_name: 'Read', tool_input: { file_path: join(vault, 'notes', 'foo.md') } },
+      sentinelDir,
+      realHome
+    );
     assert.equal(result.status, 0);
     assert.equal(
       sentinel(sentinelDir),
@@ -561,23 +591,35 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     assert.equal(sentinel(sentinelDir), repoA);
   });
 
-  function runTransactionalSwitch({ failLock = false } = {}) {
-    const repoA = makeRepoWithGraph(workspace, 'repo-a');
-    const repoB = makeRepoWithGraph(workspace, 'repo-b');
+  function mockBin({ failLock = false } = {}) {
     const bin = mkdtempSync(join(baseTmp, 'bin-'));
     const log = join(baseTmp, `graphify-${randomUUID()}.log`);
     const flockLog = join(baseTmp, `flock-${randomUUID()}.log`);
-    const manifest = join(baseTmp, `manifest-${randomUUID()}.json`);
-    writeFileSync(manifest, JSON.stringify({ repos: { 'repo-a': { source_hash: '0123456789abcdef' } } }));
-    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), `${repoA}\n`);
     writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\n`);
     writeFileSync(join(bin, 'flock'), failLock
       ? `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nexit 1\n`
       : `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nshift 3\nexec "$@"\n`);
     chmodSync(join(bin, 'graphify'), 0o755);
     chmodSync(join(bin, 'flock'), 0o755);
+    return { bin, log, flockLog };
+  }
+
+  function readLog(path) {
+    return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').filter(Boolean) : [];
+  }
+
+  // Runs the hook against stubbed graphify/flock binaries and a throwaway
+  // manifest, so assertions land on the exact global-graph commands the
+  // reconcile decided to issue rather than on the resulting graph.
+  function runReconcile({ cwd, manifestRepos, sentinelSeed, failLock = false }) {
+    const { bin, log, flockLog } = mockBin({ failLock });
+    const manifest = join(baseTmp, `manifest-${randomUUID()}.json`);
+    writeFileSync(manifest, JSON.stringify({ repos: manifestRepos }));
+    if (sentinelSeed) {
+      writeFileSync(join(sentinelDir, 'graphify-active-cwd'), `${sentinelSeed}\n`);
+    }
     const result = spawnSync('bash', [HOOK], {
-      input: JSON.stringify({ tool_name: 'Bash', cwd: repoB, tool_input: { command: 'ls' } }),
+      input: JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'ls' } }),
       encoding: 'utf-8',
       env: {
         ...process.env,
@@ -586,13 +628,33 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
         PATH: `${bin}:${process.env.PATH}`,
       },
     });
+    return { result, graphifyCalls: readLog(log), flockCalls: readLog(flockLog) };
+  }
+
+  function runTransactionalSwitch({ failLock = false } = {}) {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const repoB = makeRepoWithGraph(workspace, 'repo-b');
     return {
-      result,
       repoA,
       repoB,
-      graphifyCalls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [],
-      flockCalls: existsSync(flockLog) ? readFileSync(flockLog, 'utf8').trim().split('\n').filter(Boolean) : [],
+      ...runReconcile({
+        cwd: repoB,
+        sentinelSeed: repoA,
+        manifestRepos: { 'repo-a': { source_hash: '0123456789abcdef' } },
+        failLock,
+      }),
     };
+  }
+
+  function removals(graphifyCalls) {
+    return graphifyCalls
+      .filter((c) => c.startsWith('global remove '))
+      .map((c) => c.slice('global remove '.length))
+      .sort();
+  }
+
+  function additions(graphifyCalls) {
+    return graphifyCalls.filter((c) => c.startsWith('global add '));
   }
 
   it('reconciles old removal and new addition under one lock before advancing the sentinel (REQ-VAULT-014 AC1/AC2)', () => {
@@ -611,5 +673,104 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     assert.deepEqual(switched.flockCalls, ['attempt']);
     assert.deepEqual(switched.graphifyCalls, [], 'lock failure must prevent both removal and addition');
     assert.equal(sentinel(sentinelDir), switched.repoA, 'failed reconciliation must retain the prior sentinel for retry');
+  });
+
+  // The reconcile targets an invariant rather than replaying one transition:
+  // the manifest holds user_vault plus the active checkout's tag when it has
+  // a graph, and nothing else. The four tests below each break a case that a
+  // previous-sentinel diff cannot reach.
+  it('a checkout without a graph leaves the vault alone in the global graph (REQ-VAULT-004 AC7)', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const repoB = makeRepo(workspace, 'repo-b'); // checkout, no graphify-out
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoB,
+      sentinelSeed: repoA,
+      manifestRepos: { user_vault: {}, 'repo-a': { source_hash: '0123456789abcdef' } },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(removals(graphifyCalls), ['repo-a']);
+    assert.deepEqual(additions(graphifyCalls), [], 'a graphless checkout must publish nothing');
+    assert.equal(sentinel(sentinelDir), repoB);
+  });
+
+  it('sweeps stale tags no sentinel diff could name, and never removes user_vault (REQ-VAULT-014 AC5)', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const repoB = makeRepoWithGraph(workspace, 'repo-b');
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoB,
+      sentinelSeed: repoA,
+      manifestRepos: {
+        user_vault: {},
+        'repo-a': {},
+        // Minted when a bare graphify-out/ still resolved as a repo root.
+        workspace: {},
+        // Left behind by a run that died between remove and add.
+        'repo-z': {},
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(removals(graphifyCalls), ['repo-a', 'repo-z', 'workspace']);
+    assert.ok(
+      !graphifyCalls.some((c) => c.includes('user_vault')),
+      'user_vault is always-on and is never a repo tag'
+    );
+    assert.equal(additions(graphifyCalls).length, 1);
+  });
+
+  it('a graph deleted in place is reconciled, not swallowed by the mtime fast path', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    // Prime both sentinels through a real run so the recorded state says the
+    // graph was present at last reconcile.
+    runHookNoGraphify({ tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } }, sentinelDir);
+    const future = Date.now() / 1000 + 1;
+    utimesSync(join(sentinelDir, 'graphify-active-cwd'), future, future);
+
+    // Deleting the graph moves its mtime to 0, which compares as "not
+    // rebuilt". Only the recorded presence bit can catch this.
+    rmSync(join(repoA, 'graphify-out'), { recursive: true, force: true });
+
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: { user_vault: {}, 'repo-a': {} },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(removals(graphifyCalls), ['repo-a']);
+    assert.deepEqual(additions(graphifyCalls), []);
+  });
+
+  it('a branch switch triggers reconciliation even when the graph file is untouched', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    runHookNoGraphify({ tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } }, sentinelDir);
+    // Same repo, same graph, and the graph is older than the sentinel, so
+    // every pre-branch fast-path condition holds.
+    const past = Date.now() / 1000 - 3600;
+    utimesSync(join(repoA, 'graphify-out', 'graph.json'), past, past);
+    const future = Date.now() / 1000 + 1;
+    utimesSync(join(sentinelDir, 'graphify-active-cwd'), future, future);
+
+    writeFileSync(join(repoA, '.git', 'HEAD'), 'ref: refs/heads/feature\n');
+
+    const { result, graphifyCalls } = runReconcile({
+      cwd: repoA,
+      manifestRepos: { user_vault: {}, 'repo-a': { source_hash: '0123456789abcdef' } },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(additions(graphifyCalls)[0] ?? '', /^global add .*repo-a\/graphify-out\/graph\.json --as repo-a$/);
+  });
+
+  it('a directory holding only graph output cannot evict the active repo', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const phantom = join(workspace, 'not-a-checkout');
+    mkdirSync(join(phantom, 'graphify-out'), { recursive: true });
+    writeFileSync(join(phantom, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+
+    const { result, graphifyCalls } = runReconcile({
+      cwd: phantom,
+      sentinelSeed: repoA,
+      manifestRepos: { user_vault: {}, 'repo-a': {} },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(graphifyCalls, [], 'a non-checkout must not touch the global graph');
+    assert.equal(sentinel(sentinelDir), repoA, 'the active repo must survive a tool call outside any checkout');
   });
 });

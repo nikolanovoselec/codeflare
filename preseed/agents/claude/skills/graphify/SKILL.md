@@ -126,6 +126,16 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
 
 9. **Spawn Part B semantic subagents with `model: "sonnet"`.** Graphify semantic extraction requires reliable schema compliance - each subagent must emit valid JSON with correct `id`, `source_file`, and `confidence_score` fields. Haiku produced 57% malformed nodes on the codeflare corpus (288/504 dropped during post-filter); Sonnet's structured-output fidelity eliminates this waste. The `Task` calls in Step B2 must include `model: "sonnet"`. Never escalate to Opus from this skill.
 
+10. **The on-disk edge key is `links`, not `edges`.** Every graph graphify writes - `graphify-out/graph.json`, `~/Vault/graphify-out/vault-graph.json`, and `~/.graphify/global-graph.json` - is NetworkX node-link JSON in this shape:
+
+    ```json
+    {"directed": true, "multigraph": false, "graph": {},
+     "nodes": [{"id": "...", "type": "...", "repo": "<tag>", "...": "..."}],
+     "links": [{"source": "<node id>", "target": "<node id>", "type": "..."}]}
+    ```
+
+    A script that reads `data["edges"]` gets nothing and reports an edgeless graph, which is a lookup bug and never a real finding. NetworkX 3.6 flipped the default key from `links` to `edges`, so anything calling `node_link_data` / `node_link_graph` directly must pass `edges="links"` to stay compatible with what is already on disk; graphify pins that explicitly. Nodes in the global graph carry a `repo` attribute holding the tag they were added under (`user_vault`, `codeflare`, ...), and that attribute is what `graphify global remove <tag>` prunes on. Prefer the `mcp__graphify__*` tools over parsing these files by hand; they answer against the global graph and cannot get the key wrong.
+
 ---
 
 The upstream graphify extraction pipeline is reproduced below in full. It is the canonical algorithm; do not improvise on it. The two operational notes above (#8 mandatory build-mode question, #9 Sonnet subagents) are codeflare-specific overrides that bind on top of the upstream Step 1 + Step B2 below - apply them even where the upstream text does not mention them.

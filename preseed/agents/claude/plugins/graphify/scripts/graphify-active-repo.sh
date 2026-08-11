@@ -22,9 +22,9 @@
 #   - mcp__context-mode__ctx_batch_execute
 #                                     -> same, but iterate .tool_input.commands[].command.
 #
-# Resolution: walks up from the candidate dir until a directory containing
-# .git/ or graphify-out/ is found. If none, exit 0 silently. Sentinel is
-# only rewritten on change (no mtime churn).
+# Resolution: walks up from the candidate dir until a checkout (.git) is
+# found. If none, exit 0 silently. Sentinel is only rewritten on change (no
+# mtime churn).
 #
 # Sentinel dir is overrideable via GRAPHIFY_SENTINEL_DIR for testing.
 #
@@ -150,7 +150,14 @@ CANDIDATE=$(cd "$CANDIDATE" 2>/dev/null && pwd) || exit 0
 DIR="$CANDIDATE"
 REPO=""
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
-    if [ -d "$DIR/.git" ] || [ -d "$DIR/graphify-out" ]; then
+    # A checkout is identified by .git and nothing else. Accepting a bare
+    # graphify-out/ here let any directory that happened to hold graph output
+    # mint a repo tag from its basename, and since that tag is what the
+    # reconcile below adds and removes, a stray graphify-out/ next to the
+    # clones was enough to evict the real repo from the global graph.
+    # .git is a directory in a normal clone and a file in a worktree or
+    # submodule; both are checkouts.
+    if [ -e "$DIR/.git" ]; then
         REPO="$DIR"
         break
     fi
@@ -160,13 +167,13 @@ done
 [ -z "$REPO" ] && exit 0
 
 # Vault is always-on in the global graph under the tag `user_vault`,
-# seeded by init_user_vault() at boot. The vault has its own
-# graphify-out/ subdir, so the walk-up loop above would otherwise treat
-# $HOME/Vault as a "repo" and re-tag it with its basename (Vault) on
-# every tool call that touches a vault file. That duplicates entries in
-# the global manifest and lets the prune-on-switch logic later remove
-# the basename-tag, leaving only the stale entrypoint snapshot. Exit
-# silently when the resolved REPO is the vault root.
+# seeded by init_user_vault() at boot and refreshed by the capture and
+# vault-extract pipelines. It is never the active repo. A `git init` in
+# the vault would otherwise make the walk-up resolve $HOME/Vault as a
+# checkout and re-tag it with its basename (Vault) on every tool call
+# that touches a vault file, duplicating the vault in the global manifest
+# under a tag the reconcile below is free to remove. Exit silently when
+# the resolved REPO is the vault root.
 #
 # Two guards: REPO is already canonicalized via `cd ... && pwd`, so we
 # canonicalize $HOME the same way (symlinks, trailing slashes, mount
@@ -183,42 +190,84 @@ fi
 SENTINEL_DIR="${GRAPHIFY_SENTINEL_DIR:-$HOME/.cache/codeflare-hooks}"
 mkdir -p "$SENTINEL_DIR" 2>/dev/null || true
 SENTINEL="$SENTINEL_DIR/graphify-active-cwd"
+# Second sentinel, because the first one's format is a contract: the MCP
+# wrapper reads its first line as the active repo path.
+STATE_SENTINEL="$SENTINEL_DIR/graphify-active-state"
 
 OLD=$(cat "$SENTINEL" 2>/dev/null || true)
 GRAPH_JSON="$REPO/graphify-out/graph.json"
 GLOBAL_MANIFEST="${GRAPHIFY_GLOBAL_MANIFEST:-$HOME/.graphify/global-manifest.json}"
 
-# Cheap fast-path: same repo as last fire AND graph.json hasn't been
-# rebuilt since we last touched the sentinel -> nothing to do. Without
-# this, every Bash/Edit/Write/ctx_execute call would spawn graphify
-# (hundreds of MB of Python imports). The sentinel's mtime is the
-# implicit "last reconciled at" timestamp; we touch it whenever we
-# finish a global-graph update below.
+# Current branch, read straight out of .git/HEAD rather than by shelling out
+# to git, which the fast path exists to avoid. Detached HEAD yields the raw
+# SHA, which is fine: it only has to differ when the checkout differs.
+# A worktree or submodule .git is a file pointing elsewhere, so HEAD is not
+# readable here and this stays empty, which the compare treats as unknown.
+BRANCH=""
+if [ -f "$REPO/.git/HEAD" ]; then
+    HEAD_REF=$(cat "$REPO/.git/HEAD" 2>/dev/null || true)
+    case "$HEAD_REF" in
+        "ref: refs/heads/"*) BRANCH="${HEAD_REF#ref: refs/heads/}" ;;
+        *) BRANCH="$HEAD_REF" ;;
+    esac
+fi
+
+# What the checkout looks like now, versus what it looked like when we last
+# reconciled. Tab-separated because git forbids control characters in ref
+# names, so a branch name can never contain the separator.
+if [ -f "$GRAPH_JSON" ]; then
+    GRAPH_STATE="graph"
+else
+    GRAPH_STATE="nograph"
+fi
+TAB=$(printf '\t')
+OLD_STATE=$(cat "$STATE_SENTINEL" 2>/dev/null || true)
+OLD_BRANCH="${OLD_STATE%%"$TAB"*}"
+OLD_GRAPH_STATE="${OLD_STATE#*"$TAB"}"
+STATE="${BRANCH}${TAB}${GRAPH_STATE}"
+
+# Cheap fast-path: same repo as last fire, same branch, graph still in the
+# same presence state, AND graph.json hasn't been rebuilt since we last
+# touched the sentinel -> nothing to do. Without this, every
+# Bash/Edit/Write/ctx_execute call would spawn graphify (hundreds of MB of
+# Python imports). The sentinel's mtime is the implicit "last reconciled at"
+# timestamp; we touch it whenever we finish a global-graph update below.
+#
+# Branch and graph-presence are here because mtime alone cannot see either.
+# A branch switch is a reconcile trigger, not a rebuild trigger: it re-runs
+# the invariant below so a branch whose graph is absent stops publishing the
+# previous branch's nodes, while rebuilding the graph itself stays manual per
+# REQ-VAULT-004. A graph deleted in place moves mtime backwards to 0, which
+# compares as "not rebuilt" and would otherwise leave the dead tag published
+# forever.
 SENTINEL_MTIME=$(stat -c '%Y' "$SENTINEL" 2>/dev/null || echo 0)
 GRAPH_MTIME=$(stat -c '%Y' "$GRAPH_JSON" 2>/dev/null || echo 0)
-if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ]; then
+if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ] \
+   && [ "$OLD_BRANCH" = "$BRANCH" ] && [ "$OLD_GRAPH_STATE" = "$GRAPH_STATE" ]; then
     exit 0
 fi
 
-# Resolve the complete reconciliation before advancing the sentinel. On a repo
-# switch, old-tag removal and new-tag addition run under one lock and one
-# success chain. A lock timeout or either graphify failure leaves OLD in place,
-# so the next hook invocation retries instead of taking the unchanged fast path.
+# Resolve the complete reconciliation before advancing the sentinel. Removals
+# and the addition run under one lock and one success chain. A lock timeout or
+# any graphify failure leaves OLD in place, so the next hook invocation retries
+# instead of taking the unchanged fast path.
+#
+# The target state is an invariant, not a diff: the global manifest holds
+# `user_vault` plus this checkout's tag when it has a graph, and nothing else.
+# Enumerating what must go from the manifest itself, rather than deriving one
+# removal from the previous sentinel value, also collects tags that a crashed
+# run, a deleted graphify-out or an earlier phantom repo left behind. Drift
+# self-heals on the next tool call instead of persisting until someone notices
+# the graph is answering from the wrong repo.
 RECONCILED=1
-REMOVE_TAG=""
 REPO_BASENAME=$(basename "$REPO")
 NEED_ADD=0
+KEEP_TAG=""
+STALE_TAGS=()
 
 if command -v graphify >/dev/null 2>&1; then
-    if [ -n "$OLD" ] && [ "$OLD" != "$REPO" ]; then
-        OLD_BASENAME=$(basename "$OLD")
-        if [ "$OLD_BASENAME" != "$REPO_BASENAME" ] && [ -f "$GLOBAL_MANIFEST" ]; then
-            STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos | has($tag)' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-            [ "$STILL_PRESENT" = "true" ] && REMOVE_TAG="$OLD_BASENAME"
-        fi
-    fi
-
     if [ -f "$GRAPH_JSON" ]; then
+        KEEP_TAG="$REPO_BASENAME"
         NEED_ADD=1
         if [ -f "$GLOBAL_MANIFEST" ]; then
             STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
@@ -232,19 +281,33 @@ if command -v graphify >/dev/null 2>&1; then
         fi
     fi
 
-    if [ -n "$REMOVE_TAG" ] || [ "$NEED_ADD" = "1" ]; then
+    # user_vault is always-on and never a repo tag, so it is never stale.
+    # KEEP_TAG is empty when this checkout has no graph, and jq compares
+    # against "" without matching any real tag, so every repo entry is
+    # removed and the global graph falls back to the vault alone.
+    if [ -f "$GLOBAL_MANIFEST" ]; then
+        while IFS= read -r STALE; do
+            [ -n "$STALE" ] && STALE_TAGS+=("$STALE")
+        done <<EOF
+$(jq -r --arg keep "$KEEP_TAG" \
+    '.repos // {} | keys[] | select(. != "user_vault" and . != $keep)' \
+    "$GLOBAL_MANIFEST" 2>/dev/null || true)
+EOF
+    fi
+
+    if [ "${#STALE_TAGS[@]}" -gt 0 ] || [ "$NEED_ADD" = "1" ]; then
         if ! flock -w 5 /tmp/graphify-global.lock bash -c '
-            remove_tag="$1"
-            graph_json="$2"
-            repo_tag="$3"
-            need_add="$4"
-            if [ -n "$remove_tag" ]; then
-                graphify global remove "$remove_tag" >/dev/null 2>&1 || exit 1
-            fi
+            graph_json="$1"
+            repo_tag="$2"
+            need_add="$3"
+            shift 3
+            for stale_tag in "$@"; do
+                graphify global remove "$stale_tag" >/dev/null 2>&1 || exit 1
+            done
             if [ "$need_add" = "1" ]; then
                 graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1
             fi
-        ' _ "$REMOVE_TAG" "$GRAPH_JSON" "$REPO_BASENAME" "$NEED_ADD"; then
+        ' _ "$GRAPH_JSON" "$REPO_BASENAME" "$NEED_ADD" "${STALE_TAGS[@]}"; then
             RECONCILED=0
         fi
     fi
@@ -254,6 +317,7 @@ if [ "$RECONCILED" = "1" ]; then
     # Writer-must-write-newline contract: `read -r` readers treat an unterminated
     # first line as failure and otherwise clobber the active path.
     printf '%s\n' "$REPO" > "$SENTINEL"
+    printf '%s\n' "$STATE" > "$STATE_SENTINEL"
     # Bump mtime only after the global graph and sentinel describe the same state.
     touch "$SENTINEL" 2>/dev/null || true
 fi
