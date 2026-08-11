@@ -364,20 +364,25 @@ fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
 });
 NODE
 }
-# Two views over one parse. Enforcement triggers on any git/gh activity, which is
-# the long-standing contract; the coverage window narrows to a real delivery so a
+# Two views over ONE parse: the transcript is walked once and both views filter
+# the same output. Enforcement triggers on any git/gh activity, which is the
+# long-standing contract; the coverage window narrows to a real delivery so a
 # read-only call cannot move it past a round's own lane spawns.
-candidate_line_numbers() { transcript_scan 2>/dev/null | awk 'NF { print $1 }'; }
-delivery_line_numbers() { transcript_scan 2>/dev/null | awk 'NF && $2 != "-" { print $1 }'; }
+TRANSCRIPT_SCAN=$(transcript_scan 2>/dev/null)
+candidate_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF { print $1 }'; }
+delivery_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF && $2 != "-" { print $1 }'; }
 
 PUSH_LINE=$(candidate_line_numbers | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
-# Anchor for lane coverage and retroactive acknowledgement. Falls back to the
-# candidate line when the transcript holds no delivery at all, which preserves
-# the pre-existing behaviour for a session that has not pushed yet.
+# Anchor for lane coverage and retroactive acknowledgement. With no delivery in
+# the transcript there is no round for a delivery to have opened, so every spawn
+# present counts and the anchor is the start of the file. Anchoring on the last
+# candidate instead would only subtract coverage that was legitimately earned,
+# and would reinstate this fix's own bug whenever the delivery sits outside the
+# file, which the rotation case at the top of this script describes.
 COVERAGE_LINE=$(delivery_line_numbers | tail -1)
-[ -n "$COVERAGE_LINE" ] || COVERAGE_LINE="$PUSH_LINE"
+[ -n "$COVERAGE_LINE" ] || COVERAGE_LINE=1
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 
@@ -555,7 +560,7 @@ fi
 # AFTER the most recent push line. In a cascade where the assistant does
 # "push fix -> spawn agents -> agents complete -> apply more findings ->
 # push again" all inside one turn, Stop fires only at turn-end -- by which
-# time PUSH_LINE has already moved past the spawn lines for the EARLIER
+# time COVERAGE_LINE has already moved past the spawn lines for the EARLIER
 # push, and the completion markers no longer count for the CURRENT HEAD.
 # Result: LAST_ACK stuck for many rounds even though each round had a
 # fully-observed pipeline of agents reviewing the cumulative diff.

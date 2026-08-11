@@ -131,6 +131,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Seed provenance is carried in R2 custom metadata, verified before it was relied on | Storage, Agents |
 | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Replace OpenVSCode with pinned code-server behind the existing session proxy | Architecture, Security, Build / Container |
 | [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Browser IDE uses fixed public workspace selection and exported UI-state continuity | Architecture, Security, Storage, Build / Container |
+| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | A review boundary is a delivery subcommand, not any Git invocation | Architecture, Build / Container |
 
 ---
 
@@ -3505,4 +3506,6 @@ What narrows is the anchor. The delivery vocabulary is `git push`, `gh pr create
 
 `git-push-review-reminder.sh` needs no anchor and keeps only the candidate surface, varying which message it emits.
 
-**Consequences:** A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.
+**Consequences:** With no delivery anywhere in the transcript the anchor is the start of the file, so every lane spawn present counts; anchoring on the last candidate instead would subtract earned coverage and would reinstate this decision's own defect whenever the delivery sits outside a rotated transcript.
+
+A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.

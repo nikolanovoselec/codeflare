@@ -2332,14 +2332,32 @@ describe('enforce-review-spawn.sh — coverage anchor is the last delivery', () 
       'the reviewed head stays acknowledged across intervening read-only Git calls');
   });
 
-  it('a new push after a reviewed round does reopen it', () => {
-    // The complement, and the reason the anchor cannot simply be pinned: a real
-    // delivery must still move the window and demand a fresh round.
-    const { r } = drive(reviewedRound(
-      COMMAND_LINE('git push 2>&1 | tail -2', '2026-05-03T12:20:00.000Z'),
+  // The complement, and the reason the anchor cannot simply be pinned: a real
+  // delivery must still move the window and demand a fresh round. Parameterised
+  // because a misclassified delivery no longer shows up as "no block" under the
+  // split -- candidacy still blocks, so the only symptom is a real delivery
+  // being absorbed into an already-reviewed round.
+  for (const command of [
+    'git push 2>&1 | tail -2',
+    'git push -u origin HEAD',
+    'git -C /srv/repo push',
+    'gh pr create --base develop --title x',
+    'gh pr merge 824 --squash --delete-branch',
+  ]) {
+    it(`a delivery after a reviewed round reopens it: ${command}`, () => {
+      const { r } = drive(reviewedRound(COMMAND_LINE(command, '2026-05-03T12:20:00.000Z')));
+      assert.match(r.stdout, DEMANDS_A_LANE, `not treated as a delivery: ${command}`);
+    });
+  }
+
+  it('a non-delivery gh subcommand does not reopen a reviewed round', () => {
+    // `gh pr ready` flips a draft flag, not a head, and AD121 excludes it by
+    // name. Pinned so widening the vocabulary has to argue with a test.
+    const { cwd, r } = drive(reviewedRound(
+      COMMAND_LINE('gh pr ready 825', '2026-05-03T12:20:00.000Z'),
     ));
-    assert.match(r.stdout, DEMANDS_A_LANE,
-      'a delivery after the reviewed round starts a new one');
+    assert.doesNotMatch(r.stdout, DEMANDS_A_LANE, 'gh pr ready is not a delivery');
+    assert.equal(ackOf(cwd), currentHead(cwd), 'and cannot uncover the reviewed round');
   });
 
   it('a heredoc body naming a push does not move the anchor', () => {
