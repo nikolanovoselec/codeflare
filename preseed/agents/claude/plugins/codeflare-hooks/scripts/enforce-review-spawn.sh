@@ -1146,11 +1146,11 @@ completion_delivery_pending() {
 }
 
 write_acknowledgement() {
-  # Braces, not a trailing `2>/dev/null`: a failed `>` is reported by the shell
-  # itself before the command's own redirections apply, so the trailing form
-  # left "Is a directory" on stderr -- and stderr is now the channel the
-  # directive rides, where a stray line prefixes the text the model is woken
-  # with. The group redirect catches the shell's message too.
+  # Redirection ORDER, not a trailing `2>/dev/null`: redirections apply left to
+  # right, so stderr must be silenced before the `>` is attempted. The trailing
+  # form left "Is a directory" on stderr -- the channel the directive rides,
+  # where a stray line prefixes the text the model is woken with. Every state
+  # write in this file uses this order for that reason.
   echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" \
     && [ "$(cat "$ACK_FILE" 2>/dev/null)" = "$CURRENT_PR_HEAD" ]
 }
@@ -1180,22 +1180,34 @@ clear_counter() {
 # already at GIVEUP and the verdict demand would exit SILENTLY -- the session
 # is never told what to publish, while the verdict counter keeps recording
 # demands that were never shown. One breaker per demand, on its own counter.
-# Claude Code renders every blocking Stop hook as "Stop hook error: <reason>".
-# That label is the harness's and cannot be changed from here, so each
-# directive self-identifies twice: the reason's first bytes say it is
-# machinery working, and a parallel systemMessage gives the terminal a clean
-# non-error notice where the client renders one.
-# Claude Code renders a Stop hook's `{"decision":"block"}` through a fixed
-# `<event> hook error: <reason>` template with no override, so every directive
-# this gate has ever issued -- all of them working as designed -- reached the
-# user labelled as a failure. Exiting 2 with the directive on stderr takes the
-# asyncRewake path instead: the model is woken with the same text under a
-# "Stop hook feedback" banner, and the hook entry may name its own summary.
-# Verified end to end against the pinned CLI -- the woken turn receives the
-# directive and acts on it -- which is why the tag that used to apologise for
-# the error label is gone with it. The obligation is unchanged; only the
-# framing is. Registration must carry `asyncRewake` (entrypoint.sh
-# SETTINGS_CONFIG): without it, exit 2 is just a blocking error again.
+# A Stop hook that returns `{"decision":"block"}`, or that exits 2 without
+# `asyncRewake`, is recorded as a blocking error. The client answers that by
+# pushing an immediate notification reading "Stop hook error occurred - ctrl+o
+# to see", so every directive this gate has ever issued -- all of them working
+# as designed -- announced itself to the user as a failure. The notification is
+# where the word came from, not the message body: the body is rendered by the
+# Stop-specific formatter as "Stop hook feedback:" already.
+#
+# `asyncRewake` moves the hook to the background path, and the difference is
+# structural rather than cosmetic: the runner returns "backgrounded" before an
+# exit code exists, so no blocking error is ever recorded and the notification
+# has nothing to fire on. When the process later exits 2, the rewake handler
+# wakes the model with the entry's `rewakeMessage` followed by the hook's
+# stderr, and the entry's `rewakeSummary` is the one line the user sees.
+# Registration must carry both (entrypoint.sh SETTINGS_CONFIG): without
+# `asyncRewake` this is a blocking error again, and the handler's own defaults
+# are `Stop hook blocking error from command "<hook>":` for the woken text and
+# "Stop hook feedback" for the user's line.
+#
+# Two constraints follow, and both are load-bearing here. The woken text is
+# stderr-or-stdout, stderr first, which is why the directive rides stderr and
+# why a stray shell message on that channel would prefix it. And the background
+# path never parses stdout for `systemMessage`, so this hook cannot address the
+# user directly -- tested against the pinned CLI, along with a stdout
+# `rewakeSummary`, which is honoured only for hooks a plugin registered. The
+# per-round notices the user does see are emitted by the PostToolUse and
+# UserPromptSubmit hooks, which run on the synchronous path where
+# `systemMessage` renders.
 
 emit_block_uncounted() {
   printf '%s\n' "$1" >&2

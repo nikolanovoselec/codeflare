@@ -166,9 +166,10 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     const stopGate = commandFor('Stop', 'enforce-review-spawn.sh');
     assert.ok(stopGate, 'review-spawn enforcement belongs on Stop');
     // Without asyncRewake the gate's exit 2 is an ordinary blocking error
-    // again, and every directive it issues renders under the client's
-    // `<event> hook error:` template -- the exact defect the stderr delivery
-    // was written to end. The key is load-bearing, so it is pinned here.
+    // again, and the client answers a blocking error with an immediate "Stop
+    // hook error occurred" notification -- the exact defect the stderr
+    // delivery was written to end. The key is load-bearing, so it is pinned
+    // here.
     assert.equal(stopGate.asyncRewake, true,
       'the Stop gate must be registered for rewake or its directives read as failures');
     // The CLI ignores an unknown key silently, so a dropped or misspelled

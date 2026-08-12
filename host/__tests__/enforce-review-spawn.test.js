@@ -1592,6 +1592,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.match(r.stdout, /acknowledgement could not be persisted/);
     assert.doesNotMatch(r.stdout, /FIX phase/,
       'a local-only fix cannot start when the next incremental base would be lost');
+    // This fixture points ACK_FILE at a directory, so the failing write is the
+    // one that used to leave "Is a directory" on stderr AHEAD of the directive
+    // -- the channel the model is woken on. The helper's /m match would absorb
+    // such a prefix silently, so the first line is asserted directly here.
+    assert.match(r.stderr.trim().split('\n')[0], /^PR #\d+ @/,
+      'the directive must be the first line on the rewake channel');
   });
 
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it

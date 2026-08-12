@@ -599,3 +599,57 @@ describe('publish-memory-capture.sh - artifact-gated commit / REQ-MEM-020', () =
     assert.equal(readFileSync(fx.counterFile, 'utf-8'), '40\n900\n');
   });
 });
+
+// A capture runs as a detached subprocess and asks nothing of the agent, so
+// until now the only trace a user had that one had started -- or had been
+// retrying all session -- was the file appearing in the vault much later.
+// systemMessage is the one hook field the client renders straight to the
+// terminal, and these rows pin that it carries the live attempt number: a
+// static "capture started" would pass a substring match while hiding the run
+// of retries that is the whole reason the attempt bound exists.
+describe('memory-capture.sh - user-visible capture notice', () => {
+  function armedAt(fx, sessionId) {
+    // Committed counter => mid-session, so MEMORY_SCAN is empty and the notice
+    // is the ONLY thing on stdout. That is deliberate: it proves the notice
+    // does not ride along on the graph-scan context that used to gate it.
+    writeFileSync(join(fx.counterDir, sessionId), '0\n1\n');
+    const lines = [];
+    for (let i = 0; i < 16; i++) lines.push(realUserLine(`prompt ${i}`));
+    return writeTranscript(fx.home, lines);
+  }
+
+  it('names the first launch and the file the capture will write', () => {
+    const fx = makeFixture();
+    const t = armedAt(fx, 'sess-notice');
+    const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-notice' });
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage, /Memory capture started \(attempt 1\/6\)/);
+    assert.equal(out.hookSpecificOutput, undefined,
+      'a mid-session arm has nothing to tell the model; the notice is for the user alone');
+    const vars = JSON.parse(readFileSync(join(fx.counterDir, 'sess-notice.vars'), 'utf-8'));
+    assert.ok(out.systemMessage.endsWith(vars.capture_file.split('/').pop()),
+      'the notice must name the artifact the publisher will look for');
+  });
+
+  it('counts the retry it is announcing', () => {
+    const fx = makeFixture();
+    const t = armedAt(fx, 'sess-retry');
+    runHook(fx, { transcriptPath: t, sessionId: 'sess-retry' });
+    const second = runHook(fx, { transcriptPath: t, sessionId: 'sess-retry' });
+    const out = JSON.parse(second.stdout);
+    assert.match(out.systemMessage, /Memory capture retrying \(attempt 2\/6\)/,
+      'the number must track the request, or six retries look like one launch');
+  });
+
+  it('says so when the request is abandoned', () => {
+    const fx = makeFixture();
+    const t = armedAt(fx, 'sess-giveup');
+    // Arm, then exhaust the delivery budget: attempts 1..6, then the giveup.
+    for (let i = 0; i < 6; i++) runHook(fx, { transcriptPath: t, sessionId: 'sess-giveup' });
+    const giveup = runHook(fx, { transcriptPath: t, sessionId: 'sess-giveup' });
+    assert.equal(existsSync(join(fx.counterDir, 'sess-giveup.latched')), true,
+      'this row must be reading the giveup fire, not one more delivery');
+    assert.match(JSON.parse(giveup.stdout).systemMessage, /gave up after 6 attempts/,
+      'a request that stopped retrying must not go quiet without saying so');
+  });
+});

@@ -90,9 +90,17 @@ REARM_AFTER=15
 MEMORY_SCAN=""
 FORCE_RESUME=""
 
+# $1 is for the model, $2 for the user, and they are independent: a capture
+# launches in the background with nothing asked of the agent, so the turns that
+# have something to SHOW are mostly turns with no context to inject. Gating the
+# notice on $1 the way the original single-argument form did would have
+# silenced it on exactly those turns.
 emit_context() {
-    [[ -z "$1" ]] && exit 0
-    jq -n --arg ctx "$1" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
+    local ctx="$1" note="${2:-}"
+    [[ -z "$ctx" && -z "$note" ]] && exit 0
+    jq -n --arg ctx "$ctx" --arg note "$note" \
+      '(if $ctx != "" then {hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}} else {} end)
+       + (if $note != "" then {systemMessage:$note} else {} end)'
     exit 0
 }
 
@@ -196,7 +204,8 @@ if [[ -f "$VARS_FILE" ]]; then
         [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
         if [[ $attempts -ge $MAX_ATTEMPTS ]]; then
             printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
-            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_ATTEMPTS} failed launches. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Nothing is asked of you."
+            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_ATTEMPTS} failed launches. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Nothing is asked of you." \
+                "Memory capture gave up after ${MAX_ATTEMPTS} attempts - nothing lost, re-arms after ${REARM_AFTER} prompts."
         fi
         attempts=$((attempts + 1))
         # jq cannot edit in place, and the request is the only copy of the
@@ -231,7 +240,10 @@ if [[ -f "$VARS_FILE" ]]; then
         fi
         [[ -n "${count_failed:-}" ]] && emit_context "$MEMORY_SCAN"
         launch_capture "$VARS_FILE"
-        emit_context "$MEMORY_SCAN"
+        # The attempt number is the whole point of showing this one: a retry is
+        # indistinguishable from a first launch otherwise, and the run of
+        # retries before a capture lands is the thing worth seeing.
+        emit_context "$MEMORY_SCAN" "Memory capture retrying (attempt ${attempts}/${MAX_ATTEMPTS})."
     fi
 fi
 
@@ -294,4 +306,4 @@ jq -n \
 # (finalizeMemorySuccess, gated on memorySuccessQualifies).
 
 launch_capture "$VARS_FILE"
-emit_context "$MEMORY_SCAN"
+emit_context "$MEMORY_SCAN" "Memory capture started (attempt 1/${MAX_ATTEMPTS}) - ${CAPTURE_FILE##*/}"
