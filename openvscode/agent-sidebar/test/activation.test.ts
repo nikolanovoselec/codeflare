@@ -84,7 +84,7 @@ afterEach(async () => {
   host.warnings = [];
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1: native Pi registers account-free Chat and suppresses account setup actions', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registers account-free panel and editor Chat', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
   activate({
     extensionUri: { fsPath: '/extension' },
@@ -99,8 +99,9 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1: native Pi registers account-free Chat a
   const models = await provider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;
   assert.equal(models.length, 1);
   assert.equal(models[0]?.name, 'Codeflare');
-  assert.deepEqual(models[0]?.isDefault, { 1: true });
-  assert.equal(models[0]?.isUserSelectable, false);
+  assert.deepEqual(models[0]?.isDefault, { 1: true, 4: true });
+  assert.equal(models[0]?.isUserSelectable, true);
+  assert.deepEqual(models[0]?.capabilities, { toolCalling: true });
   assert.equal(models[0]?.requiresAuthorization, undefined);
   await assert.rejects(
     provider.provideLanguageModelChatResponse() as Promise<void>,

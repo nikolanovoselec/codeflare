@@ -149,7 +149,11 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1: contributes native Pi
     'onChatParticipant:codeflare.pi',
     'onCommand:codeflare.pi.reviewFile',
   ]);
-  assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.deepEqual(manifest.enabledApiProposals, [
+    'chatParticipantAdditions',
+    'chatProvider',
+    'defaultChatParticipant',
+  ]);
   assert.deepEqual(manifest.contributes.languageModelChatProviders, [{
     vendor: 'copilot',
     displayName: 'Codeflare',
@@ -160,6 +164,7 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1: contributes native Pi
   assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.locations, ['panel', 'editor']);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
   assert.deepEqual(manifest.contributes.commands, [{
     command: 'codeflare.pi.reviewFile',

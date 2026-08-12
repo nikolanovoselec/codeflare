@@ -556,4 +556,37 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Status:** Partial
 
+
+### REQ-IDE-019: Native Pi in editor Inline Chat
+
+**Intent:** A Pi-selected advanced session uses Codeflare as the account-free model and default participant in the existing editor Inline Chat refactor area while retaining unrestricted root-agent execution and process isolation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing generic **Refactor...** action and editor Inline Chat area remain available and unpatched, and the Pi inventory contributes the same Codeflare participant to panel and editor locations through the pinned proposed API. <!-- @impl: openvscode/agent-sidebar/package.json --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1: contributes native Pi Chat and file review menus) -->
+2. Editor Inline Chat lists **Codeflare** as a selectable default model and does not offer or require GitHub Copilot login for selected-code refactoring or empty-selection generation. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_COMPATIBILITY_MODEL --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registers account-free panel and editor Chat) -->
+3. The compatibility model requests no authorization, reports tool-calling capability for the pinned Inline Chat filter, and is never Codeflare's inference path; panel and editor requests invoke local Pi RPC. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_COMPATIBILITY_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registers account-free panel and editor Chat) -->
+4. Editor requests use the existing bounded workspace/editor context collector, which includes canonical active document content, unsaved text, selection, diagnostics, explicit references, and history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts -->
+5. Every editor request owns a fresh `pi --mode rpc --no-session --no-themes` process with normal Codeflare tools, extensions, root access, and interceptors; no tool allowlist, permission prompt, command sandbox, or selected-range restriction is introduced. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/node-rpc-backend.test.ts -->
+6. Text and progress stream in editor Inline Chat; completion waits for settlement, and cancellation or deactivation reaps the request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts -->
+7. Pi writes and side effects occur directly under the unrestricted-agent contract; the product makes no transactional rollback guarantee for Inline Chat, editor undo, or external effects. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend -->
+8. Panel Codeflare Chat, **Review with Codeflare**, official Claude, and the unsupported empty inventory retain their existing behavior. <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts -->
+9. The complete-image smoke proves the pinned host admits the proposals and packaged extension, selects Codeflare for editor Inline Chat compatibility without authorization, retains fail-closed provider generation, and reaps Pi on lifecycle boundaries. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat -->
+
+**Constraints:**
+
+- The reserved `copilot` vendor key and tool-calling metadata are pinned-host compatibility selectors only; no GitHub provider, authorization, or inference path is introduced.
+- Codeflare does not patch code-server or Code OSS.
+- Direct Pi filesystem and external side effects are not represented as host text-edit parts and therefore are not promised to participate in Keep/Undo.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-013](#req-ide-013-account-free-native-pi-chat), [REQ-IDE-014](#req-ide-014-editor-context-native-chat-review)
+
+**Verification:** Automated extension and complete-image tests; deployed integration selected-code and empty-selection pass@3 with lifecycle inspection.
+
+**Status:** Planned
+
 ---
