@@ -269,13 +269,16 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       // ENOBUFS and reported it as an unreadable pull-request diff.
       writeFileSync(join(fixture, 'src/example.ts'), 'export const value = 2;\n');
       mkdirSync(join(fixture, 'graphify-out'), { recursive: true });
-      writeFileSync(join(fixture, 'graphify-out/graph.html'), '<div>generated</div>\n'.repeat(600_000));
+      const artifact = '<div>generated</div>\n'.repeat(600_000);
+      writeFileSync(join(fixture, 'graphify-out/graph.html'), artifact);
       assert.equal(git(fixture, ['add', '.']).status, 0);
       assert.equal(git(fixture, ['commit', '-m', 'head']).status, 0);
-      const artifactDiffBytes = git(fixture, ['diff', '--unified=0', `${base}^{tree}`, 'HEAD^{tree}']).stdout.length;
+      // Measured from what was written rather than from a second `git diff`: reading a diff
+      // this size back through spawnSync is the exact failure under test, so the guard would
+      // truncate at ENOBUFS and trip on itself before reaching the assertion it exists for.
       assert.ok(
-        artifactDiffBytes > CHANGED_COVERAGE_LIMITS.maxDiffBytes,
-        `fixture must exceed the ${CHANGED_COVERAGE_LIMITS.maxDiffBytes}-byte bound, got ${artifactDiffBytes}`,
+        artifact.length > CHANGED_COVERAGE_LIMITS.maxDiffBytes,
+        `fixture artifact must exceed the ${CHANGED_COVERAGE_LIMITS.maxDiffBytes}-byte bound, got ${artifact.length}`,
       );
 
       const log = join(fixture, 'coverage.log');
@@ -290,6 +293,44 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
 
       assert.equal(checked.status, 0, checked.stderr);
       assert.match(checked.stdout, /changed production line coverage 100%/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-022 AC6: enforces the floor for a package rooted below the repository root', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'coverage-package-root-'));
+    const git = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+
+    try {
+      mkdirSync(join(fixture, 'web-ui/src'), { recursive: true });
+      assert.equal(git(fixture, ['init', '--initial-branch=review']).status, 0);
+      assert.equal(git(fixture, ['config', 'user.name', 'Coverage Test']).status, 0);
+      assert.equal(git(fixture, ['config', 'user.email', 'coverage@example.invalid']).status, 0);
+      writeFileSync(join(fixture, 'web-ui/src/example.ts'), 'export const first = 1;\nexport const second = 1;\n');
+      assert.equal(git(fixture, ['add', '.']).status, 0);
+      assert.equal(git(fixture, ['commit', '-m', 'base']).status, 0);
+      const base = git(fixture, ['rev-parse', 'HEAD']).stdout.trim();
+
+      writeFileSync(join(fixture, 'web-ui/src/example.ts'), 'export const first = 2;\nexport const second = 2;\n');
+      assert.equal(git(fixture, ['commit', '-am', 'head']).status, 0);
+
+      const log = join(fixture, 'web-ui/coverage.log');
+      const report = join(fixture, 'web-ui/lcov.info');
+      writeFileSync(log, 'All files | 100 | 100 | 100 | 100 |\n');
+      // Both changed lines are production lines; only the first is covered.
+      writeFileSync(report, 'SF:web-ui/src/example.ts\nDA:1,1\nDA:2,0\nend_of_record\n');
+      // Run from the package directory, which is where the composite action puts the
+      // checker. A package-relative pathspec would resolve under web-ui/web-ui here, match
+      // nothing, and report a clean 100% instead of the miss below.
+      const checked = spawnSync(
+        process.execPath,
+        [join(ROOT, 'scripts/ci/check-coverage-result.mjs'), log, '0', 'false', report, base, 'web-ui', '80'],
+        { cwd: join(fixture, 'web-ui'), encoding: 'utf8' },
+      );
+
+      assert.equal(checked.status, 1);
+      assert.match(checked.stderr, /changed production line coverage 50% is below the 80% package floor \(1\/2\)/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

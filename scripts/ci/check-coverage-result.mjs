@@ -253,7 +253,11 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
   // outside <root>/src. Diffing the whole repository buffered every generated artifact in
   // the range as well, and a refreshed graph export alone carried the range past the
   // 10 MB bound -- the job then died with ENOBUFS over a commit that touched no source.
-  const sourcePathspec = packageRoot === '.' ? 'src' : `${packageRoot}/src`;
+  // `:(top)` anchors the pathspec at the repository root. The checker runs with cwd set to
+  // the package directory, so a plain `web-ui/src` would resolve to `web-ui/web-ui/src`,
+  // match nothing, and hand the evaluator an empty diff -- which reads as "no changed
+  // production lines" and passes the package unconditionally.
+  const sourcePathspec = `:(top)${packageRoot === '.' ? 'src' : `${packageRoot}/src`}`;
   const diffResult = spawnSync(
     'git',
     ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec],
