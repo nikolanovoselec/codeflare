@@ -164,6 +164,23 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     }
   });
 
+  it('rejects the retired code-server server-tree ip-address finding', () => {
+    // code-server 4.132.0 lifted its server tree to patched ip-address 10.4.0,
+    // so this tuple's exception is gone while the VS Code tree keeps its own.
+    // Binding on the path is what separates the two: a match key that stopped
+    // distinguishing them would let the retained VS Code entry absorb this
+    // occurrence, and re-adding the exception would accept it outright.
+    const input = report();
+    input.Results[0].Vulnerabilities.push(ipAddressVulnerability('10.2.0', {
+      PkgPath: 'opt/code-server/node_modules/ip-address/package.json',
+      PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
+    }));
+    assert.throws(
+      () => validateTrivyResult(input),
+      /unexpected HIGH\/CRITICAL finding.*path=opt\/code-server\/node_modules\/ip-address\/package\.json/s,
+    );
+  });
+
   it('rejects duplicate reviewed findings', () => {
     const input = report();
     input.Results[0].Vulnerabilities.push(structuredClone(input.Results[0].Vulnerabilities[0]));
