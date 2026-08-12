@@ -87,10 +87,17 @@ describe('gh_pr_state', () => {
       const r = spawnSync('bash', ['-s', '--', LIB], {
         cwd,
         encoding: 'utf8',
-        input: '. "$1"; gh_pr_state some-branch; exit 0',
+        // rc is echoed rather than propagated so one spawn asserts both the
+        // numeric contract and the cleanup. A bare status assertion here was
+        // tautological: the script's own `exit 0` made it unfalsifiable.
+        input: '. "$1"; gh_pr_state some-branch; echo "rc=$?"; exit 0',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: scratch, GH_MODE: mode },
       });
-      assert.equal(r.status, 0);
+      assert.match(r.stdout, new RegExp(`^rc=${mode === 'found' ? 0 : 1}$`, 'm'),
+        `${mode} path keeps its exit contract (authoritative not-found is 1, never the transient 3)`);
+      if (mode === 'found') {
+        assert.match(r.stdout, /"number":7/, 'found path passes the JSON through');
+      }
       assert.deepEqual(readdirSync(scratch), [], `no capture file left after the ${mode} path`);
     }
   });
