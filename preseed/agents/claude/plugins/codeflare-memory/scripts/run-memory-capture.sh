@@ -198,8 +198,18 @@ FRAME=$(head -c 24 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -dc 'A-Za-
 # transcript could reproduce -- a frame that varies per run is not the same
 # property as a frame the content cannot guess, and only the second one is
 # worth stating.
-[ "${#FRAME}" -ge 12 ] \
-  || FRAME=$(basename "$(mktemp -u -t capframe.XXXXXXXXXXXX 2>/dev/null)" 2>/dev/null | tr -dc 'A-Za-z0-9')
+#
+# Only mktemp's suffix is drawn. `capframe` is eight constant characters, so
+# measuring the whole string would let an mktemp that echoes its template
+# unexpanded -- `capframeXXXXXXXXXXXX`, twenty characters carrying no entropy
+# at all -- sail through the length guard below and ship a delimiter the
+# transcript can predict. Strip the constant prefix and reject a remainder that
+# still holds the template's own X's, so the test measures what was drawn.
+if [ "${#FRAME}" -lt 12 ]; then
+  FRAME=$(basename "$(mktemp -u -t capframe.XXXXXXXXXXXX 2>/dev/null)" 2>/dev/null | tr -dc 'A-Za-z0-9')
+  FRAME=${FRAME#capframe}
+  case "$FRAME" in *XXXX*) FRAME="" ;; esac
+fi
 # Nothing unguessable left to draw from. A forgeable frame is worse than a
 # missed capture -- the window survives, uncommitted, for the next request --
 # so this refuses rather than shipping one, on the same exit as a missing

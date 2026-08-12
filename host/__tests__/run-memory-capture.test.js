@@ -99,9 +99,12 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.ok(task.includes('prompt number 0'),
       'the conversation must arrive inline, not as a path the model has to retrieve');
     assert.match(task, /capture_file: /, 'the capture target travels with it');
-    assert.doesNotMatch(task, new RegExp(request),
+    // Exact substring, not a pattern: these are filesystem paths, whose dots
+    // are regex metacharacters, so a compiled path matches strings it should
+    // not and the assertion drifts wider than the claim it is making.
+    assert.ok(!task.includes(request),
       'naming the request file invites the retrieval this delivery exists to avoid');
-    assert.doesNotMatch(task, new RegExp(fx.transcript), 'the raw transcript path is not handed over');
+    assert.ok(!task.includes(fx.transcript), 'the raw transcript path is not handed over');
 
     // Self-contained by contract: the conversation travels inside the request,
     // so the capture has no path to derive, no directory to walk and nothing
@@ -182,6 +185,33 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     run(healthy, ['--vars', healthy.vars]);
     assert.equal(existsSync(join(healthy.dir, 'argv.txt')), true,
       'the same fixture drawing a frame normally does start the model');
+  });
+
+  // The guard has to measure entropy, not characters. `capframe` is eight
+  // constant characters of the fallback's own template, so an mktemp that
+  // returns the template unexpanded hands back twenty predictable characters --
+  // long enough to pass a length test, worth nothing as a delimiter. This is
+  // the refusal failing open in the one case it exists for, so it gets a row
+  // separate from the both-draws-broken one above: here mktemp SUCCEEDS.
+  it('refuses a frame whose length is template rather than entropy', () => {
+    const fx = fixture();
+    writeFileSync(join(fx.bin, 'base64'), '#!/usr/bin/env bash\nexit 1\n');
+    writeFileSync(
+      join(fx.bin, 'mktemp'),
+      [
+        '#!/usr/bin/env bash',
+        'for a in "$@"; do case "$a" in *capframe*) echo "/tmp/$a"; exit 0 ;; esac; done',
+        'for c in /usr/bin/mktemp /bin/mktemp; do [ -x "$c" ] && exec "$c" "$@"; done',
+        'exit 1',
+      ].join('\n'),
+    );
+    chmodSync(join(fx.bin, 'base64'), 0o755);
+    chmodSync(join(fx.bin, 'mktemp'), 0o755);
+
+    const r = run(fx, ['--vars', fx.vars]);
+    assert.equal(r.status, 3, 'an unexpanded template is not a drawn frame');
+    assert.equal(existsSync(join(fx.dir, 'argv.txt')), false,
+      'a predictable delimiter must not reach the model that holds Write and Bash');
   });
 
   it('withholds the Read tool that the inline delivery removed the need for', () => {
