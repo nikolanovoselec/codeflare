@@ -337,10 +337,10 @@ function assertAllowed(r, message = 'the gate allows') {
 // than reading its source. One run per row: the ack this writes is seconds old,
 // and a second run in the same test would hit the ack-freshness guard and
 // return before the FIX directive, proving nothing about the counter.
-describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
+describe('enforce-review-spawn.sh — FIX-phase directive delivery', () => {
   // Reaches the FIX phase with this head's lane demand already spent, which is
   // the real-world state and the one that used to swallow the contract.
-  function atFixPhase({ branch, fixCounterSpent = false } = {}) {
+  function atFixPhase({ branch, fixShown = false } = {}) {
     const cwd = makeFixture();
     withSdd(cwd);
     if (branch) spawnSync('git', ['checkout', '-q', '-b', branch], { cwd });
@@ -359,26 +359,26 @@ describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
     const gitDir = join(cwd, spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim());
-    const fixFile = join(gitDir, 'sdd-review-fix-count-pr-42');
+    const fixFile = join(gitDir, 'sdd-review-fix-shown-pr-42');
     writeFileSync(join(gitDir, 'sdd-review-count-pr-42'), `${headSha}:1\n`);
-    if (fixCounterSpent) writeFileSync(fixFile, `${headSha}:1\n`);
+    if (fixShown) writeFileSync(fixFile, `${headSha}\n`);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     return { reason: JSON.parse(r.stdout).reason, fixFile, headSha };
   }
 
-  it('spends a counter of its own when the lane counter is already spent', () => {
+  it('delivers the full contract on the first FIX round of a PR', () => {
     const { reason, fixFile, headSha } = atFixPhase();
-    assert.equal(readFileSync(fixFile, 'utf-8').trim(), `${headSha}:1`,
-      'the FIX phase keys its own counter to this head, not the lane counter');
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), headSha,
+      'the shown-marker is keyed to the PR and records the head that saw the contract');
     assert.ok(reason.length > 500,
-      'a spent lane counter must not collapse the directive into the short form');
+      'a spent lane counter must not collapse the first delivery into the terse form');
   });
 
-  it('costs one line once its own counter is spent', () => {
+  it('stays terse for every later round of the same PR', () => {
     const full = atFixPhase().reason;
-    const short = atFixPhase({ fixCounterSpent: true }).reason;
+    const short = atFixPhase({ fixShown: true }).reason;
     assert.ok(short.length < full.length / 2,
-      'the second delivery states the obligation, it does not restate the contract');
+      'later deliveries state the obligation, they do not restate the contract');
   });
 
   // The counter path was built from the branch name. A branch with a slash in
@@ -386,10 +386,10 @@ describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
   // failed, `|| true` swallowed it, and the full directive re-emitted on every
   // turn for the entire round. Every branch this hook guards is a PR branch,
   // and PR branches are exactly where slashes live.
-  it('persists its counter on a branch whose name contains a slash', () => {
+  it('persists its shown-marker on a branch whose name contains a slash', () => {
     const { reason, fixFile, headSha } = atFixPhase({ branch: 'fix/with-slash' });
-    assert.equal(readFileSync(fixFile, 'utf-8').trim(), `${headSha}:1`,
-      'a slash in the branch name must not silently discard the counter');
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), headSha,
+      'a slash in the branch name must not silently discard the marker');
     assert.match(reason, /PR #42 @/,
       'and the directive identifies the PR by number, not by branch');
   });

@@ -209,6 +209,23 @@ CAPTURE_STDOUT="$(mktemp -t memory-capture-stdout.XXXXXX)"
 printf '%s' "$TASK" | timeout -k 30 "$CAPTURE_TIMEOUT" claude "$@" >"$CAPTURE_STDOUT" 2>"$CAPTURE_STDERR"
 STATUS=$?
 
+# The diagnostics below are honest but, on a detached launch, they report into
+# a discarded stream — five attempts on one window once left nothing to read.
+# The journal keeps the same story next to the carrier, a few lines per
+# attempt, and outlives the carrier's removal so a burned window still has a
+# post-mortem. Growth is bounded by the six-attempt latch per window and the
+# container-lifetime /tmp, so it needs no rotation.
+ATTEMPT_LOG="${VARS_FILE%.vars}.attempts.log"
+ATTEMPT_NO=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null)
+case "$ATTEMPT_NO" in ''|*[!0-9]*) ATTEMPT_NO='?' ;; esac
+{
+  printf '%s attempt=%s exit=%s\n' "$(date +%FT%T%z)" "$ATTEMPT_NO" "$STATUS"
+  if [ "$STATUS" -ne 0 ]; then
+    [ -s "$CAPTURE_STDERR" ] && tail -5 "$CAPTURE_STDERR"
+    [ -s "$CAPTURE_STDOUT" ] && { head -c 400 "$CAPTURE_STDOUT"; echo; }
+  fi
+} >> "$ATTEMPT_LOG" 2>/dev/null || true
+
 # The exit status is a diagnostic, never the verdict. Whether a capture happened
 # is answered by the file the hook named at arm time, and that is the publisher's
 # question -- which is why it runs even after a non-zero exit: a run reaped at
@@ -222,3 +239,9 @@ if [ $STATUS -ne 0 ]; then
 fi
 
 bash "$SCRIPT_DIR/publish-memory-capture.sh" "$VARS_FILE"
+PUBLISH_STATUS=$?
+# The publisher's verdict is the real outcome (the exit status above is only a
+# diagnostic), so the journal records both; the runner still reports the
+# publisher's status, which is what the tests pin.
+printf '%s attempt=%s publish=%s\n' "$(date +%FT%T%z)" "$ATTEMPT_NO" "$PUBLISH_STATUS" >> "$ATTEMPT_LOG" 2>/dev/null || true
+exit "$PUBLISH_STATUS"

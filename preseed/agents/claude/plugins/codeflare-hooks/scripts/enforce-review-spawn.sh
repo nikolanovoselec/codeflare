@@ -1509,21 +1509,19 @@ if all_required_lanes_completed_for_current_head; then
     # identical text; the demand counter emit_block already keeps per head is
     # enough to say it once and then stay short. Both forms still block, so the
     # obligation is unchanged -- only the repetition is gone.
-    # Its OWN counter. read_count reads the shared per-head demand file, which
-    # the lane demand already bumped to 1 before any FIX phase begins, so
-    # gating on it meant the full directive never emitted at all and the
-    # short line carried the whole contract. Same file shape, same helper.
-    #
-    # Keyed by PR number like ACK_FILE and COUNT_FILE, and emphatically not by
-    # $CURRENT: that is the branch name, and a branch name containing a slash
-    # made this a path through a directory that does not exist. The write then
-    # failed, `|| true` swallowed it, the counter never persisted, and the full
-    # directive re-emitted on every single turn.
-    FIX_COUNT_FILE="$GIT_DIR/sdd-review-fix-count-pr-$PR_NUMBER"
-    if [ "$(read_count_from "$FIX_COUNT_FILE")" -ge 1 ] 2>/dev/null; then
-      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — still in FIX phase. Keep applying the accepted rows, then commit and push when they are all done and this head's CI is green."
+    # The full contract is delivered ONCE PER PR, not once per head: by the
+    # second round the session has the contract, and re-sending ~130 words
+    # under the client's error-labeled banner every round is the wall of
+    # text the user reads as the system failing. The terse form keeps every
+    # load-bearing clause. Keyed by PR number like ACK_FILE and COUNT_FILE,
+    # and emphatically not by $CURRENT: that is the branch name, and a slash
+    # in it made this a path through a directory that does not exist, the
+    # write failed silently, and the full directive re-emitted every turn.
+    FIX_SHOWN_FILE="$GIT_DIR/sdd-review-fix-shown-pr-$PR_NUMBER"
+    if [ -f "$FIX_SHOWN_FILE" ]; then
+      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase (full contract shown earlier this PR). Accepted rows only; wait for this head's CI_RESULT; commit and push; nothing accepted → push nothing."
     fi
-    echo "$CURRENT_PR_HEAD:1" > "$FIX_COUNT_FILE" 2>/dev/null || true
+    printf '%s\n' "$CURRENT_PR_HEAD" > "$FIX_SHOWN_FILE" 2>/dev/null || true
     emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then

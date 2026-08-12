@@ -541,7 +541,11 @@ then synthesises the final vault note. One locked fail-closed command merges
 the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
-switch from haiku to sonnet).
+switch from haiku to sonnet). Every attempt appends its capture exit status,
+the publisher's verdict, and — on failure — the stderr/response tail to
+`<carrier>.attempts.log` beside the carrier, because a detached launch
+discards the runner's own stderr and a window that burned its attempts
+otherwise left nothing to diagnose; the six-attempt latch bounds the file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::ATTEMPT_LOG -->
 
 Between the dedup-gate step and the prefilter step, the agent invokes
 `assert-iso-ts.sh` (called by `memory-capture.sh` when it arms a request; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).

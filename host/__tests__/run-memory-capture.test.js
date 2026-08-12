@@ -23,7 +23,7 @@ const RUNNER = resolve(
 const SESSION = 'abcdef1234567890';
 const PAYLOAD_DIR = `/tmp/memory-capture-${SESSION.slice(0, 8)}`;
 
-function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false } = {}) {
+function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, claudeExits = 0 } = {}) {
   const dir = tempDir('memcap-');
   const bin = join(dir, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -37,7 +37,7 @@ function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false }
       `cat > "${join(dir, 'stdin.txt')}"`,
       `printf '%s\\n' "$@" > "${join(dir, 'argv.txt')}"`,
       captureWritten ? `printf 'captured\\n' > "${capture}"` : ':',
-      'exit 0',
+      `exit ${claudeExits}`,
     ].join('\n'),
   );
   chmodSync(join(bin, 'claude'), 0o755);
@@ -154,6 +154,19 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.equal(r.status, 0);
     assert.match(r.stderr, /nothing new to capture/);
     assert.ok(!existsSync(join(fx.dir, 'argv.txt')), 'the model was never invoked');
+  });
+
+  // Detached launches discard the runner's own stderr, so a window that burned
+  // its attempts used to leave nothing sayable about why. The journal beside
+  // the carrier is the only durable record; if these lines stop landing, the
+  // next silent failure is undiagnosable again.
+  it('journals each attempt with the capture exit and the publisher verdict', () => {
+    const fx = fixture({ claudeExits: 1, captureWritten: false });
+    const r = run(fx, ['--vars', fx.vars]);
+    assert.equal(r.status, 3, 'the publisher verdict still decides the runner status');
+    const journal = readFileSync(fx.vars.replace(/\.vars$/, '.attempts.log'), 'utf-8');
+    assert.match(journal, /attempt=1 exit=1$/m, 'the failed capture run is recorded');
+    assert.match(journal, /attempt=1 publish=3$/m, 'the refusal that burned the window is recorded');
   });
 
   it('refuses a carrier it cannot read', () => {
