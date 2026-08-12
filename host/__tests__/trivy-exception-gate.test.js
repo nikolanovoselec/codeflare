@@ -83,10 +83,6 @@ function report(results = [
         PkgPath: 'opt/code-server/lib/vscode/node_modules/ip-address/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
       }),
-      ipAddressVulnerability('10.2.0', {
-        PkgPath: 'opt/code-server/node_modules/ip-address/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
-      }),
       undiciVulnerability('7.28.0', {
         PkgPath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/undici@7.28.0' },
@@ -116,7 +112,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       'Node.js@7.28.0',
       'Node.js@8.5.0',
     ]);
-    assert.equal(result.evidence.length, 9);
+    assert.equal(result.evidence.length, 8);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -143,7 +139,6 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
-        `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
         `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
         `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
