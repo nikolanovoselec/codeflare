@@ -571,7 +571,7 @@ A full code-server browser editor for an advanced running session. The editor op
 4. Editor requests use the existing bounded workspace/editor context collector, which includes canonical active document content, unsaved text, selection, diagnostics, explicit references, and history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts -->
 5. Every editor request owns a fresh `pi --mode rpc --no-session --no-themes` process with normal Codeflare tools, extensions, root access, and interceptors; no tool allowlist, permission prompt, command sandbox, or selected-range restriction is introduced. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/node-rpc-backend.test.ts -->
 6. Text and progress stream in editor Inline Chat; completion waits for settlement, and cancellation or deactivation reaps the request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts -->
-7. Pi writes and side effects occur directly under the unrestricted-agent contract; the product makes no transactional rollback guarantee for Inline Chat, editor undo, or external effects. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend -->
+7. Pi writes and side effects occur directly under the unrestricted-agent contract; the product makes no transactional rollback guarantee for Inline Chat, editor undo, or external effects. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/pi-sidebar-approval.test.ts -->
 8. Panel Codeflare Chat, **Review with Codeflare**, official Claude, and the unsupported empty inventory retain their existing behavior. <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts -->
 9. The complete-image smoke proves the pinned host admits the proposals and packaged extension, selects Codeflare for editor Inline Chat compatibility without authorization, retains fail-closed provider generation, and reaps Pi on lifecycle boundaries. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat -->
 
@@ -587,6 +587,6 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated extension and complete-image tests; deployed integration selected-code and empty-selection pass@3 with lifecycle inspection.
 
-**Status:** Planned
+**Status:** Partial
 
 ---

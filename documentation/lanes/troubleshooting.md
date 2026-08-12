@@ -56,11 +56,11 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
 
-**Symptom:** Codeflare reports `Language model unavailable`, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
+**Symptom:** Codeflare reports `Language model unavailable`, editor Inline Chat shows only a Copilot login, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
 **Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
-**Fix:** For the model-boundary error, verify the packaged Pi manifest enables `chatProvider`, contributes the host-reserved fallback vendor `copilot`, and deployment image smoke confirms a hidden default model whose generation path rejects. Code OSS 1.131 retains the behavior introduced in 1.130 and considers only that vendor when resolving an implicit participant model; the identifier does not invoke GitHub Copilot, request authorization, or change Pi's local RPC inference. Do not sign into Copilot.
+**Fix:** For model-boundary or editor-picker errors, verify the packaged Pi manifest enables `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant`, contributes `codeflare.pi` at panel and editor locations, and publishes a selectable panel/editor default Codeflare model with tool calling and no authorization. Its host-reserved `copilot` vendor is selection metadata only; generation must still reject while participant requests use local Pi RPC. Do not sign into Copilot.
 
 For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
 
