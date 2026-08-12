@@ -33,7 +33,7 @@
     "knip": "^6.29.0",
     "oxlint": "^1.76.0",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "^4.1.10"
   },
