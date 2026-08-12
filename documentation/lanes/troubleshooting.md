@@ -58,7 +58,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Symptom:** Codeflare reports `Language model unavailable`, editor Inline Chat shows only a Copilot login, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
-**Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned hidden compatibility model was not registered as the panel default. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
+**Cause:** `Language model unavailable` means the pinned Code OSS host rejected the request before entering the participant because the owned selectable compatibility model was not registered as the panel/editor default or did not satisfy the editor tool-calling filter. Other failures can mean the active URI is outside the canonical workspace or uses a symbolic-link alias, editor context exceeds its bound, or the fixed RPC child emitted invalid JSONL.
 
 **Fix:** For model-boundary or editor-picker errors, verify the packaged Pi manifest enables `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant`, contributes `codeflare.pi` at panel and editor locations, and publishes a selectable panel/editor default Codeflare model with tool calling and no authorization. Its host-reserved `copilot` vendor is selection metadata only; generation must still reject while participant requests use local Pi RPC. Do not sign into Copilot.
 
