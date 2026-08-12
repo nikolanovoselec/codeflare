@@ -222,6 +222,9 @@ case "$ATTEMPT_NO" in ''|*[!0-9]*) ATTEMPT_NO='?' ;; esac
   printf '%s attempt=%s exit=%s\n' "$(date +%FT%T%z)" "$ATTEMPT_NO" "$STATUS"
   if [ "$STATUS" -ne 0 ]; then
     [ -s "$CAPTURE_STDERR" ] && tail -5 "$CAPTURE_STDERR"
+    # The envelope's subtype (error_max_turns, ...) diagnoses the failure; the
+    # response text lives in .result and must never land in this file.
+    [ -s "$CAPTURE_STDOUT" ] && jq -r '"stdout: \(.subtype // .error // .type)"' "$CAPTURE_STDOUT" 2>/dev/null
   fi
 } >> "$ATTEMPT_LOG" 2>/dev/null || true
 

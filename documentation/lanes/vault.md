@@ -542,7 +542,8 @@ the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet). Every attempt appends its capture exit status,
-the publisher's verdict, and — on failure — the stderr tail to
+the publisher's verdict, and — on failure — the stderr tail and the result
+envelope's failure subtype (never the response text) to
 `<carrier>.attempts.log` beside the carrier, because a detached launch
 discards the runner's own stderr and a window that burned its attempts
 otherwise left nothing to diagnose; the six-attempt latch bounds the file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::ATTEMPT_LOG -->
