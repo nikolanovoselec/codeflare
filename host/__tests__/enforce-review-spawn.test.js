@@ -440,8 +440,11 @@ describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
       binDir: ghDown(cwd),
     });
     assert.equal(r.status, 0);
-    assert.match(JSON.parse(r.stdout).reason, /FIX phase/,
+    const out = JSON.parse(r.stdout);
+    assert.match(out.reason, /FIX phase/,
       'the round advances to its handoff instead of dying silently');
+    assert.match(out.systemMessage, /working normally/,
+      'the clean non-error notice rides every blocking directive');
     assert.equal(ackOf(cwd), headSha, 'the acknowledgement still lands');
   });
 

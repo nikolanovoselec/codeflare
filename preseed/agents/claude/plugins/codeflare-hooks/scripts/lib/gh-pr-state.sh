@@ -33,20 +33,30 @@
 gh_pr_state() {
   local branch="$1" out rc err
   err=$(mktemp "${TMPDIR:-/tmp}/gh-pr-state-err.XXXXXX" 2>/dev/null) || {
+    # No stderr capture means the not-found phrase is unreadable, so exit 1
+    # cannot be verified as authoritative; report the transient class instead.
+    # The safe directions differ: a false "no PR" strands a live round, while
+    # a false "transient" at worst bridges a warm cache that the head-equality
+    # and plan-file gates already bound.
     gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>/dev/null
-    return
+    rc=$?
+    [ "$rc" -ne 1 ] || rc=3
+    return "$rc"
   }
+  # The trap owns cleanup so a signal or hook timeout between mktemp and
+  # return cannot strand the capture file; it clears itself on first fire.
+  trap 'rm -f "$err" 2>/dev/null; trap - RETURN' RETURN
   out=$(gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>"$err")
   rc=$?
   # gh answers "no PR" and "the API hiccuped" with the same exit 1; only the
   # stderr text tells them apart, and callers must never conflate them — a
   # not-found bridged from cache resurrects a deleted PR, while a flake read
   # as not-found strands a live round. Do the reading here so callers keep a
-  # purely numeric contract.
-  if [ "$rc" -eq 1 ] && ! grep -qi 'no pull requests found' "$err" 2>/dev/null; then
+  # purely numeric contract. The match tolerates gh's known phrasings; the
+  # fixture in enforce-review-spawn.test.js speaks the current one.
+  if [ "$rc" -eq 1 ] && ! grep -qiE 'no( open)? pull requests? found' "$err" 2>/dev/null; then
     rc=3
   fi
-  rm -f "$err" 2>/dev/null
   [ -n "$out" ] && printf '%s\n' "$out"
   return "$rc"
 }
