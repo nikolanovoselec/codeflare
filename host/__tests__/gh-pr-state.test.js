@@ -69,7 +69,7 @@ describe('gh_pr_state', () => {
   // library must not own process-global signal traps — so this is the guard
   // that a future early return between mktemp and rm does not start leaking
   // one file per hook invocation.
-  it('leaves no stderr capture file behind on found or not-found paths', () => {
+  it('keeps the numeric exit contract and leaves no stderr capture file behind', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ghprstate-'));
     const bin = join(cwd, 'bin');
     const scratch = join(cwd, 'scratch');
@@ -79,11 +79,16 @@ describe('gh_pr_state', () => {
       '#!/usr/bin/env bash',
       'case "$GH_MODE" in',
       '  found) printf %s \'{"number":7}\' ;;',
+      '  transient) echo "HTTP 502 from api.github.com" >&2; exit 1 ;;',
       '  *) echo "no pull requests found for branch" >&2; exit 1 ;;',
       'esac',
     ].join('\n'));
     chmodSync(join(bin, 'gh'), 0o755);
-    for (const mode of ['found', 'notfound']) {
+    // found -> 0 with the JSON; authoritative not-found -> 1; a generic exit-1
+    // API error -> the remapped transient 3, so collapsing the two exit-1
+    // classes back together fails in either direction.
+    const wantRc = { found: 0, notfound: 1, transient: 3 };
+    for (const mode of ['found', 'notfound', 'transient']) {
       const r = spawnSync('bash', ['-s', '--', LIB], {
         cwd,
         encoding: 'utf8',
@@ -93,8 +98,8 @@ describe('gh_pr_state', () => {
         input: '. "$1"; gh_pr_state some-branch; echo "rc=$?"; exit 0',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: scratch, GH_MODE: mode },
       });
-      assert.match(r.stdout, new RegExp(`^rc=${mode === 'found' ? 0 : 1}$`, 'm'),
-        `${mode} path keeps its exit contract (authoritative not-found is 1, never the transient 3)`);
+      assert.match(r.stdout, new RegExp(`^rc=${wantRc[mode]}$`, 'm'),
+        `${mode} path keeps its exit contract`);
       if (mode === 'found') {
         assert.match(r.stdout, /"number":7/, 'found path passes the JSON through');
       }
