@@ -11,7 +11,7 @@
     "@narumitw/pi-goal": "0.43.0",
     "@narumitw/pi-usage": "0.50.0",
     "context-mode": "1.0.169",
-    "pi-mcp-adapter": "2.16.0",
+    "pi-mcp-adapter": "2.20.1",
     "pi-web-access": "0.17.0"
   },
   "devDependencies": {
