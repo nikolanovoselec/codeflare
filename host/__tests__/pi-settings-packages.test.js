@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining available through explicit /ctx on,
-//   - the managed extension packages, including Goal and Usage, being present in
+//   - the managed extension packages, including Goal, Usage, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -63,6 +63,7 @@ const REQUIRED = [
   'npm:@juicesharp/rpiv-todo@2.4.0',
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.20.1',
+  'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.46.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
@@ -95,6 +96,22 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
   });
 });
 
+describe('Evaluate package preseed (REQ-AGENT-133)', () => {
+  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['pi-evaluate'];
+    assert.match(version, /^\d+\.\d+\.\d+$/);
+    const evaluate = lock.packages['node_modules/pi-evaluate'];
+    assert.equal(evaluate.version, version);
+    assert.equal(evaluate.resolved, `https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-${version}.tgz`);
+    assert.match(evaluate.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+    // The skill ships inside the package, so the peer range is what keeps a Pi
+    // upgrade from silently loading an extension built against an older API.
+    assert.deepEqual(evaluate.peerDependencies, { '@earendil-works/pi-coding-agent': '>=0.82.0' });
+  });
+});
+
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
@@ -105,7 +122,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     for (const spec of REQUIRED) {

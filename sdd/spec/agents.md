@@ -159,16 +159,44 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default) -->
+1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default) -->
 2. The preseed owns an exact version and SHA-512 integrity lock for `@narumitw/pi-usage`. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-usage --> <!-- @test: host/__tests__/pi-settings-packages.test.js (pins the reviewed upstream package and integrity-locks its Pi entrypoint) -->
-3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) -->
-4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) -->
+3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
 **Constraints:**
 
 - Package upgrades remain lock-backed and use the existing Pi-extension shadow-pin workflow.
 
 **Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Package assembly and JITI cache contract tests; deployment image build
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-133: Native Evaluation Workflow in Pi Sessions
+
+**Intent:** Pi sessions must preload the reviewed Evaluate package without cold-transpiling its entrypoint on first use.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default) -->
+2. The preseed owns an exact version and SHA-512 integrity lock for `pi-evaluate`. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-evaluate --> <!-- @test: host/__tests__/pi-settings-packages.test.js (pins the reviewed upstream release and integrity-locks its declared extension entrypoint) -->
+3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when Usage produces no cache artifact) -->
+4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+
+**Constraints:**
+
+- The package contributes a skill only; Codeflare adds no tool, command, patch, or fork on top of it.
+- Package upgrades remain lock-backed and use the existing Pi-extension shadow-pin workflow.
+
+**Priority:** P2
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
@@ -2707,7 +2735,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On a fresh container, context-mode skills and its Pi adapter are disabled until the user opts in with `/ctx on`. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default) -->
+1. On a fresh container, context-mode skills and its Pi adapter are disabled until the user opts in with `/ctx on`. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default) -->
 2. A state-changing `/ctx` command reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state) --> <!-- @manual: Start a fresh container and confirm `ctx_*` tools are absent; run `/ctx on` and confirm reload restores working tools; run `/ctx off` and confirm reload removes them. Container startup restores the disabled default. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
