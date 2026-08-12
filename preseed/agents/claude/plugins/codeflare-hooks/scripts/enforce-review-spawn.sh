@@ -456,7 +456,31 @@ CURRENT=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
 LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
 . "$SCRIPT_DIR/lib/gh-pr-state.sh" 2>/dev/null || exit 0
-PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
+# A transient gh failure must not strand a live round silently: the demand,
+# acknowledgement and FIX machinery below is the only thing that tells the
+# session a round is even waiting, and round 22 on PR #827 died at exactly
+# this line while three lanes and a CI monitor were hammering the same API.
+# Cache the last successful answer per branch and fall back to it, but only
+# while a round for that PR is actually in flight (its plan file exists, which
+# git-push-review-reminder.sh writes when it demands the lanes): an idle
+# branch keeps today's fail-safe silence, and a stale cache self-neutralizes
+# on the LOCAL_HEAD equality gate below the parse.
+PRINFO_CACHE="$GIT_DIR/sdd-review-prinfo-cache"
+if PR_INFO=$(gh_pr_state "$CURRENT"); then
+  printf '%s\t%s\n' "$CURRENT" "$PR_INFO" > "$PRINFO_CACHE" 2>/dev/null || true
+else
+  PR_INFO=""
+  if [ -f "$PRINFO_CACHE" ]; then
+    IFS="$(printf '\t')" read -r CACHED_BRANCH CACHED_INFO < "$PRINFO_CACHE"
+    CACHED_PR=$(printf '%s' "$CACHED_INFO" | jq -r '.number // empty' 2>/dev/null)
+    if [ "$CACHED_BRANCH" = "$CURRENT" ] \
+       && printf '%s' "$CACHED_PR" | grep -Eq '^[0-9]+$' \
+       && [ -f "$GIT_DIR/sdd-review-plan-pr-$CACHED_PR" ]; then
+      PR_INFO="$CACHED_INFO"
+    fi
+  fi
+  [ -n "$PR_INFO" ] || exit 0
+fi
 PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 BASE_REF=$(printf '%s' "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
@@ -1141,8 +1165,14 @@ clear_counter() {
 # already at GIVEUP and the verdict demand would exit SILENTLY -- the session
 # is never told what to publish, while the verdict counter keeps recording
 # demands that were never shown. One breaker per demand, on its own counter.
+# Claude Code renders every blocking Stop hook as "Stop hook error: <reason>".
+# That label is the harness's and cannot be changed from here, so each
+# directive self-identifies instead: the first bytes say it is machinery
+# working, not machinery failing.
+REVIEW_DIRECTIVE_TAG='[review directive — hook working as designed, not an error]'
+
 emit_block_uncounted() {
-  jq -n --arg r "$1" '{decision:"block", reason:$r}' 2>/dev/null
+  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $1" '{decision:"block", reason:$r}' 2>/dev/null
   exit 0
 }
 
@@ -1159,7 +1189,7 @@ emit_block() {
   fi
   local new=$((current + 1))
   echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
-  jq -n --arg r "$reason" '{decision:"block", reason:$r}' 2>/dev/null
+  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $reason" '{decision:"block", reason:$r}' 2>/dev/null
   exit 0
 }
 

@@ -175,16 +175,22 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     rmSync(recent, { recursive: true, force: true });
     mkdirSync(stale, { recursive: true });
     mkdirSync(recent, { recursive: true });
-    // A fixed past date rather than a relative one: it only grows staler, so
-    // this stays deterministic however long from now the suite runs.
-    const longAgo = new Date('2026-08-09T00:00:00Z');
-    utimesSync(stale, longAgo, longAgo);
+    try {
+      // A fixed past date rather than a relative one: it only grows staler, so
+      // this stays deterministic however long from now the suite runs.
+      const longAgo = new Date('2026-08-09T00:00:00Z');
+      utimesSync(stale, longAgo, longAgo);
 
-    const fx = fixture();
-    run(fx, ['--vars', fx.vars]);
+      const fx = fixture();
+      run(fx, ['--vars', fx.vars]);
 
-    assert.equal(existsSync(stale), false, 'a payload directory nobody will reopen is reclaimed');
-    assert.ok(existsSync(recent), 'one that may still be in use is left alone');
-    rmSync(recent, { recursive: true, force: true });
+      assert.equal(existsSync(stale), false, 'a payload directory nobody will reopen is reclaimed');
+      assert.ok(existsSync(recent), 'one that may still be in use is left alone');
+    } finally {
+      // A failing assertion must not strand either fixed-path directory for
+      // the next run's setup rmSync to silently mask.
+      rmSync(stale, { recursive: true, force: true });
+      rmSync(recent, { recursive: true, force: true });
+    }
   });
 });

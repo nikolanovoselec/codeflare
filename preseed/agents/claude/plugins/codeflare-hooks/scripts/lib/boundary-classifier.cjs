@@ -159,9 +159,12 @@ function boundaryOf(text, options) {
         }
         // A herestring feeds the shell code exactly as `-c` does. `<` is not a
         // word-break character here, so `<<<` arrives glued to whatever follows
-        // it when there is no space: `bash <<<"git push"` is one word.
-        if (value.startsWith('<<<')) {
-          const inline = value.slice(3);
+        // it when there is no space: `bash <<<"git push"` is one word. An fd
+        // number may precede the operator (`bash 0<<<"git push"`) and changes
+        // nothing about what the shell executes, so it must not defeat the match.
+        const herestring = value.match(/^\d*<<<([\s\S]*)$/);
+        if (herestring) {
+          const inline = herestring[1];
           if (inline) codeWords = [inline];
           else shellWantsCode = true;
           return;

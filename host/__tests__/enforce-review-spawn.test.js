@@ -386,8 +386,94 @@ describe('enforce-review-spawn.sh — FIX-phase demand counter', () => {
     const { reason, fixFile, headSha } = atFixPhase({ branch: 'fix/with-slash' });
     assert.equal(readFileSync(fixFile, 'utf-8').trim(), `${headSha}:1`,
       'a slash in the branch name must not silently discard the counter');
-    assert.match(reason, /^PR #42 @/,
+    assert.match(reason, /PR #42 @/,
       'and the directive identifies the PR by number, not by branch');
+  });
+});
+
+// A transient gh failure mid-round used to be read as "no PR here" and exited
+// the hook silently, stranding a round whose lanes had already completed (PR
+// #827 round 22). The hook now caches the last successful resolution per
+// branch and falls back to it only while that PR's plan file shows a round in
+// flight. These rows drive the real hook twice: a healthy run primes the
+// cache, then gh goes down and the observable question is whether the round
+// still advances to its acknowledgement and FIX handoff.
+describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
+  const roundLines = ({ triage }) => [
+    PUSH_LINE('2026-05-03T12:00:00.000Z'),
+    LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_g1'),
+    LANE_BASH_DONE_LINE('toolu_g1'),
+    LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_g2'),
+    LANE_BASH_DONE_LINE('toolu_g2'),
+    LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_g3'),
+    LANE_BASH_DONE_LINE('toolu_g3'),
+    ...(triage ? [TRIAGE_LINE()] : []),
+  ];
+
+  // One healthy resolution, so the cache holds this branch's PR. The priming
+  // run itself ends at the delivery barrier, which is irrelevant here.
+  function primed({ plan = true } = {}) {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const gitDir = join(cwd, spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim());
+    if (plan) writeFileSync(join(gitDir, 'sdd-review-plan-pr-42'), `${headSha}\n`);
+    runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: false })),
+      binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+    });
+    return { cwd, headSha };
+  }
+
+  const ghDown = (cwd) => fakeGh(cwd, 'echo "gh: transient network failure" >&2; exit 4');
+
+  it('drives the round from the cached identity when gh fails mid-round', () => {
+    const { cwd, headSha } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.match(JSON.parse(r.stdout).reason, /FIX phase/,
+      'the round advances to its handoff instead of dying silently');
+    assert.equal(ackOf(cwd), headSha, 'the acknowledgement still lands');
+  });
+
+  it('stays fail-safe silent when gh fails with no cached identity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'an idle branch keeps the old silence');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('neutralizes a cache from a superseded head', () => {
+    const { cwd } = primed();
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'newer'], { cwd });
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'a cache for a head this checkout moved past stays inert');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('does not resurrect a PR with no round in flight', () => {
+    const { cwd } = primed({ plan: false });
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'a warm cache alone is not evidence a round is waiting');
+    assert.equal(ackOf(cwd), '');
   });
 });
 
@@ -635,6 +721,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     'bash -c "git commit -m x"',
     'bash <<< "git push"',
     'bash <<<"git push"',
+    'bash 0<<<"git push"',
+    'bash 3<<< "git push"',
   ]) {
     it(`refuses a delivery in the blocked window: ${cmd}`, () => {
       const cwd = makeFixture();

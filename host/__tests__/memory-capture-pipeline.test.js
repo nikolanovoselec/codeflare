@@ -181,33 +181,38 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
       writeFileSync(join(root, 'graphify-out', 'graph.html'), '<html></html>');
     }
     // Hold the render lock the way a concurrent publisher would, and confirm it
-    // is actually held rather than trusting a sleep.
+    // is actually held rather than trusting a sleep. The holder dies in a
+    // finally: the held-assertion throws straight past a sequential kill,
+    // leaving a detached 30s sleep behind every failing run.
     let holder;
-    if (holdVizLock) {
-      holder = spawn('bash', ['-c', `exec 9>"${graphLock}.viz"; flock 9; sleep 30`], {
-        detached: true, stdio: 'ignore',
-      });
-      holder.unref();
-      let held = false;
-      for (let i = 0; i < 100 && !held; i++) {
-        held = spawnSync('bash', ['-c', `exec 9>"${graphLock}.viz"; flock -n 9`]).status !== 0;
-        if (!held) spawnSync('bash', ['-c', 'sleep 0.05']);
+    try {
+      if (holdVizLock) {
+        holder = spawn('bash', ['-c', `exec 9>"${graphLock}.viz"; flock 9; sleep 30`], {
+          detached: true, stdio: 'ignore',
+        });
+        holder.unref();
+        let held = false;
+        for (let i = 0; i < 100 && !held; i++) {
+          held = spawnSync('bash', ['-c', `exec 9>"${graphLock}.viz"; flock -n 9`]).status !== 0;
+          if (!held) spawnSync('bash', ['-c', 'sleep 0.05']);
+        }
+        assert.ok(held, 'the concurrent publisher took the render lock');
       }
-      assert.ok(held, 'the concurrent publisher took the render lock');
+      const result = spawnSync('bash', [PUBLISH, carrier], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MEMCAP_GRAPH_LOCK: graphLock,
+          MEMCAP_PYTHON_BIN: merge,
+          MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
+          MEMCAP_GRAPHIFY_BIN: graphify,
+          MEMCAP_VAULT_GRAPH: vaultGraph,
+        },
+      });
+      return { root, carrier, publicationLog, result };
+    } finally {
+      if (holder) { try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ } }
     }
-    const result = spawnSync('bash', [PUBLISH, carrier], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        MEMCAP_GRAPH_LOCK: graphLock,
-        MEMCAP_PYTHON_BIN: merge,
-        MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
-        MEMCAP_GRAPHIFY_BIN: graphify,
-        MEMCAP_VAULT_GRAPH: vaultGraph,
-      },
-    });
-    if (holder) { try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ } }
-    return { root, carrier, publicationLog, result };
   }
 
   const graphifyCalls = (publicationLog) =>
