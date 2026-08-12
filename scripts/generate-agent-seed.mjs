@@ -319,7 +319,9 @@ function adaptAgentFrontmatter(content, agentId) {
   const lines = frontmatter.split('\n');
   const newLines = [];
   const agentName = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const piExtractionAgent = agentId === 'pi' && (agentName === 'memory-capture' || agentName === 'vault-extract');
+  // vault-extract alone: memory-capture is a pi-native file now, so the
+  // pi-native branch emits it verbatim and never reaches this adapter.
+  const piExtractionAgent = agentId === 'pi' && agentName === 'vault-extract';
   let sawTools = false;
 
   for (const line of lines) {
@@ -328,9 +330,7 @@ function adaptAgentFrontmatter(content, agentId) {
     // copilot, opencode) have no equivalent frontmatter key and must not carry it.
     if (line.startsWith('effort:')) continue;
     if (piExtractionAgent && line.startsWith('description:')) {
-      newLines.push(agentName === 'memory-capture'
-        ? 'description: Visible Pi memory capture worker. The root launches one public background request, retains the request-specific execution snapshot and counter, and finalizes them only after exact native success.'
-        : 'description: Visible Pi Vault extraction worker. The root launches one public background request and retains request-specific execution and staged-manifest state until exact native success.');
+      newLines.push('description: Visible Pi Vault extraction worker. The root launches one public background request and retains request-specific execution and staged-manifest state until exact native success.');
       continue;
     }
 
@@ -393,15 +393,15 @@ function adaptAgentFrontmatter(content, agentId) {
 
   let adaptedBody = adaptPaths(body, agentId);
   if (agentId === 'pi') adaptedBody = adaptPiRuntimeNames(adaptedBody);
-  if (agentId === 'pi' && agentName === 'memory-capture') {
-    adaptedBody = adaptedBody
-      .replace('You are the memory-capture subagent. You run in the background, triggered by the per-15-message memory-capture hook.', 'You are the memory-capture subagent. The root Pi session launches you through one visible public background request at the capture cadence.')
-      .replace('The full multi-step contract lives in `memory-agent-prompt.md`.', 'The bounded one-pass contract lives in `memory-agent-prompt.md`.')
-      .replace('The hook passes you the path to that file and the path to a `.vars` file containing the transcript slice + counter state. Read both, then execute the contract verbatim. The contract\'s first step is to delete the `.vars` file (dedup gate).', 'The root request passes that prompt path and a request-specific immutable execution snapshot whose `transcript` field is the complete bounded input. There is no `INPUT_FILE` or separate transcript path. Read the prompt and snapshot once, then execute the contract verbatim. Do not delete the execution snapshot, active pointer, or counter; the root finalizes them only after exact native success.')
-      .replace('Inputs the hook passes:', 'Inputs the root public request passes:')
-      .replace('`VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).')
-      .replace('Running the contract\'s shell steps: prefer the `Bash` tool. If a `Bash` call is blocked or routed in this session (some sessions run a routing gate that intercepts shell), run the identical command through `ctx_execute` (`language: "shell"`) instead - it reaches the same filesystem and binaries. Use whichever is available; never skip a step because one tool is gated. File writes always go through the `Write` tool, not a shell heredoc.', 'Use only Bash. All policy needed for this bounded task is in the deployed prompt and immutable snapshot; do not read skills, project documentation, or unrelated files. In the normal path, use one Bash call to read and validate the prompt plus self-contained snapshot once, then one Bash call to write and commit the result.');
-  }
+  // memory-capture is deliberately NOT here. It used to be rewritten into Pi's
+  // contract by six exact-string replacements over Claude's prose, and prose
+  // moves: two of the six had already gone stale and were silently no-oping, so
+  // Pi shipped Claude's `.vars` carrier wording instead of its own snapshot
+  // contract, and an ordinary edit to the Claude agent then handed Pi Claude's
+  // six-turn budget over Pi's own four (AD103). A replacement that misses fails
+  // open into the other runtime's contract, with nothing to notice it. Pi now
+  // owns `preseed/agents/pi/agents/memory-capture.md` outright, which the
+  // pi-native branch below emits verbatim in place of any transform.
   if (agentId === 'pi' && agentName === 'vault-extract') {
     adaptedBody = adaptedBody
       .replace('You are the vault-extract subagent. You run in the background, triggered by the vault-monitor daemon.', 'You are the vault-extract subagent. The root Pi session launches you through one visible public background request after detecting user-curated Vault changes.')

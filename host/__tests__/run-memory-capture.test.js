@@ -77,10 +77,10 @@ function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, 
   return { dir, bin, vars, capture, transcript };
 }
 
-const run = (fx, args) =>
+const run = (fx, args, env = {}) =>
   spawnSync('bash', [RUNNER, ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, PATH: `${fx.bin}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${fx.bin}:${process.env.PATH}`, ...env },
   });
 
 describe('run-memory-capture.sh — headless capture transport', () => {
@@ -92,12 +92,23 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.ok(existsSync(join(PAYLOAD_DIR, 'clean.ndjson')), 'prefilter ran before the model started');
     const task = readFileSync(join(fx.dir, 'stdin.txt'), 'utf-8');
     const request = join(PAYLOAD_DIR, 'request.json');
-    assert.match(task, new RegExp(`VARS_FILE=${request}`), 'the model is pointed at the prepared request');
-    assert.doesNotMatch(task, new RegExp(fx.transcript), 'the raw transcript path is not handed over');
+    // The conversation travels IN the prompt. Handing over a path instead put
+    // the payload on the tool-result channel, which truncates and persists it:
+    // a traced run spent every turn paging its own request back in and hit the
+    // ceiling before writing the note. A path here is the whole defect.
+    assert.ok(task.includes('prompt number 0'),
+      'the conversation must arrive inline, not as a path the model has to retrieve');
+    assert.match(task, /capture_file: /, 'the capture target travels with it');
+    // Exact substring, not a pattern: these are filesystem paths, whose dots
+    // are regex metacharacters, so a compiled path matches strings it should
+    // not and the assertion drifts wider than the claim it is making.
+    assert.ok(!task.includes(request),
+      'naming the request file invites the retrieval this delivery exists to avoid');
+    assert.ok(!task.includes(fx.transcript), 'the raw transcript path is not handed over');
 
     // Self-contained by contract: the conversation travels inside the request,
     // so the capture has no path to derive, no directory to walk and nothing
-    // to reread. Each reread cost a model round-trip out of a budget of four.
+    // to reread. Each reread cost a model round-trip out of a small budget.
     const payload = JSON.parse(readFileSync(request, 'utf-8'));
     assert.equal(payload.capture_file, fx.capture, 'the capture target is carried, not recomputed');
     assert.equal(typeof payload.current_count, 'number', 'a count crosses as a number, not a string');
@@ -110,11 +121,118 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     run(fx, ['--vars', fx.vars]);
     const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
 
-    assert.equal(argv[argv.indexOf('--max-turns') + 1], '4', 'four turns, matching the capture contract');
+    assert.equal(argv[argv.indexOf('--max-turns') + 1], '6', 'six turns, matching the capture contract');
     assert.ok(argv.includes('--strict-mcp-config'), 'no session MCP servers');
     // An empty --setting-sources is the flag that stops the capture inheriting
     // this session's settings, and it arrives as an empty argv slot.
     assert.equal(argv[argv.indexOf('--setting-sources') + 1], '', 'no session settings inherited');
+  });
+
+  it('frames the transcript with a marker drawn fresh for every run', () => {
+    const first = fixture();
+    run(first, ['--vars', first.vars]);
+    const taskOne = readFileSync(join(first.dir, 'stdin.txt'), 'utf-8');
+    const openOne = taskOne.match(/^--- BEGIN TRANSCRIPT (\S+) ---$/m);
+    const closeOne = taskOne.match(/^--- END TRANSCRIPT (\S+) ---$/m);
+    assert.ok(openOne && closeOne, 'the conversation must arrive framed');
+    assert.equal(openOne[1], closeOne[1], 'one run closes its frame with the marker it opened');
+    assert.ok(openOne[1].length >= 12, `a ${openOne[1].length}-character marker is guessable`);
+
+    // The frame is the only thing separating captured text from launcher
+    // instructions, and the capture holds Write and Bash. A constant marker is
+    // forgeable by anyone who has seen one capture, so it must be redrawn.
+    const second = fixture();
+    run(second, ['--vars', second.vars]);
+    const taskTwo = readFileSync(join(second.dir, 'stdin.txt'), 'utf-8');
+    const openTwo = taskTwo.match(/^--- BEGIN TRANSCRIPT (\S+) ---$/m);
+    assert.ok(openTwo, 'the second run must be framed too');
+    assert.notEqual(openTwo[1], openOne[1], 'a marker reused across runs is a static delimiter');
+  });
+
+  // The refusal is the security-load-bearing half of the frame. The capture
+  // holds Write and Bash, and the marker is the only thing separating captured
+  // text from launcher instruction, so a draw that cannot be made unguessable
+  // has to stop the run rather than degrade into a predictable frame -- the
+  // first draft degraded to a pid and a clock, which a transcript can predict.
+  // Both tiers are broken here (base64 for the urandom draw, the capframe
+  // mktemp for the fallback) while every other mktemp call keeps working.
+  // Paired against an identical fixture that draws normally, because the exit
+  // status alone proves nothing: the healthy run exits 3 too, from the
+  // publisher. Starting the model is the difference.
+  it('refuses to launch when no unguessable frame can be drawn', () => {
+    const degraded = fixture();
+    writeFileSync(join(degraded.bin, 'base64'), '#!/usr/bin/env bash\nexit 1\n');
+    writeFileSync(
+      join(degraded.bin, 'mktemp'),
+      [
+        '#!/usr/bin/env bash',
+        'for a in "$@"; do case "$a" in *capframe*) exit 1 ;; esac; done',
+        'for c in /usr/bin/mktemp /bin/mktemp; do [ -x "$c" ] && exec "$c" "$@"; done',
+        'exit 1',
+      ].join('\n'),
+    );
+    chmodSync(join(degraded.bin, 'base64'), 0o755);
+    chmodSync(join(degraded.bin, 'mktemp'), 0o755);
+
+    const r = run(degraded, ['--vars', degraded.vars]);
+    assert.equal(r.status, 3, 'a frame it cannot draw is a refusal to launch');
+    assert.equal(existsSync(join(degraded.dir, 'argv.txt')), false,
+      'the model must never be started without a frame around the transcript');
+    assert.equal(existsSync(join(degraded.dir, 'session.attempts.log')), false,
+      'the run stops at the draw, before the launch-and-publish sequence');
+
+    const healthy = fixture();
+    run(healthy, ['--vars', healthy.vars]);
+    assert.equal(existsSync(join(healthy.dir, 'argv.txt')), true,
+      'the same fixture drawing a frame normally does start the model');
+  });
+
+  // The guard has to measure entropy, not characters. `capframe` is eight
+  // constant characters of the fallback's own template, so an mktemp that
+  // returns the template unexpanded hands back twenty predictable characters --
+  // long enough to pass a length test, worth nothing as a delimiter. This is
+  // the refusal failing open in the one case it exists for, so it gets a row
+  // separate from the both-draws-broken one above: here mktemp SUCCEEDS.
+  it('refuses a frame whose length is template rather than entropy', () => {
+    const fx = fixture();
+    writeFileSync(join(fx.bin, 'base64'), '#!/usr/bin/env bash\nexit 1\n');
+    writeFileSync(
+      join(fx.bin, 'mktemp'),
+      [
+        '#!/usr/bin/env bash',
+        'for a in "$@"; do case "$a" in *capframe*) echo "/tmp/$a"; exit 0 ;; esac; done',
+        'for c in /usr/bin/mktemp /bin/mktemp; do [ -x "$c" ] && exec "$c" "$@"; done',
+        'exit 1',
+      ].join('\n'),
+    );
+    chmodSync(join(fx.bin, 'base64'), 0o755);
+    chmodSync(join(fx.bin, 'mktemp'), 0o755);
+
+    const r = run(fx, ['--vars', fx.vars]);
+    assert.equal(r.status, 3, 'an unexpanded template is not a drawn frame');
+    assert.equal(existsSync(join(fx.dir, 'argv.txt')), false,
+      'a predictable delimiter must not reach the model that holds Write and Bash');
+  });
+
+  it('withholds the Read tool that the inline delivery removed the need for', () => {
+    const fx = fixture();
+    run(fx, ['--vars', fx.vars]);
+    const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
+    // Read is the paging capability that burned the whole budget when the
+    // payload arrived as a path; granting it back re-opens that door silently.
+    assert.equal(argv[argv.indexOf('--tools') + 1], 'Write,Bash',
+      'the capture writes and shells; it has nothing left to read');
+  });
+
+  it('lands a non-numeric turn override on the same budget as the default', () => {
+    const fx = fixture();
+    run(fx, ['--vars', fx.vars], { CODEFLARE_MEMORY_MAX_TURNS: 'abc' });
+    const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
+    // The default and the sanitiser's fallback are two independent literals, so
+    // the row above holds while the fallback drifts back to the old budget. A
+    // garbage override is the only input that reaches the second one.
+    assert.equal(argv[argv.indexOf('--max-turns') + 1], '6',
+      'a rejected override must fall back to the current budget, not the historical one');
   });
 
   it('refuses to publish when the capture wrote no file', () => {

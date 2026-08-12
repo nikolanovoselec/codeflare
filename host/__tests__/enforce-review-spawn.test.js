@@ -873,6 +873,30 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
+  // A refused call still leaves its tool_use record in the transcript, and that
+  // record never completes. Read as the lane's newest spawn, it looked exactly
+  // like a lane in flight -- so refusing the first call of a parallel batch
+  // wrote the very evidence that waved the siblings through, and one denial
+  // shipped two lanes. The batch is the oracle: the second and third calls see
+  // the refused record and must still get the answer the first one got.
+  it('keeps refusing when a refused spawn leaves an uncompleted record behind', () => {
+    const cwd = makeFixture();
+    const lane = (l) =>
+      `bash ~/.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane ${l} --range aaa..bbb`;
+    const t = writeTranscript(cwd, completedRound());
+    assertRefused(pretool(cwd, t, 'Bash', undefined, lane('code-reviewer')),
+      'the first call of the batch is refused');
+    // What the harness appends for the call the gate just refused.
+    writeTranscript(cwd, [
+      ...completedRound(),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:30:00.000Z', 'toolu_refused'),
+    ]);
+    assertRefused(pretool(cwd, t, 'Bash', undefined, lane('spec-reviewer')),
+      'the sibling call must not ride the refused record through the gate');
+    assertRefused(pretool(cwd, t, 'Bash', undefined, lane('doc-updater')),
+      'and neither may the third');
+  });
+
   it('demands a fresh table when a lane re-runs after the previous round was triaged', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [

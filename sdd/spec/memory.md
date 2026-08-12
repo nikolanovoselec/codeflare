@@ -337,7 +337,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - The capture agent carries no `model:` pin; fidelity is selected by `CODEFLARE_MEMORY_MODEL`.
-- The capture contract is bounded to four agent turns.
+- The capture contract is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6).
 
 **Priority:** P0
 
