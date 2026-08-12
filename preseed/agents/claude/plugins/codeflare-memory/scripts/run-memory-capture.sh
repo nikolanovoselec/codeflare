@@ -193,9 +193,21 @@ SYSTEM_PROMPT=$(awk 'BEGIN{fm=0} NR==1 && $0=="---"{fm=1; next} fm==1 && $0=="--
 # The marker is unguessable from inside the transcript, so the frame cannot be
 # forged by content that was captured before it was drawn.
 FRAME=$(head -c 24 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 16)
-# A frame is load-bearing, so a short one is not silently accepted: without
-# /dev/urandom or base64 this falls back to values that still vary per run.
-[ "${#FRAME}" -ge 12 ] || FRAME="pid$$t$(date +%s)"
+# Without /dev/urandom or base64, mktemp still draws a random suffix of its own.
+# The first draft degraded to a pid and a whole-second clock here, which a
+# transcript could reproduce -- a frame that varies per run is not the same
+# property as a frame the content cannot guess, and only the second one is
+# worth stating.
+[ "${#FRAME}" -ge 12 ] \
+  || FRAME=$(basename "$(mktemp -u -t capframe.XXXXXXXXXXXX 2>/dev/null)" 2>/dev/null | tr -dc 'A-Za-z0-9')
+# Nothing unguessable left to draw from. A forgeable frame is worse than a
+# missed capture -- the window survives, uncommitted, for the next request --
+# so this refuses rather than shipping one, on the same exit as a missing
+# prerequisite.
+[ "${#FRAME}" -ge 12 ] || {
+  echo "run-memory-capture: cannot draw an unguessable transcript frame; refusing to launch" >&2
+  exit 3
+}
 
 TASK=$(jq -r --arg frame "$FRAME" '"CAPTURE_REQUEST (inline; there is no file to read)",
   "session_id: \(.session_id)",

@@ -125,6 +125,37 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.equal(argv[argv.indexOf('--setting-sources') + 1], '', 'no session settings inherited');
   });
 
+  it('frames the transcript with a marker drawn fresh for every run', () => {
+    const first = fixture();
+    run(first, ['--vars', first.vars]);
+    const taskOne = readFileSync(join(first.dir, 'stdin.txt'), 'utf-8');
+    const openOne = taskOne.match(/^--- BEGIN TRANSCRIPT (\S+) ---$/m);
+    const closeOne = taskOne.match(/^--- END TRANSCRIPT (\S+) ---$/m);
+    assert.ok(openOne && closeOne, 'the conversation must arrive framed');
+    assert.equal(openOne[1], closeOne[1], 'one run closes its frame with the marker it opened');
+    assert.ok(openOne[1].length >= 12, `a ${openOne[1].length}-character marker is guessable`);
+
+    // The frame is the only thing separating captured text from launcher
+    // instructions, and the capture holds Write and Bash. A constant marker is
+    // forgeable by anyone who has seen one capture, so it must be redrawn.
+    const second = fixture();
+    run(second, ['--vars', second.vars]);
+    const taskTwo = readFileSync(join(second.dir, 'stdin.txt'), 'utf-8');
+    const openTwo = taskTwo.match(/^--- BEGIN TRANSCRIPT (\S+) ---$/m);
+    assert.ok(openTwo, 'the second run must be framed too');
+    assert.notEqual(openTwo[1], openOne[1], 'a marker reused across runs is a static delimiter');
+  });
+
+  it('withholds the Read tool that the inline delivery removed the need for', () => {
+    const fx = fixture();
+    run(fx, ['--vars', fx.vars]);
+    const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
+    // Read is the paging capability that burned the whole budget when the
+    // payload arrived as a path; granting it back re-opens that door silently.
+    assert.equal(argv[argv.indexOf('--tools') + 1], 'Write,Bash',
+      'the capture writes and shells; it has nothing left to read');
+  });
+
   it('lands a non-numeric turn override on the same budget as the default', () => {
     const fx = fixture();
     run(fx, ['--vars', fx.vars], { CODEFLARE_MEMORY_MAX_TURNS: 'abc' });
