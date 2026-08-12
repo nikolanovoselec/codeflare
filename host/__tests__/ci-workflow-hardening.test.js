@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { evaluateChangedLineCoverage } from '../../scripts/ci/check-coverage-result.mjs';
+import { CHANGED_COVERAGE_LIMITS, evaluateChangedLineCoverage } from '../../scripts/ci/check-coverage-result.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
@@ -240,6 +240,52 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         process.execPath,
         [join(ROOT, 'scripts/ci/check-coverage-result.mjs'), log, '0', 'false', report, base, '.', '80'],
         { cwd: checkout, encoding: 'utf8' },
+      );
+
+      assert.equal(checked.status, 0, checked.stderr);
+      assert.match(checked.stdout, /changed production line coverage 100%/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-022 AC6: reads only the package source tree, so a large generated artifact cannot exhaust the diff bound', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'coverage-artifact-'));
+    const git = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+
+    try {
+      mkdirSync(join(fixture, 'src'), { recursive: true });
+      assert.equal(git(fixture, ['init', '--initial-branch=review']).status, 0);
+      assert.equal(git(fixture, ['config', 'user.name', 'Coverage Test']).status, 0);
+      assert.equal(git(fixture, ['config', 'user.email', 'coverage@example.invalid']).status, 0);
+      writeFileSync(join(fixture, 'src/example.ts'), 'export const value = 1;\n');
+      assert.equal(git(fixture, ['add', '.']).status, 0);
+      assert.equal(git(fixture, ['commit', '-m', 'base']).status, 0);
+      const base = git(fixture, ['rev-parse', 'HEAD']).stdout.trim();
+
+      // One changed production line beside a regenerated artifact whose own diff is larger
+      // than the checker's entire diff bound. The evaluator can never consult that file, so
+      // buffering it only cost the job its budget: the whole-repository request died with
+      // ENOBUFS and reported it as an unreadable pull-request diff.
+      writeFileSync(join(fixture, 'src/example.ts'), 'export const value = 2;\n');
+      mkdirSync(join(fixture, 'graphify-out'), { recursive: true });
+      writeFileSync(join(fixture, 'graphify-out/graph.html'), '<div>generated</div>\n'.repeat(600_000));
+      assert.equal(git(fixture, ['add', '.']).status, 0);
+      assert.equal(git(fixture, ['commit', '-m', 'head']).status, 0);
+      const artifactDiffBytes = git(fixture, ['diff', '--unified=0', `${base}^{tree}`, 'HEAD^{tree}']).stdout.length;
+      assert.ok(
+        artifactDiffBytes > CHANGED_COVERAGE_LIMITS.maxDiffBytes,
+        `fixture must exceed the ${CHANGED_COVERAGE_LIMITS.maxDiffBytes}-byte bound, got ${artifactDiffBytes}`,
+      );
+
+      const log = join(fixture, 'coverage.log');
+      const report = join(fixture, 'lcov.info');
+      writeFileSync(log, 'All files | 100 | 100 | 100 | 100 |\n');
+      writeFileSync(report, 'SF:src/example.ts\nDA:1,1\nend_of_record\n');
+      const checked = spawnSync(
+        process.execPath,
+        [join(ROOT, 'scripts/ci/check-coverage-result.mjs'), log, '0', 'false', report, base, '.', '80'],
+        { cwd: fixture, encoding: 'utf8' },
       );
 
       assert.equal(checked.status, 0, checked.stderr);
