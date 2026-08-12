@@ -647,7 +647,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     // bump broke, because the literal was regex-escaped and a plain version grep
     // could not see it. The installed 0.44.0 stays literal: it is this fixture's
     // own value, so it still pins that the message names both sides.
-    const expected = EXPECTED_PI_GOAL_VERSION.replace(/\./g, '\\.');
+    const expected = EXPECTED_PI_GOAL_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const versionDrift = mkdtempSync(join(tmpdir(), 'pi-goal-version-drift-'));
     writeFixturePackage(versionDrift, { 'package.json': '{"version":"0.44.0"}\n' });
     const versionBytes = readFixturePackage(versionDrift);
