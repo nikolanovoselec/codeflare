@@ -171,6 +171,10 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     // was written to end. The key is load-bearing, so it is pinned here.
     assert.equal(stopGate.asyncRewake, true,
       'the Stop gate must be registered for rewake or its directives read as failures');
+    // The CLI ignores an unknown key silently, so a dropped or misspelled
+    // rewakeMessage restores the unframed directive with a green suite.
+    assert.match(stopGate.rewakeMessage ?? '', /Review directive/,
+      'the rewake prefix is what replaces the client "blocking error" wording');
   });
 
   it('hooks use if-gates to filter by command pattern', () => {

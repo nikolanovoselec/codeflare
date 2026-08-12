@@ -205,7 +205,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     PRETOOL_NEW=$(tail -c +$((PRETOOL_CACHED_OFFSET + 1)) "$TRANSCRIPT" 2>/dev/null | grep -cF 'completed</status>')
     PRETOOL_COMPLETION_COUNT=$((PRETOOL_CACHED_COUNT + PRETOOL_NEW))
     if [ "$PRETOOL_NEW" -eq 0 ] 2>/dev/null; then
-      printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null || true
+      printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" 2>/dev/null > "$PRETOOL_CLEAR_FILE" || true
       exit 0
     fi
   else
@@ -471,7 +471,7 @@ if PR_INFO=$(gh_pr_state "$CURRENT"); then
   # ever pretty-prints would otherwise cache a fragment. jq failing leaves
   # the raw answer, which at worst dead-ends the cache, never corrupts it.
   COMPACT_INFO=$(printf '%s' "$PR_INFO" | jq -c . 2>/dev/null) && PR_INFO="$COMPACT_INFO"
-  printf '%s\t%s\n' "$CURRENT" "$PR_INFO" > "$PRINFO_CACHE" 2>/dev/null || true
+  printf '%s\t%s\n' "$CURRENT" "$PR_INFO" 2>/dev/null > "$PRINFO_CACHE" || true
 else
   GH_RC=$?
   # Exit 1 is gh's authoritative "no PR for this branch" answer, not a flake
@@ -518,7 +518,7 @@ esac
 if [ "$PR_STATE" != "OPEN" ]; then
   if [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] \
      && [ "$(cat "$CLOSED_NOTICE_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ]; then
-    printf '%s\n' "$CURRENT_PR_HEAD" > "$CLOSED_NOTICE_FILE" 2>/dev/null || true
+    printf '%s\n' "$CURRENT_PR_HEAD" 2>/dev/null > "$CLOSED_NOTICE_FILE" || true
     CLOSED_NOTICE="PR review - acknowledgement missing
 Head: $CURRENT_PR_HEAD
 PR state: $PR_STATE
@@ -535,7 +535,7 @@ fi
 # open, unacknowledged PR head. The path is overridable for hermetic tests.
 BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
 if [ -f "$BYPASS_FILE" ]; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || exit 0
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || exit 0
   rm -f "$BYPASS_FILE" 2>/dev/null || true
   exit 0
 fi
@@ -815,7 +815,7 @@ triage_published_after_line() {
 if [ -n "$PRETOOL_MODE" ]; then
   pretool_allow() {
     [ -n "$PRETOOL_CLEAR_FILE" ] \
-      && printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
+      && printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" 2>/dev/null > "$PRETOOL_CLEAR_FILE"
     exit 0
   }
   PRETOOL_LAST_COMPLETION=0
@@ -845,7 +845,7 @@ if [ -n "$PRETOOL_MODE" ]; then
   # An unwritable counter means the -gt 5 escape can never fire, which is the
   # permanent wedge the breaker exists to prevent - so a failed write fails
   # open, matching this hook's global fail-safe direction.
-  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" > "$PRETOOL_STRIKE_FILE" 2>/dev/null || {
+  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" 2>/dev/null > "$PRETOOL_STRIKE_FILE" || {
     echo "enforce-review-spawn: PreToolUse strike counter unwritable; failing open" >&2
     pretool_allow
   }
@@ -1045,7 +1045,7 @@ if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ] \
        && { [ "$RETRO_SHA" = "$CURRENT_HEAD_LOCAL" ] \
             || git merge-base --is-ancestor "$RETRO_SHA" "$CURRENT_HEAD_LOCAL" 2>/dev/null; }; then
       LAST_ACK_PR_HEAD="$RETRO_SHA"
-      echo "$LAST_ACK_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+      echo "$LAST_ACK_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
     fi
   fi
 fi
@@ -1130,13 +1130,13 @@ completion_delivery_pending() {
   local state
   state=$(cat "$VERDICT_COUNT_FILE" 2>/dev/null || true)
   if [ "$state" = "$CURRENT_PR_HEAD:DELIVERY:$completion_line" ]; then
-    echo "$CURRENT_PR_HEAD:0" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD:0" 2>/dev/null > "$VERDICT_COUNT_FILE" || true
     return 1
   fi
   case "$state" in
     "$CURRENT_PR_HEAD":*) return 1 ;;
   esac
-  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" > "$VERDICT_COUNT_FILE" 2>/dev/null; then
+  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" 2>/dev/null > "$VERDICT_COUNT_FILE"; then
     return 0
   fi
   # If the barrier cannot be persisted, fail safe toward delivery rather than
@@ -1146,7 +1146,12 @@ completion_delivery_pending() {
 }
 
 write_acknowledgement() {
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null \
+  # Braces, not a trailing `2>/dev/null`: a failed `>` is reported by the shell
+  # itself before the command's own redirections apply, so the trailing form
+  # left "Is a directory" on stderr -- and stderr is now the channel the
+  # directive rides, where a stray line prefixes the text the model is woken
+  # with. The group redirect catches the shell's message too.
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" \
     && [ "$(cat "$ACK_FILE" 2>/dev/null)" = "$CURRENT_PR_HEAD" ]
 }
 
@@ -1154,14 +1159,14 @@ reack_on_repeated_demand() {
   local strikes
   strikes=$(read_count_from "$VERDICT_COUNT_FILE")
   if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
-    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
     echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
     return 0
   fi
   case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
-  echo "$CURRENT_PR_HEAD:$((strikes + 1))" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD:$((strikes + 1))" 2>/dev/null > "$VERDICT_COUNT_FILE" || true
   return 1
 }
 
@@ -1205,11 +1210,11 @@ emit_block() {
     exit 0
   fi
   if [ "$current" -ge 5 ] 2>/dev/null; then
-    echo "$CURRENT_PR_HEAD:GIVEUP" > "$COUNT_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD:GIVEUP" 2>/dev/null > "$COUNT_FILE" || true
     exit 0
   fi
   local new=$((current + 1))
-  echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD:$new" 2>/dev/null > "$COUNT_FILE" || true
   printf '%s\n' "$reason" >&2
   exit 2
 }
@@ -1250,7 +1255,7 @@ fi
 # the checkpoint and exit silently so the next Stop event short-circuits
 # on the cheap path.
 if [ -z "$REQUIRED_LANES" ]; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
   clear_counter
   exit 0
 fi
@@ -1527,7 +1532,7 @@ if all_required_lanes_completed_for_current_head; then
     if [ -f "$FIX_SHOWN_FILE" ]; then
       emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase (full contract shown earlier this PR). Accepted rows only; wait for this head's CI_RESULT; commit and push; nothing accepted → push nothing."
     fi
-    printf '%s\n' "$CURRENT_PR_HEAD" > "$FIX_SHOWN_FILE" 2>/dev/null || true
+    printf '%s\n' "$CURRENT_PR_HEAD" 2>/dev/null > "$FIX_SHOWN_FILE" || true
     emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then

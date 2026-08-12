@@ -171,7 +171,9 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
   // asserting it would be asserting itself.
   r.rawStatus = r.status;
   r.rawStdout = r.stdout;
-  if (r.status === 2 && !r.stdout.trim() && /^PR #\d+ @/.test(r.stderr.trim())) {
+  // Matched per line, not anchored at the very start: a stray shell message on
+  // the same channel would otherwise hide a directive that was delivered.
+  if (r.status === 2 && !r.stdout.trim() && /^PR #\d+ @/m.test(r.stderr.trim())) {
     r.stdout = JSON.stringify({ reason: r.stderr.trim() });
     r.status = 0;
   }
@@ -2073,7 +2075,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'ctx_batch_execute git push command must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('does NOT classify ctx_execute(language=javascript) with code mentioning git push', () => {
@@ -2160,7 +2162,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'Bash gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
@@ -2173,7 +2175,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
@@ -2188,7 +2190,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('detects chained gh pr merge inside ctx_execute shell code', () => {
@@ -2220,7 +2222,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
       assert.equal(r.rawStatus, 2, command);
-      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
   });
 
@@ -2236,7 +2238,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
       assert.equal(r.rawStatus, 2, command);
-      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
   });
 
@@ -2365,7 +2367,7 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('proceeds to enforcement when .init-triage.md is missing entirely', () => {
@@ -2407,7 +2409,7 @@ describe('enforce-review-spawn.sh - 5-strike circuit breaker GIVEUP state', () =
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
       assert.equal(r.rawStatus, 2, `strike ${i + 1} should block`);
-      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
     // Sixth call: counter must have flipped to GIVEUP, exit 0 silently
     const r6 = runHook(cwd, { transcriptPath: t, binDir });
@@ -2472,8 +2474,7 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
-    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     assert.match(r.stdout, /spec-reviewer/);
   });
 
@@ -2489,7 +2490,7 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'must derive repo from `cd <path>` command prefix and enforce');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('exits 0 silently from non-repo CWD when PUSH_LINE has no derivable repo hint', () => {
@@ -2575,7 +2576,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('M1: cd into a path with spaces (double-quoted) parses correctly', () => {
@@ -2597,7 +2598,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const r = runHook(parent, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'double-quoted cd path with spaces must parse correctly and enforce');
-    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 });
 
