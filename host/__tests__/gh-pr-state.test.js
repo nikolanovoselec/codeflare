@@ -5,7 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,5 +61,37 @@ describe('resolve_review_head', () => {
     assert.equal(resolve(cwd, local), local, 'divergent local HEAD must not narrow the range');
     const unknown = '0'.repeat(40);
     assert.equal(resolve(cwd, unknown), unknown, 'a SHA absent locally is kept verbatim');
+  });
+});
+
+describe('gh_pr_state', () => {
+  // The stderr capture file is removed on the normal path only — a sourced
+  // library must not own process-global signal traps — so this is the guard
+  // that a future early return between mktemp and rm does not start leaking
+  // one file per hook invocation.
+  it('leaves no stderr capture file behind on found or not-found paths', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ghprstate-'));
+    const bin = join(cwd, 'bin');
+    const scratch = join(cwd, 'scratch');
+    mkdirSync(bin);
+    mkdirSync(scratch);
+    writeFileSync(join(bin, 'gh'), [
+      '#!/usr/bin/env bash',
+      'case "$GH_MODE" in',
+      '  found) printf %s \'{"number":7}\' ;;',
+      '  *) echo "no pull requests found for branch" >&2; exit 1 ;;',
+      'esac',
+    ].join('\n'));
+    chmodSync(join(bin, 'gh'), 0o755);
+    for (const mode of ['found', 'notfound']) {
+      const r = spawnSync('bash', ['-s', '--', LIB], {
+        cwd,
+        encoding: 'utf8',
+        input: '. "$1"; gh_pr_state some-branch; exit 0',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: scratch, GH_MODE: mode },
+      });
+      assert.equal(r.status, 0);
+      assert.deepEqual(readdirSync(scratch), [], `no capture file left after the ${mode} path`);
+    }
   });
 });
