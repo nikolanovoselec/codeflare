@@ -28,9 +28,9 @@ import {
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
 const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
-// Code OSS 1.130 resolves a participant's implicit default only from its
-// reserved fallback vendor. This is an internal selection key, not a GitHub
-// Copilot integration: the model remains hidden, account-free, and inert.
+// Code OSS resolves participant defaults only from its reserved fallback
+// vendor. This is an internal selection key, not a GitHub Copilot integration:
+// the selectable model remains account-free and inert.
 const HOST_MODEL_VENDOR = 'copilot';
 const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
