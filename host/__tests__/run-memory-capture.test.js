@@ -195,7 +195,7 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     const fx = fixture({ claudeExits: 1, stdoutLine: '{"type":"result","subtype":"error_max_turns"} trailing bytes' });
     run(fx, ['--vars', fx.vars]);
     const journal = readFileSync(fx.vars.replace(/\.vars$/, '.attempts.log'), 'utf-8');
-    assert.equal(journal.match(/stdout: /g).length, 1, 'partial parses must not journal contradictory lines');
+    assert.equal((journal.match(/stdout: /g) ?? []).length, 1, 'partial parses must not journal contradictory lines');
     assert.match(journal, /stdout: unparseable/, 'a stream jq cannot fully parse falls back as a whole');
   });
 

@@ -226,7 +226,7 @@ case "$ATTEMPT_NO" in ''|*[!0-9]*) ATTEMPT_NO='?' ;; esac
     # response text lives in .result and must never land in this file.
     if [ -s "$CAPTURE_STDOUT" ]; then
       STDOUT_LINE=$(jq -r '"stdout: \(.subtype // .error // .type)"' "$CAPTURE_STDOUT" 2>/dev/null) \
-        && printf '%s\n' "$STDOUT_LINE" \
+        && [ -n "$STDOUT_LINE" ] && printf '%s\n' "$STDOUT_LINE" \
         || printf 'stdout: unparseable (%s bytes)\n' "$(wc -c < "$CAPTURE_STDOUT")"
     fi
   fi
