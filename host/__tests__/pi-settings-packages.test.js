@@ -55,18 +55,14 @@ function runAdvisorGuidanceMerge(initialConfig) {
 }
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
-const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@19.2.1',
-  'npm:context-mode@1.0.169',
-  'npm:@juicesharp/rpiv-advisor@2.4.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.4.0',
-  'npm:@juicesharp/rpiv-todo@2.4.0',
-  'npm:pi-web-access@0.18.0',
-  'npm:pi-mcp-adapter@2.20.1',
-  'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.46.0',
-  'npm:@narumitw/pi-usage@0.50.0',
-];
+const piPackage = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+// Derived from the preseed, never spelled out here. A bump that moves the preseed pin but
+// misses entrypoint.sh leaves the container asking npm for a version the image never baked,
+// and a hand-maintained literal in this file would agree with itself and pass anyway. Pi
+// itself is the runtime the packages load into, not one of the managed packages.
+const REQUIRED = Object.entries(piPackage.dependencies)
+  .filter(([name]) => name !== '@earendil-works/pi-coding-agent')
+  .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
   it('replaces glla with the exact reviewed Goal package and integrity-locked release', () => {
@@ -125,6 +121,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
+    assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
     for (const spec of REQUIRED) {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }

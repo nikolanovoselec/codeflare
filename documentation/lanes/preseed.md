@@ -1353,6 +1353,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
 - [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing
 - [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions) - Native Usage Workflow in Pi Sessions
+- [REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions) - Native Evaluation Workflow in Pi Sessions
 - [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) - Advanced-Session Graph-First Runtime Reminders
 - [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) - Post-Clone Graph Triage
 - [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) - Knowledge-Graph Persistence via Git

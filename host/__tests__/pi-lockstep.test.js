@@ -194,7 +194,10 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133: image build warms and verif
     // let the later --verify-jiti-cache lines satisfy the warm assertion, so dropping
     // an entrypoint from the warm call alone would pass.
     const warmCallStart = warmBlock.indexOf('--warm-jiti-entrypoints');
-    const warmCall = warmBlock.slice(warmCallStart, warmBlock.indexOf('&&', warmCallStart));
+    assert.notEqual(warmCallStart, -1, 'jiti warm invocation not found');
+    const warmCallEnd = warmBlock.indexOf('&&', warmCallStart);
+    assert.notEqual(warmCallEnd, -1, 'jiti warm invocation is not chained');
+    const warmCall = warmBlock.slice(warmCallStart, warmCallEnd);
 
     for (const { variable, package: name, entrypoint } of WARMED_NPM_ENTRYPOINTS) {
       const source = `${NPM_ROOT}/${name}/${entrypoint}`;
