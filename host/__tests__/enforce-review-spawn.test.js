@@ -475,6 +475,17 @@ describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
     assert.equal(r.stdout.trim(), '', 'a warm cache alone is not evidence a round is waiting');
     assert.equal(ackOf(cwd), '');
   });
+
+  it('keeps the authoritative no-PR answer silent even with a warm cache', () => {
+    const { cwd } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: fakeGh(cwd, ghNoPR()),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'exit 1 means no PR, not a flake to bridge');
+    assert.equal(ackOf(cwd), '');
+  });
 });
 
 // REQ-AGENT-104 AC7: mid-turn triage gate. Once every spawned lane completed

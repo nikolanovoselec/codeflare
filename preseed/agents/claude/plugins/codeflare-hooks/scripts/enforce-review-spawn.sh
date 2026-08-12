@@ -467,8 +467,18 @@ command -v gh >/dev/null 2>&1 || exit 0
 # on the LOCAL_HEAD equality gate below the parse.
 PRINFO_CACHE="$GIT_DIR/sdd-review-prinfo-cache"
 if PR_INFO=$(gh_pr_state "$CURRENT"); then
+  # Compact before caching: the restore path reads one line, so a gh that
+  # ever pretty-prints would otherwise cache a fragment. jq failing leaves
+  # the raw answer, which at worst dead-ends the cache, never corrupts it.
+  COMPACT_INFO=$(printf '%s' "$PR_INFO" | jq -c . 2>/dev/null) && PR_INFO="$COMPACT_INFO"
   printf '%s\t%s\n' "$CURRENT" "$PR_INFO" > "$PRINFO_CACHE" 2>/dev/null || true
 else
+  gh_rc=$?
+  # Exit 1 is gh's authoritative "no PR for this branch" answer, not a flake
+  # (lib/gh-pr-state.sh documents the contract): bridging it would resurrect
+  # a deleted PR from a stale OPEN cache. Only genuinely transient failures
+  # reach the fallback.
+  [ "$gh_rc" != 1 ] || exit 0
   PR_INFO=""
   if [ -f "$PRINFO_CACHE" ]; then
     IFS="$(printf '\t')" read -r CACHED_BRANCH CACHED_INFO < "$PRINFO_CACHE"
