@@ -71,7 +71,7 @@ PROMPT_FILE="$SCRIPT_DIR/memory-agent-prompt.md"
 
 # The prompt mandates this helper for the graph chunk, so it belongs in the
 # same cheap gate as the tools above. Discovering it missing inside the
-# four-turn budget costs the whole capture; discovering it here costs nothing.
+# turn budget costs the whole capture; discovering it here costs nothing.
 GRAPH_BUILDER="$SCRIPT_DIR/build-memory-graph.py"
 [ -r "$GRAPH_BUILDER" ] || { echo "run-memory-capture: missing $GRAPH_BUILDER" >&2; exit 3; }
 
@@ -99,7 +99,7 @@ mkdir -p "$PAYLOAD_DIR" || { echo "run-memory-capture: cannot create $PAYLOAD_DI
 
 # The payload is built here, not by the model. Prefiltering is mechanical --
 # strip tool_use and tool_result noise, chunk what is left -- and a turn spent
-# shelling out to do it is a turn not spent extracting, out of a budget of four.
+# shelling out to do it is a turn not spent extracting, out of a small budget.
 if ! bash "$SCRIPT_DIR/prefilter-transcript.sh" \
       "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES" "$PAYLOAD_DIR" 20 >"$PAYLOAD_DIR/prefilter.log" 2>&1; then
   echo "run-memory-capture: prefilter failed; see $PAYLOAD_DIR/prefilter.log" >&2
@@ -171,18 +171,23 @@ SYSTEM_PROMPT=$(awk 'BEGIN{fm=0} NR==1 && $0=="---"{fm=1; next} fm==1 && $0=="--
 
 TASK=$(printf 'VARS_FILE=%s\n' "$REQUEST")
 
-# Four turns, because the contract is two Bash calls: read the request, then
-# write the note and build the chunk. That is Pi's budget for Pi's shape, and
-# the shape is now the same. The wall-clock bound is separate: an auth prompt or
-# a rate-limit backoff hangs a detached process nobody is watching.
+# Six turns. The contract is two Bash calls -- read the request, then write the
+# note and build the chunk -- and four was Pi's budget for that shape, adopted
+# when the shapes were made the same. It was not enough in practice: a capture
+# over a large window exhausted it on every attempt, and because the budget is
+# the same on each retry the failure was deterministic, so all six deliveries
+# burned on one window and latched. Two turns of headroom is what separates a
+# capture that lands from one that cannot. The wall-clock bound is separate: an
+# auth prompt or a rate-limit backoff hangs a detached process nobody is
+# watching.
 CAPTURE_TIMEOUT="${MEMORY_CAPTURE_TIMEOUT:-900}"
 case "$CAPTURE_TIMEOUT" in ''|*[!0-9]*|0) CAPTURE_TIMEOUT=900 ;; esac
 
 # Same guard as the timeout above, for the same reason: an override that is not
 # a number reaches `claude` as an argv it rejects, and every capture then fails
 # for a reason no log explains.
-CAPTURE_TURNS="${CODEFLARE_MEMORY_MAX_TURNS:-4}"
-case "$CAPTURE_TURNS" in ''|*[!0-9]*|0) CAPTURE_TURNS=4 ;; esac
+CAPTURE_TURNS="${CODEFLARE_MEMORY_MAX_TURNS:-6}"
+case "$CAPTURE_TURNS" in ''|*[!0-9]*|0) CAPTURE_TURNS=6 ;; esac
 
 # Sonnet at medium effort, and stated here rather than left to whatever the
 # runner defaults to. Capture is a fidelity job, not a reasoning one: the file

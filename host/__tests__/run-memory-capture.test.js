@@ -110,7 +110,7 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     run(fx, ['--vars', fx.vars]);
     const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
 
-    assert.equal(argv[argv.indexOf('--max-turns') + 1], '4', 'four turns, matching the capture contract');
+    assert.equal(argv[argv.indexOf('--max-turns') + 1], '6', 'six turns, matching the capture contract');
     assert.ok(argv.includes('--strict-mcp-config'), 'no session MCP servers');
     // An empty --setting-sources is the flag that stops the capture inheriting
     // this session's settings, and it arrives as an empty argv slot.
