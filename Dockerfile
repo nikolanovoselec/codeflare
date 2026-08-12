@@ -201,11 +201,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # the immutable release tag and owns the five code-server literals below.
 # code-server 4.131.0 permits js-yaml 4.x but ships 4.2.0; the separately
 # integrity-pinned overlay remains until an upstream archive includes the fix.
-RUN CODE_SERVER_VERSION="4.131.0" && \
-    CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
-    CODE_SERVER_COMMIT="a3fc2899bd0fcd388253c0e79ce33b8acd48c688" && \
-    CODE_SERVER_CODE_VERSION="1.131.0" && \
-    CODE_SERVER_VSCODE_COMMIT="3a03d6f72d628a7741c29f456b4ddbb5ae68502c" && \
+RUN CODE_SERVER_VERSION="4.132.0" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
+    CODE_SERVER_CODE_VERSION="1.132.0" && \
+    CODE_SERVER_VSCODE_COMMIT="df53daabb18cd157bdb08c7f01c34df936cf12f4" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
