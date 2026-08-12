@@ -200,7 +200,8 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
 # code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
-# the overlay pins 4.3.1 under an independent integrity hash as defence in depth.
+# the overlay pins 4.3.1 under an independent integrity hash as defence in
+# depth. Drop it when code-server vendors 4.3.1 or later directly.
 RUN CODE_SERVER_VERSION="4.132.0" && \
     CODE_SERVER_SHA256="a38d26f4cb81f768feddff79e2937fd3f39c83d3da8be3da7225e1087e62e4ed" && \
     CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
