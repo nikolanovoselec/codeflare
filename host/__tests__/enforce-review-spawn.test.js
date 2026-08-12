@@ -144,7 +144,7 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
   env.REVIEW_BYPASS_FILE = bypassFile ?? join(cwd, '.review-bypass');
   env.TMPDIR = tmpDir ?? cwd;
   // Prevent the hook from finding a real gh in PATH if we want it absent
-  return spawnSync('bash', [HOOK], {
+  const r = spawnSync('bash', [HOOK], {
     cwd,
     input: JSON.stringify({
       hook_event_name: event,
@@ -158,6 +158,18 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
     encoding: 'utf-8',
     env,
   });
+  // The Stop path delivers its directive on stderr with exit 2, which is what
+  // routes it away from the client's `<event> hook error:` template. Rows about
+  // what the directive SAYS read the envelope below; the row that pins the
+  // delivery channel itself reads rawStatus/rawStdout, so switching channels
+  // can never quietly turn a `doesNotMatch(stdout)` row into a tautology.
+  r.rawStatus = r.status;
+  r.rawStdout = r.stdout;
+  if (r.status === 2 && !r.stdout.trim() && r.stderr.trim()) {
+    r.stdout = JSON.stringify({ decision: 'block', reason: r.stderr.trim() });
+    r.status = 0;
+  }
+  return r;
 }
 
 // Real Bash tool_use lines as the transcript would contain them
@@ -275,6 +287,29 @@ describe('enforce-review-spawn.sh — vibe-coding gate', () => {
     const r = runHook(cwd, { transcriptPath: t });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+// A JSON `{"decision":"block"}` from a Stop hook is rendered by the client
+// through a fixed `<event> hook error:` template with no override, so a gate
+// doing its job read as a gate failing -- 50 times in one session. The same
+// directive on stderr with exit 2 reaches the model unchanged under a feedback
+// banner. This row pins the channel, because the channel IS the fix.
+describe('enforce-review-spawn.sh — Stop directive delivery channel', () => {
+  it('delivers the directive on stderr with exit 2 and writes nothing to stdout', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, [PUSH_LINE()]),
+      binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+    });
+    assert.equal(r.rawStatus, 2,
+      'exit 2 is what routes the directive away from the client error template');
+    assert.match(r.stderr, /run code-reviewer/,
+      'the directive itself rides stderr, where the rewake path reads it');
+    assert.equal(r.rawStdout.trim(), '',
+      'anything on stdout would be rendered as "Stop hook error" again');
   });
 });
 
@@ -453,8 +488,8 @@ describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
     const out = JSON.parse(r.stdout);
     assert.match(out.reason, /FIX phase/,
       'the round advances to its handoff instead of dying silently');
-    assert.match(out.systemMessage, /working normally/,
-      'the clean non-error notice rides every blocking directive');
+    assert.equal(r.rawStatus, 2,
+      'and it arrives as feedback rather than under the client error template');
     assert.equal(ackOf(cwd), headSha, 'the acknowledgement still lands');
   });
 

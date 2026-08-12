@@ -1180,13 +1180,21 @@ clear_counter() {
 # directive self-identifies twice: the reason's first bytes say it is
 # machinery working, and a parallel systemMessage gives the terminal a clean
 # non-error notice where the client renders one.
-REVIEW_DIRECTIVE_TAG='[review directive — hook working as designed, not an error]'
-REVIEW_DIRECTIVE_NOTICE='Review directive delivered — the review machinery is working normally. "Stop hook error" is Claude Code'\''s fixed label for any blocking Stop hook.'
+# Claude Code renders a Stop hook's `{"decision":"block"}` through a fixed
+# `<event> hook error: <reason>` template with no override, so every directive
+# this gate has ever issued -- all of them working as designed -- reached the
+# user labelled as a failure. Exiting 2 with the directive on stderr takes the
+# asyncRewake path instead: the model is woken with the same text under a
+# "Stop hook feedback" banner, and the hook entry may name its own summary.
+# Verified end to end against the pinned CLI -- the woken turn receives the
+# directive and acts on it -- which is why the tag that used to apologise for
+# the error label is gone with it. The obligation is unchanged; only the
+# framing is. Registration must carry `asyncRewake` (entrypoint.sh
+# SETTINGS_CONFIG): without it, exit 2 is just a blocking error again.
 
 emit_block_uncounted() {
-  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $1" --arg m "$REVIEW_DIRECTIVE_NOTICE" \
-    '{decision:"block", reason:$r, systemMessage:$m}' 2>/dev/null
-  exit 0
+  printf '%s\n' "$1" >&2
+  exit 2
 }
 
 emit_block() {
@@ -1202,9 +1210,8 @@ emit_block() {
   fi
   local new=$((current + 1))
   echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
-  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $reason" --arg m "$REVIEW_DIRECTIVE_NOTICE" \
-    '{decision:"block", reason:$r, systemMessage:$m}' 2>/dev/null
-  exit 0
+  printf '%s\n' "$reason" >&2
+  exit 2
 }
 
 # ---------------------------------------------------------------------------
