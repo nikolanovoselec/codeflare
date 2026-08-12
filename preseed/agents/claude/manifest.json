@@ -119,6 +119,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
     "modes": [
       "advanced"
@@ -139,6 +144,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/build-memory-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
     "modes": [
       "advanced"
@@ -149,7 +159,7 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-memory/scripts/memory-capture-block.sh": {
+  "plugins/codeflare-memory/scripts/run-memory-capture.sh": {
     "modes": [
       "advanced"
     ]

@@ -199,13 +199,14 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
-# code-server 4.131.0 permits js-yaml 4.x but ships 4.2.0; the separately
-# integrity-pinned overlay remains until an upstream archive includes the fix.
-RUN CODE_SERVER_VERSION="4.131.0" && \
-    CODE_SERVER_SHA256="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361" && \
-    CODE_SERVER_COMMIT="a3fc2899bd0fcd388253c0e79ce33b8acd48c688" && \
-    CODE_SERVER_CODE_VERSION="1.131.0" && \
-    CODE_SERVER_VSCODE_COMMIT="3a03d6f72d628a7741c29f456b4ddbb5ae68502c" && \
+# code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
+# the overlay pins 4.3.1 under an independent integrity hash as defence in
+# depth. Drop it when code-server vendors 4.3.1 or later directly.
+RUN CODE_SERVER_VERSION="4.132.0" && \
+    CODE_SERVER_SHA256="a38d26f4cb81f768feddff79e2937fd3f39c83d3da8be3da7225e1087e62e4ed" && \
+    CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
+    CODE_SERVER_CODE_VERSION="1.132.0" && \
+    CODE_SERVER_VSCODE_COMMIT="df53daabb18cd157bdb08c7f01c34df936cf12f4" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
@@ -619,7 +620,7 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 #   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
 #   load transpiles Goal's installed entrypoint even when another package reports a
 #   non-fatal startup error; the build then derives and requires exact regular-file
-#   artifacts for Goal and Usage. A future extension that is added, modified into a non-loading state,
+#   artifacts for Goal, Usage, and Evaluate. A future extension that is added, modified into a non-loading state,
 #   or skipped by a pi-loader change therefore fails the build instead of silently
 #   cold-transpiling every production session.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
@@ -629,10 +630,11 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
+    evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$usage_source" && \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$usage_source" "$evaluate_source" && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -645,7 +647,8 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     done && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, and Usage are baked"
+    evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
+    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Usage, and Evaluate are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

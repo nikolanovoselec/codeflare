@@ -12,8 +12,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,30 +156,68 @@ describe('prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversatio
 });
 
 describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
-  function fixture({ mergeStatus = 0, publishStatus = 0 } = {}) {
+  // The graphify stub APPENDS. With one invocation the log is byte-identical to
+  // the single-line form these rows already assert; a second invocation (the viz
+  // re-render) shows up as a second line instead of overwriting the first, which
+  // is the only way to tell "render skipped" from "render clobbered the log".
+  function fixture({ mergeStatus = 0, publishStatus = 0, carrierBody = '{}\n', withGraphifyOut = false, holdVizLock = false } = {}) {
     const root = mkdtempSync(join(tmpdir(), 'memory-publish-'));
     const carrier = join(root, 'capture.vars');
     const merge = join(root, 'merge');
     const graphify = join(root, 'graphify');
     const publicationLog = join(root, 'publication.log');
-    writeFileSync(carrier, '{}\n');
+    const graphLock = join(root, 'graph.lock');
+    writeFileSync(carrier, carrierBody);
     writeFileSync(merge, `#!/usr/bin/env bash\nexit ${mergeStatus}\n`);
-    writeFileSync(graphify, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" > '${publicationLog}'\nexit ${publishStatus}\n`);
+    writeFileSync(graphify, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${publicationLog}'\nexit ${publishStatus}\n`);
     chmodSync(merge, 0o755);
     chmodSync(graphify, 0o755);
-    const result = spawnSync('bash', [PUBLISH, carrier], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        MEMCAP_GRAPH_LOCK: join(root, 'graph.lock'),
-        MEMCAP_PYTHON_BIN: merge,
-        MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
-        MEMCAP_GRAPHIFY_BIN: graphify,
-        MEMCAP_VAULT_GRAPH: join(root, 'vault-graph.json'),
-      },
-    });
-    return { carrier, publicationLog, result };
+    // The production layout the derivation expects: <root>/graphify-out/<graph>.
+    const vaultGraph = withGraphifyOut
+      ? join(root, 'graphify-out', 'vault-graph.json')
+      : join(root, 'vault-graph.json');
+    if (withGraphifyOut) {
+      mkdirSync(join(root, 'graphify-out'), { recursive: true });
+      writeFileSync(join(root, 'graphify-out', 'graph.html'), '<html></html>');
+    }
+    // Hold the render lock the way a concurrent publisher would, and confirm it
+    // is actually held rather than trusting a sleep. The holder dies in a
+    // finally: the held-assertion throws straight past a sequential kill,
+    // leaving a detached 30s sleep behind every failing run.
+    let holder;
+    try {
+      if (holdVizLock) {
+        holder = spawn('bash', ['-c', `exec 9>"${graphLock}.viz"; flock 9; sleep 30`], {
+          detached: true, stdio: 'ignore',
+        });
+        holder.unref();
+        let held = false;
+        for (let i = 0; i < 100 && !held; i++) {
+          held = spawnSync('bash', ['-c', `exec 9>"${graphLock}.viz"; flock -n 9`]).status !== 0;
+          if (!held) spawnSync('bash', ['-c', 'sleep 0.05']);
+        }
+        assert.ok(held, 'the concurrent publisher took the render lock');
+      }
+      const result = spawnSync('bash', [PUBLISH, carrier], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          MEMCAP_GRAPH_LOCK: graphLock,
+          MEMCAP_PYTHON_BIN: merge,
+          MEMCAP_MERGE_SCRIPT: join(root, 'merge-vault-graph.py'),
+          MEMCAP_GRAPHIFY_BIN: graphify,
+          MEMCAP_VAULT_GRAPH: vaultGraph,
+        },
+      });
+      return { root, carrier, publicationLog, result };
+    } finally {
+      if (holder) { try { process.kill(-holder.pid, 'SIGKILL'); } catch { /* already gone */ } }
+    }
   }
+
+  const graphifyCalls = (publicationLog) =>
+    (existsSync(publicationLog) ? readFileSync(publicationLog, 'utf8') : '')
+      .split('\n').filter(Boolean);
 
   it('retains the carrier and skips publication when the cumulative merge fails', () => {
     const { carrier, publicationLog, result } = fixture({ mergeStatus: 17 });
@@ -200,5 +238,55 @@ describe('publish-memory-capture.sh (REQ-MEM-001 AC6)', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(carrier), false);
     assert.match(readFileSync(publicationLog, 'utf8'), /^global add .*vault-graph\.json --as user_vault\n$/);
+  });
+
+  // The carrier is read to decide whether a capture file must exist. Reading it
+  // with `jq -r … || true` made "field absent" and "carrier corrupt" the same
+  // empty string, and empty skipped the existence check entirely -- so a corrupt
+  // carrier published and advanced the counter with nothing captured.
+  it('refuses to publish from a carrier it cannot parse', () => {
+    const { carrier, publicationLog, result } = fixture({ carrierBody: 'not json{{{\n' });
+    assert.equal(result.status, 3, result.stderr);
+    assert.match(result.stderr, /carrier unreadable/);
+    assert.ok(existsSync(carrier), 'an unparseable carrier is retained, not drained');
+    assert.equal(graphifyCalls(publicationLog).length, 0, 'nothing is published from it');
+  });
+
+  // The render derives its root from MEMCAP_VAULT_GRAPH. A flat override has no
+  // graphify-out beneath it, and rendering anyway put cluster-only into a
+  // sibling directory and clobbered this very log.
+  it('skips the viz re-render when the vault root has no graphify-out', () => {
+    const { publicationLog, result } = fixture();
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      graphifyCalls(publicationLog).map((line) => line.split(' ')[0]),
+      ['global'],
+      'the only graphify invocation is the global add',
+    );
+  });
+
+  it('re-renders the viz when the vault root does carry a graphify-out', () => {
+    const { root, publicationLog, result } = fixture({ withGraphifyOut: true });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      graphifyCalls(publicationLog).map((line) => line.split(' ')[0]),
+      ['global', 'cluster-only'],
+      'publication first, then the render it no longer holds the graph lock for',
+    );
+    assert.ok(existsSync(join(root, 'Raw', 'Graphs', 'vault-graph.html')),
+      'the rendered HTML lands where the vault serves it from');
+  });
+
+  // Leaving the global lock gave the render its own concurrency problem: two
+  // publishers clustering into one graphify-out and copying the same file over
+  // each other. A second publisher skips instead of interleaving.
+  it('skips the re-render rather than interleaving when another publisher holds it', () => {
+    const { publicationLog, result } = fixture({ withGraphifyOut: true, holdVizLock: true });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      graphifyCalls(publicationLog).map((line) => line.split(' ')[0]),
+      ['global'],
+      'publication still happens; only the cosmetic render stands down',
+    );
   });
 });

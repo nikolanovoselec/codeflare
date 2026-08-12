@@ -168,6 +168,51 @@ done
   });
 });
 
+// The warm/verify helpers above are package-agnostic: they warm whatever paths the
+// build hands them. What decides whether a managed package is actually baked is the
+// Dockerfile wiring, so that wiring is asserted here. Each entrypoint has to be
+// declared, passed to the warm call, AND re-verified afterwards; dropping any one of
+// the three silently returns that package to cold-transpiling every session.
+const dockerfile = readFileSync(fileURLToPath(new URL('../../Dockerfile', import.meta.url)), 'utf8');
+const piPackage = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../preseed/agents/pi/package.json', import.meta.url)), 'utf8'),
+);
+const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
+const WARMED_NPM_ENTRYPOINTS = [
+  { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
+  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
+  { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
+];
+
+describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133: image build warms and verifies every managed npm entrypoint', () => {
+  it('declares, warms, and re-verifies each locked package entrypoint', () => {
+    const start = dockerfile.indexOf('RUN mkdir -p /opt/codeflare/jiti-warm-tmp');
+    assert.notEqual(start, -1, 'jiti warm RUN block not found');
+    const end = dockerfile.indexOf('\n\n', start);
+    const warmBlock = dockerfile.slice(start, end === -1 ? undefined : end);
+    // Bounded at the invocation's own `&&`: reaching to the end of the block would
+    // let the later --verify-jiti-cache lines satisfy the warm assertion, so dropping
+    // an entrypoint from the warm call alone would pass.
+    const warmCallStart = warmBlock.indexOf('--warm-jiti-entrypoints');
+    assert.notEqual(warmCallStart, -1, 'jiti warm invocation not found');
+    const warmCallEnd = warmBlock.indexOf('&&', warmCallStart);
+    assert.notEqual(warmCallEnd, -1, 'jiti warm invocation is not chained');
+    const warmCall = warmBlock.slice(warmCallStart, warmCallEnd);
+
+    for (const { variable, package: name, entrypoint } of WARMED_NPM_ENTRYPOINTS) {
+      const source = `${NPM_ROOT}/${name}/${entrypoint}`;
+      assert.ok(piPackage.dependencies[name], `${name} must be a locked preseed dependency`);
+      assert.ok(warmBlock.includes(`${variable}_source="${source}"`), `build must declare ${source}`);
+      assert.ok(warmCall.includes(`"$${variable}_source"`), `warm call must transpile $${variable}_source`);
+      assert.match(
+        warmBlock,
+        new RegExp(`${variable}_hit="\\$\\(node \\S+verify-pi-lockstep\\.mjs --verify-jiti-cache "\\$${variable}_source" /opt/codeflare/jiti-cache\\)"`),
+        `build must fail closed on a missing ${name} artifact`,
+      );
+    }
+  });
+});
+
 describe('REQ-AGENT-001 AC6: Pi image lockstep fails closed', () => {
   it('accepts matching runtime, prewarm, and installed Pi versions', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-pi-lockstep-'));

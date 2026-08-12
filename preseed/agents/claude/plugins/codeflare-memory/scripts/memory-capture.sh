@@ -71,8 +71,69 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
+# Fail closed rather than falling back to a relative path. launch_capture
+# swallows a failed launch by design, so a wrong directory here would make
+# captures vanish with nothing said.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || {
+    echo "memory-capture: cannot resolve hook directory; not arming this prompt" >&2
+    exit 0
+}
+VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
+# Pi's extractionDue latch: retry a request at most six times, then stop
+# reminding and let a later arm replace it (memory-vault-helpers.ts::extractionDue,
+# memory-vault.ts:630). Bounded retry is what replaced the hard block —
+# a directive the agent skips comes back next prompt instead of freezing the
+# session, so an ignored capture can no longer vanish silently.
+MAX_ATTEMPTS=6
+REARM_AFTER=15
 MEMORY_SCAN=""
 FORCE_RESUME=""
+
+# $1 is for the model, $2 for the user, and they are independent: a capture
+# launches in the background with nothing asked of the agent, so the turns that
+# have something to SHOW are mostly turns with no context to inject. Gating the
+# notice on $1 the way the original single-argument form did would have
+# silenced it on exactly those turns.
+emit_context() {
+    local ctx="$1" note="${2:-}"
+    [[ -z "$ctx" && -z "$note" ]] && exit 0
+    jq -n --arg ctx "$ctx" --arg note "$note" \
+      '(if $ctx != "" then {hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}} else {} end)
+       + (if $note != "" then {systemMessage:$note} else {} end)'
+    exit 0
+}
+
+capture_running() {
+    # "Running" must be something we positively observed. Any other outcome --
+    # no flock binary, an unwritable lock path, no lock file yet -- is "not
+    # running", because failing to count is the unrecoverable direction: it
+    # never latches, never relaunches, and the reminder loops forever. Probing
+    # in a subshell releases the lock immediately; run-memory-capture.sh's own
+    # `flock -n` settles any real race.
+    [[ -e "${1}.lock" ]] && command -v flock >/dev/null 2>&1 || return 1
+    # One open, three outcomes. Opening and locking in the same subshell made
+    # "could not open" indistinguishable from "held", and `!` turned the former
+    # into "running" -- the one answer this helper must never give by accident.
+    local probe
+    probe=$( exec 8>"${1}.lock" 2>/dev/null || { echo unopenable; exit 0; }
+             flock -n 8 2>/dev/null && echo free || echo held )
+    [[ "$probe" == held ]]
+}
+
+launch_capture() {
+    # Detached, and the session never waits on it. This used to be a directive
+    # asking the agent to spawn a subagent, which made every capture cost a
+    # copy of the main conversation the extraction has no use for. The runner
+    # is a headless `claude -p` on the review lanes' transport (AD115): it
+    # builds its own payload and reads nothing from this session.
+    #
+    # Failure is silent by design here. Nothing in the user's turn is gated on
+    # a capture, so a launcher that cannot start must not interrupt them; the
+    # carrier stays on disk, the next prompt relaunches, and the attempt bound
+    # below stops that repeating forever.
+    setsid bash "$HOOK_DIR/run-memory-capture.sh" --vars "$1" >/dev/null 2>&1 &
+}
 if [[ -f "$COUNTER_FILE" ]]; then
     # Mid-session: counter present, normal 15-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
@@ -111,20 +172,119 @@ else
     fi
 fi
 
+# An outstanding request owns the session until it is published or latched.
+# Pi returns { kind: "none" } for a request already launched or still running
+# rather than stacking a second one, so arming is skipped entirely below.
+if [[ -f "$VARS_FILE" ]]; then
+    if [[ -f "$LATCH_FILE" ]]; then
+        latched_at=$(head -1 "$LATCH_FILE" 2>/dev/null) || latched_at=0
+        [[ "$latched_at" =~ ^[0-9]+$ ]] || latched_at=0
+        # A latched request is never retried; a later arm replaces it. This is
+        # Pi's `facts.giveup && currentCount >= request.promptCount + 15`.
+        if [[ $CURRENT_COUNT -lt $((latched_at + REARM_AFTER)) ]]; then
+            emit_context "$MEMORY_SCAN"
+        fi
+        # Same rule as the attempt bound: a running capture still needs its
+        # carrier, and the publisher has nothing to commit once it is gone.
+        if capture_running "$VARS_FILE"; then
+            emit_context "$MEMORY_SCAN"
+        fi
+        rm -f "$LATCH_FILE" "$VARS_FILE"
+    else
+        # A capture holding the carrier lock is running, not failed, and must
+        # not spend an attempt. Counting prompts instead of launches measured
+        # how much the user typed: six prompts inside one 900s capture latched
+        # a request that was working, and the re-arm then deleted the carrier
+        # out from under it. Pi draws the same line -- extractionDue returns
+        # `none` while the state is `running`.
+        if capture_running "$VARS_FILE"; then
+            emit_context "$MEMORY_SCAN"
+        fi
+        attempts=$(jq -r '.attempts // 0' "$VARS_FILE" 2>/dev/null) || attempts=0
+        [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
+        if [[ $attempts -ge $MAX_ATTEMPTS ]]; then
+            printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE"
+            emit_context "${MEMORY_SCAN}${MEMORY_SCAN:+ }Memory capture gave up after ${MAX_ATTEMPTS} failed launches. The committed counter was not advanced, so nothing was lost; a replacement request may arm after ${REARM_AFTER} further prompts. Nothing is asked of you." \
+                "Memory capture gave up after ${MAX_ATTEMPTS} attempts - nothing lost, re-arms after ${REARM_AFTER} prompts."
+        fi
+        attempts=$((attempts + 1))
+        # jq cannot edit in place, and the request is the only copy of the
+        # window being captured -- write beside it and rename, so a crashed
+        # write cannot truncate it.
+        if tmp=$(mktemp "${VARS_FILE}.XXXXXX" 2>/dev/null) \
+           && jq --argjson n "$attempts" '.attempts = $n' "$VARS_FILE" > "$tmp" 2>/dev/null; then
+            mv -f "$tmp" "$VARS_FILE"
+        else
+            rm -f "$tmp" 2>/dev/null
+            # A launch that cannot be counted is a launch that never stops:
+            # every later prompt re-reads the same attempts value and never
+            # reaches the bound. Latch so the failure ends the loop.
+            # Latched or dropped means this request is over. Falling through
+            # to launch_capture would start a capture against a carrier that
+            # was just deleted, or one the next prompt deletes.
+            if printf '%s\n' "$CURRENT_COUNT" > "$LATCH_FILE" 2>/dev/null; then
+                count_failed=1
+                echo "memory-capture: cannot record launch count; latching request at $VARS_FILE" >&2
+            elif rm -f "$VARS_FILE" 2>/dev/null; then
+                count_failed=1
+                echo "memory-capture: cannot record launch count or latch; dropped request at $VARS_FILE" >&2
+            else
+                # Nothing writable: the count cannot advance, the latch cannot
+                # be set and the carrier cannot be removed, so no bound can be
+                # enforced. Relaunching every prompt would spawn a subprocess
+                # forever, so this request goes inert and says so until the
+                # write failure clears.
+                count_failed=1
+                echo "memory-capture: cannot record launch count, latch, or drop; request at $VARS_FILE is inert until writes succeed" >&2
+            fi
+        fi
+        [[ -n "${count_failed:-}" ]] && emit_context "$MEMORY_SCAN"
+        launch_capture "$VARS_FILE"
+        # The attempt number is the whole point of showing this one: a retry is
+        # indistinguishable from a first launch otherwise, and the run of
+        # retries before a capture lands is the thing worth seeing.
+        emit_context "$MEMORY_SCAN" "Memory capture retrying (attempt ${attempts}/${MAX_ATTEMPTS})."
+    fi
+fi
+
 DELTA=$((CURRENT_COUNT - last_count))
 if [[ $DELTA -lt 15 ]] && [[ -z "$FORCE_RESUME" ]]; then
-    # No capture needed, but still emit memory scan directive if set
-    if [[ -n "$MEMORY_SCAN" ]]; then
-        jq -n --arg ctx "$MEMORY_SCAN" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
-    fi
-    exit 0
+    emit_context "$MEMORY_SCAN"
 fi
 
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 
-# Write variables to file so the additionalContext string stays short
-VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+# The capture filename is fixed HERE, at arm time, rather than invented by the
+# subagent at run time. Pi does the same (createMemoryRequest computes
+# captureTimestamp and captureFilename up front) and it buys two things: the
+# session's graph identity is deterministic, and a filename the hook chose is a
+# filename the hook can later look for — which is what lets success be read off
+# an artifact instead of taken from the subagent's own word for it.
+# assert-iso-ts.sh already owns timezone resolution (USER_TIMEZONE -> TZ ->
+# /etc/timezone -> UTC) and the offset/drift assertions that REQ-MEM-010
+# AC4-AC7 describe. Moving the timestamp here must not fork that chain: an
+# inline `date` silently narrowed it to UTC whenever both env vars were unset,
+# which is the #416 class of bug in a new place. Resolve the helper next to
+# this script so it is found from preseed, from ~/.claude, and under test.
+ISO_OUT=$(bash "$HOOK_DIR/assert-iso-ts.sh" 2>&1) || true
+CAPTURE_TS=$(printf '%s\n' "$ISO_OUT" | sed -n 's/^ISO_TS=//p')
+if [[ -z "$CAPTURE_TS" ]]; then
+    # Fail closed: no trustworthy timestamp means no request. The window stays
+    # uncommitted and the next prompt arms again, as with any failed capture.
+    # Never fail closed silently, though — a persistently wrong zone or clock
+    # would disarm capture on every prompt and look identical to the hook not
+    # running, so the helper's own assertion message is surfaced.
+    printf '%s\n' "$ISO_OUT" | grep -v '^RESOLVED_TZ=' >&2 || true
+    echo "memory-capture: no trustworthy capture timestamp; not arming this prompt" >&2
+    emit_context "$MEMORY_SCAN"
+fi
+CAPTURE_FILE="${USER_HOME}/Vault/Raw/Sessions/${CAPTURE_TS}-${SESSION_ID:0:8}.md"
+
+# A capture that published while latched removes the carrier but can leave the
+# latch behind; a fresh request must not inherit it and be born given-up.
+rm -f "$LATCH_FILE"
+
 jq -n \
   --arg transcript "$TRANSCRIPT" \
   --arg last_line "$last_line" \
@@ -133,20 +293,17 @@ jq -n \
   --arg total_lines "$TOTAL_LINES" \
   --arg counter_file "$COUNTER_FILE" \
   --arg vars_file "$VARS_FILE" \
-  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file}' \
+  --arg capture_file "$CAPTURE_FILE" \
+  --arg capture_ts "$CAPTURE_TS" \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file,capture_file:$capture_file,capture_timestamp:$capture_ts,attempts:1}' \
   > "$VARS_FILE"
 
-# Update counter so subsequent hook invocations see delta < 15.
-# Agent reads line range from .vars, not from the counter file.
-printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
+# The counter is deliberately NOT advanced here. It used to be, which made a
+# failed capture indistinguishable from a successful one: the window it covered
+# was skipped forever, because the next delta was measured from an arm that
+# never produced a file. publish-memory-capture.sh advances it as the last act
+# of a verified publication, which is where Pi advances it too
+# (finalizeMemorySuccess, gated on memorySuccessQualifies).
 
-# UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="MANDATORY MEMORY CAPTURE: A .vars file at ${VARS_FILE} has just been written by the UserPromptSubmit hook. You MUST spawn the **memory-capture** subagent NOW (Task tool with subagent_type=\"memory-capture\", run_in_background=true) before doing any other work. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${VARS_FILE}; the subagent reads both and executes the contract in the prompt file. Frontmatter pins model to sonnet (AD58); do NOT pass a model override. This is not optional and not conditional. The companion PreToolUse hook (memory-capture-block.sh) will hard-block all tool calls until the subagent is spawned."
-
-# Append memory scan directive if set (first message)
-if [[ -n "$MEMORY_SCAN" ]]; then
-    CONTEXT="${MEMORY_SCAN} ${CONTEXT}"
-fi
-
-jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
-exit 0
+launch_capture "$VARS_FILE"
+emit_context "$MEMORY_SCAN" "Memory capture started (attempt 1/${MAX_ATTEMPTS}) - ${CAPTURE_FILE##*/}"

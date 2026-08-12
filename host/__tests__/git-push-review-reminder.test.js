@@ -36,8 +36,9 @@ function withSdd(cwd) {
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
 }
 
-function fakeGh(cwd, { state = '', base = 'main', exitCode = 0 } = {}) {
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+function fakeGh(cwd, { state = '', base = 'main', exitCode = 0, head: headOverride } = {}) {
+  const head = headOverride
+    ?? spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
   // Exact-match fixture (not substring): both hooks now share the
@@ -774,5 +775,164 @@ describe('git-push-review-reminder.sh - inert source delta emission', () => {
     assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
     assert.doesNotMatch(r.stdout, /spec-reviewer/,
       'the cited symbol cannot have drifted when only a comment moved');
+  });
+});
+
+// AD121 / REQ-AGENT-121 AC7. The boundary rework made gh's head authoritative
+// and exact equality the eligibility test, but it also kept bounded retries for
+// heads that are "still synchronizing". Only the equality half was implemented
+// here, so a push landing inside the API's lag window read the previous head
+// and exited silently, and PostToolUse never fires twice for one command.
+// Observed on PR #826: the boundary arrived on the next unrelated Bash call.
+//
+// The fake gh lags for a fixed number of calls and then catches up, which is
+// what the retry has to ride out. Both halves are the oracle: without the retry
+// the first case is silent, and without a bound the second never terminates or
+// fires on a head the PR does not carry.
+describe('git-push-review-reminder.sh - gh head still synchronizing after a delivery', () => {
+  const laggingGh = (cwd, { catchesUpAfter }) => {
+    const sha = () => spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const stale = sha();
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'accepted fix'], { cwd });
+    const landed = sha();
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    // Counts its own invocations on disk; the Nth call is when gh catches up.
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
+  n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
+  if [ "$n" -ge ${catchesUpAfter} ]; then head=${landed}; else head=${stale}; fi
+  echo '{"number":42,"state":"OPEN","headRefOid":"'"$head"'","baseRefName":"main"}'
+  exit 0
+fi
+exit 99
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    return { stale, landed, binDir };
+  };
+
+  it('opens the round once the authoritative head catches up', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const { landed, binDir } = laggingGh(cwd, { catchesUpAfter: 3 });
+    const r = runHook(cwd, 'git push origin HEAD', binDir);
+    assert.match(r.stdout, /run-review-lane/,
+      'a landed delivery must open its round; the API being briefly behind is not a verdict');
+    assert.ok(r.stdout.includes(landed),
+      'and the round must name the authoritative head, never one inferred locally');
+  });
+
+  it('gives up silently when the head never synchronizes', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
+    const r = runHook(cwd, 'git push origin HEAD', binDir);
+    assert.equal(r.stdout, '',
+      'the retry is bounded: a head that never matches stays ineligible rather than looping');
+    // Without this the bound has no oracle: widening 3 attempts to 30 keeps the
+    // assertion above green, merely slower. Only non-termination would fail.
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 4,
+      'one initial query plus exactly three retries');
+  });
+
+  // The ancestor guard separates waiting out an API lag from waiting on a push
+  // that never landed, and transposing its two arguments would break every
+  // legitimate lagging delivery. A nonexistent SHA cannot pin that: git exits
+  // 128 in BOTH argument orders, so an inverted guard would break at call 1 and
+  // pass this test. The reported head must be a REAL commit that local does not
+  // contain, so ancestry decides. Inverted, base is an ancestor of the side
+  // commit, the loop would not break, and the count would be 4.
+  it('does not spend the retry budget on a push that never landed', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const sha = () => spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8' })
+      .stdout.trim();
+    spawnSync('git', ['checkout', '-q', '-b', 'divergent'], { cwd });
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'never delivered here'], { cwd });
+    const unreachable = sha();
+    spawnSync('git', ['checkout', '-q', branch], { cwd });
+    assert.equal(
+      spawnSync('git', ['merge-base', '--is-ancestor', unreachable, 'HEAD'], { cwd }).status, 1,
+      'fixture must present a real commit that local does not contain',
+    );
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
+  n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
+  echo '{"number":42,"state":"OPEN","headRefOid":"${unreachable}","baseRefName":"main"}'
+  exit 0
+fi
+exit 99
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    const r = runHook(cwd, 'git push origin HEAD', binDir);
+    assert.equal(r.stdout, '', 'a head this checkout does not contain is ineligible');
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
+      'nothing landed, so there is nothing to wait for: one authoritative query and out');
+  });
+
+  it('never retries for non-delivery activity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
+    const r = runHook(cwd, 'git status --short', binDir);
+    assert.equal(r.stdout, '', 'an unsynchronized checkout is ineligible either way');
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
+      'a single authoritative query: ordinary Git activity must never pay the retry wait');
+  });
+});
+
+// The directive this hook emits is model-facing only, and everything it starts
+// runs in the background, so without a systemMessage the user watches an idle
+// session while three lanes and a CI monitor spin up. The notice is generated
+// from the same counts the directive was built from, which is what these rows
+// pin: a fixed sentence would keep passing a substring match while describing a
+// round that is not the one running.
+describe('git-push-review-reminder.sh - user-visible round notice', () => {
+  it('announces the lane count, the lanes, and the range the lanes were given', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage, /Review round starting for PR #42/);
+    assert.match(out.systemMessage, /3 lanes/,
+      'the count must come from the classifier, not a fixed sentence');
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      assert.ok(out.systemMessage.includes(lane), `the notice must name ${lane}`);
+    }
+    assert.match(out.systemMessage, /CI monitor/);
+    assert.match(out.systemMessage, /full PR diff vs main/,
+      'an unacknowledged head is reviewed whole, and the notice must say so');
+  });
+
+  it('shrinks the notice to the lanes actually required', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'documentation/notes.md', '# notes\n', 'docs: notes');
+    const r = runHook(cwd, 'git push origin develop', fakeGhWithHead(cwd, { headSha }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage, /1 lane \(doc-updater\)/,
+      'a doc-only push runs one lane; announcing three would describe a different round');
+    assert.doesNotMatch(out.systemMessage, /lanes/,
+      'the noun must agree with the count');
+    assert.match(out.systemMessage, new RegExp(`incremental since ${ackSha.slice(0, 7)}`),
+      'the notice must name the acknowledged base the lanes actually diff against');
+  });
+
+  it('stays silent on the consent path, which asks the user directly', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, 'git switch review', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.hookSpecificOutput.additionalContext, /FIRST use AskUserQuestion/,
+      'the fixture must still be on the consent path for this row to mean anything');
+    assert.equal(out.systemMessage, undefined,
+      'an AskUserQuestion is louder than a notice; two prompts for one event is noise');
   });
 });

@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining available through explicit /ctx on,
-//   - the managed extension packages, including Goal and Usage, being present in
+//   - the managed extension packages, including Goal, Usage, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -55,27 +55,24 @@ function runAdvisorGuidanceMerge(initialConfig) {
 }
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
-const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@19.2.1',
-  'npm:context-mode@1.0.169',
-  'npm:@juicesharp/rpiv-advisor@2.2.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.2.0',
-  'npm:@juicesharp/rpiv-todo@2.2.0',
-  'npm:pi-web-access@0.17.0',
-  'npm:pi-mcp-adapter@2.16.0',
-  'npm:@narumitw/pi-goal@0.43.0',
-  'npm:@narumitw/pi-usage@0.50.0',
-];
+const piPackage = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+// Derived from the preseed, never spelled out here. A bump that moves the preseed pin but
+// misses entrypoint.sh leaves the container asking npm for a version the image never baked,
+// and a hand-maintained literal in this file would agree with itself and pass anyway. Pi
+// itself is the runtime the packages load into, not one of the managed packages.
+const REQUIRED = Object.entries(piPackage.dependencies)
+  .filter(([name]) => name !== '@earendil-works/pi-coding-agent')
+  .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
   it('replaces glla with the exact reviewed Goal package and integrity-locked release', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.43.0');
+    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.46.0');
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
-    assert.equal(goal.version, '0.43.0');
-    assert.equal(goal.integrity, 'sha512-+HUjcd9u9Pr1YVqmPfDib09QTybZZKziEEgpiB0WfW/J38FWeH0+IfJy120TV3U9TolFLOKdhrdpUFFzly6CSA==');
+    assert.equal(goal.version, '0.46.0');
+    assert.equal(goal.integrity, 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==');
     assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
   });
 
@@ -95,19 +92,36 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
   });
 });
 
+describe('Evaluate package preseed (REQ-AGENT-133)', () => {
+  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['pi-evaluate'];
+    assert.match(version, /^\d+\.\d+\.\d+$/);
+    const evaluate = lock.packages['node_modules/pi-evaluate'];
+    assert.equal(evaluate.version, version);
+    assert.equal(evaluate.resolved, `https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-${version}.tgz`);
+    assert.match(evaluate.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+    // The skill ships inside the package, so the peer range is what keeps a Pi
+    // upgrade from silently loading an extension built against an older API.
+    assert.deepEqual(evaluate.peerDependencies, { '@earendil-works/pi-coding-agent': '>=0.82.0' });
+  });
+});
+
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.2.0');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.4.0');
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1: fresh container assembles required packages and disables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
+    assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
     for (const spec of REQUIRED) {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }

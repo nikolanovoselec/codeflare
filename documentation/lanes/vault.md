@@ -101,10 +101,10 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 
 ## Capture Path (REQ-VAULT-002)
 
-On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
+On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` carrier naming the window and the capture file, and launches `run-memory-capture.sh` detached. The main session spends nothing: it does not dispatch a subagent, wait, or read the result. The runner prefilters the transcript slice, builds one self-contained request, and runs the capture as a headless `claude -p` bounded to six turns, with fidelity selected by `CODEFLARE_MEMORY_MODEL` (default `sonnet`) per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) and [AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block). That capture runs `memory-agent-prompt.md` end to end:
 
-1. Reads and retains the `.vars` retry carrier while work is in flight.
-2. Reads the new transcript range.
+1. Receives the transcript inline in its prompt (`CAPTURE_REQUEST`), framed by a per-run marker; there is no carrier, transcript path, or chunk directory for it to open. Handing it a path instead put an 83KB retrieval on the tool-result channel, which truncates and persists, and the capture spent its whole budget paging its own input back in.
+2. Processes that inline transcript once.
 3. Identifies decisions, observations, references, and a short topic phrase.
 4. Writes `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
 5. Acts as the LLM extractor for the captured file, then invokes one locked helper that merges the cumulative graph, publishes `user_vault`, and removes `.vars` only after both succeed.
@@ -179,28 +179,43 @@ The Pi subagent authors a request-specific canonical chunk, then holds one 300-s
 
 Write sites that touch the global graph:
 
+- `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the derived `graph.json` beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
 - The capture agent, after writing a vault file ([REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)).
 - The vault-extract agent, after user-edit extraction ([REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)).
-- `graphify-active-repo.sh`, on every active-repo transition where a per-repo graph exists or its `source_hash` differs from the manifest (single-active-repo invariant; see below).
+- `graphify-active-repo.sh` (Claude) and `codeflare-pi.ts::reconcileGlobalGraph` (Pi), whenever reconciliation finds the manifest's repo entries out of step with the active checkout (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
-All four serialize on `/tmp/graphify-global.lock`. Claude and active-repo maintenance retain the short five-second lock bound. Each Pi extraction uses one required 300-second critical section spanning both cumulative merge and global publication, then exposes its post-commit request chunk; a timeout or missing chunk leaves root-owned high-water state unchanged. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> Pi visualization is separately capped at 15 seconds. <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::at most 15 seconds -->
+A first boot has no cumulative graph yet, because no capture has run, so the boot step publishes nothing and reports no failure ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC6).
+
+All five serialize on `/tmp/graphify-global.lock`. Claude, boot init, and active-repo maintenance retain the short five-second lock bound. Each Pi extraction uses one required 300-second critical section spanning both cumulative merge and global publication, then exposes its post-commit request chunk; a timeout or missing chunk leaves root-owned high-water state unchanged. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> Pi visualization is separately capped at 15 seconds. <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::at most 15 seconds -->
 
 ### Single-active-repo invariant
 
-`graphify-active-repo.sh` enforces a single-active-repo invariant for the per-repo side of the global graph: at any time the manifest holds the vault entry plus exactly one per-repo entry (the user's currently active repo). The hook is structured around a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`:
+`graphify-active-repo.sh` enforces a single-active-repo invariant for the per-repo side of the global graph: the manifest holds the vault entry plus the active checkout's entry when that checkout has a graph, and nothing else. Two sentinels back it. `~/.cache/codeflare-hooks/graphify-active-cwd` holds the active repo path, and its first line is a contract the MCP wrapper reads. `~/.cache/codeflare-hooks/graphify-active-state` holds a tab-separated `<branch>\t<graph|nograph>` snapshot of what the checkout looked like at the last reconciliation.
 
-1. **Fast-path skip**: when the resolved active-repo path equals the prior sentinel value and `graphify-out/graph.json` is not newer than that sentinel, the hook returns immediately.
-2. **Vault skip ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC3)**: when the walk-up loop resolves to `$HOME/Vault`, the hook exits 0 without writing the sentinel or invoking `graphify global add`.
-3. **Repo switch ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1)**: when OLD differs from NEW by basename and OLD is still in the manifest, `flock -w 5 ... graphify global remove <OLD-basename>` prunes the prior repo's nodes.
-4. **Add/refresh**: pre-check the manifest's recorded `source_hash` against `sha256sum` of the current `graph.json`, then run `flock -w 5 ... graphify global add --as <basename>` when the hash differs or the tag is new.
-5. **Sentinel mtime bump**: `touch`-bumps the sentinel after every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
+1. **Repo resolution ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC3)**: walk up from the candidate directory to the nearest checkout, identified by `.git` as a directory or as the file a worktree uses. Nothing else counts as a repo root.
+2. **Vault skip ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC3)**: when the walk-up resolves to `$HOME/Vault`, the hook exits 0 without writing either sentinel or invoking graphify.
+3. **Fast-path skip ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC4)**: when the repo path, the branch, the graph's presence, and the graph's mtime all match what the sentinels recorded, the hook returns immediately.
+4. **Reconcile ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1/AC5)**: read the manifest's repo tags, remove every one that is neither `user_vault` nor the active checkout's tag, and add the active checkout's graph when its recorded `source_hash` differs or the tag is new.
+5. **Sentinel advance ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1)**: both sentinels are rewritten and the path sentinel `touch`-bumped only after the whole reconciliation succeeded, so a failure leaves the prior state in place and the next tool call retries.
 
-The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. The vault skip canonicalizes `$HOME` via `cd && pwd` to match `REPO` resolution and also matches basename `Vault` as a guard against symlink paths into the vault from outside `$HOME`. The vault is registered exclusively by entrypoint init under `user_vault`, so the skip prevents a vault tool call from re-tagging it as basename `Vault` and exposing it to prune-on-switch.
+Step 4's removals and addition run inside one `flock -w 5 /tmp/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely. In a worktree the branch is read through the `gitdir:` pointer in `.git`, since HEAD does not live under the checkout ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC7).
 
-Same-basename repo transitions skip explicit removal because the add replaces the existing entry via graphify's `source_hash` dedup. The add pre-check truncates `sha256sum` to graphify's 16-hex format and has a length sanity guard so a future format change does not silently degrade to "always re-add".
+The removal set is enumerated from the manifest rather than derived from the previous sentinel value. That is what lets the hook collect entries no transition diff can name: a tag a crashed run left behind, or a phantom tag minted back when a bare `graphify-out/` directory still resolved as a repo root. Drift self-heals on the next tool call. `user_vault` is excluded by name, since the vault is registered exclusively by entrypoint init and by the capture and extract pipelines, never as a repo.
 
-Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. Branch switches within the same repo refresh the entry via the hash-diff path once the user has rebuilt the graph on the new branch (`graphify update` or `/graphify`). Until the rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
+The vault skip canonicalizes `$HOME` via `cd && pwd` to match `REPO` resolution and also matches basename `Vault`, guarding against symlink paths into the vault from outside `$HOME` and against a `git init` inside the vault.
+
+Same-basename repo transitions issue no removal, because the active tag is excluded from the removal set and the add replaces the existing entry via graphify's `source_hash` dedup. The add pre-check truncates `sha256sum` to graphify's 16-hex format and skips publication only when the manifest records both that hash and a `source_path` equal to this checkout's graph.
+
+The path half is load-bearing rather than belt-and-braces: tags are keyed by directory basename, so two checkouts sharing a basename can hold byte-identical graphs (a freshly scaffolded `graph.json` is the common case), and a hash-only skip would leave the tag resolving to the checkout the user just left. A recorded hash that is not 16 lowercase hex characters refuses the optimisation instead of silently degrading to "always skip".
+
+Pi holds the same invariant through `codeflare-pi.ts::reconcileGlobalGraph`, called on `session_start` and after every repository transition. `planGlobalGraphReconcile` reads the same manifest and computes the same removal set, every tag but `user_vault` and the active checkout's, plus the add when that checkout has a graph; both run inside one `flock -w 5 /tmp/graphify-global.lock` invocation so a concurrent writer never sees a partial reconciliation ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC6). It applies the hook's dedup on the same terms, matching the recorded hash and the recorded `source_path` before skipping, so an unchanged graph costs no `global add` while another checkout's identically-hashed graph still forces one.
+
+Pi has no fast-path comparison and does not need one: it reconciles on session start and transitions rather than on every tool call, and reading a manifest is not what the fast path exists to avoid. It also has no sentinel to withhold on failure, so a genuine failure notifies at session start instead of leaving a retry marker. A missing CLI is not a failure: that is the supported disabled-plugin configuration, and it stays silent.
+
+The two binaries report their absence differently, because `flock` is the process Pi spawns while `graphify` runs inside the locked script. An absent `flock` therefore arrives as `ENOENT`, an absent `graphify` as the script's own exit 127, and Pi tolerates both while still surfacing every other non-zero exit.
+
+Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. A branch switch triggers reconciliation, not a rebuild: the hook re-evaluates which tags belong in the global graph, so a branch where the graph is absent stops publishing, but the graph's contents are refreshed only when the user rebuilds (`graphify update` or `/graphify`). Until that rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
 
 ## SilverBullet Editor (REQ-VAULT-005)
 
@@ -513,22 +528,29 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 5. **Counter update** - writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
-   - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - `memory-capture-block.sh` uses the proven in-flight sentinel flow: the parent `Task`/`Agent(subagent_type="memory-capture")` call creates a session-local 600-second sentinel before the child starts. While `.vars` and that sentinel coexist, the capture child's first `Read` and later tools proceed without relying on `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata. Successful publication removes `.vars`; the next hook call cleans the sentinel. A stalled capture leaves `.vars`, the sentinel expires, and blocking resumes.
-   - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
+   - The hook launches the capture subprocess itself; nothing is asked of the main agent before other work.
+   - There is no blocking hook. An armed request relaunches once per user prompt and is counted, except while a capture is still running. Six failed launches latch it until fifteen further prompts allow a replacement.
+   - Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a failed capture leaves its window uncommitted for a later request ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
+   - `run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`; the agent frontmatter is not read on this path ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
-The capture agent retains the `.vars` retry carrier, runs
-`prefilter-transcript.sh` (jq filter that strips tool I/O, slash-command
+`run-memory-capture.sh` retains the `.vars` retry carrier, runs
+`prefilter-transcript.sh` before the capture subprocess starts (jq filter that strips tool I/O, slash-command
 wrappers, and meta records - 76x size reduction on a typical transcript),
 splits the clean NDJSON into chunks, processes each chunk into a scratchpad,
 then synthesises the final vault note. One locked fail-closed command merges
 the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
-switch from haiku to sonnet).
+switch from haiku to sonnet). Every attempt appends its capture exit status,
+the publisher's verdict, and — on failure — the stderr tail and the result
+envelope's failure subtype (a byte count when unparseable, never the response
+text) to
+`<carrier>.attempts.log` beside the carrier, because a detached launch
+discards the runner's own stderr and a window that burned its attempts
+otherwise left nothing to diagnose; the six-attempt latch bounds the file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::ATTEMPT_LOG -->
 
 Between the dedup-gate step and the prefilter step, the agent invokes
-`assert-iso-ts.sh` (Step 1.5 in the prompt; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
+`assert-iso-ts.sh` (called by `memory-capture.sh` when it arms a request; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
 The script resolves the user's timezone and runs `date` to produce a
 stamp like `2026-05-23T22-11-09+0200`.
 
@@ -580,7 +602,7 @@ in the user's vault.
 
 ### Specification Coverage (Memory)
 
-- [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
+- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) - Capture requests are re-delivered under a bound and committed only against an artifact
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ## Troubleshooting
@@ -671,4 +693,4 @@ or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#tr
 
 - [architecture.md](./architecture.md) -- Container layout, Worker proxy boundary.
 - [deployment.md](./deployment.md) -- How Dockerfile + preseed land in a new session.
-- [`sdd/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.
+- [`sdd/spec/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.

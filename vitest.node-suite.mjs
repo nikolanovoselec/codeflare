@@ -13,6 +13,9 @@ export const NODE_SUITE_FILES = [
   // All three drive real temp trees through node:fs, and pi-memory-inject also
   // stands in a working directory to prove no repo graph is substituted -
   // neither capability exists under the Workers pool.
+  // Imports codeflare-pi.ts, whose execFileSync reconcile has no workerd
+  // equivalent; under the Workers pool the file crashed collection outright.
+  'src/__tests__/lib/pi-global-graph-reconcile.test.ts',
   'src/__tests__/lib/pi-memory-inject.test.ts',
   'src/__tests__/lib/pi-memory-vault-delivery.test.ts',
   'src/__tests__/lib/pi-native-notifications.test.ts',

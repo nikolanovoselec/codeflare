@@ -80,15 +80,15 @@ NODE
       last_fingerprint="$fingerprint"
       stable_done=1
     fi
-    if [ "$stable_done" -ge 2 ]; then echo "CI_RESULT success" >> "$log"; exit 0; fi
+    if [ "$stable_done" -ge 2 ]; then echo "CI_RESULT success head=$head" >> "$log"; exit 0; fi
   else
     stable_done=0
     last_fingerprint=""
   fi
-  if [ $rc -eq 10 ]; then echo "CI_RESULT failure" >> "$log"; exit 10; fi
+  if [ $rc -eq 10 ]; then echo "CI_RESULT failure head=$head" >> "$log"; exit 10; fi
   sleep 15
 done
-echo "CI_RESULT timeout" >> "$log"
+echo "CI_RESULT timeout head=$head" >> "$log"
 exit 124
 BASH
 chmod +x "$SCRIPT"
@@ -105,23 +105,41 @@ The launcher above is safe to run through either toolset:
 
 ## Reading the result
 
-Read the printed log path until it contains a terminal result line for the current HEAD:
+Every terminal line names the head it is about, because a monitor outlives its
+head: push again and the old one keeps polling, then reports a verdict for a head
+nobody is waiting on. Check the `head=` before acting on any of these.
 
-- `CI_RESULT success` and every row is `completed/success` or `completed/skipped` -> CI passed.
-- `CI_RESULT failure` -> inspect failing runs with `gh run view <id> --log-failed`, fix, commit, push, and start a new detached monitor for the new HEAD.
-- `CI_RESULT timeout` -> stop and escalate to the user; do not claim green.
+- `CI_RESULT success head=<sha>` and every row is `completed/success` or `completed/skipped` -> that head passed.
+- `CI_RESULT failure head=<sha>` -> inspect failing runs with `gh run view <id> --log-failed`, fix, commit, push, and start a new detached monitor for the new HEAD.
+- `CI_RESULT timeout head=<sha>` -> stop and escalate to the user; do not claim green.
 
-Never claim CI is passing from the launcher output alone. Only a terminal `CI_RESULT success` line in the durable log for the current HEAD is green.
+A result whose `head=` is not the current HEAD is not a verdict on the current
+HEAD, whatever it says. It satisfies no merge or deploy gate. Read the current
+head's log instead, which is a separate file: the log path is keyed by head.
 
-## Stale-run cancellation
+Never claim CI is passing from the launcher output alone. Only a terminal
+`CI_RESULT success` line naming the current HEAD is green.
 
-Before pushing a new commit, cancel still-running runs from the previous pushed HEAD:
+## Stale-run cancellation: not your job
 
-```bash
-gh run list --branch <branch> --limit 12 --json databaseId,status \
-  --jq '.[] | select(.status != "completed") | .databaseId' \
-  | xargs -r -I{} gh run cancel {}
-```
+Do not cancel runs from here. The workflows decide this themselves, and they are
+the only thing that knows which runs are safe to cancel.
+
+Every workflow whose superseded runs are worth killing already declares
+`concurrency` with `cancel-in-progress: true`. Most key the group on
+`github.ref` (`test`, `codeql`, `zizmor`, `fuzz`, `scorecard`), which for a
+`pull_request` event is the per-PR merge ref, so two PRs sharing a head branch
+name never cancel each other while superseded pushes of the same PR always do.
+`pentest` and `stress-test` use a constant group instead and self-cancel across
+branches, which is what they want. Either way the choice is per workflow, and a
+client script reconstructing it from a branch name gets it wrong.
+
+The ones that omit it omit it deliberately. `deploy.yml` sets
+`cancel-in-progress: false` because a cancelled deploy leaves the worker,
+secrets, KV, and registry half-configured; `sign-release.yml` and
+`bump-shadow-pins.yml` do the same. A `gh run cancel` loop driven from a branch
+name cannot see any of that, so it eventually cancels the one run that must
+never be cancelled.
 
 ## Binding invocation rule
 

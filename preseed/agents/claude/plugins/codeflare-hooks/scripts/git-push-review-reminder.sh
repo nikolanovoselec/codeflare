@@ -222,6 +222,40 @@ CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/n
 case "$PR_BASE" in main|master|develop) ;; *) exit 0 ;; esac
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
+# The boundary rework made gh's head authoritative and exact equality the
+# eligibility test, and it kept bounded retries for "matching branches whose
+# authoritative heads are still synchronizing". Pi implements that second half
+# in classifyBoundary; this hook only ever implemented the first, so a delivery
+# landing inside the lag window read the PREVIOUS head, disagreed with the
+# checkout, and exited silently. PostToolUse fires once per tool call, so
+# nothing re-fired for that push and its round never opened.
+#
+# Retry the authoritative query rather than believing a local ref: reading the
+# reflog or refs/remotes is exactly the parsing machinery that rework removed,
+# and it answers a different question (what this clone saw) than the one
+# eligibility asks (what the PR carries). Only a delivery can be
+# mid-synchronization, so every other mismatch stays inert and waits for
+# nothing.
+# The fractional delays need coreutils/BSD `sleep`; POSIX `sleep` takes whole
+# seconds only. On a host without it each call fails, the loop runs back to
+# back, the lag window is never ridden out, and this fix silently does nothing.
+# The container image this preseed targets ships coreutils, so the dependency is
+# recorded rather than probed.
+case "$BOUNDARY_KIND" in
+  push|pr-create)
+    for RETRY_DELAY in 0.3 0.6 1.2; do
+      [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] && break
+      # Only wait when the checkout could plausibly be what the PR is about to
+      # report. A push that never landed leaves the reported head unreachable
+      # from local, and waiting on it just spends the budget before exiting
+      # inert -- the failure path used to cost nothing.
+      git merge-base --is-ancestor "$CURRENT_PR_HEAD" "$LOCAL_HEAD" 2>/dev/null || break
+      sleep "$RETRY_DELAY"
+      PR_INFO=$(gh_pr_state "$CURRENT") || break
+      CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+    done
+    ;;
+esac
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
 GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR" ] || exit 0
@@ -340,14 +374,17 @@ fi
 RUNNER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh"
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
   LANE_SCOPE="--range $LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD"
+  SCOPE_NOTE="incremental since ${LAST_ACK_PR_HEAD:0:7}"
   DIRECTIVE="$DIRECTIVE Each lane reviews ONLY the incremental diff since the last reviewed head ($LAST_ACK_PR_HEAD..$CURRENT_PR_HEAD), not the full PR diff."
 elif [ -n "$PR_BASE" ]; then
   LANE_SCOPE="--base $PR_BASE"
+  SCOPE_NOTE="full PR diff vs $PR_BASE"
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against origin/$PR_BASE (no prior review base)."
 else
   # PR_BASE is allowed to be empty upstream (it fails open to enforcement).
   # Emitting `--base ` with no value would hand the runner a dangling flag.
   LANE_SCOPE=""
+  SCOPE_NOTE="full PR diff"
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
 DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> --boundary-pr $PR_NUMBER $LANE_SCOPE' with run_in_background: true. Copy that boundary command unchanged: the runner binds it to this PR checkpoint and normalizes any stale full-diff scope to the acknowledged incremental range. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents, do NOT paste diffs into the command, and do NOT relaunch a lane while its first call is still in flight - a terminal failure is re-demanded by the Stop hook."
@@ -361,6 +398,26 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # assert the directive carries no lane literal outside its Lanes: line.
 DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message. Immediately after those calls, launch CI as the final launch. Once CI is launched, END YOUR TURN. While the lanes and CI are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. A fully clean round publishes the header and divider with no synthetic clean-lane rows; lane completion already proves the round happened and the Stop hook can acknowledge that empty finding table. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
 
+# The directive above is model-facing only. Everything it starts -- the lanes
+# and the CI monitor -- then runs as a background process, so without a line of
+# its own the user watches an apparently idle session and has to take on faith
+# that a round opened. `systemMessage` is the one hook field the client renders
+# straight to the terminal ("<hook> says: ..."), and it reaches the user
+# without reaching the model, so it can say what the model already knows.
+#
+# It names the counts the directive computed rather than a fixed sentence: a
+# doc-only push announces one lane, and announcing three would describe a round
+# that is not running. The consent path is deliberately silent -- it is about
+# to raise an AskUserQuestion, which is louder than any notice.
+if [ "$BOUNDARY_KIND" != "prompt" ]; then
+  set -- $REQUIRED_LANES
+  LANE_NOUN="lanes"
+  [ "$#" -eq 1 ] && LANE_NOUN="lane"
+  NOTICE="Review round starting for PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} - $# $LANE_NOUN ($(printf '%s' "$REQUIRED_LANES" | sed 's/ /, /g')) + CI monitor, $SCOPE_NOTE."
+fi
+
 printf '%s\n' "$CURRENT_PR_HEAD" > "$PLAN_FILE" 2>/dev/null || true
-jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
+jq -n --arg ctx "$DIRECTIVE" --arg note "${NOTICE:-}" \
+  '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}
+   + (if $note != "" then {systemMessage:$note} else {} end)'
 exit 0

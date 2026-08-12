@@ -249,9 +249,18 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
   const rootResult = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
   if (rootResult.status !== 0) return { ok: false, message: 'unable to resolve the repository root for changed-line coverage' };
   const repoRoot = rootResult.stdout.trim();
+  // Ask git only for the tree the evaluator can act on: isProductionPath accepts nothing
+  // outside <root>/src. Diffing the whole repository buffered every generated artifact in
+  // the range as well, and a refreshed graph export alone carried the range past the
+  // 10 MB bound -- the job then died with ENOBUFS over a commit that touched no source.
+  // `:(top)` anchors the pathspec at the repository root. The checker runs with cwd set to
+  // the package directory, so a plain `web-ui/src` would resolve to `web-ui/web-ui/src`,
+  // match nothing, and hand the evaluator an empty diff -- which reads as "no changed
+  // production lines" and passes the package unconditionally.
+  const sourcePathspec = `:(top)${packageRoot === '.' ? 'src' : `${packageRoot}/src`}`;
   const diffResult = spawnSync(
     'git',
-    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--'],
+    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec],
     { encoding: 'utf8', maxBuffer: CHANGED_COVERAGE_LIMITS.maxDiffBytes + 1 },
   );
   if (diffResult.status !== 0 || diffResult.error) {

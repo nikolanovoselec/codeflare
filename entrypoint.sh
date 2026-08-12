@@ -2159,9 +2159,22 @@ init_user_vault() {
     # Seed the global graph with the vault. Hash-keyed idempotent - safe to
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.
-    if command -v graphify >/dev/null 2>&1; then
+    #
+    # Source is vault-graph.json, the cumulative graph the capture and
+    # vault-extract pipelines read back and merge into (REQ-MEM-009). The
+    # sibling graph.json is a copy those merges refresh for the local
+    # visualization, and the scaffold created below leaves it empty until the
+    # first extraction runs. Seeding from it therefore republished user_vault
+    # with zero nodes on exactly the boots where the vault had been restored
+    # but not yet re-extracted, dropping accumulated memory out of the global
+    # graph until the next capture happened to run.
+    #
+    # The -f guard keeps a first-ever boot (no captures yet, no cumulative
+    # graph on disk) silent instead of emitting a deferred-add warning for a
+    # file that is not supposed to exist yet.
+    if command -v graphify >/dev/null 2>&1 && [ -f "$VAULT/graphify-out/vault-graph.json" ]; then
         flock -w 5 /tmp/graphify-global.lock graphify global add \
-            "$VAULT/graphify-out/graph.json" --as user_vault 2>/dev/null \
+            "$VAULT/graphify-out/vault-graph.json" --as user_vault 2>/dev/null \
             || echo "[entrypoint] vault global-add deferred (graphify not ready or lock timeout)"
     fi
 
@@ -2449,12 +2462,13 @@ const required = [
   'npm:@gotgenes/pi-subagents@19.2.1',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.2.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.2.0',
-  'npm:@juicesharp/rpiv-todo@2.2.0',
-  'npm:pi-web-access@0.17.0',
-  'npm:pi-mcp-adapter@2.16.0',
-  'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@juicesharp/rpiv-advisor@2.4.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.4.0',
+  'npm:@juicesharp/rpiv-todo@2.4.0',
+  'npm:pi-web-access@0.18.0',
+  'npm:pi-mcp-adapter@2.20.1',
+  'npm:pi-evaluate@0.1.5',
+  'npm:@narumitw/pi-goal@0.46.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
@@ -3385,7 +3399,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # setting on and watching background subagents spawn and complete. The
     # capture hooks depend on that half, and it fails silently if it breaks,
     # so re-check it when the pinned CLI version moves.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture-block.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh","asyncRewake":true,"rewakeSummary":"Review directive","rewakeMessage":"Review directive from the SDD review gate (working as designed):"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through
