@@ -782,22 +782,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   // REQ-MEM-008 AC2 (manifest declares the memory plugin files) + AC3 (all advanced-only).
-  // memory-capture-block.sh is the PreToolUse hard-block companion to memory-capture.sh
-  // (UserPromptSubmit) - it prevents the assistant from skipping the deferred capture
-  // by hard-blocking all other tool calls while .vars is undrained.
+  // The hard-block companion was removed with AD124: nothing blocks tool calls
+  // for capture any more. assert-iso-ts.sh stays, but its caller moved from the
+  // agent prompt to memory-capture.sh, which arms the request with the
+  // timestamp the helper resolves and asserts.
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
     expect(fileNames).toEqual([
       'assert-iso-ts.sh',
+      'build-memory-graph.py',
       'memory-agent-prompt.md',
-      'memory-capture-block.sh',
       'memory-capture.sh',
       'memory-context-inject.sh',
       'plugin.json',
       'post-compaction-recall.sh',
       'prefilter-transcript.sh',
       'publish-memory-capture.sh',
+      'run-memory-capture.sh',
     ]);
     for (const doc of pluginDocs) {
       expect(doc.modes).toEqual(['advanced']);

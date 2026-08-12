@@ -528,22 +528,29 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 5. **Counter update** - writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with three launch constraints.
-   - The main agent calls the Task tool with `subagent_type="memory-capture"` and `run_in_background=true` before other work.
-   - `memory-capture-block.sh` uses the proven in-flight sentinel flow: the parent `Task`/`Agent(subagent_type="memory-capture")` call creates a session-local 600-second sentinel before the child starts. While `.vars` and that sentinel coexist, the capture child's first `Read` and later tools proceed without relying on `agent_id`, `agent_type`, `tool_use_id`, or Agent PostToolUse metadata. Successful publication removes `.vars`; the next hook call cleans the sentinel. A stalled capture leaves `.vars`, the sentinel expires, and blocking resumes.
-   - Agent frontmatter pins `model: sonnet`; the caller passes no model override ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
+   - The hook launches the capture subprocess itself; nothing is asked of the main agent before other work.
+   - There is no blocking hook. An armed request relaunches once per user prompt and is counted, except while a capture is still running. Six failed launches latch it until fifteen further prompts allow a replacement.
+   - Publication refuses unless the request's named capture file exists, and only then advances the counter and drains `.vars`, so a failed capture leaves its window uncommitted for a later request ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
+   - `run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`; the agent frontmatter is not read on this path ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)).
 
-The capture agent retains the `.vars` retry carrier, runs
-`prefilter-transcript.sh` (jq filter that strips tool I/O, slash-command
+`run-memory-capture.sh` retains the `.vars` retry carrier, runs
+`prefilter-transcript.sh` before the capture subprocess starts (jq filter that strips tool I/O, slash-command
 wrappers, and meta records - 76x size reduction on a typical transcript),
 splits the clean NDJSON into chunks, processes each chunk into a scratchpad,
 then synthesises the final vault note. One locked fail-closed command merges
 the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
-switch from haiku to sonnet).
+switch from haiku to sonnet). Every attempt appends its capture exit status,
+the publisher's verdict, and — on failure — the stderr tail and the result
+envelope's failure subtype (a byte count when unparseable, never the response
+text) to
+`<carrier>.attempts.log` beside the carrier, because a detached launch
+discards the runner's own stderr and a window that burned its attempts
+otherwise left nothing to diagnose; the six-attempt latch bounds the file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::ATTEMPT_LOG -->
 
 Between the dedup-gate step and the prefilter step, the agent invokes
-`assert-iso-ts.sh` (Step 1.5 in the prompt; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
+`assert-iso-ts.sh` (called by `memory-capture.sh` when it arms a request; [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5/AC6/AC7).
 The script resolves the user's timezone and runs `date` to produce a
 stamp like `2026-05-23T22-11-09+0200`.
 
@@ -595,7 +602,7 @@ in the user's vault.
 
 ### Specification Coverage (Memory)
 
-- [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
+- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) - Capture requests are re-delivered under a bound and committed only against an artifact
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ## Troubleshooting

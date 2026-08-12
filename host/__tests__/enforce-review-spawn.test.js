@@ -11,8 +11,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, statSync } from 'node:fs';
+import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +27,7 @@ const REMINDER_HOOK = resolve(
 );
 
 function makeFixture() {
-  const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-'));
+  const cwd = tempDir('enforce-spawn-');
   // Initialize a git repo so $(git rev-parse --git-common-dir) succeeds
   spawnSync('git', ['init', '-q'], { cwd });
   spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
@@ -58,7 +58,7 @@ function withSdd(cwd) {
 // ack-freshness branch below the retroactive scan unreachable -- the blind spot
 // that let a silently-acknowledging gate ship.
 function withUpstream(cwd) {
-  const remote = mkdtempSync(join(tmpdir(), 'origin-'));
+  const remote = tempDir('origin-');
   spawnSync('git', ['init', '-q', '--bare', remote]);
   spawnSync('git', ['remote', 'add', 'origin', remote], { cwd });
   spawnSync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd });
@@ -95,8 +95,12 @@ exit 99`;
 }
 
 function ghNoPR() {
+  // gh's real not-found answer: exit 1 WITH the stderr phrase. gh_pr_state
+  // reads that phrase to tell "no PR" apart from a generic exit-1 API error,
+  // so a silent exit 1 would be classified transient, not not-found.
   return `ARGS="$*"
 if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
+  echo "no pull requests found for branch" >&2
   exit 1
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
@@ -132,7 +136,7 @@ function runReminder(cwd, command, binDir) {
   });
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, toolName, tmpDir, agentType, command }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   // Always isolate hook state from the live Claude session. Tests exercising a
@@ -140,12 +144,13 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
   env.REVIEW_BYPASS_FILE = bypassFile ?? join(cwd, '.review-bypass');
   env.TMPDIR = tmpDir ?? cwd;
   // Prevent the hook from finding a real gh in PATH if we want it absent
-  return spawnSync('bash', [HOOK], {
+  const r = spawnSync('bash', [HOOK], {
     cwd,
     input: JSON.stringify({
       hook_event_name: event,
       transcript_path: transcriptPath,
       ...(toolName ? { tool_name: toolName } : {}),
+      ...(command ? { tool_input: { command } } : {}),
       // Claude Code adds agent_type/agent_id only when the caller is a
       // subagent; a main-agent payload carries neither.
       ...(agentType ? { agent_type: agentType, agent_id: `agent_${agentType}` } : {}),
@@ -153,6 +158,26 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
     encoding: 'utf-8',
     env,
   });
+  // The Stop path delivers its directive on stderr with exit 2, which is what
+  // routes it away from the client's `<event> hook error:` template. Rows about
+  // what the directive SAYS read the envelope below; the row that pins the
+  // delivery channel itself reads rawStatus/rawStdout, so switching channels
+  // can never quietly turn a `doesNotMatch(stdout)` row into a tautology.
+  // Only a DIRECTIVE is adapted. The hook's fail-closed guards (unreadable
+  // transcript, missing classifier) refuse on the same channel, so matching
+  // "exit 2 with stderr" alone would let a row expecting a directive pass on a
+  // guard refusal instead. The envelope carries the text and nothing else: a
+  // synthesised `decision` key would be a string this file wrote, and a row
+  // asserting it would be asserting itself.
+  r.rawStatus = r.status;
+  r.rawStdout = r.stdout;
+  // Matched per line, not anchored at the very start: a stray shell message on
+  // the same channel would otherwise hide a directive that was delivered.
+  if (r.status === 2 && !r.stdout.trim() && /^PR #\d+ @/m.test(r.stderr.trim())) {
+    r.stdout = JSON.stringify({ reason: r.stderr.trim() });
+    r.status = 0;
+  }
+  return r;
 }
 
 // Real Bash tool_use lines as the transcript would contain them
@@ -273,6 +298,29 @@ describe('enforce-review-spawn.sh — vibe-coding gate', () => {
   });
 });
 
+// A JSON `{"decision":"block"}` from a Stop hook is rendered by the client
+// through a fixed `<event> hook error:` template with no override, so a gate
+// doing its job read as a gate failing -- 50 times in one session. The same
+// directive on stderr with exit 2 reaches the model unchanged under a feedback
+// banner. This row pins the channel, because the channel IS the fix.
+describe('enforce-review-spawn.sh — Stop directive delivery channel', () => {
+  it('delivers the directive on stderr with exit 2 and writes nothing to stdout', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, [PUSH_LINE()]),
+      binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+    });
+    assert.equal(r.rawStatus, 2,
+      'exit 2 is what routes the directive away from the client error template');
+    assert.match(r.stderr, /run code-reviewer/,
+      'the directive itself rides stderr, where the rewake path reads it');
+    assert.equal(r.rawStdout.trim(), '',
+      'anything on stdout would be rendered as "Stop hook error" again');
+  });
+});
+
 describe('enforce-review-spawn.sh — event scoping', () => {
   it('exits 0 silently on SubagentStop (only Stop and PreToolUse are enforced)', () => {
     const cwd = makeFixture();
@@ -281,6 +329,234 @@ describe('enforce-review-spawn.sh — event scoping', () => {
     const r = runHook(cwd, { event: 'SubagentStop', transcriptPath: t });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+// The PreToolUse gate refuses through a permission decision rather than a
+// non-zero exit, because a gate doing exactly its job rendered as
+// "PreToolUse:Edit hook error" reads as a broken tool. Allow and deny now share
+// exit 0, so the decision is the only discriminator: asserting the status alone
+// would let a deny pass as an allow and vice versa. One place, so the next
+// change to the refusal transport is one edit.
+function denialOf(r) {
+  if (!r.stdout) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    return null;
+  }
+  const out = parsed && parsed.hookSpecificOutput;
+  return out && out.permissionDecision === 'deny' ? out.permissionDecisionReason || '' : null;
+}
+
+function assertRefused(r, message = 'the gate refuses') {
+  assert.equal(r.status, 0, `${message}: a rendered deny exits 0`);
+  assert.notEqual(denialOf(r), null, `${message}: expected a deny decision`);
+}
+
+function assertAllowed(r, message = 'the gate allows') {
+  assert.equal(r.status, 0, message);
+  // An allow is silence. Anything else must parse and must not be a deny:
+  // reading an unparsable body as "allowed" is how a gate that crashed after
+  // exiting 0 passes for a working one, which is what the `stdout === ''`
+  // assertions this helper replaced were pinning down.
+  if (r.stdout === '') return;
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    assert.fail(`${message}: a non-empty gate response must parse; got ${r.stdout.slice(0, 120)}`);
+  }
+  const out = parsed && parsed.hookSpecificOutput;
+  assert.notEqual(out && out.permissionDecision, 'deny', `${message}: expected no deny decision`);
+}
+
+// The FIX directive keeps its own head-keyed counter. It used to read the
+// shared demand file, which the lane demand had already bumped to 1 before any
+// FIX phase began, so the full directive never emitted and the one-line form
+// silently carried the whole contract.
+// That is observable from outside the hook, so these rows ask the hook rather
+// than reading its source. One run per row: the ack this writes is seconds old,
+// and a second run in the same test would hit the ack-freshness guard and
+// return before the FIX directive, proving nothing about the counter.
+describe('enforce-review-spawn.sh — FIX-phase directive delivery', () => {
+  // Reaches the FIX phase with this head's lane demand already spent, which is
+  // the real-world state and the one that used to swallow the contract.
+  function atFixPhase({ branch, fixShown = false } = {}) {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    if (branch) spawnSync('git', ['checkout', '-q', '-b', branch], { cwd });
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_f1'),
+      LANE_BASH_DONE_LINE('toolu_f1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_f2'),
+      LANE_BASH_DONE_LINE('toolu_f2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_f3'),
+      LANE_BASH_DONE_LINE('toolu_f3'),
+      TRIAGE_LINE(),
+    ]);
+    const gitDir = join(cwd, spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim());
+    const fixFile = join(gitDir, 'sdd-review-fix-shown-pr-42');
+    writeFileSync(join(gitDir, 'sdd-review-count-pr-42'), `${headSha}:1\n`);
+    if (fixShown) writeFileSync(fixFile, `${fixShown === true ? headSha : fixShown}\n`);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    return { reason: JSON.parse(r.stdout).reason, fixFile, headSha };
+  }
+
+  it('delivers the full contract on the first FIX round of a PR', () => {
+    const { reason, fixFile, headSha } = atFixPhase();
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), headSha,
+      'the shown-marker is keyed to the PR and records the head that saw the contract');
+    assert.ok(reason.length > 500,
+      'a spent lane counter must not collapse the first delivery into the terse form');
+  });
+
+  it('stays terse for every later round of the same PR', () => {
+    const full = atFixPhase().reason;
+    const short = atFixPhase({ fixShown: true }).reason;
+    assert.ok(short.length < full.length / 2,
+      'later deliveries state the obligation, they do not restate the contract');
+  });
+
+  // The marker is keyed to the PR and read for existence only. Every fix
+  // commit moves the head, so a gate re-keyed to the recorded head would
+  // resurrect the full contract on every push of the round.
+  it('stays terse for a new head when the marker records an older one', () => {
+    const full = atFixPhase().reason;
+    const short = atFixPhase({ fixShown: 'ffffffffffffffffffffffffffffffffffffffff' }).reason;
+    assert.ok(short.length < full.length / 2,
+      'a head the marker has never seen still gets the reminder, not the contract');
+  });
+
+  // The counter path was built from the branch name. A branch with a slash in
+  // it made that a path through a directory that does not exist, the write
+  // failed, `|| true` swallowed it, and the full directive re-emitted on every
+  // turn for the entire round. Every branch this hook guards is a PR branch,
+  // and PR branches are exactly where slashes live.
+  it('persists its shown-marker on a branch whose name contains a slash', () => {
+    const { reason, fixFile, headSha } = atFixPhase({ branch: 'fix/with-slash' });
+    assert.equal(readFileSync(fixFile, 'utf-8').trim(), headSha,
+      'a slash in the branch name must not silently discard the marker');
+    assert.match(reason, /PR #42 @/,
+      'and the directive identifies the PR by number, not by branch');
+  });
+});
+
+// A transient gh failure mid-round used to be read as "no PR here" and exited
+// the hook silently, stranding a round whose lanes had already completed (PR
+// #827 round 22). The hook now caches the last successful resolution per
+// branch and falls back to it only while that PR's plan file shows a round in
+// flight. These rows drive the real hook twice: a healthy run primes the
+// cache, then gh goes down and the observable question is whether the round
+// still advances to its acknowledgement and FIX handoff.
+describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
+  const roundLines = ({ triage }) => [
+    PUSH_LINE('2026-05-03T12:00:00.000Z'),
+    LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_g1'),
+    LANE_BASH_DONE_LINE('toolu_g1'),
+    LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_g2'),
+    LANE_BASH_DONE_LINE('toolu_g2'),
+    LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_g3'),
+    LANE_BASH_DONE_LINE('toolu_g3'),
+    ...(triage ? [TRIAGE_LINE()] : []),
+  ];
+
+  // One healthy resolution, so the cache holds this branch's PR. The priming
+  // run itself ends at the delivery barrier, which is irrelevant here.
+  function primed({ plan = true } = {}) {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const gitDir = join(cwd, spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim());
+    if (plan) writeFileSync(join(gitDir, 'sdd-review-plan-pr-42'), `${headSha}\n`);
+    runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: false })),
+      binDir: fakeGh(cwd, ghReturning('OPEN', headSha)),
+    });
+    return { cwd, headSha };
+  }
+
+  const ghDown = (cwd) => fakeGh(cwd, 'echo "gh: transient network failure" >&2; exit 4');
+
+  it('drives the round from the cached identity when gh fails mid-round', () => {
+    const { cwd, headSha } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.match(out.reason, /FIX phase/,
+      'the round advances to its handoff instead of dying silently');
+    assert.equal(r.rawStatus, 2,
+      'and it arrives as feedback rather than under the client error template');
+    assert.equal(ackOf(cwd), headSha, 'the acknowledgement still lands');
+  });
+
+  it('stays fail-safe silent when gh fails with no cached identity', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'an idle branch keeps the old silence');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('neutralizes a cache from a superseded head', () => {
+    const { cwd } = primed();
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'newer'], { cwd });
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'a cache for a head this checkout moved past stays inert');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('does not resurrect a PR with no round in flight', () => {
+    const { cwd } = primed({ plan: false });
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: ghDown(cwd),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'a warm cache alone is not evidence a round is waiting');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('keeps the authoritative no-PR answer silent even with a warm cache', () => {
+    const { cwd } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: fakeGh(cwd, ghNoPR()),
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), '', 'the not-found answer means no PR, not a flake to bridge');
+    assert.equal(ackOf(cwd), '');
+  });
+
+  it('bridges a generic exit-1 API error, which gh does not mark not-found', () => {
+    const { cwd, headSha } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: fakeGh(cwd, 'echo "HTTP 502 from api.github.com" >&2; exit 1'),
+    });
+    assert.equal(r.status, 0);
+    assert.match(JSON.parse(r.stdout).reason, /FIX phase/,
+      'an exit-1 flake is a flake: the round still advances');
+    assert.equal(ackOf(cwd), headSha);
   });
 });
 
@@ -296,12 +572,13 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     AGENT_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_du1'),
     DONE_LINE('toolu_du1'),
   ];
-  const pretool = (cwd, t, toolName, agentType) =>
+  const pretool = (cwd, t, toolName, agentType, command) =>
     runHook(cwd, {
       event: 'PreToolUse',
       transcriptPath: t,
       toolName,
       agentType,
+      command,
       tmpDir: cwd,
       bypassFile: join(cwd, 'absent-bypass'),
     });
@@ -310,20 +587,19 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     const r = pretool(cwd, t, 'Edit');
-    assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes(TRIAGE_HEADER), 'directive carries the canonical header contract');
-    assert.equal(r.stdout, '');
-    assert.equal(pretool(cwd, t, 'Write').status, 2,
-      'Write carries no exemption while blocked');
-    assert.equal(pretool(cwd, t, 'AskUserQuestion').status, 2,
-      'questions cannot bypass a completed round awaiting its verdict table');
+    assertRefused(r, 'a mutating tool is refused while the round awaits its table');
+    assert.ok(denialOf(r).includes(TRIAGE_HEADER),
+      'the decision carries the canonical header contract');
+    assert.equal(r.stderr, '', 'a refusal is a decision, not an error stream');
+    assertRefused(pretool(cwd, t, 'Write'), 'Write carries no exemption while blocked');
+    assertRefused(pretool(cwd, t, 'AskUserQuestion'), 'questions cannot bypass a completed round awaiting its verdict table');
   });
 
   it('allows read-only tools during the blocked window', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
     for (const tool of ['Read', 'TaskOutput']) {
-      assert.equal(pretool(cwd, t, tool).status, 0, tool);
+      assertAllowed(pretool(cwd, t, tool), tool);
     }
   });
 
@@ -335,12 +611,214 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   it('does not gate a subagent on the main session review round', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    for (const tool of ['Write', 'Edit', 'Bash']) {
-      assert.equal(pretool(cwd, t, tool).status, 2,
-        `${tool} blocks the main agent in this state`);
-      assert.equal(pretool(cwd, t, tool, 'memory-capture').status, 0,
-        `${tool} is allowed for a subagent in the same state`);
+    for (const tool of ['Write', 'Edit']) {
+      assertRefused(pretool(cwd, t, tool), `${tool} blocks the main agent in this state`);
+      assertAllowed(pretool(cwd, t, tool, 'memory-capture'), `${tool} is allowed for a subagent in the same state`);
     }
+    // Bash is no longer blocked as a tool, only as a delivery, so the pairing
+    // has to carry a command to stay meaningful on both sides.
+    assertRefused(pretool(cwd, t, 'Bash', undefined, 'git push'), 'a delivery blocks the main agent in this state');
+    assertAllowed(pretool(cwd, t, 'Bash', 'memory-capture', 'git push'), 'the same delivery is allowed for a subagent in the same state');
+  });
+
+  // The window exists to stop the round being spoiled, not to stop the agent
+  // looking things up: judging a finding regularly needs to run something.
+  //
+  // Every refused case gets its OWN fixture on purpose. The gate carries a
+  // 5-strike breaker keyed on the completion line, so more than five refusals
+  // against one transcript make the sixth pass -- which silently turned a real
+  // refusal into an allow and cost a CI run to notice.
+  it('lets investigation through the blocked window', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    for (const tool of ['Grep', 'Glob']) {
+      assertAllowed(pretool(cwd, t, tool), `${tool} is read-only`);
+    }
+    for (const cmd of [
+      'diff a.json b.json | head -20',
+      'grep -n "git push" file',
+      'git status --porcelain',
+      'git log --oneline -5',
+      'gh run view 123 --log-failed',
+      'gh pr view 827 --json state',
+    ]) {
+      assertAllowed(pretool(cwd, t, 'Bash', undefined, cmd), cmd);
+    }
+  });
+
+  // Both callers refuse when the shared classifier will not load. Enforcement
+  // reads an absent parser as a transcript with no delivery in it, which is the
+  // one wrong answer that costs nothing to give and disables the whole gate.
+  // Every lib except the one under test, so a refusal cannot come from a
+  // different missing file. `withClassifier` is the control: same fixture, same
+  // command, classifier restored. Only the pair isolates the cause, because the
+  // gate's refusal message is the generic triage reminder and never names it.
+  const isolatedHook = (withClassifier) => {
+    const dir = tempDir('enforce-spawn-no-boundary-');
+    const hook = join(dir, 'enforce-review-spawn.sh');
+    writeFileSync(hook, readFileSync(HOOK, 'utf-8'));
+    chmodSync(hook, 0o755);
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    const libs = ['gh-pr-state.sh', 'lane-classifier.sh'];
+    if (withClassifier) libs.push('boundary-classifier.cjs');
+    for (const lib of libs) {
+      writeFileSync(join(dir, 'lib', lib), readFileSync(join(dirname(HOOK), 'lib', lib), 'utf-8'));
+    }
+    return hook;
+  };
+
+  it('refuses a Bash call only because the boundary classifier cannot load', () => {
+    const gateCall = (withClassifier) => {
+      const cwd = makeFixture();
+      const t = writeTranscript(cwd, completedRound());
+      return spawnSync('bash', [isolatedHook(withClassifier)], {
+        cwd,
+        input: JSON.stringify({
+          hook_event_name: 'PreToolUse',
+          transcript_path: t,
+          tool_name: 'Bash',
+          tool_input: { command: 'git log --oneline -5' },
+        }),
+        encoding: 'utf-8',
+        env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+      });
+    };
+    assertRefused(gateCall(false), 'an unloadable classifier is refused, not read as clean');
+    assertAllowed(gateCall(true), 'the same call passes once the classifier loads');
+  });
+
+  it('blocks the Stop path when the boundary classifier cannot load', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'a scan that could not run must not exit as "no candidate"');
+    assert.match(r.stderr, /boundary-classifier\.cjs/, 'the block names the file to restore');
+  });
+
+  it('does not block a Stop turn with nothing to classify when the classifier is missing', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 0, 'no git/gh activity means no candidate, classifier or not');
+  });
+
+  // The permitted error. A transcript that mentions git without running a
+  // delivery is refused while the classifier is unreadable, because the word
+  // test cannot tell the two apart and refusing is the safe direction. Nothing
+  // else pins this, so a later tightening could flip it to fail-open silently.
+  it('refuses a Stop turn that only mentions git when the classifier is missing', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Bash', id: 'toolu_m', input: { command: 'cat .git/config' } }],
+        },
+        timestamp: '2026-05-03T12:00:01.000Z',
+      }),
+    ]);
+    const r = spawnSync('bash', [isolatedHook(false)], {
+      cwd,
+      input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: t }),
+      encoding: 'utf-8',
+      env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+    });
+    assert.equal(r.status, 2, 'a git mention is refused, not read as nothing to classify');
+  });
+
+  // `grep` answers "no match" and "could not look" with 1 and 2, and the guard
+  // must not read the second as the first. Root reads every file regardless of
+  // mode, so a chmod fixture proves nothing there and the row is skipped rather
+  // than left to pass for the wrong reason; CI runners are unprivileged.
+  // Both classifier states, because nesting this test inside the classifier
+  // condition left the present-classifier path failing open while the comment
+  // above it claimed otherwise.
+  for (const withClassifier of [false, true]) {
+    it(`refuses a Stop turn whose transcript cannot be read (classifier ${withClassifier ? 'present' : 'missing'})`, (t) => {
+      if (process.getuid?.() === 0) return t.skip('root ignores file modes; fixture would be vacuous');
+      const cwd = makeFixture();
+      const transcript = writeTranscript(cwd, [PUSH_LINE()]);
+      chmodSync(transcript, 0o000);
+      const r = spawnSync('bash', [isolatedHook(withClassifier)], {
+        cwd,
+        input: JSON.stringify({ hook_event_name: 'Stop', transcript_path: transcript }),
+        encoding: 'utf-8',
+        env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
+      });
+      assert.equal(r.status, 2, 'an unreadable transcript is not "nothing to classify"');
+      // Names its own guard. Both guards exit 2, so a status-only assertion
+      // would stay green if the transcript check were deleted and the
+      // classifier check caught the case instead.
+      assert.match(r.stderr, /is unreadable, so a delivery/, 'the transcript guard refused, not the classifier one');
+    });
+  }
+
+  // A delivery reaches the shell wearing flags, an env assignment, a wrapper or
+  // an absolute path, or behind a shell keyword. Each of these was a live
+  // bypass in an earlier revision of this check, so each is pinned by name.
+  for (const cmd of [
+    'git push',
+    'git -C /repo push',
+    'git -c user.email=x commit -m y',
+    'gh pr create --base develop',
+    'gh -R o/r pr merge 827',
+    'cd /x && git push',
+    'GIT_SSH_COMMAND=x git push',
+    '/usr/bin/git push',
+    'env git push',
+    'sudo git push',
+    'time git commit -m x',
+    '( git push )',
+    'if true; then git push; fi',
+    'for i in 1; do git push; done',
+    'GH_TOKEN=x gh pr create',
+    'bash run-review-lane.sh --lane code-reviewer',
+    'if false; then :; else git push; fi',
+    '{ git push; }',
+    '! git push',
+    'env FOO=bar git push',
+    'sudo -u me git push',
+    'nice git push',
+    'timeout 60 git push',
+    'xargs git push',
+    // Shell wrappers. Every form above passes the delivery as a COMMAND, which
+    // the wrapper list handles; a shell passes it as a STRING, which nothing
+    // read until this row existed. `bash -c "git push"` reached the gate
+    // untouched, and the window this gate exists to hold was open the whole time.
+    'bash -c "git push origin main"',
+    "sh -c 'git push'",
+    'eval "git push"',
+    'zsh -c "gh pr merge 827"',
+    'bash -lc "git push"',
+    'sudo bash -c "git push"',
+    'bash -c "git commit -m x"',
+    'bash <<< "git push"',
+    'bash <<<"git push"',
+    'bash 0<<<"git push"',
+    'bash 3<<< "git push"',
+  ]) {
+    it(`refuses a delivery in the blocked window: ${cmd}`, () => {
+      const cwd = makeFixture();
+      const t = writeTranscript(cwd, completedRound());
+      assertRefused(pretool(cwd, t, 'Bash', undefined, cmd), cmd);
+    });
+  }
+
+  it('refuses a Bash call whose command cannot be read', () => {
+    const cwd = makeFixture();
+    const t = writeTranscript(cwd, completedRound());
+    // "No delivery verb seen" and "could not look" are different answers.
+    assertRefused(pretool(cwd, t, 'Bash'));
   });
 
   it('scopes out every subagent, not one by name', () => {
@@ -348,7 +826,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     const t = writeTranscript(cwd, completedRound());
     for (const agent of ['memory-capture', 'vault-extract', 'Explore', 'general-purpose']) {
       const r = pretool(cwd, t, 'Write', agent);
-      assert.equal(r.status, 0, agent);
+      assertAllowed(r, agent);
       assert.equal(r.stderr, '', `${agent} receives no directive`);
     }
   });
@@ -374,25 +852,25 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
   it('allows once a finding triage table is published after the last completion', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('accepts a fully clean table without synthetic lane rows', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound(), CLEAN_TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('allows while any lane is still in flight', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound().slice(0, 5));
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('does not treat a failed lane as a completed round', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [...completedRound().slice(0, 5), FAILED_LINE('toolu_du1')]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('demands a fresh table when a lane re-runs after the previous round was triaged', () => {
@@ -403,20 +881,20 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       AGENT_LINE('spec-reviewer', '2026-05-03T12:10:00.000Z', 'toolu_sr2'),
       DONE_LINE('toolu_sr2'),
     ]);
-    assert.equal(pretool(cwd, t, 'Bash').status, 2);
+    assertRefused(pretool(cwd, t, 'Bash'));
   });
 
   it('re-blocks after a cleared round when a new completion lands', () => {
     const cwd = makeFixture();
     const cleared = [...completedRound(), TRIAGE_LINE()];
     const t = writeTranscript(cwd, cleared);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
     writeTranscript(cwd, [
       ...cleared,
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:20:00.000Z', 'toolu_b9'),
       LANE_BASH_DONE_LINE('toolu_b9'),
     ]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+    assertRefused(pretool(cwd, t, 'Edit'));
   });
 
   it('covers the headless Bash lane transport', () => {
@@ -425,13 +903,13 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_b1'),
       LANE_BASH_DONE_LINE('toolu_b1'),
     ]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2);
+    assertRefused(pretool(cwd, t, 'Edit'));
   });
 
   it('exits 0 for a transcript with no review lanes', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, [PUSH_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
   });
 
   it('honors the bypass sentinel without consuming it', () => {
@@ -457,13 +935,12 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       message: { content: [{ type: 'text', text: 'z'.repeat(2500) }] },
     });
     const t = writeTranscript(cwd, [filler('a'), ...completedRound(), TRIAGE_LINE()]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0);
+    assertAllowed(pretool(cwd, t, 'Edit'));
     // History rewrite: different prefix, completions end BEFORE the cached
     // offset, trailing junk keeps the file at least as large - the appended-
     // bytes count alone would see nothing new and fail open.
     writeTranscript(cwd, [filler('b'), ...completedRound(), junk]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'prefix fingerprint mismatch must force the full pass');
+    assertRefused(pretool(cwd, t, 'Edit'), 'prefix fingerprint mismatch must force the full pass');
   });
 
   it('treats a legacy or malformed cache entry as no cache', () => {
@@ -476,8 +953,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     // The one-field malformed shape keeps its own coverage alongside.
     for (const entry of ['3\n', `1:${statSync(t).size}\n`]) {
       writeFileSync(join(cwd, `sdd-pretool-triage-clear-${key}`), entry);
-      assert.equal(pretool(cwd, t, 'Edit').status, 2,
-        `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
+      assertRefused(pretool(cwd, t, 'Edit'), `entry ${JSON.stringify(entry)} must not be honoured as a cleared round`);
     }
   });
 
@@ -499,8 +975,7 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       },
     });
     const t = writeTranscript(cwd, [...completedRound(), toolOnlyTable]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 2,
-      'table text inside a tool_use input must not clear the checkpoint');
+    assertRefused(pretool(cwd, t, 'Edit'), 'table text inside a tool_use input must not clear the checkpoint');
   });
 
   it('accepts a table sharing its message with the first fix tool call', () => {
@@ -518,16 +993,18 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
       },
     });
     const t = writeTranscript(cwd, [...completedRound(), tableWithTool]);
-    assert.equal(pretool(cwd, t, 'Edit').status, 0,
-      'a tool-free message ends the turn, so the table must count alongside fixes');
+    assertAllowed(pretool(cwd, t, 'Edit'), 'a tool-free message ends the turn, so the table must count alongside fixes');
   });
 
   it('gives up after five refused calls for the same round, then stays released', () => {
     const cwd = makeFixture();
     const t = writeTranscript(cwd, completedRound());
-    const statuses = [];
-    for (let index = 0; index < 7; index += 1) statuses.push(pretool(cwd, t, 'Edit').status);
-    assert.deepEqual(statuses, [2, 2, 2, 2, 2, 0, 0]);
+    const decisions = [];
+    for (let index = 0; index < 7; index += 1) {
+      decisions.push(denialOf(pretool(cwd, t, 'Edit')) === null ? 'allow' : 'deny');
+    }
+    assert.deepEqual(decisions, ['deny', 'deny', 'deny', 'deny', 'deny', 'allow', 'allow'],
+      'five refusals for the same round, then released and staying released');
   });
 
   it('never writes the Stop-side acknowledgement from a PreToolUse pass', () => {
@@ -668,7 +1145,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
   });
 
@@ -681,7 +1158,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [COMMAND_LINE('git status --short')]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
   });
@@ -694,7 +1171,8 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('exits 0 silently when gh confirms PR HEAD matches LAST_ACK (no @{u})', () => {
@@ -726,7 +1204,8 @@ describe('enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (
     for (let i = 1; i <= 5; i++) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0, `run ${i} exit code`);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `run ${i} must block`);
+      assert.equal(r.rawStatus, 2, `run ${i} must block`);
+      assert.match(r.stdout, /run code-reviewer/, `run ${i} must demand the lane`);
     }
     // Sixth run: counter exceeded, hook gives up and exits silently
     const r6 = runHook(cwd, { transcriptPath: t, binDir });
@@ -749,8 +1228,8 @@ describe('enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (
     binDir = fakeGh(cwd, ghReturning('OPEN', 'secondsha'));
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'new PR HEAD must reset the strike counter');
+    assert.equal(r.rawStatus, 2, 'new PR HEAD must reset the strike counter');
+    assert.match(r.stdout, /run code-reviewer/, 'and the reset round demands its lanes');
   });
 });
 
@@ -762,7 +1241,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     // Must name BOTH missing agents in the reason — the directive
     // tells the assistant exactly what to spawn
     assert.match(r.stdout, /code-reviewer/);
@@ -779,7 +1258,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /spec-reviewer/,
       'the missing peer lane must still be demanded while code-reviewer is in flight');
     assert.match(r.stdout, /run_in_background: true/,
@@ -800,7 +1279,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/,
       'an uncompleted in-flight lane older than the recency bound must be demanded again');
     assert.match(r.stdout, /spec-reviewer/,
@@ -863,7 +1342,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
     assert.match(r.stdout, /doc-updater/);
@@ -1058,8 +1537,6 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'a fix push is the next boundary, not a new decision to put to the user');
     assert.match(reason, /terminal CI_RESULT/,
       'and it waits out this head\'s CI so the in-flight run is not discarded');
-    assert.match(r.stdout, /do not merge/i,
-      'automatic fix delivery must never become automatic merge');
   });
 
   // The retroactive scan recovers checkpoints for heads whose live enforcement
@@ -1115,6 +1592,12 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     assert.match(r.stdout, /acknowledgement could not be persisted/);
     assert.doesNotMatch(r.stdout, /FIX phase/,
       'a local-only fix cannot start when the next incremental base would be lost');
+    // This fixture points ACK_FILE at a directory, so the failing write is the
+    // one that used to leave "Is a directory" on stderr AHEAD of the directive
+    // -- the channel the model is woken on. The helper's /m match would absorb
+    // such a prefix silently, so the first line is asserted directly here.
+    assert.match(r.stderr.trim().split('\n')[0], /^PR #\d+ @/,
+      'the directive must be the first line on the rewake channel');
   });
 
   // A table from the PREVIOUS round sits earlier in the transcript. Accepting it
@@ -1341,8 +1824,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       ]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      assert.equal(r.rawStatus, 2,
         'the runner must be in command position, not quoted inside another command');
+      assert.match(r.stdout, /run code-reviewer/, 'so the lane is still demanded');
       assert.notEqual(ackOf(cwd), 'impostersha');
     });
   }
@@ -1473,7 +1957,7 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     ]);
     const ended = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(ended.status, 0);
-    assert.match(ended.stdout, /"decision"\s*:\s*"block"/,
+    assert.equal(ended.rawStatus, 2,
       'completed pre-push agents must not count for the newer head');
     assert.match(ended.stdout, /code-reviewer/);
     assert.match(ended.stdout, /spec-reviewer/);
@@ -1526,7 +2010,7 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     // Real chained push → enforcement fires (no agents spawned → block)
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
   });
 });
 
@@ -1583,7 +2067,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [ctxExecPush()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+    assert.equal(r.rawStatus, 2,
       'ctx_execute shell git push must trigger PUSH_LINE detection');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
@@ -1596,8 +2080,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [ctxBatchPush()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_batch_execute git push command must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_batch_execute git push command must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('does NOT classify ctx_execute(language=javascript) with code mentioning git push', () => {
@@ -1632,7 +2116,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('detects chained pipelines inside any ctx_batch_execute command entry', () => {
@@ -1647,7 +2132,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   // REQ-AGENT-021 AC7: gh pr merge must be recognised as a PUSH_LINE
@@ -1681,8 +2167,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [bashGhMerge()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'Bash gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'Bash gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
@@ -1694,8 +2180,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
@@ -1709,8 +2195,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('detects chained gh pr merge inside ctx_execute shell code', () => {
@@ -1725,7 +2211,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('blocks on Bash gh pr edit protected-base retargets across flag forms', () => {
@@ -1740,7 +2227,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
+      assert.equal(r.rawStatus, 2, command);
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
   });
 
@@ -1755,7 +2243,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
+      assert.equal(r.rawStatus, 2, command);
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
   });
 
@@ -1773,7 +2262,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [line]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     }
   });
 });
@@ -1794,7 +2283,7 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
         binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
       });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     });
   }
 
@@ -1828,7 +2317,7 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
         binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
       });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     });
   }
 });
@@ -1883,8 +2372,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
+    assert.equal(r.rawStatus, 2, 'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('proceeds to enforcement when .init-triage.md is missing entirely', () => {
@@ -1895,7 +2384,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('proceeds to enforcement when transition: false even with open triage items', () => {
@@ -1908,7 +2398,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 });
 
@@ -1923,7 +2414,8 @@ describe('enforce-review-spawn.sh - 5-strike circuit breaker GIVEUP state', () =
     for (let i = 0; i < 5; i++) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `strike ${i + 1} should block`);
+      assert.equal(r.rawStatus, 2, `strike ${i + 1} should block`);
+      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     }
     // Sixth call: counter must have flipped to GIVEUP, exit 0 silently
     const r6 = runHook(cwd, { transcriptPath: t, binDir });
@@ -1987,9 +2479,8 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
-    assert.match(r.stdout, /code-reviewer/);
+    assert.equal(r.rawStatus, 2, 'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
     assert.match(r.stdout, /spec-reviewer/);
   });
 
@@ -2004,8 +2495,8 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'must derive repo from `cd <path>` command prefix and enforce');
+    assert.equal(r.rawStatus, 2, 'must derive repo from `cd <path>` command prefix and enforce');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('exits 0 silently from non-repo CWD when PUSH_LINE has no derivable repo hint', () => {
@@ -2090,8 +2581,8 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
+    assert.equal(r.rawStatus, 2, 'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 
   it('M1: cd into a path with spaces (double-quoted) parses correctly', () => {
@@ -2100,7 +2591,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     // envelope cwd (or eventually fail-safe exit 0). Post-fix the
     // awk parser handles double-quoted paths.
     // Use a path that genuinely contains a space character.
-    const parent = mkdtempSync(join(tmpdir(), 'enforce-spawn-spaces-'));
+    const parent = tempDir('enforce-spawn-spaces-');
     const repoDir = join(parent, 'dir with spaces');
     mkdirSync(repoDir);
     spawnSync('git', ['init', '-q'], { cwd: repoDir });
@@ -2112,8 +2603,8 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const t = writeTranscript(repoDir, [PUSH_LINE_WITH_QUOTED_CD(repoDir)]);
     const r = runHook(parent, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'double-quoted cd path with spaces must parse correctly and enforce');
+    assert.equal(r.rawStatus, 2, 'double-quoted cd path with spaces must parse correctly and enforce');
+    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
   });
 });
 
@@ -2126,7 +2617,7 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
 function makeLaneFixture() {
   // Two real commits in a git repo so the diff between them is non-empty
   // and classification can act on real paths. Returns { cwd, baseSha }.
-  const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-lanes-'));
+  const cwd = tempDir('enforce-spawn-lanes-');
   spawnSync('git', ['init', '-q'], { cwd });
   spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd });
@@ -2178,7 +2669,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /doc-updater/);
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'docs-only push must NOT demand code-reviewer');
@@ -2357,7 +2848,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       writeFileSync(join(cwd, 'documentation/architecture.md'), 'changed\n');
     });
 
-    const isolatedDir = mkdtempSync(join(tmpdir(), 'enforce-spawn-no-classifier-'));
+    const isolatedDir = tempDir('enforce-spawn-no-classifier-');
     const isolatedHook = join(isolatedDir, 'enforce-review-spawn.sh');
     const isolatedLib = join(isolatedDir, 'lib');
     mkdirSync(isolatedLib, { recursive: true });
@@ -2368,6 +2859,10 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     // install where the classifier file failed to deploy.
     const ghPrStateSrc = join(dirname(HOOK), 'lib/gh-pr-state.sh');
     writeFileSync(join(isolatedLib, 'gh-pr-state.sh'), readFileSync(ghPrStateSrc, 'utf-8'));
+    // The boundary classifier is a different lib with its own fail-closed row
+    // below; omitting it here would make this fixture prove that instead.
+    const classifierSrc = join(dirname(HOOK), 'lib/boundary-classifier.cjs');
+    writeFileSync(join(isolatedLib, 'boundary-classifier.cjs'), readFileSync(classifierSrc, 'utf-8'));
 
     const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
     const t = writeTranscript(cwd, [PUSH_LINE()]);
@@ -2379,14 +2874,17 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       env,
     });
 
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+    // This row spawns the hook directly rather than through runHook, so it
+    // reads the delivery channel as the client does: exit 2, directive on
+    // stderr, nothing on stdout.
+    assert.equal(r.status, 2,
       'fail-closed: a missing lane-classifier.sh must still block, not silently exit 0');
-    assert.match(r.stdout, /code-reviewer/,
+    assert.equal(r.stdout.trim(), '', 'a directive on stdout would render as "hook error"');
+    assert.match(r.stderr, /code-reviewer/,
       'fail-closed fallback must demand code-reviewer (all-three default)');
-    assert.match(r.stdout, /spec-reviewer/,
+    assert.match(r.stderr, /spec-reviewer/,
       'fail-closed fallback must demand spec-reviewer');
-    assert.match(r.stdout, /doc-updater/,
+    assert.match(r.stderr, /doc-updater/,
       'fail-closed fallback must demand doc-updater');
   });
 });

@@ -282,6 +282,15 @@ const PI_RUNTIME_REPLACEMENTS = [
   ['spawn with `model: "sonnet"`', 'spawn with the runtime default model'],
   ['must include `model: "sonnet"`', 'must use the runtime default model'],
   ['never escalate to Opus', 'never escalate to a larger model'],
+  // Pi has no model names anywhere in its runtime -- it selects reasoning effort
+  // and nothing else -- and REQ-AGENT-007 forbids Claude model names in Pi
+  // markdown. The Claude text names the tier because a Claude reader can act on
+  // it; the Pi text says the same thing in the only vocabulary Pi has.
+  [
+    '`run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`.',
+    'The capture runs at medium reasoning effort, overridable with `CODEFLARE_MEMORY_EFFORT`.',
+  ],
+
   ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
   ['`EnterPlanMode`', 'the Pi `Plan` agent'],
   ['Task(subagent_type', 'subagent(subagent_type'],

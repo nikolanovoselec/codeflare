@@ -885,3 +885,54 @@ exit 99
       'a single authoritative query: ordinary Git activity must never pay the retry wait');
   });
 });
+
+// The directive this hook emits is model-facing only, and everything it starts
+// runs in the background, so without a systemMessage the user watches an idle
+// session while three lanes and a CI monitor spin up. The notice is generated
+// from the same counts the directive was built from, which is what these rows
+// pin: a fixed sentence would keep passing a substring match while describing a
+// round that is not the one running.
+describe('git-push-review-reminder.sh - user-visible round notice', () => {
+  it('announces the lane count, the lanes, and the range the lanes were given', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage, /Review round starting for PR #42/);
+    assert.match(out.systemMessage, /3 lanes/,
+      'the count must come from the classifier, not a fixed sentence');
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      assert.ok(out.systemMessage.includes(lane), `the notice must name ${lane}`);
+    }
+    assert.match(out.systemMessage, /CI monitor/);
+    assert.match(out.systemMessage, /full PR diff vs main/,
+      'an unacknowledged head is reviewed whole, and the notice must say so');
+  });
+
+  it('shrinks the notice to the lanes actually required', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'documentation/notes.md', '# notes\n', 'docs: notes');
+    const r = runHook(cwd, 'git push origin develop', fakeGhWithHead(cwd, { headSha }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage, /1 lane \(doc-updater\)/,
+      'a doc-only push runs one lane; announcing three would describe a different round');
+    assert.doesNotMatch(out.systemMessage, /lanes/,
+      'the noun must agree with the count');
+    assert.match(out.systemMessage, new RegExp(`incremental since ${ackSha.slice(0, 7)}`),
+      'the notice must name the acknowledged base the lanes actually diff against');
+  });
+
+  it('stays silent on the consent path, which asks the user directly', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const r = runHook(cwd, 'git switch review', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const out = JSON.parse(r.stdout);
+    assert.match(out.hookSpecificOutput.additionalContext, /FIRST use AskUserQuestion/,
+      'the fixture must still be on the consent path for this row to mean anything');
+    assert.equal(out.systemMessage, undefined,
+      'an AskUserQuestion is louder than a notice; two prompts for one event is noise');
+  });
+});

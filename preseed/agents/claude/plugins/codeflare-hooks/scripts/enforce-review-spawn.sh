@@ -66,6 +66,16 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # Placed before any sentinel handling so a subagent can never consume the
 # one-shot bypass the main session is owed.
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null)
+# Both the Stop path's transcript scan and the PreToolUse gate classify shell
+# text with the same parser. Absolute, because `require` reads a bare relative
+# specifier as a package name: invoked as `bash path/to/enforce-review-spawn.sh`
+# the relative form throws MODULE_NOT_FOUND, which is the one input that makes
+# the scan look like a transcript with nothing in it.
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || case "$0" in
+  /*) SCRIPT_DIR="$(dirname "$0")" ;;
+  *) SCRIPT_DIR="$PWD/$(dirname "$0")" ;;
+esac
+CLASSIFIER_LIB="$SCRIPT_DIR/lib/boundary-classifier.cjs"
 [ -n "$AGENT_TYPE" ] && exit 0
 
 case "$HOOK_EVENT" in
@@ -101,7 +111,50 @@ PRETOOL_COMPLETION_COUNT=""
 if [ -n "$PRETOOL_MODE" ]; then
   TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
   case "$TOOL_NAME" in
-    Read|TaskOutput|TaskGet|TaskList) exit 0 ;;
+    Read|TaskOutput|TaskGet|TaskList|Grep|Glob) exit 0 ;;
+  esac
+  # Investigation is what this window exists for. Judging a finding's validity
+  # routinely needs more than a file read -- a reviewer's empirical claim can
+  # only be settled by running the thing -- and an allowlist of Read alone
+  # forced a choice between publishing an unverified table and defying the
+  # gate. It also refused unrelated read-only work. The window should deny the
+  # state changes that would spoil the round (a head minted or delivered before
+  # triage, a lane relaunched) and let inspection through, which is the same
+  # correction the capture hard block needed: deny what matters, not everything.
+  #
+  # The question is not "does this text contain a delivery verb" but "does this
+  # shell run one", and only a shell-aware parse answers it. Three consecutive
+  # regex revisions each closed the bypasses one review report named and left
+  # the next set open, so the check now calls lib/boundary-classifier.cjs -- the
+  # same parser the Stop path uses -- which tracks command position through
+  # quoting, substitution, heredocs, env assignments, wrappers and their option
+  # values, and paths. `grep "git push" file` is not a delivery to it;
+  # `sudo -u me /usr/bin/git push` is.
+  #
+  # `git commit` counts here and not on the Stop path: a commit minted mid-window
+  # becomes a head the round never covered.
+  case "$TOOL_NAME" in
+    Bash|mcp__*ctx_execute|mcp__*ctx_execute_file|mcp__*ctx_batch_execute)
+      PRETOOL_CMD=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_input.code // "", ([.tool_input.commands[]?.command // ""] | join("\n"))] | join("\n")' 2>/dev/null) || PRETOOL_CMD=""
+      # Fail closed on an unreadable payload. "No delivery verb seen" and "could
+      # not look" are different answers, and collapsing them into allow is how a
+      # malformed envelope would walk a push straight through the gate.
+      if [ -n "$PRETOOL_CMD" ]; then
+        case "$PRETOOL_CMD" in
+          *run-review-lane.sh*) ;;
+          *)
+            PRETOOL_VERDICT=$(printf '%s' "$PRETOOL_CMD" | node -e '
+              const { boundaryOf } = require(process.argv[1]);
+              const event = boundaryOf(require("node:fs").readFileSync(0, "utf8"), { commit: true });
+              process.stdout.write(event && event !== "-" ? "deliver" : "allow");
+            ' "$CLASSIFIER_LIB" 2>/dev/null) || PRETOOL_VERDICT=""
+            # An empty verdict means the classifier could not run, not that the
+            # command is clean. Refuse, same as an unreadable payload above.
+            [ "$PRETOOL_VERDICT" = "allow" ] && exit 0
+            ;;
+        esac
+      fi
+      ;;
   esac
   [ -f "${REVIEW_BYPASS_FILE:-/tmp/review-bypass}" ] && exit 0
   # Fingerprint cache: the gate's answer can only flip to "block" when a new
@@ -152,7 +205,7 @@ if [ -n "$PRETOOL_MODE" ]; then
     PRETOOL_NEW=$(tail -c +$((PRETOOL_CACHED_OFFSET + 1)) "$TRANSCRIPT" 2>/dev/null | grep -cF 'completed</status>')
     PRETOOL_COMPLETION_COUNT=$((PRETOOL_CACHED_COUNT + PRETOOL_NEW))
     if [ "$PRETOOL_NEW" -eq 0 ] 2>/dev/null; then
-      printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null || true
+      printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" 2>/dev/null > "$PRETOOL_CLEAR_FILE" || true
       exit 0
     fi
   else
@@ -224,145 +277,9 @@ if [ -z "$PRETOOL_MODE" ]; then
 # unacknowledged PR head.
 # ---------------------------------------------------------------------------
 transcript_scan() {
-  node - "$TRANSCRIPT" <<'NODE'
+  node - "$TRANSCRIPT" "$CLASSIFIER_LIB" <<'NODE'
 const fs = require('node:fs');
-const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
-const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env']);
-// Boundary classification mirrors Pi's classifyReviewBoundaryCommand
-// (preseed/agents/pi/extensions/review-helpers.ts) and reuses its global-option
-// sets from guard-helpers.ts verbatim. Any git/gh in command position is still
-// recognised; the SUBCOMMAND is what says a delivery boundary happened, and
-// Layer 2 (`gh pr view` below) remains the authority on whether that boundary is
-// an eligible, open, unacknowledged PR head.
-const takesValue = {
-  git: new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix']),
-  gh: new Set(['-R', '--repo', '--hostname', '--config']),
-};
-function boundaryEvent(executable, rest) {
-  let index = 0;
-  while (index < rest.length) {
-    const value = rest[index] ?? '';
-    if (value === '--') { index++; break; }
-    if (!value.startsWith('-')) break;
-    if (takesValue[executable].has(value) && !value.includes('=')) index++;
-    index++;
-  }
-  const args = rest.slice(index);
-  if (executable === 'git' && args[0] === 'push') return 'push';
-  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) return args[1];
-  return '';
-}
-function heredocDeclarations(line) {
-  const declarations = [];
-  let quote = '';
-  for (let index = 0; index < line.length; index++) {
-    const char = line[index] || '';
-    if (quote) {
-      if (char === '\\' && quote === '"') index++;
-      else if (char === quote) quote = '';
-      continue;
-    }
-    if (char === "'" || char === '"') { quote = char; continue; }
-    if (char === '\\') { index++; continue; }
-    if (char !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
-    let cursor = index + 2;
-    const stripTabs = line[cursor] === '-';
-    if (stripTabs) cursor++;
-    while (line[cursor] === ' ' || line[cursor] === '\t') cursor++;
-    let delimiter = '', delimiterQuote = '';
-    while (cursor < line.length) {
-      const token = line[cursor] || '';
-      if (delimiterQuote) {
-        if (token === delimiterQuote) delimiterQuote = '';
-        else if (token === '\\' && delimiterQuote === '"' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
-        else delimiter += token;
-      } else if (token === "'" || token === '"') delimiterQuote = token;
-      else if (token === '\\' && cursor + 1 < line.length) delimiter += line[++cursor] || '';
-      else if (/\s/.test(token) || ';&|<>'.includes(token)) break;
-      else delimiter += token;
-      cursor++;
-    }
-    if (delimiter) declarations.push({ delimiter, stripTabs });
-    index = cursor - 1;
-  }
-  return declarations;
-}
-function stripHeredocs(text) {
-  const out = [], pending = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (pending.length) {
-      const active = pending[0];
-      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
-      if (candidate === active.delimiter) pending.shift();
-      continue;
-    }
-    out.push(line);
-    pending.push(...heredocDeclarations(line));
-  }
-  return out.join('\n');
-}
-// Returns '' when the text runs no git/gh at all, '-' when it does but none is a
-// delivery subcommand, and the event name otherwise. Candidacy stays broad on
-// purpose: enforcement triggers on any git/gh activity, which is the contract
-// the structural-boundary tests pin. Only the coverage window narrows.
-function boundaryOf(text) {
-  let candidate = false, found = '';
-  function scan(source) {
-    let word = '', command = true, prefix = false;
-    // Set once git/gh is seen in command position; `rest` collects that simple
-    // command's remaining words so the subcommand can be read at its end.
-    let tool = '', rest = [];
-    const decide = () => {
-      if (tool) { const event = boundaryEvent(tool, rest); if (event) found = event; }
-      tool = ''; rest = [];
-    };
-    const finish = () => {
-      if (!word) return;
-      const value = word; word = '';
-      if (tool) { rest.push(value); return; }
-      if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
-      if (value === 'git' || value === 'gh') { candidate = true; tool = value; command = false; return; }
-      if (prefix && value.startsWith('-')) return;
-      prefix = prefixes.has(value); command = prefix;
-    };
-    const boundary = () => { finish(); decide(); command = true; prefix = false; };
-    function substitution(start) {
-      let depth = 1, quote = '', escaped = false;
-      for (let i = start; i < source.length; i++) {
-        const c = source[i];
-        if (escaped) { escaped = false; continue; }
-        if (c === '\\' && quote !== "'") { escaped = true; continue; }
-        if (quote) { if (c === quote) quote = ''; continue; }
-        if (c === "'" || c === '"') { quote = c; continue; }
-        if (c === '(') depth++;
-        else if (c === ')' && --depth === 0) { scan(source.slice(start, i)); return i; }
-      }
-      return source.length;
-    }
-    for (let i = 0; i < source.length && !found; i++) {
-      const c = source[i];
-      if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
-      if (c === '"') {
-        for (i++; i < source.length && source[i] !== '"'; i++) {
-          if (source[i] === '\\') word += source[++i] || '';
-          else if (source[i] === '$' && source[i + 1] === '(') i = substitution(i + 2);
-          else if (source[i] === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; }
-          else word += source[i];
-        }
-        continue;
-      }
-      if (c === '\\') { word += source[++i] || ''; continue; }
-      if (c === '$' && source[i + 1] === '(') { i = substitution(i + 2); continue; }
-      if (c === '`') { const end = source.indexOf('`', i + 1); if (end < 0) break; scan(source.slice(i + 1, end)); i = end; continue; }
-      if (/\s/.test(c) || ';&|(){}'.includes(c)) { finish(); if (';&|(){}\n\r'.includes(c)) boundary(); continue; }
-      word += c;
-    }
-    finish();
-    decide();
-  }
-  scan(stripHeredocs(text));
-  return candidate ? (found || '-') : '';
-}
+const { boundaryOf } = require(process.argv[3]);
 fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
   let entry; try { entry = JSON.parse(raw); } catch { return; }
   for (const call of entry?.message?.content?.filter?.((part) => part?.type === 'tool_use') || []) {
@@ -387,6 +304,30 @@ NODE
 # the same output. Enforcement triggers on any git/gh activity, which is the
 # long-standing contract; the coverage window narrows to a real delivery so a
 # read-only call cannot move it past a round's own lane spawns.
+# Two ways this scan can answer "no delivery" without having looked, and each
+# gets its own guard because each is a separate failure. `transcript_scan`
+# swallows stderr, so either one leaves PUSH_LINE empty and the line below exits
+# as "no candidate", silently disabling review enforcement altogether.
+#
+# A transcript we cannot read might carry anything, including a delivery. This
+# runs first so the word test underneath only ever sees a readable file, which
+# is what makes that test's exit status trustworthy: `grep` reports "no match"
+# and "could not look" as 1 and 2, and a bare `&&` cannot tell them apart.
+if [ ! -r "$TRANSCRIPT" ]; then
+  printf '%s\n' "Review enforcement cannot run: $TRANSCRIPT is unreadable, so a delivery in it cannot be ruled out." >&2
+  exit 2
+fi
+# An absent classifier, on a transcript that mentions git or gh at all. A turn
+# with nothing to classify has no candidate whatever state the classifier is in,
+# so refusing it would lock the session out over a plugin it never reaches for,
+# against this file's own fail-safe contract. The word test is deliberately
+# cruder than the parser it stands in for: it decides whether to refuse, never
+# whether to admit, so its only error is refusing a turn that merely talks
+# about git.
+if [ ! -r "$CLASSIFIER_LIB" ] && grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "$TRANSCRIPT" 2>/dev/null; then
+  printf '%s\n' "Review enforcement cannot run: $CLASSIFIER_LIB is missing or unreadable. Restore the codeflare-hooks plugin before pushing." >&2
+  exit 2
+fi
 TRANSCRIPT_SCAN=$(transcript_scan 2>/dev/null)
 candidate_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF { print $1 }'; }
 delivery_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF && $2 != "-" { print $1 }'; }
@@ -514,8 +455,42 @@ GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 CURRENT=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
 LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
-. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
-PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
+. "$SCRIPT_DIR/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+# A transient gh failure must not strand a live round silently: the demand,
+# acknowledgement and FIX machinery below is the only thing that tells the
+# session a round is even waiting, and round 22 on PR #827 died at exactly
+# this line while three lanes and a CI monitor were hammering the same API.
+# Cache the last successful answer per branch and fall back to it, but only
+# while a round for that PR is actually in flight (its plan file exists, which
+# git-push-review-reminder.sh writes when it demands the lanes): an idle
+# branch keeps today's fail-safe silence, and a stale cache self-neutralizes
+# on the LOCAL_HEAD equality gate below the parse.
+PRINFO_CACHE="$GIT_DIR/sdd-review-prinfo-cache"
+if PR_INFO=$(gh_pr_state "$CURRENT"); then
+  # Compact before caching: the restore path reads one line, so a gh that
+  # ever pretty-prints would otherwise cache a fragment. jq failing leaves
+  # the raw answer, which at worst dead-ends the cache, never corrupts it.
+  COMPACT_INFO=$(printf '%s' "$PR_INFO" | jq -c . 2>/dev/null) && PR_INFO="$COMPACT_INFO"
+  printf '%s\t%s\n' "$CURRENT" "$PR_INFO" 2>/dev/null > "$PRINFO_CACHE" || true
+else
+  GH_RC=$?
+  # Exit 1 is gh's authoritative "no PR for this branch" answer, not a flake
+  # (lib/gh-pr-state.sh reads gh's stderr to guarantee exactly that, remapping
+  # generic exit-1 errors to 3): bridging it would resurrect a deleted PR from
+  # a stale OPEN cache. Only genuinely transient failures reach the fallback.
+  [ "$GH_RC" != 1 ] || exit 0
+  PR_INFO=""
+  if [ -f "$PRINFO_CACHE" ]; then
+    IFS="$(printf '\t')" read -r CACHED_BRANCH CACHED_INFO < "$PRINFO_CACHE"
+    CACHED_PR=$(printf '%s' "$CACHED_INFO" | jq -r '.number // empty' 2>/dev/null)
+    if [ "$CACHED_BRANCH" = "$CURRENT" ] \
+       && printf '%s' "$CACHED_PR" | grep -Eq '^[0-9]+$' \
+       && [ -f "$GIT_DIR/sdd-review-plan-pr-$CACHED_PR" ]; then
+      PR_INFO="$CACHED_INFO"
+    fi
+  fi
+  [ -n "$PR_INFO" ] || exit 0
+fi
 PR_STATE=$(printf '%s' "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(printf '%s' "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 BASE_REF=$(printf '%s' "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
@@ -543,7 +518,7 @@ esac
 if [ "$PR_STATE" != "OPEN" ]; then
   if [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ] \
      && [ "$(cat "$CLOSED_NOTICE_FILE" 2>/dev/null)" != "$CURRENT_PR_HEAD" ]; then
-    printf '%s\n' "$CURRENT_PR_HEAD" > "$CLOSED_NOTICE_FILE" 2>/dev/null || true
+    printf '%s\n' "$CURRENT_PR_HEAD" 2>/dev/null > "$CLOSED_NOTICE_FILE" || true
     CLOSED_NOTICE="PR review - acknowledgement missing
 Head: $CURRENT_PR_HEAD
 PR state: $PR_STATE
@@ -560,7 +535,7 @@ fi
 # open, unacknowledged PR head. The path is overridable for hermetic tests.
 BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
 if [ -f "$BYPASS_FILE" ]; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || exit 0
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || exit 0
   rm -f "$BYPASS_FILE" 2>/dev/null || true
   exit 0
 fi
@@ -840,7 +815,7 @@ triage_published_after_line() {
 if [ -n "$PRETOOL_MODE" ]; then
   pretool_allow() {
     [ -n "$PRETOOL_CLEAR_FILE" ] \
-      && printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" > "$PRETOOL_CLEAR_FILE" 2>/dev/null
+      && printf '%s:%s:%s\n' "$PRETOOL_COMPLETION_COUNT" "$PRETOOL_WRITE_OFFSET" "$PRETOOL_PREFIX_CK" 2>/dev/null > "$PRETOOL_CLEAR_FILE"
     exit 0
   }
   PRETOOL_LAST_COMPLETION=0
@@ -870,7 +845,7 @@ if [ -n "$PRETOOL_MODE" ]; then
   # An unwritable counter means the -gt 5 escape can never fire, which is the
   # permanent wedge the breaker exists to prevent - so a failed write fails
   # open, matching this hook's global fail-safe direction.
-  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" > "$PRETOOL_STRIKE_FILE" 2>/dev/null || {
+  printf '%s:%s\n' "$PRETOOL_LAST_COMPLETION" "$PRETOOL_STRIKES" 2>/dev/null > "$PRETOOL_STRIKE_FILE" || {
     echo "enforce-review-spawn: PreToolUse strike counter unwritable; failing open" >&2
     pretool_allow
   }
@@ -878,7 +853,27 @@ if [ -n "$PRETOOL_MODE" ]; then
     echo "enforce-review-spawn: PreToolUse triage gate giving up after 5 refused calls for the same completed round; proceeding without a published triage table" >&2
     pretool_allow
   fi
-  echo "Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn." >&2
+  # Say it once, and say it as a decision rather than a failure. Two separate
+  # things were wrong. Every refused call in the same round repeated the entire
+  # table spec, so trying two edits before publishing produced two identical
+  # walls of text; and `exit 2` renders as "PreToolUse:Edit hook error", which
+  # reads as a broken tool rather than as a gate doing exactly its job. The
+  # strike counter above is already keyed to this round, and the deny shape
+  # below is the one block-attributed-commits.sh already uses in this plugin.
+  if [ "$PRETOOL_STRIKES" -le 1 ]; then
+    PRETOOL_REASON="Review reports are complete. Retrieve any lane report not yet visible with Read/TaskOutput first; only the final triage-table response is TOOL-FREE. Never defer an unread report to FIX. Then publish the table ('$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER', one row per finding) and end the turn."
+  else
+    PRETOOL_REASON="Still no triage table for this round. Publish it in a TOOL-FREE response that ends the turn, then fixes may begin."
+  fi
+  # A deny that cannot be rendered must still block. Falling back to exit 2 is
+  # ugly; exit 0 carrying no decision is the gate failing open, which is worse.
+  if PRETOOL_DENY=$(jq -n --arg r "$PRETOOL_REASON" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"deny", permissionDecisionReason:$r}}' 2>/dev/null) \
+     && [ -n "$PRETOOL_DENY" ]; then
+    printf '%s\n' "$PRETOOL_DENY"
+    exit 0
+  fi
+  printf '%s\n' "$PRETOOL_REASON" >&2
   exit 2
 fi
 
@@ -911,7 +906,7 @@ retroactive_ack_scan() {
   [ -n "$all_push_lines" ] || return
 
   # Source the lane classifier so we can compute per-push required lanes.
-  . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null || return
+  . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null || return
 
   # Convert space-separated push lines to an array for indexed access.
   local -a push_arr
@@ -1050,7 +1045,7 @@ if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ] \
        && { [ "$RETRO_SHA" = "$CURRENT_HEAD_LOCAL" ] \
             || git merge-base --is-ancestor "$RETRO_SHA" "$CURRENT_HEAD_LOCAL" 2>/dev/null; }; then
       LAST_ACK_PR_HEAD="$RETRO_SHA"
-      echo "$LAST_ACK_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+      echo "$LAST_ACK_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
     fi
   fi
 fi
@@ -1135,13 +1130,13 @@ completion_delivery_pending() {
   local state
   state=$(cat "$VERDICT_COUNT_FILE" 2>/dev/null || true)
   if [ "$state" = "$CURRENT_PR_HEAD:DELIVERY:$completion_line" ]; then
-    echo "$CURRENT_PR_HEAD:0" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD:0" 2>/dev/null > "$VERDICT_COUNT_FILE" || true
     return 1
   fi
   case "$state" in
     "$CURRENT_PR_HEAD":*) return 1 ;;
   esac
-  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" > "$VERDICT_COUNT_FILE" 2>/dev/null; then
+  if echo "$CURRENT_PR_HEAD:DELIVERY:$completion_line" 2>/dev/null > "$VERDICT_COUNT_FILE"; then
     return 0
   fi
   # If the barrier cannot be persisted, fail safe toward delivery rather than
@@ -1151,7 +1146,12 @@ completion_delivery_pending() {
 }
 
 write_acknowledgement() {
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null \
+  # Redirection ORDER, not a trailing `2>/dev/null`: redirections apply left to
+  # right, so stderr must be silenced before the `>` is attempted. The trailing
+  # form left "Is a directory" on stderr -- the channel the directive rides,
+  # where a stray line prefixes the text the model is woken with. Every state
+  # write in this file uses this order for that reason.
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" \
     && [ "$(cat "$ACK_FILE" 2>/dev/null)" = "$CURRENT_PR_HEAD" ]
 }
 
@@ -1159,14 +1159,14 @@ reack_on_repeated_demand() {
   local strikes
   strikes=$(read_count_from "$VERDICT_COUNT_FILE")
   if [ "$strikes" = "GIVEUP" ] || { [ "$strikes" -ge 5 ] 2>/dev/null; }; then
-    echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
     echo "enforce-review-spawn: ${CURRENT_PR_HEAD:0:7} acknowledged after repeated unanswered verdict demands; its findings were never triaged" >&2
     return 0
   fi
   case "$strikes" in ''|*[!0-9]*) strikes=0 ;; esac
-  echo "$CURRENT_PR_HEAD:$((strikes + 1))" > "$VERDICT_COUNT_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD:$((strikes + 1))" 2>/dev/null > "$VERDICT_COUNT_FILE" || true
   return 1
 }
 
@@ -1180,9 +1180,38 @@ clear_counter() {
 # already at GIVEUP and the verdict demand would exit SILENTLY -- the session
 # is never told what to publish, while the verdict counter keeps recording
 # demands that were never shown. One breaker per demand, on its own counter.
+# A Stop hook that returns `{"decision":"block"}`, or that exits 2 without
+# `asyncRewake`, is recorded as a blocking error. The client answers that by
+# pushing an immediate notification reading "Stop hook error occurred - ctrl+o
+# to see", so every directive this gate has ever issued -- all of them working
+# as designed -- announced itself to the user as a failure. The notification is
+# where the word came from, not the message body: the body is rendered by the
+# Stop-specific formatter as "Stop hook feedback:" already.
+#
+# `asyncRewake` moves the hook to the background path, and the difference is
+# structural rather than cosmetic: the runner returns "backgrounded" before an
+# exit code exists, so no blocking error is ever recorded and the notification
+# has nothing to fire on. When the process later exits 2, the rewake handler
+# wakes the model with the entry's `rewakeMessage` followed by the hook's
+# stderr, and the entry's `rewakeSummary` is the one line the user sees.
+# Registration must carry both (entrypoint.sh SETTINGS_CONFIG): without
+# `asyncRewake` this is a blocking error again, and the handler's own defaults
+# are `Stop hook blocking error from command "<hook>":` for the woken text and
+# "Stop hook feedback" for the user's line.
+#
+# Two constraints follow, and both are load-bearing here. The woken text is
+# stderr-or-stdout, stderr first, which is why the directive rides stderr and
+# why a stray shell message on that channel would prefix it. And the background
+# path never parses stdout for `systemMessage`, so this hook cannot address the
+# user directly -- tested against the pinned CLI, along with a stdout
+# `rewakeSummary`, which is honoured only for hooks a plugin registered. The
+# per-round notices the user does see are emitted by the PostToolUse and
+# UserPromptSubmit hooks, which run on the synchronous path where
+# `systemMessage` renders.
+
 emit_block_uncounted() {
-  jq -n --arg r "$1" '{decision:"block", reason:$r}' 2>/dev/null
-  exit 0
+  printf '%s\n' "$1" >&2
+  exit 2
 }
 
 emit_block() {
@@ -1193,13 +1222,13 @@ emit_block() {
     exit 0
   fi
   if [ "$current" -ge 5 ] 2>/dev/null; then
-    echo "$CURRENT_PR_HEAD:GIVEUP" > "$COUNT_FILE" 2>/dev/null || true
+    echo "$CURRENT_PR_HEAD:GIVEUP" 2>/dev/null > "$COUNT_FILE" || true
     exit 0
   fi
   local new=$((current + 1))
-  echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
-  jq -n --arg r "$reason" '{decision:"block", reason:$r}' 2>/dev/null
-  exit 0
+  echo "$CURRENT_PR_HEAD:$new" 2>/dev/null > "$COUNT_FILE" || true
+  printf '%s\n' "$reason" >&2
+  exit 2
 }
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1259,7 @@ emit_block() {
 # without ever acking a commit the PR does not carry.
 REVIEW_RANGE_HEAD=$(resolve_review_head "$CURRENT_PR_HEAD")
 REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
-if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
+if . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null; then
   REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$REVIEW_RANGE_HEAD")
 fi
 
@@ -1238,7 +1267,7 @@ fi
 # the checkpoint and exit silently so the next Stop event short-circuits
 # on the cheap path.
 if [ -z "$REQUIRED_LANES" ]; then
-  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD" 2>/dev/null > "$ACK_FILE" || true
   clear_counter
   exit 0
 fi
@@ -1453,7 +1482,7 @@ else
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
+  REASON="PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: run$MISSING in parallel. Run each lane as a BACKGROUND Bash call, all issued in one message: 'bash \${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh --lane <name>$LANE_SCOPE' with run_in_background: true, so the main session stays usable. Reviewers return structured findings; the root alone writes project or triage files. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
   if [ -n "$FAILED" ]; then
     REASON="$REASON ATTENTION:$FAILED already ran for this head and ended WITHOUT success, so nothing was credited - re-run those lanes rather than treating their output as a completed round."
   fi
@@ -1484,17 +1513,39 @@ if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     if ! write_acknowledgement; then
-      emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
+      emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
     fi
     rm -f "$VERDICT_COUNT_FILE" 2>/dev/null || true
     clear_counter
     # This directive owns the push. Stating the condition in a rule instead was
     # the weaker half of the same idea: a hook directive outranks a standing
     # rule, so with no order here the round simply stopped after the commit and
-    # waited to be prodded. The condition rides along with the order rather
-    # than replacing it -- wait out this head's CI, then deliver, without
-    # asking, because a fix push is the next boundary and not a new decision.
-    emit_block "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7} — FIX phase. Every required lane report is delivered and the triage table is published, so this head is now ACKNOWLEDGED: do not relaunch review or CI for it. Apply only the accepted MINIMAL DECISION rows; rejected rows stay rejected and accepted rows are not deferred. If at least one accepted fix changes files, verify the focused static checks and commit. Then push the checked-out PR branch WITHOUT asking - never stop after the commit and never ask whether to deliver. If this head's CI monitor has not yet written a terminal CI_RESULT naming it, read its log until that line lands and push immediately afterwards, so the run you would otherwise discard finishes and its outcome rides the same push. That wait may only ever delay the push, never cancel it: if no CI monitor exists for this head, or its log has not advanced since your previous read, push now. That push is the next delivery boundary and starts one incremental review wave and one CI monitor; end the turn immediately after it. Do not merge. If no fix was accepted, create no commit and push nothing. State what you fixed and anything you deliberately left."
+    # waited to be prodded.
+    #
+    # The CI wait is a gate, not a delay. An earlier wording said to push
+    # "immediately afterwards" once the terminal line landed, which reads the
+    # same for a pass and a failure and would deliver straight past a red head.
+    # A failing CI_RESULT is a finding like any other: it is fixed in the same
+    # commit, and only then does the push happen.
+    # A round's rows can take several turns to apply, and every turn end
+    # re-enters this branch. Re-emitting the whole directive each time taught
+    # nothing after the first read and buried the session in a wall of
+    # identical text. Both forms still block, so the obligation is unchanged
+    # -- only the repetition is gone.
+    # The full contract is delivered ONCE PER PR, not once per head: by the
+    # second round the session has the contract, and re-sending ~130 words
+    # under the client's error-labeled banner every round is the wall of
+    # text the user reads as the system failing. The terse form keeps every
+    # load-bearing clause. Keyed by PR number like ACK_FILE and COUNT_FILE,
+    # and emphatically not by $CURRENT: that is the branch name, and a slash
+    # in it made this a path through a directory that does not exist, the
+    # write failed silently, and the full directive re-emitted every turn.
+    FIX_SHOWN_FILE="$GIT_DIR/sdd-review-fix-shown-pr-$PR_NUMBER"
+    if [ -f "$FIX_SHOWN_FILE" ]; then
+      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase (full contract shown earlier this PR). Accepted rows only; wait for this head's CI_RESULT; commit and push; nothing accepted → push nothing."
+    fi
+    printf '%s\n' "$CURRENT_PR_HEAD" 2>/dev/null > "$FIX_SHOWN_FILE" || true
+    emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
@@ -1510,7 +1561,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0
