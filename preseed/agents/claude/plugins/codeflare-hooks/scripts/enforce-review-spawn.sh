@@ -820,9 +820,22 @@ if [ -n "$PRETOOL_MODE" ]; then
   }
   PRETOOL_LAST_COMPLETION=0
   for PRETOOL_LANE in code-reviewer spec-reviewer doc-updater; do
-    PRETOOL_SPAWN=$(lane_spawn_lines "$PRETOOL_LANE" | tail -1)
-    [ -n "$PRETOOL_SPAWN" ] || continue
-    PRETOOL_DONE=$(spawn_completion_line "$PRETOOL_SPAWN")
+    PRETOOL_SPAWNS=$(lane_spawn_lines "$PRETOOL_LANE" | sort -rn)
+    [ -n "$PRETOOL_SPAWNS" ] || continue
+    # Walk back to the newest spawn that actually reported a completion. A
+    # spawn record is not evidence that a lane ran: a call this gate refused
+    # leaves one behind, and so does a call the user rejected, and neither ever
+    # completes. Reading only the newest record made the refusal self-defeating
+    # on a parallel batch - refuse the first call, and the record written for
+    # that refused call read as "a lane is in flight" to its siblings a second
+    # later, so two of three spawns went through against one denial.
+    PRETOOL_DONE=""
+    for PRETOOL_SPAWN in $PRETOOL_SPAWNS; do
+      PRETOOL_DONE=$(spawn_completion_line "$PRETOOL_SPAWN")
+      [ -n "$PRETOOL_DONE" ] && break
+    done
+    # A lane that has spawned and never once completed is a round still in
+    # flight, which is the case this escape exists for.
     [ -n "$PRETOOL_DONE" ] || pretool_allow
     [ "$PRETOOL_DONE" -gt "$PRETOOL_LAST_COMPLETION" ] 2>/dev/null \
       && PRETOOL_LAST_COMPLETION=$PRETOOL_DONE

@@ -146,6 +146,44 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.notEqual(openTwo[1], openOne[1], 'a marker reused across runs is a static delimiter');
   });
 
+  // The refusal is the security-load-bearing half of the frame. The capture
+  // holds Write and Bash, and the marker is the only thing separating captured
+  // text from launcher instruction, so a draw that cannot be made unguessable
+  // has to stop the run rather than degrade into a predictable frame -- the
+  // first draft degraded to a pid and a clock, which a transcript can predict.
+  // Both tiers are broken here (base64 for the urandom draw, the capframe
+  // mktemp for the fallback) while every other mktemp call keeps working.
+  // Paired against an identical fixture that draws normally, because the exit
+  // status alone proves nothing: the healthy run exits 3 too, from the
+  // publisher. Starting the model is the difference.
+  it('refuses to launch when no unguessable frame can be drawn', () => {
+    const degraded = fixture();
+    writeFileSync(join(degraded.bin, 'base64'), '#!/usr/bin/env bash\nexit 1\n');
+    writeFileSync(
+      join(degraded.bin, 'mktemp'),
+      [
+        '#!/usr/bin/env bash',
+        'for a in "$@"; do case "$a" in *capframe*) exit 1 ;; esac; done',
+        'for c in /usr/bin/mktemp /bin/mktemp; do [ -x "$c" ] && exec "$c" "$@"; done',
+        'exit 1',
+      ].join('\n'),
+    );
+    chmodSync(join(degraded.bin, 'base64'), 0o755);
+    chmodSync(join(degraded.bin, 'mktemp'), 0o755);
+
+    const r = run(degraded, ['--vars', degraded.vars]);
+    assert.equal(r.status, 3, 'a frame it cannot draw is a refusal to launch');
+    assert.equal(existsSync(join(degraded.dir, 'argv.txt')), false,
+      'the model must never be started without a frame around the transcript');
+    assert.equal(existsSync(join(degraded.dir, 'session.attempts.log')), false,
+      'the run stops at the draw, before the launch-and-publish sequence');
+
+    const healthy = fixture();
+    run(healthy, ['--vars', healthy.vars]);
+    assert.equal(existsSync(join(healthy.dir, 'argv.txt')), true,
+      'the same fixture drawing a frame normally does start the model');
+  });
+
   it('withholds the Read tool that the inline delivery removed the need for', () => {
     const fx = fixture();
     run(fx, ['--vars', fx.vars]);
