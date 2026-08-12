@@ -163,7 +163,14 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
       'the capture hard block is retired (AD124): registering it again reintroduces the deadlock with the review gate, which refuses the very spawn the block demands');
     assert.ok(commandFor('PreToolUse', 'enforce-review-spawn.sh'),
       'the review triage gate belongs on PreToolUse');
-    assert.ok(commandFor('Stop', 'enforce-review-spawn.sh'), 'review-spawn enforcement belongs on Stop');
+    const stopGate = commandFor('Stop', 'enforce-review-spawn.sh');
+    assert.ok(stopGate, 'review-spawn enforcement belongs on Stop');
+    // Without asyncRewake the gate's exit 2 is an ordinary blocking error
+    // again, and every directive it issues renders under the client's
+    // `<event> hook error:` template -- the exact defect the stderr delivery
+    // was written to end. The key is load-bearing, so it is pinned here.
+    assert.equal(stopGate.asyncRewake, true,
+      'the Stop gate must be registered for rewake or its directives read as failures');
   });
 
   it('hooks use if-gates to filter by command pattern', () => {

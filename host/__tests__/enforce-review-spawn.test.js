@@ -163,10 +163,16 @@ function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile, tool
   // what the directive SAYS read the envelope below; the row that pins the
   // delivery channel itself reads rawStatus/rawStdout, so switching channels
   // can never quietly turn a `doesNotMatch(stdout)` row into a tautology.
+  // Only a DIRECTIVE is adapted. The hook's fail-closed guards (unreadable
+  // transcript, missing classifier) refuse on the same channel, so matching
+  // "exit 2 with stderr" alone would let a row expecting a directive pass on a
+  // guard refusal instead. The envelope carries the text and nothing else: a
+  // synthesised `decision` key would be a string this file wrote, and a row
+  // asserting it would be asserting itself.
   r.rawStatus = r.status;
   r.rawStdout = r.stdout;
-  if (r.status === 2 && !r.stdout.trim() && r.stderr.trim()) {
-    r.stdout = JSON.stringify({ decision: 'block', reason: r.stderr.trim() });
+  if (r.status === 2 && !r.stdout.trim() && /^PR #\d+ @/.test(r.stderr.trim())) {
+    r.stdout = JSON.stringify({ reason: r.stderr.trim() });
     r.status = 0;
   }
   return r;
@@ -1137,7 +1143,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
   });
 
@@ -1150,7 +1156,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [COMMAND_LINE('git status --short')]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
   });
@@ -1163,7 +1169,8 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('exits 0 silently when gh confirms PR HEAD matches LAST_ACK (no @{u})', () => {
@@ -1195,7 +1202,8 @@ describe('enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (
     for (let i = 1; i <= 5; i++) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0, `run ${i} exit code`);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `run ${i} must block`);
+      assert.equal(r.rawStatus, 2, `run ${i} must block`);
+      assert.match(r.stdout, /run code-reviewer/, `run ${i} must demand the lane`);
     }
     // Sixth run: counter exceeded, hook gives up and exits silently
     const r6 = runHook(cwd, { transcriptPath: t, binDir });
@@ -1218,8 +1226,8 @@ describe('enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (
     binDir = fakeGh(cwd, ghReturning('OPEN', 'secondsha'));
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'new PR HEAD must reset the strike counter');
+    assert.equal(r.rawStatus, 2, 'new PR HEAD must reset the strike counter');
+    assert.match(r.stdout, /run code-reviewer/, 'and the reset round demands its lanes');
   });
 });
 
@@ -1231,7 +1239,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     // Must name BOTH missing agents in the reason — the directive
     // tells the assistant exactly what to spawn
     assert.match(r.stdout, /code-reviewer/);
@@ -1248,7 +1256,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /spec-reviewer/,
       'the missing peer lane must still be demanded while code-reviewer is in flight');
     assert.match(r.stdout, /run_in_background: true/,
@@ -1269,7 +1277,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/,
       'an uncompleted in-flight lane older than the recency bound must be demanded again');
     assert.match(r.stdout, /spec-reviewer/,
@@ -1332,7 +1340,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
     assert.match(r.stdout, /doc-updater/);
@@ -1808,8 +1816,9 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       ]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      assert.equal(r.rawStatus, 2,
         'the runner must be in command position, not quoted inside another command');
+      assert.match(r.stdout, /run code-reviewer/, 'so the lane is still demanded');
       assert.notEqual(ackOf(cwd), 'impostersha');
     });
   }
@@ -1940,7 +1949,7 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     ]);
     const ended = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(ended.status, 0);
-    assert.match(ended.stdout, /"decision"\s*:\s*"block"/,
+    assert.equal(ended.rawStatus, 2,
       'completed pre-push agents must not count for the newer head');
     assert.match(ended.stdout, /code-reviewer/);
     assert.match(ended.stdout, /spec-reviewer/);
@@ -1993,7 +2002,7 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     // Real chained push → enforcement fires (no agents spawned → block)
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
   });
 });
 
@@ -2050,7 +2059,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [ctxExecPush()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+    assert.equal(r.rawStatus, 2,
       'ctx_execute shell git push must trigger PUSH_LINE detection');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
@@ -2063,8 +2072,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [ctxBatchPush()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_batch_execute git push command must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_batch_execute git push command must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('does NOT classify ctx_execute(language=javascript) with code mentioning git push', () => {
@@ -2099,7 +2108,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('detects chained pipelines inside any ctx_batch_execute command entry', () => {
@@ -2114,7 +2124,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   // REQ-AGENT-021 AC7: gh pr merge must be recognised as a PUSH_LINE
@@ -2148,8 +2159,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     const t = writeTranscript(cwd, [bashGhMerge()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'Bash gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'Bash gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
@@ -2161,8 +2172,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
@@ -2176,8 +2187,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
+    assert.equal(r.rawStatus, 2, 'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('detects chained gh pr merge inside ctx_execute shell code', () => {
@@ -2192,7 +2203,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('blocks on Bash gh pr edit protected-base retargets across flag forms', () => {
@@ -2207,7 +2219,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
+      assert.equal(r.rawStatus, 2, command);
+      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
     }
   });
 
@@ -2222,7 +2235,8 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
+      assert.equal(r.rawStatus, 2, command);
+      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
     }
   });
 
@@ -2240,7 +2254,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
       const t = writeTranscript(cwd, [line]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     }
   });
 });
@@ -2261,7 +2275,7 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
         binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
       });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     });
   }
 
@@ -2295,7 +2309,7 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
         binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
       });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     });
   }
 });
@@ -2350,8 +2364,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
+    assert.equal(r.rawStatus, 2, 'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('proceeds to enforcement when .init-triage.md is missing entirely', () => {
@@ -2362,7 +2376,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
   it('proceeds to enforcement when transition: false even with open triage items', () => {
@@ -2375,7 +2390,8 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 });
 
@@ -2390,7 +2406,8 @@ describe('enforce-review-spawn.sh - 5-strike circuit breaker GIVEUP state', () =
     for (let i = 0; i < 5; i++) {
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `strike ${i + 1} should block`);
+      assert.equal(r.rawStatus, 2, `strike ${i + 1} should block`);
+      assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
     }
     // Sixth call: counter must have flipped to GIVEUP, exit 0 silently
     const r6 = runHook(cwd, { transcriptPath: t, binDir });
@@ -2454,8 +2471,8 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
+    assert.equal(r.rawStatus, 2, 'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
   });
@@ -2471,8 +2488,8 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'must derive repo from `cd <path>` command prefix and enforce');
+    assert.equal(r.rawStatus, 2, 'must derive repo from `cd <path>` command prefix and enforce');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('exits 0 silently from non-repo CWD when PUSH_LINE has no derivable repo hint', () => {
@@ -2557,8 +2574,8 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const parentCwd = resolve(repoDir, '..');
     const r = runHook(parentCwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
+    assert.equal(r.rawStatus, 2, 'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 
   it('M1: cd into a path with spaces (double-quoted) parses correctly', () => {
@@ -2579,8 +2596,8 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
     const t = writeTranscript(repoDir, [PUSH_LINE_WITH_QUOTED_CD(repoDir)]);
     const r = runHook(parent, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'double-quoted cd path with spaces must parse correctly and enforce');
+    assert.equal(r.rawStatus, 2, 'double-quoted cd path with spaces must parse correctly and enforce');
+    assert.match(r.stdout, /PR #\d+ @/, 'the directive names its PR');
   });
 });
 
@@ -2645,7 +2662,7 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
     assert.match(r.stdout, /doc-updater/);
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'docs-only push must NOT demand code-reviewer');
@@ -2850,14 +2867,17 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
       env,
     });
 
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+    // This row spawns the hook directly rather than through runHook, so it
+    // reads the delivery channel as the client does: exit 2, directive on
+    // stderr, nothing on stdout.
+    assert.equal(r.status, 2,
       'fail-closed: a missing lane-classifier.sh must still block, not silently exit 0');
-    assert.match(r.stdout, /code-reviewer/,
+    assert.equal(r.stdout.trim(), '', 'a directive on stdout would render as "hook error"');
+    assert.match(r.stderr, /code-reviewer/,
       'fail-closed fallback must demand code-reviewer (all-three default)');
-    assert.match(r.stdout, /spec-reviewer/,
+    assert.match(r.stderr, /spec-reviewer/,
       'fail-closed fallback must demand spec-reviewer');
-    assert.match(r.stdout, /doc-updater/,
+    assert.match(r.stderr, /doc-updater/,
       'fail-closed fallback must demand doc-updater');
   });
 });
