@@ -460,6 +460,16 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
       const dir = tempDir('probe-');
       const vars = join(dir, 's.vars');
       setup(`${vars}.lock`);
+      // Reformatting memory-capture.sh would make this range match nothing.
+      // That does not pass silently -- an unsourced function exits 127, not the
+      // 1 these rows expect -- but 127 says nothing about why, so the
+      // extraction is checked here where the reason is still obvious.
+      const extracted = spawnSync('sed', ['-n', '/^capture_running()/,/^}/p', HOOK], {
+        encoding: 'utf-8',
+      }).stdout;
+      assert.match(extracted, /^capture_running\(\)/,
+        'the probe must be extractable from the hook, or this row tests nothing');
+
       const r = spawnSync('bash', ['-c',
         `source <(sed -n '/^capture_running()/,/^}/p' "${HOOK}"); capture_running "${vars}"`,
       ], { encoding: 'utf-8' });

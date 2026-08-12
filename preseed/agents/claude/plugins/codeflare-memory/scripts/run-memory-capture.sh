@@ -87,6 +87,14 @@ PAYLOAD_DIR="/tmp/memory-capture-${SESSION_ID:0:8}"
 CAPTURE_STDERR="$(mktemp -t memory-capture-stderr.XXXXXX)"
 trap 'rm -f "$CAPTURE_STDERR" "${CAPTURE_STDOUT:-}"' EXIT
 rm -rf "$PAYLOAD_DIR"
+# Only THIS session's directory is reclaimed above, and each session has its
+# own. Every container that runs more than one session therefore accumulates
+# payload directories nobody will ever open again -- now carrying request.json
+# and its embedded transcript on top of the chunks. That is the same slow disk
+# fill the fixture-cleanup helper was just written to stop, arriving by another
+# door. A day is well past useful for post-mortem inspection.
+find /tmp -maxdepth 1 -name 'memory-capture-*' -type d -mmin +1440 \
+  -exec rm -rf {} + 2>/dev/null || true
 mkdir -p "$PAYLOAD_DIR" || { echo "run-memory-capture: cannot create $PAYLOAD_DIR" >&2; exit 3; }
 
 # The payload is built here, not by the model. Prefiltering is mechanical --
@@ -127,13 +135,17 @@ fi
 # tail silently hands the model a conversation that stops mid-sentence, which
 # reads exactly like a session that really was that short -- so it summarises a
 # partial window as if it were the whole one and nothing anywhere says otherwise.
-JOINED_BYTES=$(wc -c < "$JOINED" 2>/dev/null || echo 0)
-case "$JOINED_BYTES" in ''|*[!0-9]*) JOINED_BYTES=0 ;; esac
-if [ "$JOINED_BYTES" -gt "$MAX_PAYLOAD_BYTES" ]; then
-  echo "run-memory-capture: transcript is $JOINED_BYTES bytes, bounding to $MAX_PAYLOAD_BYTES" >&2
+#
+# An unreadable byte count bounds the payload anyway. Normalising it to 0 read
+# as "nothing to bound" and skipped the branch, so a wc hiccup shipped the whole
+# unbounded transcript -- the exact direction this bound exists to prevent.
+JOINED_BYTES=$(wc -c < "$JOINED" 2>/dev/null || echo unknown)
+case "$JOINED_BYTES" in ''|*[!0-9]*) JOINED_BYTES=unknown ;; esac
+if [ "$JOINED_BYTES" = unknown ] || [ "$JOINED_BYTES" -gt "$MAX_PAYLOAD_BYTES" ]; then
+  echo "run-memory-capture: transcript size $JOINED_BYTES, bounding to $MAX_PAYLOAD_BYTES bytes" >&2
   {
     head -c "$MAX_PAYLOAD_BYTES" "$JOINED"
-    printf '\n\n[transcript truncated by the launcher at %s of %s bytes]\n' \
+    printf '\n\n[transcript truncated by the launcher at %s bytes; full size %s]\n' \
       "$MAX_PAYLOAD_BYTES" "$JOINED_BYTES"
   } > "$JOINED.bounded"
   mv -f "$JOINED.bounded" "$JOINED"

@@ -310,7 +310,19 @@ function assertRefused(r, message = 'the gate refuses') {
 
 function assertAllowed(r, message = 'the gate allows') {
   assert.equal(r.status, 0, message);
-  assert.equal(denialOf(r), null, `${message}: expected no deny decision`);
+  // An allow is silence. Anything else must parse and must not be a deny:
+  // reading an unparsable body as "allowed" is how a gate that crashed after
+  // exiting 0 passes for a working one, which is what the `stdout === ''`
+  // assertions this helper replaced were pinning down.
+  if (r.stdout === '') return;
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    assert.fail(`${message}: a non-empty gate response must parse; got ${r.stdout.slice(0, 120)}`);
+  }
+  const out = parsed && parsed.hookSpecificOutput;
+  assert.notEqual(out && out.permissionDecision, 'deny', `${message}: expected no deny decision`);
 }
 
 // The FIX directive keeps its own head-keyed counter. It used to read the
@@ -502,8 +514,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
         env: { ...process.env, REVIEW_BYPASS_FILE: join(cwd, 'absent'), TMPDIR: cwd },
       });
     };
-    assert.equal(gateCall(false).status, 2, 'an unloadable classifier is refused, not read as clean');
-    assert.equal(gateCall(true).status, 0, 'the same call passes once the classifier loads');
+    assertRefused(gateCall(false), 'an unloadable classifier is refused, not read as clean');
+    assertAllowed(gateCall(true), 'the same call passes once the classifier loads');
   });
 
   it('blocks the Stop path when the boundary classifier cannot load', () => {
@@ -610,6 +622,17 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     'nice git push',
     'timeout 60 git push',
     'xargs git push',
+    // Shell wrappers. Every form above passes the delivery as a COMMAND, which
+    // the wrapper list handles; a shell passes it as a STRING, which nothing
+    // read until this row existed. `bash -c "git push"` reached the gate
+    // untouched, and the window this gate exists to hold was open the whole time.
+    'bash -c "git push origin main"',
+    "sh -c 'git push'",
+    'eval "git push"',
+    'zsh -c "gh pr merge 827"',
+    'bash -lc "git push"',
+    'sudo bash -c "git push"',
+    'bash -c "git commit -m x"',
   ]) {
     it(`refuses a delivery in the blocked window: ${cmd}`, () => {
       const cwd = makeFixture();

@@ -29,6 +29,13 @@ const prefixTakesValue = {
   stdbuf: new Set(['-i', '-o', '-e']),
 };
 const DURATION = /^[0-9]+(\.[0-9]+)?[smhd]?$/;
+// Shells are wrappers too, but of a different kind: the ones above take a
+// COMMAND, a shell takes a STRING it then runs as code. That difference is why
+// they could not just be added to `prefixes` -- and why, until they were handled
+// at all, `bash -c "git push"` walked straight through. The parser saw `bash`,
+// which is neither a tool nor a known wrapper, set command=false, and dropped
+// every remaining word including the one holding the push.
+const shells = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'eval']);
 // Boundary classification mirrors Pi's classifyReviewBoundaryCommand
 // (preseed/agents/pi/extensions/review-helpers.ts) and reuses its global-option
 // sets from guard-helpers.ts verbatim. Any git/gh in command position is still
@@ -120,7 +127,18 @@ function boundaryOf(text, options) {
     // Name of the wrapper currently in front of the command, and whether the
     // next word is that wrapper's option value rather than the command itself.
     let prefixName = '', pendingValue = false;
+    // Shell wrapper state: the shell's own name, whether its options have said
+    // the next word is code, and the words of that code once collected.
+    let shellName = '', shellWantsCode = false, codeWords = null;
     const decide = () => {
+      // Descend into a shell's code before judging this simple command. Joining
+      // the words handles both `eval "git push"` (one quoted word) and
+      // `eval git push` (two bare ones) with the same pass.
+      if (codeWords) {
+        const code = codeWords.join(' ');
+        codeWords = null; shellName = ''; shellWantsCode = false;
+        scan(code);
+      }
       if (tool) { const event = boundaryEvent(tool, rest, options); if (event) found = event; }
       tool = ''; rest = [];
     };
@@ -128,12 +146,30 @@ function boundaryOf(text, options) {
       if (!word) return;
       const value = word; word = '';
       if (tool) { rest.push(value); return; }
+      // Shell handling sits ahead of the command guard below, because seeing the
+      // shell is exactly what sets command=false; the words after it are the
+      // shell's arguments, not dropped noise.
+      if (codeWords) { codeWords.push(value); return; }
+      if (shellName) {
+        if (value.startsWith('-')) {
+          // -c, and combined forms like -lc. `eval` has no such flag: everything
+          // after it is already code.
+          if (value.slice(1).includes('c')) shellWantsCode = true;
+          return;
+        }
+        if (shellWantsCode) { codeWords = [value]; return; }
+        // A bare word under a shell with no -c is a script FILE. Its contents
+        // are not in this command, so there is nothing further to read.
+        shellName = '';
+        return;
+      }
       if (!command || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value) || controls.has(value)) return;
       // An absolute or relative path invokes the same tool: `/usr/bin/git push`
       // is a push. Compare on the basename, and keep the basename as `tool` so
       // the option tables below are still keyed by the name they know.
       const base = value.slice(value.lastIndexOf('/') + 1);
       if (base === 'git' || base === 'gh') { candidate = true; tool = base; command = false; return; }
+      if (shells.has(base)) { shellName = base; shellWantsCode = base === 'eval'; command = false; return; }
       if (prefix) {
         if (pendingValue) { pendingValue = false; return; }
         if (value.startsWith('-')) {
@@ -144,7 +180,13 @@ function boundaryOf(text, options) {
       }
       prefix = prefixes.has(base); prefixName = prefix ? base : ''; pendingValue = false; command = prefix;
     };
-    const boundary = () => { finish(); decide(); command = true; prefix = false; prefixName = ''; pendingValue = false; };
+    const boundary = () => {
+      finish(); decide();
+      command = true; prefix = false; prefixName = ''; pendingValue = false;
+      // A shell that never reached its code (`bash ; git push`) must not leave
+      // its state standing, or the next simple command is read as its argument.
+      shellName = ''; shellWantsCode = false; codeWords = null;
+    };
     function substitution(start) {
       let depth = 1, quote = '', escaped = false;
       for (let i = start; i < source.length; i++) {

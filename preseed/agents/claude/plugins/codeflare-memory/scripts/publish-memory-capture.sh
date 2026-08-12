@@ -14,10 +14,24 @@ VARS_FILE="${1:-}"
 # without writing anything would otherwise advance the counter and burn the
 # window. Requests armed before capture_file existed carry no such field and
 # keep the old unverified behaviour rather than failing closed on upgrade.
-CAPTURE_FILE=$(jq -r '.capture_file // empty' "$VARS_FILE" 2>/dev/null || true)
-if [[ -n "$CAPTURE_FILE" && ! -f "$CAPTURE_FILE" ]]; then
-  echo "publish-memory-capture: refusing to publish, capture file absent: $CAPTURE_FILE" >&2
+#
+# Branching on jq's status rather than its output is the whole point here. `jq
+# -r … || true` collapsed two different answers into the same empty string: "the
+# request predates this field", which legitimately keeps the old behaviour, and
+# "jq failed or the carrier is corrupt", which must not. Empty then skipped the
+# existence gate entirely, so a corrupt carrier advanced the counter and marked
+# the window captured with no file -- exactly what the paragraph above claims
+# this code prevents. jq -e exits 1 for null/absent and >1 for a real failure.
+if CAPTURE_FILE=$(jq -e -r '.capture_file' "$VARS_FILE" 2>/dev/null); then
+  if [[ ! -f "$CAPTURE_FILE" ]]; then
+    echo "publish-memory-capture: refusing to publish, capture file absent: $CAPTURE_FILE" >&2
+    exit 3
+  fi
+elif [[ $? -gt 1 ]]; then
+  echo "publish-memory-capture: refusing to publish, carrier unreadable: $VARS_FILE" >&2
   exit 3
+else
+  CAPTURE_FILE=""
 fi
 
 # Counter coordinates: advancing it is what marks this window captured.
@@ -59,13 +73,34 @@ flock -w 300 "$LOCK_FILE" bash -c '
 # it as non-fatal: the graph data is committed, only the HTML is at stake.
 #
 # The root is derived from VAULT_GRAPH rather than written literally, because
-# every other path here is MEMCAP_*-overridable and the fixtures do override it.
-# A literal would send a test run into the real vault. cluster-only takes a
+# every other path here is MEMCAP_*-overridable and the fixtures do override it,
+# so a literal would send a test run into the real vault. The derivation assumes
+# the production layout <root>/graphify-out/<graph>.json and says so, because a
+# blind dirname-of-dirname does not hold for a flat override path: it lands on
+# the parent of the graph directory, which for a fixture under /tmp/x/ is /tmp.
+# That is not the vault, but it is not harmless either -- it rendered into a
+# sibling and clobbered a log another test asserts on. cluster-only takes a
 # PROJECT root and writes to <root>/graphify-out/, so it gets "." from there.
-VAULT_ROOT=$(dirname "$(dirname "$VAULT_GRAPH")")
-(
-  cd "$VAULT_ROOT" \
-    && mkdir -p Raw/Graphs \
-    && "$GRAPHIFY_BIN" cluster-only . >/dev/null 2>/dev/null \
-    && cp -f graphify-out/graph.html Raw/Graphs/vault-graph.html
-) || echo "publish-memory-capture: viz re-render skipped; vault-graph.html may be stale" >&2
+GRAPH_DIR=$(dirname "$VAULT_GRAPH")
+if [[ "$(basename "$GRAPH_DIR")" == graphify-out ]]; then
+  VAULT_ROOT=$(dirname "$GRAPH_DIR")
+else
+  VAULT_ROOT="$GRAPH_DIR"
+fi
+
+# Two guards. There is nothing to re-render where no graphify-out exists, which
+# is the shape every publisher fixture uses, so this is also what keeps the
+# render out of tests that never asked for it. And it takes its own
+# non-blocking lock: moving out of the global lock removed the queueing and the
+# mutual exclusion together, leaving two publishers free to cluster into one
+# graphify-out and copy the same graph.html over each other. A second publisher
+# skips rather than interleaves, which costs nothing a later capture will not redo.
+if [[ -d "$VAULT_ROOT/graphify-out" ]]; then
+  flock -n "$LOCK_FILE.viz" bash -c '
+    cd "$1" \
+      && mkdir -p Raw/Graphs \
+      && "$2" cluster-only . >/dev/null 2>/dev/null \
+      && cp -f graphify-out/graph.html Raw/Graphs/vault-graph.html
+  ' memory-capture-viz "$VAULT_ROOT" "$GRAPHIFY_BIN" \
+    || echo "publish-memory-capture: viz re-render skipped; vault-graph.html may be stale" >&2
+fi
