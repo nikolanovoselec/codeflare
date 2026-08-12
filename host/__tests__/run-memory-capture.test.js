@@ -188,6 +188,17 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.doesNotMatch(journal, /partial garbage/, 'unparseable output is still never quoted');
   });
 
+  // jq streams: a valid envelope followed by trailing bytes prints the subtype
+  // line and then exits non-zero, which used to append a second, contradictory
+  // stdout line. Any partial parse falls back as a whole.
+  it('journals exactly one stdout line when a valid envelope has trailing bytes', () => {
+    const fx = fixture({ claudeExits: 1, stdoutLine: '{"type":"result","subtype":"error_max_turns"} trailing bytes' });
+    run(fx, ['--vars', fx.vars]);
+    const journal = readFileSync(fx.vars.replace(/\.vars$/, '.attempts.log'), 'utf-8');
+    assert.equal(journal.match(/stdout: /g).length, 1, 'partial parses must not journal contradictory lines');
+    assert.match(journal, /stdout: unparseable/, 'a stream jq cannot fully parse falls back as a whole');
+  });
+
   it('refuses a carrier it cannot read', () => {
     const fx = fixture();
     const r = run(fx, ['--vars', join(fx.dir, 'no-such.vars')]);
