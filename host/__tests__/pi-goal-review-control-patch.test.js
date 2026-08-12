@@ -625,7 +625,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     );
   });
 
-  it('REQ-AGENT-111: applies every marked patch idempotently to exact 0.46.0 fixtures', () => {
+  it('REQ-AGENT-111: applies every marked patch idempotently to the locked fixtures', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-review-control-'));
     writeFixturePackage(root);
 
@@ -641,17 +641,24 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
   });
 
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
+    // Only the expected half is derived. Spelled out, it has to be hand-edited on
+    // every Goal bump, and a miss fails the suite on the version string instead of
+    // on the refusal these rows exist to prove -- which is exactly how the 0.46.0
+    // bump broke, because the literal was regex-escaped and a plain version grep
+    // could not see it. The installed 0.44.0 stays literal: it is this fixture's
+    // own value, so it still pins that the message names both sides.
+    const expected = EXPECTED_PI_GOAL_VERSION.replace(/\./g, '\\.');
     const versionDrift = mkdtempSync(join(tmpdir(), 'pi-goal-version-drift-'));
     writeFixturePackage(versionDrift, { 'package.json': '{"version":"0.44.0"}\n' });
     const versionBytes = readFixturePackage(versionDrift);
     assert.throws(
       () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, versionDrift),
-      /pi-goal 0\.44\.0 != expected 0\.43\.0/,
+      new RegExp(`pi-goal 0\\.44\\.0 != expected ${expected}`),
     );
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
     assert.throws(
       () => patchPiGoalDirectory('0.44.0', versionDrift),
-      /review-control patch supports only pi-goal 0\.43\.0/,
+      new RegExp(`review-control patch supports only pi-goal ${expected}`),
     );
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
 
