@@ -20,6 +20,7 @@
     "onCommand:codeflare.pi.reviewFile"
   ],
   "enabledApiProposals": [
+    "chatParticipantAdditions",
     "chatProvider",
     "defaultChatParticipant"
   ],
@@ -43,6 +44,10 @@
         "description": "Codeflare agent with workspace and editor context.",
         "isDefault": true,
         "isSticky": true,
+        "locations": [
+          "panel",
+          "editor"
+        ],
         "modes": [
           "ask",
           "edit",

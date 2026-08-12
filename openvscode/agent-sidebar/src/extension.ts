@@ -34,9 +34,13 @@ const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
 const HOST_MODEL_VENDOR = 'copilot';
 const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
+const CHAT_LOCATION_EDITOR = 4 as const;
 const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
-  readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
-  readonly isUserSelectable: false;
+  readonly isDefault: Readonly<Record<
+    typeof CHAT_LOCATION_PANEL | typeof CHAT_LOCATION_EDITOR,
+    true
+  >>;
+  readonly isUserSelectable: true;
 } = Object.freeze({
   id: 'host-compatibility',
   name: 'Codeflare',
@@ -44,9 +48,12 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   version: '1',
   maxInputTokens: 1,
   maxOutputTokens: 1,
-  capabilities: Object.freeze({}),
-  isDefault: Object.freeze({ [CHAT_LOCATION_PANEL]: true as const }),
-  isUserSelectable: false,
+  capabilities: Object.freeze({ toolCalling: true }),
+  isDefault: Object.freeze({
+    [CHAT_LOCATION_PANEL]: true as const,
+    [CHAT_LOCATION_EDITOR]: true as const,
+  }),
+  isUserSelectable: true,
 });
 const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({
   provideLanguageModelChatInformation: () => [HOST_COMPATIBILITY_MODEL],

@@ -293,7 +293,11 @@ async function verifyCodeServerWorkspaceProjection() {
 
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.deepEqual(manifest.enabledApiProposals, [
+    'chatParticipantAdditions',
+    'chatProvider',
+    'defaultChatParticipant',
+  ]);
   assert.equal(manifest.displayName, 'Codeflare');
   assert.deepEqual(manifest.activationEvents, [
     'onStartupFinished',
@@ -310,6 +314,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.locations, ['panel', 'editor']);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
   assert.deepEqual(manifest.contributes?.menus?.['editor/context'], [{
     command: 'codeflare.pi.reviewFile',
@@ -401,8 +406,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
     const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
     assert.equal(models.length, 1);
     assert.equal(models[0].name, 'Codeflare');
-    assert.deepEqual(models[0].isDefault, { 1: true });
-    assert.equal(models[0].isUserSelectable, false);
+    assert.deepEqual(models[0].isDefault, { 1: true, 4: true });
+    assert.equal(models[0].isUserSelectable, true);
+    assert.deepEqual(models[0].capabilities, { toolCalling: true });
     assert.equal(models[0].requiresAuthorization, undefined);
     await assert.rejects(
       hostModelProvider.provideLanguageModelChatResponse(),
