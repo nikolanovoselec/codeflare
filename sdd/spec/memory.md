@@ -495,8 +495,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter) -->
-2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter) -->
+1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-018: Pi extraction agents expose bounded frontmatter (native + transformed)) -->
+2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-018: Pi extraction agents expose bounded frontmatter (native + transformed)) -->
 
 **Constraints:**
 
