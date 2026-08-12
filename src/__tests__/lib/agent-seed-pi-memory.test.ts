@@ -282,8 +282,16 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
 
-  it('REQ-MEM-018: transformed Pi extraction agents expose bounded frontmatter', () => {
-    for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
+  it('REQ-MEM-018: Pi extraction agents expose bounded frontmatter (native + transformed)', () => {
+    // Two delivery paths, one invariant set. vault-extract is transformed and
+    // gets these injected by the frontmatter adapter; memory-capture is a
+    // pi-native file emitted verbatim and carries them by hand. The identity
+    // line is per agent, so it is pinned per key rather than shared.
+    const expectedDescription = {
+      '.pi/agent/agents/memory-capture.md': 'Visible Pi memory capture worker.',
+      '.pi/agent/agents/vault-extract.md': 'Visible Pi Vault extraction worker.',
+    } as const;
+    for (const [key, description] of Object.entries(expectedDescription)) {
       const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
       expect(agent?.modes).toEqual(['advanced']);
       const parsed = Object.fromEntries(
@@ -295,12 +303,13 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       expect(parsed.run_in_background).toBe('true');
       expect(parsed.tools).toBe('bash');
       expect(parsed.thinking).toBe('medium');
-      // memory-capture is a pi-native file now, emitted verbatim, so it never
-      // reaches the frontmatter adapter that injects these for the transformed
-      // agents. Every invariant the adapter used to guarantee has to be pinned
-      // here instead, or a hand edit drops one silently.
+      // The pi-native file never reaches the adapter, so every invariant the
+      // adapter used to guarantee is pinned here instead -- the identity line
+      // included, since the deleted branch injected that too and a hand edit
+      // would otherwise drop or reword it with nothing failing.
       expect(parsed.prompt_mode).toBe('replace');
       expect(parsed.extensions).toBe('true');
+      expect(parsed.description).toContain(description);
     }
   });
 
