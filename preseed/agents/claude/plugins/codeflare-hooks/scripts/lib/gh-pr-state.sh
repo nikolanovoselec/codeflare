@@ -13,9 +13,13 @@
 #   Stdout: JSON like {"number":42,"state":"OPEN","headRefOid":"abc...","baseRefName":"main"}
 #           on success; empty when no PR exists for the branch.
 #   Exit:   0 if a PR was found and JSON was emitted.
-#           1 if no PR found (gh's standard "not found" exit).
-#           2/4 on transient errors (network, auth) — caller should
-#           treat these as "unknown, don't cache".
+#           1 ONLY for gh's authoritative "no pull requests found" answer.
+#           3 for a generic gh exit 1 that is not the not-found answer:
+#             gh uses 1 for API and network errors too, and the two are
+#             distinguishable only by stderr text, so this function does
+#             the reading and callers keep a numeric contract.
+#           2/4 native transient errors (network, auth) — treat like 3:
+#             "unknown, don't cache".
 #
 # baseRefName is the bare branch name the PR targets (e.g. "main",
 # "develop"). Callers gate review-pipeline triggers on this so PRs
@@ -27,8 +31,24 @@
 # (per-PR-HEAD checkpoint vs short-TTL trigger cache), so caching
 # stays in the hooks.
 gh_pr_state() {
-  local branch="$1"
-  gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>/dev/null
+  local branch="$1" out rc err
+  err=$(mktemp "${TMPDIR:-/tmp}/gh-pr-state-err.XXXXXX" 2>/dev/null) || {
+    gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>/dev/null
+    return
+  }
+  out=$(gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>"$err")
+  rc=$?
+  # gh answers "no PR" and "the API hiccuped" with the same exit 1; only the
+  # stderr text tells them apart, and callers must never conflate them — a
+  # not-found bridged from cache resurrects a deleted PR, while a flake read
+  # as not-found strands a live round. Do the reading here so callers keep a
+  # purely numeric contract.
+  if [ "$rc" -eq 1 ] && ! grep -qi 'no pull requests found' "$err" 2>/dev/null; then
+    rc=3
+  fi
+  rm -f "$err" 2>/dev/null
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return "$rc"
 }
 
 # resolve_review_head <ghHead> -- the SHA the review RANGE should end at.

@@ -95,8 +95,12 @@ exit 99`;
 }
 
 function ghNoPR() {
+  // gh's real not-found answer: exit 1 WITH the stderr phrase. gh_pr_state
+  // reads that phrase to tell "no PR" apart from a generic exit-1 API error,
+  // so a silent exit 1 would be classified transient, not not-found.
   return `ARGS="$*"
 if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
+  echo "no pull requests found for branch" >&2
   exit 1
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
@@ -483,8 +487,20 @@ describe('enforce-review-spawn.sh — PR-state cache across gh flakes', () => {
       binDir: fakeGh(cwd, ghNoPR()),
     });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout.trim(), '', 'exit 1 means no PR, not a flake to bridge');
+    assert.equal(r.stdout.trim(), '', 'the not-found answer means no PR, not a flake to bridge');
     assert.equal(ackOf(cwd), '');
+  });
+
+  it('bridges a generic exit-1 API error, which gh does not mark not-found', () => {
+    const { cwd, headSha } = primed();
+    const r = runHook(cwd, {
+      transcriptPath: writeTranscript(cwd, roundLines({ triage: true })),
+      binDir: fakeGh(cwd, 'echo "HTTP 502 from api.github.com" >&2; exit 1'),
+    });
+    assert.equal(r.status, 0);
+    assert.match(JSON.parse(r.stdout).reason, /FIX phase/,
+      'an exit-1 flake is a flake: the round still advances');
+    assert.equal(ackOf(cwd), headSha);
   });
 });
 

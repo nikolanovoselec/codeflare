@@ -473,12 +473,12 @@ if PR_INFO=$(gh_pr_state "$CURRENT"); then
   COMPACT_INFO=$(printf '%s' "$PR_INFO" | jq -c . 2>/dev/null) && PR_INFO="$COMPACT_INFO"
   printf '%s\t%s\n' "$CURRENT" "$PR_INFO" > "$PRINFO_CACHE" 2>/dev/null || true
 else
-  gh_rc=$?
+  GH_RC=$?
   # Exit 1 is gh's authoritative "no PR for this branch" answer, not a flake
-  # (lib/gh-pr-state.sh documents the contract): bridging it would resurrect
-  # a deleted PR from a stale OPEN cache. Only genuinely transient failures
-  # reach the fallback.
-  [ "$gh_rc" != 1 ] || exit 0
+  # (lib/gh-pr-state.sh reads gh's stderr to guarantee exactly that, remapping
+  # generic exit-1 errors to 3): bridging it would resurrect a deleted PR from
+  # a stale OPEN cache. Only genuinely transient failures reach the fallback.
+  [ "$GH_RC" != 1 ] || exit 0
   PR_INFO=""
   if [ -f "$PRINFO_CACHE" ]; then
     IFS="$(printf '\t')" read -r CACHED_BRANCH CACHED_INFO < "$PRINFO_CACHE"
@@ -1177,12 +1177,15 @@ clear_counter() {
 # demands that were never shown. One breaker per demand, on its own counter.
 # Claude Code renders every blocking Stop hook as "Stop hook error: <reason>".
 # That label is the harness's and cannot be changed from here, so each
-# directive self-identifies instead: the first bytes say it is machinery
-# working, not machinery failing.
+# directive self-identifies twice: the reason's first bytes say it is
+# machinery working, and a parallel systemMessage gives the terminal a clean
+# non-error notice where the client renders one.
 REVIEW_DIRECTIVE_TAG='[review directive — hook working as designed, not an error]'
+REVIEW_DIRECTIVE_NOTICE='Review directive delivered — the review machinery is working normally. "Stop hook error" is Claude Code'\''s fixed label for any blocking Stop hook.'
 
 emit_block_uncounted() {
-  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $1" '{decision:"block", reason:$r}' 2>/dev/null
+  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $1" --arg m "$REVIEW_DIRECTIVE_NOTICE" \
+    '{decision:"block", reason:$r, systemMessage:$m}' 2>/dev/null
   exit 0
 }
 
@@ -1199,7 +1202,8 @@ emit_block() {
   fi
   local new=$((current + 1))
   echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
-  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $reason" '{decision:"block", reason:$r}' 2>/dev/null
+  jq -n --arg r "$REVIEW_DIRECTIVE_TAG $reason" --arg m "$REVIEW_DIRECTIVE_NOTICE" \
+    '{decision:"block", reason:$r, systemMessage:$m}' 2>/dev/null
   exit 0
 }
 
