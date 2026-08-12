@@ -23,7 +23,9 @@ const RUNNER = resolve(
 const SESSION = 'abcdef1234567890';
 const PAYLOAD_DIR = `/tmp/memory-capture-${SESSION.slice(0, 8)}`;
 
-function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, claudeExits = 0 } = {}) {
+const ENVELOPE = '{"type":"result","subtype":"error_max_turns","result":"response body from the model"}';
+
+function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, claudeExits = 0, stdoutLine = ENVELOPE } = {}) {
   const dir = tempDir('memcap-');
   const bin = join(dir, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -36,7 +38,7 @@ function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, 
       '#!/usr/bin/env bash',
       `cat > "${join(dir, 'stdin.txt')}"`,
       `printf '%s\\n' "$@" > "${join(dir, 'argv.txt')}"`,
-      `echo '{"type":"result","subtype":"error_max_turns","result":"response body from the model"}'`,
+      `echo '${stdoutLine}'`,
       'echo "capture failed: simulated" >&2',
       captureWritten ? `printf 'captured\\n' > "${capture}"` : ':',
       `exit ${claudeExits}`,
@@ -172,6 +174,18 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.match(journal, /capture failed: simulated/, 'the stderr tail survives for diagnosis');
     assert.match(journal, /stdout: error_max_turns/, 'the envelope subtype diagnoses stdout-borne failures');
     assert.doesNotMatch(journal, /response body/, 'the model response never lands in the journal');
+  });
+
+  // A capture reaped mid-write leaves partial, unparseable stdout — the one
+  // crash the subtype line cannot describe. The fallback must say that stdout
+  // existed without quoting a byte of it.
+  it('journals a byte count when stdout is not a parseable envelope', () => {
+    const fx = fixture({ claudeExits: 1, stdoutLine: 'partial garbage, not an envelope' });
+    run(fx, ['--vars', fx.vars]);
+    const journal = readFileSync(fx.vars.replace(/\.vars$/, '.attempts.log'), 'utf-8');
+    assert.match(journal, /stdout: unparseable \(\d+ bytes\)/,
+      'a truncated envelope is distinguishable from no output at all');
+    assert.doesNotMatch(journal, /partial garbage/, 'unparseable output is still never quoted');
   });
 
   it('refuses a carrier it cannot read', () => {

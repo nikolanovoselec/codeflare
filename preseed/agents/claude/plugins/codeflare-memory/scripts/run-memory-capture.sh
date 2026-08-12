@@ -224,7 +224,8 @@ case "$ATTEMPT_NO" in ''|*[!0-9]*) ATTEMPT_NO='?' ;; esac
     [ -s "$CAPTURE_STDERR" ] && tail -5 "$CAPTURE_STDERR"
     # The envelope's subtype (error_max_turns, ...) diagnoses the failure; the
     # response text lives in .result and must never land in this file.
-    [ -s "$CAPTURE_STDOUT" ] && jq -r '"stdout: \(.subtype // .error // .type)"' "$CAPTURE_STDOUT" 2>/dev/null
+    [ -s "$CAPTURE_STDOUT" ] && { jq -r '"stdout: \(.subtype // .error // .type)"' "$CAPTURE_STDOUT" 2>/dev/null \
+      || printf 'stdout: unparseable (%s bytes)\n' "$(wc -c < "$CAPTURE_STDOUT")"; }
   fi
 } >> "$ATTEMPT_LOG" 2>/dev/null || true
 
