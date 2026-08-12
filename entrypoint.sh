@@ -2467,7 +2467,7 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.4.0',
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.20.1',
-  'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-goal@0.46.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on

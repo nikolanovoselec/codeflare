@@ -106,7 +106,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Goal remains the exact-pinned upstream 0.43.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
+- Goal remains the exact-pinned upstream 0.46.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
 - A future Goal upgrade requires deliberate review of the exact-version contract and source anchors.
 - The weekly shadow-pin workflow runs the transform against the candidate installation before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) -->
 - Version or layout drift fails before any patched Goal source is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->

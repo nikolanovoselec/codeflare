@@ -625,7 +625,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     );
   });
 
-  it('REQ-AGENT-111: applies every marked patch idempotently to exact 0.43.0 fixtures', () => {
+  it('REQ-AGENT-111: applies every marked patch idempotently to exact 0.46.0 fixtures', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-review-control-'));
     writeFixturePackage(root);
 
