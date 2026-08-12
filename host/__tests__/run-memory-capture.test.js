@@ -77,10 +77,10 @@ function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, 
   return { dir, bin, vars, capture, transcript };
 }
 
-const run = (fx, args) =>
+const run = (fx, args, env = {}) =>
   spawnSync('bash', [RUNNER, ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, PATH: `${fx.bin}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${fx.bin}:${process.env.PATH}`, ...env },
   });
 
 describe('run-memory-capture.sh — headless capture transport', () => {
@@ -97,7 +97,7 @@ describe('run-memory-capture.sh — headless capture transport', () => {
 
     // Self-contained by contract: the conversation travels inside the request,
     // so the capture has no path to derive, no directory to walk and nothing
-    // to reread. Each reread cost a model round-trip out of a budget of four.
+    // to reread. Each reread cost a model round-trip out of a small budget.
     const payload = JSON.parse(readFileSync(request, 'utf-8'));
     assert.equal(payload.capture_file, fx.capture, 'the capture target is carried, not recomputed');
     assert.equal(typeof payload.current_count, 'number', 'a count crosses as a number, not a string');
@@ -115,6 +115,17 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     // An empty --setting-sources is the flag that stops the capture inheriting
     // this session's settings, and it arrives as an empty argv slot.
     assert.equal(argv[argv.indexOf('--setting-sources') + 1], '', 'no session settings inherited');
+  });
+
+  it('lands a non-numeric turn override on the same budget as the default', () => {
+    const fx = fixture();
+    run(fx, ['--vars', fx.vars], { CODEFLARE_MEMORY_MAX_TURNS: 'abc' });
+    const argv = readFileSync(join(fx.dir, 'argv.txt'), 'utf-8').split('\n');
+    // The default and the sanitiser's fallback are two independent literals, so
+    // the row above holds while the fallback drifts back to the old budget. A
+    // garbage override is the only input that reaches the second one.
+    assert.equal(argv[argv.indexOf('--max-turns') + 1], '6',
+      'a rejected override must fall back to the current budget, not the historical one');
   });
 
   it('refuses to publish when the capture wrote no file', () => {
