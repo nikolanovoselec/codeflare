@@ -17,7 +17,9 @@
 #           3 for a generic gh exit 1 that is not the not-found answer:
 #             gh uses 1 for API and network errors too, and the two are
 #             distinguishable only by stderr text, so this function does
-#             the reading and callers keep a numeric contract.
+#             the reading and callers keep a numeric contract. When stderr
+#             capture is unavailable (mktemp failed), not-found is
+#             indistinguishable from a flake and is likewise reported as 3.
 #           2/4 native transient errors (network, auth) — treat like 3:
 #             "unknown, don't cache".
 #
@@ -43,9 +45,6 @@ gh_pr_state() {
     [ "$rc" -ne 1 ] || rc=3
     return "$rc"
   }
-  # The trap owns cleanup so a signal or hook timeout between mktemp and
-  # return cannot strand the capture file; it clears itself on first fire.
-  trap 'rm -f "$err" 2>/dev/null; trap - RETURN' RETURN
   out=$(gh pr view "$branch" --json number,state,headRefOid,baseRefName 2>"$err")
   rc=$?
   # gh answers "no PR" and "the API hiccuped" with the same exit 1; only the
@@ -57,6 +56,13 @@ gh_pr_state() {
   if [ "$rc" -eq 1 ] && ! grep -qiE 'no( open)? pull requests? found' "$err" 2>/dev/null; then
     rc=3
   fi
+  # Cleanup is normal-path only, on purpose. A RETURN trap fires no earlier
+  # than this line does (there are no early returns above), and covering
+  # signals or timeouts would take EXIT/INT/TERM traps, which are process
+  # global — a sourced library must not own its caller's signal handlers. A
+  # killed hook can strand one tiny capture file in the container-lifetime
+  # TMPDIR; accepted.
+  rm -f "$err" 2>/dev/null
   [ -n "$out" ] && printf '%s\n' "$out"
   return "$rc"
 }
