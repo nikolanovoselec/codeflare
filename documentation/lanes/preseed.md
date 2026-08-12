@@ -244,7 +244,7 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.20 provides JSONC configuration, direct-tool unregister cleanup, and MCP elicitation without changing Codeflare's proxy contract. Because adapter 2.15+
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.20.1 provides JSONC configuration, direct-tool unregister cleanup, and MCP elicitation without changing Codeflare's proxy contract; its MCP transport runs on `@modelcontextprotocol/client`/`@modelcontextprotocol/core` 2.0.0 and pulls `jose`, `pkce-challenge`, `eventsource`, and `cross-spawn` into the container's dependency tree. Because adapter 2.15+
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. The Pi entrypoint-owned
