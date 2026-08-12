@@ -633,6 +633,8 @@ describe('enforce-review-spawn.sh — PreToolUse triage gate', () => {
     'bash -lc "git push"',
     'sudo bash -c "git push"',
     'bash -c "git commit -m x"',
+    'bash <<< "git push"',
+    'bash <<<"git push"',
   ]) {
     it(`refuses a delivery in the blocked window: ${cmd}`, () => {
       const cwd = makeFixture();

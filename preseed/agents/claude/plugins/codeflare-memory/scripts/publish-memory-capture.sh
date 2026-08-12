@@ -30,8 +30,6 @@ if CAPTURE_FILE=$(jq -e -r '.capture_file' "$VARS_FILE" 2>/dev/null); then
 elif [[ $? -gt 1 ]]; then
   echo "publish-memory-capture: refusing to publish, carrier unreadable: $VARS_FILE" >&2
   exit 3
-else
-  CAPTURE_FILE=""
 fi
 
 # Counter coordinates: advancing it is what marks this window captured.

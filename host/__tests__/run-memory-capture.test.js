@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, utimesSync } from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,5 +161,30 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     const r = run(fx, ['--vars', join(fx.dir, 'no-such.vars')]);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /carrier unreadable/);
+  });
+
+  // Each session gets its own payload directory and only ever reclaims its own,
+  // so a container running many sessions accumulated them -- now each holding a
+  // full embedded transcript. Age is the discriminator: a directory a live
+  // capture is still writing into must survive the sweep that clears last
+  // week's.
+  it('reclaims stale sibling payload directories without touching recent ones', () => {
+    const stale = '/tmp/memory-capture-staletest';
+    const recent = '/tmp/memory-capture-freshtest';
+    rmSync(stale, { recursive: true, force: true });
+    rmSync(recent, { recursive: true, force: true });
+    mkdirSync(stale, { recursive: true });
+    mkdirSync(recent, { recursive: true });
+    // A fixed past date rather than a relative one: it only grows staler, so
+    // this stays deterministic however long from now the suite runs.
+    const longAgo = new Date('2026-08-09T00:00:00Z');
+    utimesSync(stale, longAgo, longAgo);
+
+    const fx = fixture();
+    run(fx, ['--vars', fx.vars]);
+
+    assert.equal(existsSync(stale), false, 'a payload directory nobody will reopen is reclaimed');
+    assert.ok(existsSync(recent), 'one that may still be in use is left alone');
+    rmSync(recent, { recursive: true, force: true });
   });
 });

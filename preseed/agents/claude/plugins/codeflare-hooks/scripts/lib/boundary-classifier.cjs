@@ -157,6 +157,15 @@ function boundaryOf(text, options) {
           if (value.slice(1).includes('c')) shellWantsCode = true;
           return;
         }
+        // A herestring feeds the shell code exactly as `-c` does. `<` is not a
+        // word-break character here, so `<<<` arrives glued to whatever follows
+        // it when there is no space: `bash <<<"git push"` is one word.
+        if (value.startsWith('<<<')) {
+          const inline = value.slice(3);
+          if (inline) codeWords = [inline];
+          else shellWantsCode = true;
+          return;
+        }
         if (shellWantsCode) { codeWords = [value]; return; }
         // A bare word under a shell with no -c is a script FILE. Its contents
         // are not in this command, so there is nothing further to read.
