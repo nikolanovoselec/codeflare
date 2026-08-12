@@ -319,7 +319,9 @@ function adaptAgentFrontmatter(content, agentId) {
   const lines = frontmatter.split('\n');
   const newLines = [];
   const agentName = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const piExtractionAgent = agentId === 'pi' && (agentName === 'memory-capture' || agentName === 'vault-extract');
+  // vault-extract alone: memory-capture is a pi-native file now, so the
+  // pi-native branch emits it verbatim and never reaches this adapter.
+  const piExtractionAgent = agentId === 'pi' && agentName === 'vault-extract';
   let sawTools = false;
 
   for (const line of lines) {
@@ -328,9 +330,7 @@ function adaptAgentFrontmatter(content, agentId) {
     // copilot, opencode) have no equivalent frontmatter key and must not carry it.
     if (line.startsWith('effort:')) continue;
     if (piExtractionAgent && line.startsWith('description:')) {
-      newLines.push(agentName === 'memory-capture'
-        ? 'description: Visible Pi memory capture worker. The root launches one public background request, retains the request-specific execution snapshot and counter, and finalizes them only after exact native success.'
-        : 'description: Visible Pi Vault extraction worker. The root launches one public background request and retains request-specific execution and staged-manifest state until exact native success.');
+      newLines.push('description: Visible Pi Vault extraction worker. The root launches one public background request and retains request-specific execution and staged-manifest state until exact native success.');
       continue;
     }
 

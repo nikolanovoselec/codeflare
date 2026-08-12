@@ -295,6 +295,12 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       expect(parsed.run_in_background).toBe('true');
       expect(parsed.tools).toBe('bash');
       expect(parsed.thinking).toBe('medium');
+      // memory-capture is a pi-native file now, emitted verbatim, so it never
+      // reaches the frontmatter adapter that injects these for the transformed
+      // agents. Every invariant the adapter used to guarantee has to be pinned
+      // here instead, or a hand edit drops one silently.
+      expect(parsed.prompt_mode).toBe('replace');
+      expect(parsed.extensions).toBe('true');
     }
   });
 
