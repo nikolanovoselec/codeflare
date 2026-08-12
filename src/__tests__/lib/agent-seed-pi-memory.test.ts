@@ -298,6 +298,32 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     }
   });
 
+  // Pi's capture is a different transport on a different bound: the root hands
+  // it an immutable execution snapshot and it gets four turns (AD103,
+  // REQ-MEM-016), while Claude's runner inlines the transcript into the prompt
+  // and gets six (AD124). Pi's document used to be produced by exact-string
+  // replacement over Claude's prose, so an ordinary edit to the Claude agent
+  // moved the anchors, the replacements silently no-oped, and Pi shipped
+  // Claude's budget and Claude's transport with nothing to notice it. Both
+  // halves are asserted, so re-linking the two documents fails here instead of
+  // in a runtime nobody is looking at.
+  it('REQ-MEM-016/AD103: Pi keeps its own capture budget and transport, independent of Claude', () => {
+    const doc = (key: string) => AGENTS_SEEDED_CONFIGS.find((d) => d.key === key)?.content ?? '';
+    const pi = doc('.pi/agent/agents/memory-capture.md');
+    const claude = doc('.claude/agents/memory-capture.md');
+    const budget = (content: string) => content.match(/Finish within (\w+) turns/)?.[1];
+
+    expect(budget(pi)).toBe('four');
+    expect(budget(claude)).toBe('six');
+
+    // Claude-transport identifiers that must never reach Pi's contract.
+    for (const claudeOnly of ['CAPTURE_REQUEST', 'BEGIN TRANSCRIPT', 'run-memory-capture.sh']) {
+      expect(pi).not.toContain(claudeOnly);
+    }
+    // Pi's own delivery, which the stale replacements had dropped on the floor.
+    expect(pi).toContain('immutable execution snapshot');
+  });
+
   it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     // Serialised under the shared global-graph lock, tagged user_vault.

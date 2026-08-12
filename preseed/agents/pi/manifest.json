@@ -132,6 +132,11 @@
       "advanced"
     ]
   },
+  "agents/memory-capture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/graphify-helpers.ts": {
     "modes": [
       "default",
