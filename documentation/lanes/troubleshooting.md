@@ -335,7 +335,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.2.0), which ships session-keyed task state upstream with no source override.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.4.0), which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 
