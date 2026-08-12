@@ -222,7 +222,6 @@ case "$ATTEMPT_NO" in ''|*[!0-9]*) ATTEMPT_NO='?' ;; esac
   printf '%s attempt=%s exit=%s\n' "$(date +%FT%T%z)" "$ATTEMPT_NO" "$STATUS"
   if [ "$STATUS" -ne 0 ]; then
     [ -s "$CAPTURE_STDERR" ] && tail -5 "$CAPTURE_STDERR"
-    [ -s "$CAPTURE_STDOUT" ] && { head -c 400 "$CAPTURE_STDOUT"; echo; }
   fi
 } >> "$ATTEMPT_LOG" 2>/dev/null || true
 

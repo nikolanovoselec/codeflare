@@ -361,7 +361,7 @@ describe('enforce-review-spawn.sh — FIX-phase directive delivery', () => {
     }).stdout.trim());
     const fixFile = join(gitDir, 'sdd-review-fix-shown-pr-42');
     writeFileSync(join(gitDir, 'sdd-review-count-pr-42'), `${headSha}:1\n`);
-    if (fixShown) writeFileSync(fixFile, `${headSha}\n`);
+    if (fixShown) writeFileSync(fixFile, `${fixShown === true ? headSha : fixShown}\n`);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     return { reason: JSON.parse(r.stdout).reason, fixFile, headSha };
   }
@@ -379,6 +379,16 @@ describe('enforce-review-spawn.sh — FIX-phase directive delivery', () => {
     const short = atFixPhase({ fixShown: true }).reason;
     assert.ok(short.length < full.length / 2,
       'later deliveries state the obligation, they do not restate the contract');
+  });
+
+  // The marker is keyed to the PR and read for existence only. Every fix
+  // commit moves the head, so a gate re-keyed to the recorded head would
+  // resurrect the full contract on every push of the round.
+  it('stays terse for a new head when the marker records an older one', () => {
+    const full = atFixPhase().reason;
+    const short = atFixPhase({ fixShown: 'ffffffffffffffffffffffffffffffffffffffff' }).reason;
+    assert.ok(short.length < full.length / 2,
+      'a head the marker has never seen still gets the reminder, not the contract');
   });
 
   // The counter path was built from the branch name. A branch with a slash in

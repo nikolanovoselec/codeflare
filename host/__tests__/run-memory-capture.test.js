@@ -36,6 +36,8 @@ function fixture({ transcriptLines = 3, lastLine = '0', captureWritten = false, 
       '#!/usr/bin/env bash',
       `cat > "${join(dir, 'stdin.txt')}"`,
       `printf '%s\\n' "$@" > "${join(dir, 'argv.txt')}"`,
+      'echo "response body from the model"',
+      'echo "capture failed: simulated" >&2',
       captureWritten ? `printf 'captured\\n' > "${capture}"` : ':',
       `exit ${claudeExits}`,
     ].join('\n'),
@@ -167,6 +169,8 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     const journal = readFileSync(fx.vars.replace(/\.vars$/, '.attempts.log'), 'utf-8');
     assert.match(journal, /attempt=1 exit=1$/m, 'the failed capture run is recorded');
     assert.match(journal, /attempt=1 publish=3$/m, 'the refusal that burned the window is recorded');
+    assert.match(journal, /capture failed: simulated/, 'the stderr tail survives for diagnosis');
+    assert.doesNotMatch(journal, /response body/, 'the model response never lands in the journal');
   });
 
   it('refuses a carrier it cannot read', () => {

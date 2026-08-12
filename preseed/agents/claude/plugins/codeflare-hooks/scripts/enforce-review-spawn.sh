@@ -1506,9 +1506,8 @@ if all_required_lanes_completed_for_current_head; then
     # A round's rows can take several turns to apply, and every turn end
     # re-enters this branch. Re-emitting the whole directive each time taught
     # nothing after the first read and buried the session in a wall of
-    # identical text; the demand counter emit_block already keeps per head is
-    # enough to say it once and then stay short. Both forms still block, so the
-    # obligation is unchanged -- only the repetition is gone.
+    # identical text. Both forms still block, so the obligation is unchanged
+    # -- only the repetition is gone.
     # The full contract is delivered ONCE PER PR, not once per head: by the
     # second round the session has the contract, and re-sending ~130 words
     # under the client's error-labeled banner every round is the wall of
