@@ -92,7 +92,15 @@ describe('run-memory-capture.sh — headless capture transport', () => {
     assert.ok(existsSync(join(PAYLOAD_DIR, 'clean.ndjson')), 'prefilter ran before the model started');
     const task = readFileSync(join(fx.dir, 'stdin.txt'), 'utf-8');
     const request = join(PAYLOAD_DIR, 'request.json');
-    assert.match(task, new RegExp(`VARS_FILE=${request}`), 'the model is pointed at the prepared request');
+    // The conversation travels IN the prompt. Handing over a path instead put
+    // the payload on the tool-result channel, which truncates and persists it:
+    // a traced run spent every turn paging its own request back in and hit the
+    // ceiling before writing the note. A path here is the whole defect.
+    assert.ok(task.includes('prompt number 0'),
+      'the conversation must arrive inline, not as a path the model has to retrieve');
+    assert.match(task, /capture_file: /, 'the capture target travels with it');
+    assert.doesNotMatch(task, new RegExp(request),
+      'naming the request file invites the retrieval this delivery exists to avoid');
     assert.doesNotMatch(task, new RegExp(fx.transcript), 'the raw transcript path is not handed over');
 
     // Self-contained by contract: the conversation travels inside the request,

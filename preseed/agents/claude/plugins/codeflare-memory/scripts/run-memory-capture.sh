@@ -169,7 +169,33 @@ rm -f "$JOINED"
 # Frontmatter would reach the model as instructions if the prompt ever grew any.
 SYSTEM_PROMPT=$(awk 'BEGIN{fm=0} NR==1 && $0=="---"{fm=1; next} fm==1 && $0=="---"{fm=2; next} fm!=1' "$PROMPT_FILE")
 
-TASK=$(printf 'VARS_FILE=%s\n' "$REQUEST")
+# The request travels IN the prompt, not as a path to it. Handing over
+# `VARS_FILE=<path>` looked self-contained -- the file genuinely holds
+# everything -- but the model still had to retrieve it through a tool result,
+# and a tool result is not a channel that can carry a transcript: at 83KB the
+# harness persisted the output and returned a 2KB preview. A traced run spent
+# every turn chasing its own payload -- `cat` (persisted), `Read` (truncated),
+# `python3 -c print()` (persisted again), then two paged reads of the persisted
+# file -- and hit the ceiling as it began writing the note. Raising the turn
+# budget only buys more paging; the retrieval has to stop existing.
+#
+# Inline, the conversation is in context before turn one and the first Bash
+# call is the write. This is Pi's arrangement stated exactly ("VARS_FILE
+# contains the transcript inline; there is no INPUT_FILE or separate transcript
+# file") and what this script's own comments already claimed. $REQUEST stays on
+# disk as the inspectable record of what was sent.
+TASK=$(jq -r '"CAPTURE_REQUEST (inline; there is no file to read)",
+  "session_id: \(.session_id)",
+  "current_count: \(.current_count)",
+  "capture_timestamp: \(.capture_timestamp)",
+  "capture_file: \(.capture_file)",
+  "",
+  "--- BEGIN TRANSCRIPT ---",
+  .transcript,
+  "--- END TRANSCRIPT ---"' "$REQUEST") || {
+  echo "run-memory-capture: could not render the inline request" >&2
+  exit 4
+}
 
 # Six turns. The contract is two Bash calls -- read the request, then write the
 # note and build the chunk -- and four was Pi's budget for that shape, adopted
