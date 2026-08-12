@@ -58,12 +58,12 @@ const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.
 const REQUIRED = [
   'npm:@gotgenes/pi-subagents@19.2.1',
   'npm:context-mode@1.0.169',
-  'npm:@juicesharp/rpiv-advisor@2.2.0',
+  'npm:@juicesharp/rpiv-advisor@2.4.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.4.0',
-  'npm:@juicesharp/rpiv-todo@2.2.0',
-  'npm:pi-web-access@0.17.0',
+  'npm:@juicesharp/rpiv-todo@2.4.0',
+  'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.20.1',
-  'npm:@narumitw/pi-goal@0.43.0',
+  'npm:@narumitw/pi-goal@0.46.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
 
@@ -71,11 +71,11 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
   it('replaces glla with the exact reviewed Goal package and integrity-locked release', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.43.0');
+    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.46.0');
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
-    assert.equal(goal.version, '0.43.0');
-    assert.equal(goal.integrity, 'sha512-+HUjcd9u9Pr1YVqmPfDib09QTybZZKziEEgpiB0WfW/J38FWeH0+IfJy120TV3U9TolFLOKdhrdpUFFzly6CSA==');
+    assert.equal(goal.version, '0.46.0');
+    assert.equal(goal.integrity, 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==');
     assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
   });
 
@@ -98,7 +98,7 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.2.0');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.4.0');
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });
