@@ -298,7 +298,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
         (agent?.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
           .split('\n')
           // First colon only. A frontmatter value may contain one, and the
-          // description assertion above compares text far enough along the
+          // description assertion below compares text far enough along the
           // line to be clipped by a parser that splits on every colon.
           .map((line) => {
             const at = line.indexOf(':');

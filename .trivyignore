@@ -650,16 +650,6 @@ CVE-2026-39822
 # acceptance was removed with that runtime. Fixable code-server findings must
 # surface in the deployment-gating Trivy scan and receive fresh, evidence-backed review before
 # any new suppression is added.
-#
-# code-server 4.131.0 still vendors js-yaml 4.2.0; 4.3.0 fixes crafted-YAML resource
-# exhaustion, but 4.131.0 is the latest code-server release and has not rebuilt
-# its immutable release archive with that dependency. code-server imports
-# js-yaml only for its local YAML config parser. Any crafted config belongs to
-# the session owner, who already has unrestricted shell access; impact is a DoS
-# of that owner's own ephemeral, single-tenant IDE process/container, with no
-# cross-tenant or privilege-expansion path. Remove when a pinned code-server
-# release bundles js-yaml 4.3.0 or later.
-CVE-2026-59869
 # ============================================================================
 # Pi agent npm tree (/opt/codeflare/pi-agent/npm) runs inside the single-tenant
 # session container only, behind the Worker auth boundary, on the user's own
