@@ -297,7 +297,13 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       const parsed = Object.fromEntries(
         (agent?.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
           .split('\n')
-          .map((line) => line.split(/:\s*/, 2))
+          // First colon only. A frontmatter value may contain one, and the
+          // description assertion above compares text far enough along the
+          // line to be clipped by a parser that splits on every colon.
+          .map((line) => {
+            const at = line.indexOf(':');
+            return at < 0 ? [line] : [line.slice(0, at), line.slice(at + 1).trim()];
+          })
           .filter((parts) => parts.length === 2),
       );
       expect(parsed.run_in_background).toBe('true');
