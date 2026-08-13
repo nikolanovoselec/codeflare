@@ -366,7 +366,10 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
   if (errorMessage.toLowerCase().includes('network connection lost')) {
     const recovery = await beginMonitorTransportRecovery(
       host.ctx,
-      () => host.schedule(5, 'collectMetrics'),
+      async () => {
+        try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+        return host.schedule(5, 'collectMetrics');
+      },
     );
     if (recovery !== 'fallback') return;
   }

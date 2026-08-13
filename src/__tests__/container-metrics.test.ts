@@ -29,6 +29,7 @@ const testState = vi.hoisted(() => ({
   healthStatus: 200,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  deleteScheduleCalls: [] as string[],
   abortReasons: [] as string[],
   activityHangs: false,
   kvRef: null as MockKV | null,
@@ -139,9 +140,13 @@ vi.mock('@cloudflare/containers', () => {
       };
     }
 
-    // Mock schedule method
+    // Mock schedule methods
     async schedule(delaySec: number, method: string) {
       testState.scheduleCalls.push([delaySec, method]);
+    }
+
+    deleteSchedules(method: string) {
+      testState.deleteScheduleCalls.push(method);
     }
 
     // Mock stop (called by collectMetrics on idle exceedance)
@@ -221,6 +226,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       syncStatus: 'success',
     };
     testState.scheduleCalls = [];
+    testState.deleteScheduleCalls = [];
     testState.abortReasons = [];
     testState.stopCalls = 0;
     testState.storedSleepAfter = undefined;
@@ -440,6 +446,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         .rejects.toThrow('mock Durable Object abort');
 
       expect(testState.abortReasons).toEqual(['container monitor lost its connection to container services']);
+      expect(testState.deleteScheduleCalls).toEqual(['collectMetrics']);
       expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
       expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
@@ -478,6 +485,44 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
       expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
+    it('REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction', async () => {
+      await storage().put('shutdownRequested', Date.now());
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+    });
+
+    it('REQ-SESSION-024 AC3: invalid monitor recovery state cannot authorize reconstruction', async () => {
+      await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'container monitor recovery: invalid recovery record; suppressing reconstruction',
+        undefined,
+        { durableObjectId: 'mock-do-id', valueType: 'object' },
+      );
+    });
+
+    it('REQ-SESSION-022 AC4: recovery-state read failure suppresses monitor-loss reconstruction', async () => {
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
     });
 
     it('REQ-SESSION-022 AC2: repeated monitor loss joins the existing incident without another reconstruction', async () => {
@@ -979,6 +1024,42 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('REQ-SESSION-018 AC1: recovery cleanup failure cannot block the authoritative stopped write', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      await storage().put('metricsNotRunningSince', Date.now() - 91_000);
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'cleanup-failure',
+        startedAt: Date.now() - 120_000,
+        lastAttemptAt: Date.now() - 100_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.containerRunning = false;
+
+      await containerInstance.collectMetrics();
+
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: failed to clear transport recovery after confirmed exit',
+        expect.objectContaining({ error: `storage delete failed: ${TRANSPORT_RECOVERY_KEY}` }),
+      );
     });
 
     // REQ-SESSION-018 AC2: a transient not-running reading must not flip a live
@@ -1609,6 +1690,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storageGetFailures.clear();
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
+    testState.deleteScheduleCalls = [];
     testState.storedSleepAfter = undefined;
     testState.activityResult = {
       hasActiveConnections: true,

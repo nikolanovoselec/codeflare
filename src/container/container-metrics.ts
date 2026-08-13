@@ -870,7 +870,17 @@ export async function collectMetrics(
       elapsedMs: now - since,
     });
     await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
-    await clearTransportRecoveryState(ctx);
+    try {
+      await clearTransportRecoveryState(ctx);
+    } catch (err) {
+      // Recovery evidence is operational cleanup, while the stopped KV write is
+      // authoritative lifecycle state. Never let stale evidence strand a dead
+      // container as running when cleanup itself fails.
+      logger.warn('collectMetrics: failed to clear transport recovery after confirmed exit', {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
     return;
   }
