@@ -149,6 +149,7 @@ async function main() {
   assert.equal(managedSettings.disableRemoteControl, true);
 
   await verifyConfigProjection();
+  await verifyPinnedStatusEntryContract();
   await verifyOpenVscodeSettings();
   await verifyUiStateHelper();
   const { CODING_AGENT_COMMANDS, hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
@@ -504,6 +505,12 @@ async function verifyConfigProjection() {
   }
 }
 
+async function verifyPinnedStatusEntryContract() {
+  const workbench = await readFile(join(CODE_SERVER_ROOT, 'lib', 'vscode', 'out', 'vs', 'workbench', 'workbench.web.main.internal.js'), 'utf8');
+  assert.match(workbench, /chat\.statusBarEntry/, 'pinned Code OSS must retain the Copilot sign-in status entry identifier');
+  assert.match(workbench, /workbench\.statusbar\.hidden/, 'pinned Code OSS must retain supported status-entry visibility storage');
+}
+
 async function verifyOpenVscodeSettings() {
   const root = await mkdtemp(join(tmpdir(), 'claude-vscode-settings-smoke-'));
   try {
@@ -526,6 +533,11 @@ async function verifyOpenVscodeSettings() {
     await preparation.prepareUnsupportedOpenVscodeSettings(unsupportedDataRoot);
     const unsupportedSettings = JSON.parse(await readFile(join(unsupportedDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(unsupportedSettings, managed.buildUnsupportedOpenVscodeSettings());
+
+    for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
+      const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'globalStorage', 'storage.json'), 'utf8'));
+      assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -38,6 +38,16 @@ class RecordingApprovalHost implements ApprovalHost {
     this.events.push(`confirm:${value.id}`);
     return this.approved;
   }
+
+  async select(title: string, options: readonly string[]): Promise<string | undefined> {
+    this.events.push(`select:${title}:${options.join('|')}`);
+    return options[1];
+  }
+
+  async input(title: string, placeholder?: string): Promise<string | undefined> {
+    this.events.push(`input:${title}:${placeholder ?? ''}`);
+    return 'typed answer';
+  }
 }
 
 test('Pi approval bridge compatibility validates a manifest before confirmation', async () => {
@@ -152,19 +162,69 @@ test('Pi fire-and-forget notifications require no response and never enter appro
   assert.deepEqual(host.events, []);
 });
 
+test('REQ-IDE-020: Pi RPC select and input dialogs return correlated values', async () => {
+  const host = new RecordingApprovalHost();
+  const bridge = new ApprovalBridge(host);
+
+  assert.deepEqual(await bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-select',
+    method: 'select',
+    title: 'Choose one',
+    options: ['First', 'Second'],
+  }), {
+    type: 'extension_ui_response',
+    id: 'ui-select',
+    value: 'Second',
+  });
+  assert.deepEqual(await bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-input',
+    method: 'input',
+    title: 'Type an answer',
+    placeholder: 'Answer',
+  }), {
+    type: 'extension_ui_response',
+    id: 'ui-input',
+    value: 'typed answer',
+  });
+  assert.deepEqual(host.events, [
+    'select:Choose one:First|Second',
+    'input:Type an answer:Answer',
+  ]);
+});
+
+test('REQ-IDE-020: Pi RPC dialog dismissal returns a correlated cancellation', async () => {
+  const host = new RecordingApprovalHost();
+  host.select = async () => undefined;
+  const bridge = new ApprovalBridge(host);
+
+  assert.deepEqual(await bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-cancelled',
+    method: 'select',
+    title: 'Choose one',
+    options: ['First', 'Second'],
+  }), {
+    type: 'extension_ui_response',
+    id: 'ui-cancelled',
+    cancelled: true,
+  });
+});
+
 test('Pi approval bridge compatibility rejects malformed or unsupported UI requests', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
-  await assert.rejects(
-    bridge.handlePiRequest({
-      type: 'extension_ui_request',
-      id: 'ui-request-3',
-      method: 'input',
-      title: 'Untrusted input',
-      message: manifest.id,
-    }),
-    (error: unknown) => error instanceof ApprovalBridgeError && error.code === 'UNSUPPORTED_UI_REQUEST',
-  );
+  for (const request of [
+    { type: 'extension_ui_request' as const, id: 'ui-malformed', method: 'select', title: 'Untrusted input', options: [] },
+    { type: 'extension_ui_request' as const, id: 'ui-editor', method: 'editor', title: 'Untrusted editor' },
+    { type: 'extension_ui_request' as const, id: 'ui-unknown', method: 'futureBlockingDialog', title: 'Unknown dialog' },
+  ]) {
+    await assert.rejects(
+      bridge.handlePiRequest(request),
+      (error: unknown) => error instanceof ApprovalBridgeError && error.code === 'UNSUPPORTED_UI_REQUEST',
+    );
+  }
   assert.deepEqual(host.events, []);
 });

@@ -226,6 +226,61 @@ test("REQ-IDE-002: malformed restored settings cannot prevent managed settings r
   );
 });
 
+test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry", async () => {
+  const preparations = [
+    async (root) => prepareBaseOpenVscodeSettings(root),
+    async (root) => prepareUnsupportedOpenVscodeSettings(root),
+    async (root) => prepareOfficialClaudeIde({
+      sourceRoot: (await fixture()).sourceRoot,
+      targetRoot: join(root, "claude-config"),
+      serverDataRoot: root,
+    }),
+  ];
+
+  for (const prepare of preparations) {
+    const { sourceRoot } = await fixture();
+    const serverDataRoot = join(sourceRoot, "openvscode-data");
+    const storageDirectory = join(serverDataRoot, "data", "User", "globalStorage");
+    await mkdir(storageDirectory, { recursive: true });
+    await writeFile(join(storageDirectory, "storage.json"), JSON.stringify({
+      unrelated: "preserved",
+      "workbench.statusbar.hidden": '["other.status.entry"]',
+    }));
+    await prepare(serverDataRoot);
+    await prepare(serverDataRoot);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(storageDirectory, "storage.json"), "utf8")),
+      {
+        unrelated: "preserved",
+        "workbench.statusbar.hidden": '["other.status.entry","chat.statusBarEntry"]',
+      },
+    );
+  }
+});
+
+test("REQ-IDE-021: malformed profile storage recovers and redirected storage fails closed", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "openvscode-data");
+  const storageDirectory = join(serverDataRoot, "data", "User", "globalStorage");
+  const storagePath = join(storageDirectory, "storage.json");
+  await mkdir(storageDirectory, { recursive: true });
+  await writeFile(storagePath, "not json");
+  await prepareBaseOpenVscodeSettings(serverDataRoot);
+  assert.deepEqual(JSON.parse(await readFile(storagePath, "utf8")), {
+    "workbench.statusbar.hidden": '["chat.statusBarEntry"]',
+  });
+
+  const redirectedRoot = join(sourceRoot, "redirected-data");
+  const redirectedStorage = join(redirectedRoot, "data", "User", "globalStorage");
+  await mkdir(redirectedStorage, { recursive: true });
+  await rm(join(redirectedStorage, "storage.json"), { force: true });
+  await symlink(storagePath, join(redirectedStorage, "storage.json"));
+  await assert.rejects(
+    prepareBaseOpenVscodeSettings(redirectedRoot),
+    /profile storage must be a bounded real file/,
+  );
+});
+
 test("REQ-IDE-009 + REQ-IDE-018: Pi settings seed writes workspace and native notification keys", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");

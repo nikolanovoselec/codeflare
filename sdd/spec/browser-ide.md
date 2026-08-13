@@ -604,8 +604,9 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Editor requests receive the canonical active document's unsaved content, the selection when present, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) -->
 2. Every editor request runs in a fresh isolated Pi process. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend) -->
 3. Edit, Write, and Bash proceed without an editor permission prompt. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
-4. Assistant text and tool progress stream in editor Inline Chat, and normal completion waits for settlement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
-5. Cancellation or deactivation reaps the active request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi request and cleanup still runs) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation) -->
+4. Pi's documented select and input requests use bounded native editor dialogs and return correlated values or cancellation without terminating the active turn; malformed or unsupported UI requests remain fail-closed. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-020: Pi RPC select and input dialogs return correlated values) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-020: Pi RPC select and input use bounded native VS Code dialogs) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-020: a Pi RPC dialog response is written and the active turn continues) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-020: cancelling active Pi dialogs closes them with correlated responses) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (Pi approval bridge compatibility rejects malformed or unsupported UI requests) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-020: an unknown blocking Pi UI request fails and stops the active generation) -->
+5. Assistant text and tool progress stream in editor Inline Chat, and normal completion waits for settlement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
+6. Cancellation or deactivation reaps the active request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi request and cleanup still runs) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation) -->
 
 **Constraints:**
 
@@ -620,6 +621,34 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI only. Existing native context, RPC lifecycle, approval, process-generation, and complete-image checks cover the shared runtime contract.
 
-**Status:** Implemented
+**Status:** Partial
+
+---
+
+### REQ-IDE-021: Account-free Browser IDE chrome
+
+**Intent:** Browser IDE sessions omit Code OSS's Copilot sign-in status affordance while retaining Codeflare Chat and independent agent credentials.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi, Claude, and unsupported inventories add only `chat.statusBarEntry` to the existing hidden status-entry list before code-server starts. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
+2. Existing unrelated ephemeral profile values are retained, while authentication APIs, Codeflare Chat, Claude credentials, and all other status entries remain unchanged. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
+3. The upstream code-server artifact and Bump Shadow Pins workflow remain unmodified, and complete-image smoke fails closed if the next pinned host loses either status-entry contract identifier. <!-- @impl: Dockerfile::CODE_SERVER_VERSION --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPinnedStatusEntryContract -->
+
+**Constraints:**
+
+- The implementation uses Code OSS's supported status-entry visibility storage contract rather than a code-server or Code OSS source patch.
+- Codeflare adds only `chat.statusBarEntry`; user-hidden entries already present in profile storage are preserved.
+- Profile state remains ephemeral and is not added to the bounded persistent UI snapshot.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
+
+**Verification:** PR-boundary review and GitHub Actions CI only. Preparation tests and complete-image smoke verify the exact ephemeral profile value and unchanged upstream runtime provenance.
+
+**Status:** Partial
 
 ---
