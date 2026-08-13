@@ -404,10 +404,7 @@ git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
 
-The design skills are emil-design-eng and design-taste-frontend for all agents,
-plus impeccable for Claude + Pi only. Impeccable ships the design skill and offline
-detector in advanced mode; Pi gets a dedicated verbatim copy, not the
-prose-transformed lane.
+Advanced design uses `design` as the composable entry point. It routes to `ui-ux-pro-max`, `canvas-design`, the independently written `frontend-design`, and the existing `emil-design-eng`, `design-taste-frontend`, `frontend-components`, and `frontend-patterns` specialists when relevant. `impeccable` remains available for Claude + Pi only; it ships its design skill and offline detector in advanced mode, and Pi gets a dedicated verbatim copy rather than the prose-transformed lane. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite))
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
@@ -1351,6 +1348,7 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) - LLM API key management UI
 - [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
 - [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) - Graph Publication Artifacts and Optional Labels
+- [REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite) - Advanced Design Skill Suite
 - [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
 - [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
 - [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing
