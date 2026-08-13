@@ -244,17 +244,14 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   });
 
   it('rejects a missing reviewed Node.js finding', () => {
+    const nodeResult = structuredClone(report().Results[0]);
+    nodeResult.Vulnerabilities.splice(
+      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'brace-expansion'),
+      1,
+    );
     assert.throws(
-      () => validateTrivyResult(report([
-        {
-          Target: 'Node.js',
-          Vulnerabilities: [
-            braceExpansionVulnerability(),
-            braceExpansionVulnerability({ InstalledVersion: '5.0.7' }),
-          ],
-        },
-      ])),
-      /missing reviewed finding.*5\.0\.7/s,
+      () => validateTrivyResult(report([nodeResult])),
+      /missing reviewed finding.*brace-expansion 5\.0\.5.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/brace-expansion\/package\.json; purl=pkg:npm\/brace-expansion@5\.0\.5/s,
     );
   });
 
