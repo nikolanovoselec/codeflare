@@ -93,6 +93,7 @@ export interface NativePiBackend {
   runPrompt(message: string, observer: NativePiTurnObserver): Promise<void>;
   abort(): Promise<void>;
   stop(): Promise<void>;
+  isReusable(): boolean;
 }
 
 export interface NativePiDisposable {
@@ -110,10 +111,137 @@ export interface RunNativePiChatOptions {
   readonly input: NativePiPromptInput;
   readonly response: NativePiResponse;
   readonly cancellation: NativePiCancellation;
-  readonly createBackend: () => NativePiBackend;
+  readonly backend: NativePiBackend;
+  readonly hydrateHistory: boolean;
 }
 
-export function buildNativePiPrompt(input: NativePiPromptInput): string {
+export type NativePiTurnResult = 'completed' | 'cancelled';
+export type NativePiTurnRunner = (options: RunNativePiChatOptions) => Promise<NativePiTurnResult>;
+
+export interface NativePiRuntimeRequest {
+  readonly input: NativePiPromptInput | PromiseLike<NativePiPromptInput>;
+  readonly response: NativePiResponse;
+  readonly cancellation: NativePiCancellation;
+}
+
+/**
+ * Owns the one IDE-only Pi conversation shared by panel and editor Chat.
+ * Requests reserve their FIFO position synchronously while editor context starts
+ * collecting, because Pi's streamed events do not carry a prompt identifier.
+ */
+export class NativePiRuntime {
+  readonly #createBackend: () => NativePiBackend;
+  readonly #runTurn: NativePiTurnRunner;
+  readonly #stopping = new WeakMap<NativePiBackend, Promise<void>>();
+  #backend: NativePiBackend | undefined;
+  #tail = Promise.resolve();
+  readonly #lifecycle = new AbortController();
+  #disposed = false;
+  #disposePromise: Promise<void> | undefined;
+
+  constructor(createBackend: () => NativePiBackend, runTurn: NativePiTurnRunner = runNativePiChat) {
+    this.#createBackend = createBackend;
+    this.#runTurn = runTurn;
+  }
+
+  handle(request: NativePiRuntimeRequest): Promise<void> {
+    // Attach rejection handling even when disposal wins before this request can
+    // reserve a FIFO slot.
+    const capturedInput = Promise.resolve(request.input);
+    void capturedInput.catch(() => undefined);
+    if (this.#disposed) return Promise.resolve();
+    const operation = this.#tail.then(() => this.#run({ ...request, input: capturedInput }));
+    this.#tail = operation.catch(() => undefined);
+    return operation;
+  }
+
+  dispose(): Promise<void> {
+    if (this.#disposePromise) return this.#disposePromise;
+    this.#disposed = true;
+    this.#lifecycle.abort();
+    const backend = this.#backend;
+    this.#disposePromise = (async () => {
+      if (backend) await this.#retire(backend);
+      await this.#tail;
+    })();
+    return this.#disposePromise;
+  }
+
+  async #run(request: Omit<NativePiRuntimeRequest, 'input'> & {
+    readonly input: Promise<NativePiPromptInput>;
+  }): Promise<void> {
+    if (this.#disposed || request.cancellation.isCancellationRequested) return;
+    const input = await awaitInput(request.input, request.cancellation, this.#lifecycle.signal);
+    if (input === undefined || this.#disposed || request.cancellation.isCancellationRequested) return;
+
+    let backend = this.#backend;
+    if (backend?.isReusable() === false) {
+      await this.#retire(backend);
+      backend = undefined;
+    }
+    const hydrateHistory = backend === undefined;
+    if (!backend) {
+      backend = this.#createBackend();
+      this.#backend = backend;
+    }
+
+    try {
+      const result = await this.#runTurn({
+        input,
+        response: request.response,
+        cancellation: request.cancellation,
+        backend,
+        hydrateHistory,
+      });
+      if (result === 'cancelled') await this.#retire(backend);
+    } catch (error) {
+      await this.#retire(backend);
+      throw error;
+    }
+  }
+
+  #retire(backend: NativePiBackend): Promise<void> {
+    if (this.#backend === backend) this.#backend = undefined;
+    const existing = this.#stopping.get(backend);
+    if (existing) return existing;
+    const stopping = Promise.resolve().then(() => backend.stop()).catch((error: unknown) => {
+      // A replacement must never overlap a generation that failed to reap.
+      this.#disposed = true;
+      throw error;
+    });
+    this.#stopping.set(backend, stopping);
+    return stopping;
+  }
+}
+
+async function awaitInput(
+  input: Promise<NativePiPromptInput>,
+  cancellation: NativePiCancellation,
+  lifecycle: AbortSignal,
+): Promise<NativePiPromptInput | undefined> {
+  if (cancellation.isCancellationRequested || lifecycle.aborted) return undefined;
+  let cancel = (): void => undefined;
+  const interrupted = new Promise<undefined>((resolve) => {
+    const subscription = cancellation.onCancellationRequested(() => resolve(undefined));
+    const onDispose = (): void => resolve(undefined);
+    lifecycle.addEventListener('abort', onDispose, { once: true });
+    if (cancellation.isCancellationRequested || lifecycle.aborted) resolve(undefined);
+    cancel = () => {
+      subscription.dispose();
+      lifecycle.removeEventListener('abort', onDispose);
+    };
+  });
+  try {
+    return await Promise.race([input, interrupted]);
+  } finally {
+    cancel();
+  }
+}
+
+export function buildNativePiPrompt(
+  input: NativePiPromptInput,
+  options: { readonly hydrateHistory?: boolean } = {},
+): string {
   if (typeof input.prompt !== 'string') throw new TypeError('Native Pi prompt must be a string');
   const prompt = truncateUtf8(input.prompt, MAX_USER_PROMPT_BYTES);
   const activePath = input.activeEditor ? workspaceRelativePath(input.activeEditor.path) : undefined;
@@ -136,7 +264,7 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
   // turn the user just sent fell off the end.
   const replay = (maxBytes: number): { role: string; text: string }[] =>
     boundedTail(input.history, maxBytes, (entry) => ({ role: entry.role, text: entry.text }));
-  const history = replay(MAX_HISTORY_BYTES);
+  const history = options.hydrateHistory === false ? undefined : replay(MAX_HISTORY_BYTES);
   const openFiles = [...new Set(input.openFiles.map(workspaceRelativePath).filter(isString))]
     .slice(0, MAX_OPEN_FILES);
   const diagnostics = boundedList(
@@ -175,12 +303,18 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
   // so the supporting lists go first, then the replay shrinks, and only a prompt
   // that still does not fit loses the conversation.
   const notice = CONTEXT_NOTICE;
+  const withHistory = (
+    sections: Omit<ContextSections, 'notice' | 'history'>,
+    value: ContextSections['history'] = history,
+  ): ContextSections => value === undefined
+    ? { notice, ...sections }
+    : { notice, history: value, ...sections };
   const candidates: readonly (() => ContextSections)[] = [
-    () => ({ notice, history, activeEditor, openFiles, diagnostics, references }),
-    () => ({ notice, history, activeEditor, openFiles, diagnostics }),
-    () => ({ notice, history, activeEditor, openFiles }),
-    () => ({ notice, history, activeEditor }),
-    () => ({ notice, history: replay(MAX_REDUCED_HISTORY_BYTES), activeEditor }),
+    () => withHistory({ activeEditor, openFiles, diagnostics, references }),
+    () => withHistory({ activeEditor, openFiles, diagnostics }),
+    () => withHistory({ activeEditor, openFiles }),
+    () => withHistory({ activeEditor }),
+    () => withHistory({ activeEditor }, history === undefined ? undefined : replay(MAX_REDUCED_HISTORY_BYTES)),
     () => ({ notice, activeEditor }),
     () => ({ notice }),
   ];
@@ -196,25 +330,35 @@ export function buildNativePiPrompt(input: NativePiPromptInput): string {
   return `${truncateUtf8(rendered, bodyLimit)}${CONTEXT_SUFFIX}`;
 }
 
-export async function runNativePiChat(options: RunNativePiChatOptions): Promise<void> {
-  if (options.cancellation.isCancellationRequested) return;
-  const backend = options.createBackend();
+export async function runNativePiChat(options: RunNativePiChatOptions): Promise<NativePiTurnResult> {
+  if (options.cancellation.isCancellationRequested) return 'cancelled';
+  let cancelled = false;
   let abort = Promise.resolve();
-  const cancellation = options.cancellation.onCancellationRequested(() => {
-    abort = backend.abort().catch(() => undefined);
-  });
-  if (options.cancellation.isCancellationRequested) {
-    abort = backend.abort().catch(() => undefined);
-  }
+  const requestAbort = (): void => {
+    if (cancelled) return;
+    cancelled = true;
+    abort = options.backend.abort().catch(() => undefined);
+  };
+  const cancellation = options.cancellation.onCancellationRequested(requestAbort);
+  if (options.cancellation.isCancellationRequested) requestAbort();
   try {
-    if (!options.cancellation.isCancellationRequested) {
-      await backend.runPrompt(buildNativePiPrompt(options.input), options.response);
+    if (!cancelled) {
+      await options.backend.runPrompt(
+        buildNativePiPrompt(options.input, { hydrateHistory: options.hydrateHistory }),
+        options.response,
+      );
     }
+  } catch (error) {
+    if (!cancelled) throw error;
   } finally {
     cancellation.dispose();
+    // Close the listener boundary before deciding whether the backend is warm.
+    // A cancellation already visible at that boundary still owns an abort and
+    // retirement; a later cancellation arrived after the turn completed.
+    if (options.cancellation.isCancellationRequested) requestAbort();
     await abort;
-    await backend.stop();
   }
+  return cancelled ? 'cancelled' : 'completed';
 }
 
 function boundedList<T, U>(

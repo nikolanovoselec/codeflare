@@ -8,9 +8,13 @@ const host = vi.hoisted(() => ({
   executedCommand: undefined as { id: string; options: Record<string, unknown> } | undefined,
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
-  modelVendor: undefined as string | undefined,
-  modelProvider: undefined as Record<string, (...args: never[]) => unknown> | undefined,
+  participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>) | undefined,
+  modelProviders: new Map<string, Record<string, (...args: never[]) => unknown>>(),
   warnings: [] as string[],
+}));
+
+const nativeChat = vi.hoisted(() => ({
+  runNativePiChat: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -18,6 +22,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     realpath: async (path: string) => path.endsWith('/symlink.ts') ? '/etc/hosts' : path,
+  };
+});
+
+vi.mock('../src/pi/native-chat.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/pi/native-chat.ts')>();
+  return {
+    ...actual,
+    runNativePiChat: nativeChat.runNativePiChat,
   };
 });
 
@@ -42,16 +54,19 @@ vi.mock('vscode', () => ({
     },
   },
   chat: {
-    createChatParticipant: (id: string) => {
+    createChatParticipant: (
+      id: string,
+      handler: (request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>,
+    ) => {
       host.participantId = id;
+      host.participantHandler = handler;
       return { dispose() {} };
     },
   },
   languages: { getDiagnostics: () => [] },
   lm: {
     registerLanguageModelChatProvider: (vendor: string, provider: Record<string, (...args: never[]) => unknown>) => {
-      host.modelVendor = vendor;
-      host.modelProvider = provider;
+      host.modelProviders.set(vendor, provider);
       return { dispose() {} };
     },
   },
@@ -79,12 +94,13 @@ afterEach(async () => {
   host.executedCommand = undefined;
   host.contextValues = [];
   host.participantId = undefined;
-  host.modelVendor = undefined;
-  host.modelProvider = undefined;
+  host.participantHandler = undefined;
+  host.modelProviders.clear();
+  nativeChat.runNativePiChat.mockReset();
   host.warnings = [];
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1: native Pi registers account-free Chat and suppresses account setup actions', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registers account-free panel and editor Chat', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
   activate({
     extensionUri: { fsPath: '/extension' },
@@ -93,21 +109,59 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1: native Pi registers account-free Chat a
 
   assert.equal(host.participantId, 'codeflare.pi');
   assert.deepEqual(host.contextValues, [{ key: 'chatSetupCompleted', value: true }]);
-  assert.equal(host.modelVendor, 'copilot');
-  const provider = host.modelProvider;
-  assert.ok(provider);
-  const models = await provider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;
-  assert.equal(models.length, 1);
-  assert.equal(models[0]?.name, 'Codeflare');
-  assert.deepEqual(models[0]?.isDefault, { 1: true });
-  assert.equal(models[0]?.isUserSelectable, false);
-  assert.equal(models[0]?.requiresAuthorization, undefined);
-  await assert.rejects(
-    provider.provideLanguageModelChatResponse() as Promise<void>,
-    /compatibility.*cannot generate/i,
+  assert.deepEqual([...host.modelProviders.keys()], ['copilot', 'codeflare']);
+  const fallbackProvider = host.modelProviders.get('copilot');
+  const visibleProvider = host.modelProviders.get('codeflare');
+  assert.ok(fallbackProvider);
+  assert.ok(visibleProvider);
+
+  const fallbackModels = await fallbackProvider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;
+  assert.equal(fallbackModels.length, 1);
+  assert.equal(fallbackModels[0]?.id, 'host-compatibility');
+  assert.equal(fallbackModels[0]?.name, 'Codeflare');
+  assert.deepEqual(fallbackModels[0]?.isDefault, { 1: true });
+  assert.equal(fallbackModels[0]?.isUserSelectable, false);
+  assert.deepEqual(fallbackModels[0]?.capabilities, {});
+  assert.equal(fallbackModels[0]?.requiresAuthorization, undefined);
+
+  const visibleModels = await visibleProvider.provideLanguageModelChatInformation() as Array<Record<string, unknown>>;
+  assert.equal(visibleModels.length, 1);
+  assert.equal(visibleModels[0]?.id, 'host-visible');
+  assert.equal(visibleModels[0]?.name, 'Codeflare');
+  assert.deepEqual(visibleModels[0]?.isDefault, { 1: true, 4: true });
+  assert.equal(visibleModels[0]?.isUserSelectable, true);
+  assert.deepEqual(visibleModels[0]?.capabilities, { toolCalling: true });
+  assert.equal(visibleModels[0]?.requiresAuthorization, undefined);
+
+  for (const provider of [fallbackProvider, visibleProvider]) {
+    await assert.rejects(
+      provider.provideLanguageModelChatResponse() as Promise<void>,
+      /compatibility.*cannot generate/i,
+    );
+    assert.equal(await provider.provideTokenCount(), 0);
+  }
+  assert.equal(subscriptions.length, 5);
+});
+
+test('REQ-IDE-019 AC6: participant requests run the local Pi backend without provider generation', async () => {
+  nativeChat.runNativePiChat.mockImplementationOnce(async (options: { backend: unknown }) => {
+    assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
+    return 'completed';
+  });
+  activate({
+    extensionUri: { fsPath: '/extension' },
+    subscriptions: [],
+  } as never);
+
+  assert.ok(host.participantHandler);
+  await host.participantHandler(
+    { prompt: 'Refactor this selection', references: [] },
+    { history: [] },
+    { markdown() {}, progress() {} },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
   );
-  assert.equal(await provider.provideTokenCount(), 0);
-  assert.equal(subscriptions.length, 4);
+
+  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
 test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode', async () => {

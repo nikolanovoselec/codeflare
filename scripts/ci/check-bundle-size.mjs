@@ -29,16 +29,19 @@ const BUDGETS = {
     //
     // Worth knowing: 3705 KiB is already past the 3 MiB free-plan ceiling, so
     // this Worker cannot deploy on the free plan regardless of the budget.
-    // Most of it is src/lib/agent-seed.generated.ts (12 MiB raw).
+    // Most of it is src/lib/agent-seed.generated.ts.
     //
     // Raised 4200 -> 6000 on 2026-07-27. Measured 4231.1 KiB (run 30228756909).
     // The gate fired on intentional growth: the reviewer-economics work added
     // ~518 KiB of seed by embedding each lane's policy into its agent document,
-    // which is what took a review round from 13 turns to 6. Trimming it back
-    // would undo the change it is reporting. Set to 6000 rather than just above
-    // current usage: the seed is expected to keep growing with the agent
-    // corpus, and at 59% of the platform ceiling there is still room to react.
-    budgetKiB: 6000,
+    // which is what took a review round from 13 turns to 6.
+    //
+    // Raised 6000 -> 6800 on 2026-08-13. Measured 6462.5 KiB (run 31724293451).
+    // The advanced design suite added an on-demand UI/UX dataset and its
+    // runtime search implementation across every skill-capable agent. Removing
+    // that generated fan-out would undo the feature. 6800 keeps a 337 KiB
+    // regression margin while leaving 3440 KiB below the paid-plan hard limit.
+    budgetKiB: 6800,
   },
 };
 

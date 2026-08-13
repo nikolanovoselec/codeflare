@@ -89,7 +89,7 @@ test("REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and n
   }
 });
 
-test("REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
+test("REQ-IDE-006 AC4: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   await writeEntry(sourceRoot, "history.jsonl", "terminal transcript");
   await symlink(join(sourceRoot, "history.jsonl"), join(sourceRoot, "CLAUDE.md"));
@@ -99,7 +99,7 @@ test("REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected
   assert.equal((await readdir(targetRoot)).includes("CLAUDE.md"), false);
 });
 
-test("REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries", async () => {
+test("REQ-IDE-006 AC4: projection excludes terminal history, runtime state, and unknown entries", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const excluded = [
     "history.jsonl",
@@ -170,15 +170,19 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
 });
 
-test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme but replaces stale managed inventory settings", async () => {
+test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const settingsDirectory = join(serverDataRoot, "data", "User");
   await mkdir(settingsDirectory, { recursive: true });
   await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
     "workbench.colorTheme": "Default Light Modern",
+    "keyboard.layout": "de",
     "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "off",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": true,
+    },
     "claudeCode.disableLoginPrompt": false,
   }));
 
@@ -186,10 +190,14 @@ test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme bu
 
   assert.deepEqual(JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")), {
     "workbench.colorTheme": "Default Light Modern",
+    "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": false,
+    },
   });
 });
 
@@ -217,6 +225,64 @@ test("REQ-IDE-002: malformed restored settings cannot prevent managed settings r
   assert.deepEqual(
     JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")),
     buildPiOpenVscodeSettings(),
+  );
+});
+
+test("REQ-IDE-021: every prepared inventory hides account login chrome", async () => {
+  const preparations = [
+    async (root) => prepareBaseOpenVscodeSettings(root),
+    async (root) => prepareUnsupportedOpenVscodeSettings(root),
+    async (root) => prepareOfficialClaudeIde({
+      sourceRoot: (await fixture()).sourceRoot,
+      targetRoot: join(root, "claude-config"),
+      serverDataRoot: root,
+    }),
+  ];
+
+  for (const prepare of preparations) {
+    const { sourceRoot } = await fixture();
+    const serverDataRoot = join(sourceRoot, "openvscode-data");
+    const storageDirectory = join(serverDataRoot, "data", "User", "State");
+    await mkdir(storageDirectory, { recursive: true });
+    await writeFile(join(storageDirectory, "storage.json"), JSON.stringify({
+      unrelated: "preserved",
+      "workbench.statusbar.hidden": '["other.status.entry"]',
+      "workbench.activity.showAccounts": "true",
+    }));
+    await prepare(serverDataRoot);
+    await prepare(serverDataRoot);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(storageDirectory, "storage.json"), "utf8")),
+      {
+        unrelated: "preserved",
+        "workbench.statusbar.hidden": '["other.status.entry","chat.statusBarEntry"]',
+        "workbench.activity.showAccounts": "false",
+      },
+    );
+  }
+});
+
+test("REQ-IDE-021: malformed profile storage recovers and redirected storage fails closed", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "openvscode-data");
+  const storageDirectory = join(serverDataRoot, "data", "User", "State");
+  const storagePath = join(storageDirectory, "storage.json");
+  await mkdir(storageDirectory, { recursive: true });
+  await writeFile(storagePath, "not json");
+  await prepareBaseOpenVscodeSettings(serverDataRoot);
+  assert.deepEqual(JSON.parse(await readFile(storagePath, "utf8")), {
+    "workbench.statusbar.hidden": '["chat.statusBarEntry"]',
+    "workbench.activity.showAccounts": "false",
+  });
+
+  const redirectedRoot = join(sourceRoot, "redirected-data");
+  const redirectedStorage = join(redirectedRoot, "data", "User", "State");
+  await mkdir(redirectedStorage, { recursive: true });
+  await rm(join(redirectedStorage, "storage.json"), { force: true });
+  await symlink(storagePath, join(redirectedStorage, "storage.json"));
+  await assert.rejects(
+    prepareBaseOpenVscodeSettings(redirectedRoot),
+    /profile storage must be a bounded real file/,
   );
 });
 

@@ -29,6 +29,8 @@ const testState = vi.hoisted(() => ({
   healthStatus: 200,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  scheduleFailuresRemaining: 0,
+  deleteScheduleCalls: [] as string[],
   abortReasons: [] as string[],
   activityHangs: false,
   kvRef: null as MockKV | null,
@@ -139,9 +141,17 @@ vi.mock('@cloudflare/containers', () => {
       };
     }
 
-    // Mock schedule method
+    // Mock schedule methods
     async schedule(delaySec: number, method: string) {
+      if (testState.scheduleFailuresRemaining > 0) {
+        testState.scheduleFailuresRemaining -= 1;
+        throw new Error('schedule failed');
+      }
       testState.scheduleCalls.push([delaySec, method]);
+    }
+
+    deleteSchedules(method: string) {
+      testState.deleteScheduleCalls.push(method);
     }
 
     // Mock stop (called by collectMetrics on idle exceedance)
@@ -221,6 +231,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       syncStatus: 'success',
     };
     testState.scheduleCalls = [];
+    testState.scheduleFailuresRemaining = 0;
+    testState.deleteScheduleCalls = [];
     testState.abortReasons = [];
     testState.stopCalls = 0;
     testState.storedSleepAfter = undefined;
@@ -432,6 +444,193 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
+
+    it('REQ-SESSION-021 AC6: reconstructs immediately when the SDK monitor loses container services after running becomes false', async () => {
+      testState.containerRunning = false;
+
+      await expect(containerInstance.onError(new Error('Network connection lost.')))
+        .rejects.toThrow('mock Durable Object abort');
+
+      expect(testState.abortReasons).toEqual(['container monitor lost its connection to container services']);
+      expect(testState.deleteScheduleCalls).toEqual(['collectMetrics']);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptId: expect.any(String),
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      });
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+    });
+
+    it('REQ-SESSION-022 AC5: bounds monitor-loss recovery while running remains false, then resumes exit confirmation', async () => {
+      testState.containerRunning = false;
+      await expect(containerInstance.onError(new Error('Network connection lost.')))
+        .rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      expect(testState.abortReasons).toHaveLength(2);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+
+      testState.scheduleCalls = [];
+      await containerInstance.collectMetrics();
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
+    it('failed monitor-recovery scheduling still converges a persistently unavailable session to stopped', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      testState.containerRunning = false;
+      testState.scheduleFailuresRemaining = 1;
+
+      vi.useFakeTimers();
+      try {
+        await containerInstance.onError(new Error('Network connection lost.'));
+
+        expect(testState.abortReasons).toEqual([]);
+        expect(testState.deleteScheduleCalls).toEqual(['collectMetrics', 'collectMetrics']);
+        expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+        expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+
+        vi.advanceTimersByTime(91_000);
+        await containerInstance.collectMetrics();
+
+        const putCall = mockKV.put.mock.calls.find(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+        );
+        expect(putCall).toBeDefined();
+        expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('REQ-SESSION-024 AC1: schedule and cleanup failure retain recovery ownership with a confirmation tick', async () => {
+      testState.containerRunning = false;
+      testState.scheduleFailuresRemaining = 1;
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'resetting' });
+    });
+
+    it('REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction', async () => {
+      await storage().put('shutdownRequested', Date.now());
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+    });
+
+    it('REQ-SESSION-024 AC3: invalid monitor recovery state cannot authorize reconstruction', async () => {
+      await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'container monitor recovery: invalid recovery record; suppressing reconstruction',
+        undefined,
+        { durableObjectId: 'mock-do-id', valueType: 'object' },
+      );
+    });
+
+    it('REQ-SESSION-022 AC4: recovery-state read failure suppresses monitor-loss reconstruction', async () => {
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+    });
+
+    it('REQ-SESSION-022 AC2: repeated monitor loss joins the existing incident without another reconstruction', async () => {
+      const recovery = {
+        attemptId: 'existing-monitor-incident',
+        startedAt: Date.now() - 5_000,
+        lastAttemptAt: Date.now() - 5_000,
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      };
+      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
+      await storage().put(TRANSPORT_RECOVERY_KEY, recovery);
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual(recovery);
+    });
+
+    it('REQ-SESSION-022 AC5: exhausted monitor loss returns to ordinary exit confirmation', async () => {
+      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'exhausted-monitor-incident',
+        startedAt: Date.now() - 30_000,
+        lastAttemptAt: Date.now() - 15_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
+    it('REQ-SESSION-022 AC4: monitor loss cannot reconstruct when deliberate-stop ownership is unreadable', async () => {
+      testState.containerRunning = false;
+      testState.storageGetFailures.add('shutdownRequested');
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+    });
 
     it('REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
@@ -879,6 +1078,42 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('REQ-SESSION-018 AC1: recovery cleanup failure cannot block the authoritative stopped write', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      await storage().put('metricsNotRunningSince', Date.now() - 91_000);
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'cleanup-failure',
+        startedAt: Date.now() - 120_000,
+        lastAttemptAt: Date.now() - 100_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.containerRunning = false;
+
+      await containerInstance.collectMetrics();
+
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: failed to clear transport recovery after confirmed exit',
+        expect.objectContaining({ error: `storage delete failed: ${TRANSPORT_RECOVERY_KEY}` }),
+      );
     });
 
     // REQ-SESSION-018 AC2: a transient not-running reading must not flip a live
@@ -1509,6 +1744,8 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storageGetFailures.clear();
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
+    testState.scheduleFailuresRemaining = 0;
+    testState.deleteScheduleCalls = [];
     testState.storedSleepAfter = undefined;
     testState.activityResult = {
       hasActiveConnections: true,

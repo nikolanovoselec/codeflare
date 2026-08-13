@@ -4,10 +4,6 @@ import {
   commands,
   lm,
   window,
-  type CancellationToken,
-  type ChatContext,
-  type ChatRequest,
-  type ChatResponseStream,
   type ExtensionContext,
   type LanguageModelChatInformation,
   type LanguageModelChatProvider,
@@ -15,7 +11,7 @@ import {
 
 import { ApprovalBridge } from './pi/approval-bridge.ts';
 import {
-  type NativePiBackend,
+  NativePiRuntime,
   runNativePiChat,
 } from './pi/native-chat.ts';
 import { NodePiProcessSpawner, PiRpcBackend } from './pi/node-rpc-backend.ts';
@@ -28,13 +24,16 @@ import {
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
 const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
-// Code OSS 1.130 resolves a participant's implicit default only from its
-// reserved fallback vendor. This is an internal selection key, not a GitHub
-// Copilot integration: the model remains hidden, account-free, and inert.
-const HOST_MODEL_VENDOR = 'copilot';
+// The pinned extension host still resolves an absent request model only from
+// its reserved Copilot vendor. Keep that fallback hidden, and expose a distinct
+// Codeflare vendor so the visible picker bypasses Copilot entitlement/setup.
+// Both adapters are inert; the participant performs inference through Pi RPC.
+const HOST_FALLBACK_VENDOR = 'copilot';
+const HOST_VISIBLE_VENDOR = 'codeflare';
 const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
-const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
+const CHAT_LOCATION_EDITOR = 4 as const;
+const HOST_FALLBACK_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
   readonly isUserSelectable: false;
 } = Object.freeze({
@@ -48,13 +47,38 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   isDefault: Object.freeze({ [CHAT_LOCATION_PANEL]: true as const }),
   isUserSelectable: false,
 });
-const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({
-  provideLanguageModelChatInformation: () => [HOST_COMPATIBILITY_MODEL],
-  provideLanguageModelChatResponse: async () => {
-    throw new Error('Codeflare host compatibility model cannot generate responses');
-  },
+const HOST_VISIBLE_MODEL: LanguageModelChatInformation & {
+  readonly isDefault: Readonly<Record<
+    typeof CHAT_LOCATION_PANEL | typeof CHAT_LOCATION_EDITOR,
+    true
+  >>;
+  readonly isUserSelectable: true;
+} = Object.freeze({
+  id: 'host-visible',
+  name: 'Codeflare',
+  family: HOST_MODEL_FAMILY,
+  version: '1',
+  maxInputTokens: 1,
+  maxOutputTokens: 1,
+  capabilities: Object.freeze({ toolCalling: true }),
+  isDefault: Object.freeze({
+    [CHAT_LOCATION_PANEL]: true as const,
+    [CHAT_LOCATION_EDITOR]: true as const,
+  }),
+  isUserSelectable: true,
+});
+const failClosedCompatibilityResponse = async (): Promise<never> => {
+  throw new Error('Codeflare host compatibility model cannot generate responses');
+};
+const hostCompatibilityProvider = (
+  model: LanguageModelChatInformation,
+): LanguageModelChatProvider => Object.freeze({
+  provideLanguageModelChatInformation: () => [model],
+  provideLanguageModelChatResponse: failClosedCompatibilityResponse,
   provideTokenCount: async () => 0,
 });
+const HOST_FALLBACK_PROVIDER = hostCompatibilityProvider(HOST_FALLBACK_MODEL);
+const HOST_VISIBLE_PROVIDER = hostCompatibilityProvider(HOST_VISIBLE_MODEL);
 let activeRuntime: NativePiRuntime | undefined;
 
 export function activate(context: ExtensionContext): void {
@@ -62,19 +86,25 @@ export function activate(context: ExtensionContext): void {
   // only while chat setup is incomplete. Codeflare owns an account-free native
   // participant, so mark that compatibility setup complete without disabling Chat.
   void commands.executeCommand('setContext', 'chatSetupCompleted', true);
-  const runtime = new NativePiRuntime();
-  const hostModelProvider = lm.registerLanguageModelChatProvider(
-    HOST_MODEL_VENDOR,
-    HOST_COMPATIBILITY_PROVIDER,
+  const runtime = new NativePiRuntime(createBackend, runNativePiChat);
+  const hostFallbackProvider = lm.registerLanguageModelChatProvider(
+    HOST_FALLBACK_VENDOR,
+    HOST_FALLBACK_PROVIDER,
+  );
+  const hostVisibleProvider = lm.registerLanguageModelChatProvider(
+    HOST_VISIBLE_VENDOR,
+    HOST_VISIBLE_PROVIDER,
   );
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
-    (request, chatContext, response, cancellation) => runtime.handle(
-      request,
-      chatContext,
-      response,
+    (request, chatContext, response, cancellation) => runtime.handle({
+      input: collectNativePiPromptInput(request, chatContext),
+      response: {
+        markdown: (value) => response.markdown(value),
+        progress: (value) => response.progress(value),
+      },
       cancellation,
-    ),
+    }),
   );
   const reviewFile = commands.registerCommand(
     REVIEW_FILE_COMMAND,
@@ -83,7 +113,8 @@ export function activate(context: ExtensionContext): void {
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
   context.subscriptions.push(
-    hostModelProvider,
+    hostFallbackProvider,
+    hostVisibleProvider,
     participant,
     reviewFile,
     { dispose: () => { void runtime.dispose(); } },
@@ -128,48 +159,6 @@ function isUriResource(value: unknown): value is Uri {
     && typeof value.scheme === 'string'
     && 'fsPath' in value
     && typeof value.fsPath === 'string';
-}
-
-class NativePiRuntime {
-  readonly #active = new Set<NativePiBackend>();
-  #disposed = false;
-
-  async handle(
-    request: ChatRequest,
-    context: ChatContext,
-    response: ChatResponseStream,
-    cancellation: CancellationToken,
-  ): Promise<void> {
-    if (this.#disposed || cancellation.isCancellationRequested) return;
-    const input = await collectNativePiPromptInput(request, context);
-    let backend: NativePiBackend | undefined;
-    try {
-      await runNativePiChat({
-        input,
-        response: {
-          markdown: (value) => response.markdown(value),
-          progress: (value) => response.progress(value),
-        },
-        cancellation,
-        createBackend: () => {
-          if (this.#disposed) throw new Error('Codeflare Chat is disposed');
-          backend = createBackend();
-          this.#active.add(backend);
-          return backend;
-        },
-      });
-    } finally {
-      if (backend) this.#active.delete(backend);
-    }
-  }
-
-  async dispose(): Promise<void> {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    const active = [...this.#active];
-    this.#active.clear();
-    await Promise.all(active.map((backend) => backend.stop()));
-  }
 }
 
 function createBackend(): PiRpcBackend {

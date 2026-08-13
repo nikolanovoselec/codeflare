@@ -21,7 +21,7 @@ afterEach(() => {
   }
 });
 
-test('REQ-IDE-008 AC4: one Pi request generation reaps a TERM-ignoring descendant in another process group', async () => {
+test('REQ-IDE-008 AC4: one Pi generation reaps a TERM-ignoring descendant in another process group', async () => {
   const token = `test-${randomUUID()}`;
   const leader = spawn(
     '/bin/sh',

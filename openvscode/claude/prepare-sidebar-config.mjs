@@ -11,6 +11,10 @@ import {
 } from "./managed-settings.mjs";
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
+const PROFILE_STORAGE_MAX_BYTES = 256 * 1024;
+const HIDDEN_STATUS_ENTRY_STORAGE_KEY = "workbench.statusbar.hidden";
+const HIDDEN_STATUS_ENTRY_ID = "chat.statusBarEntry";
+const ACCOUNTS_VISIBILITY_STORAGE_KEY = "workbench.activity.showAccounts";
 
 export const SIDEBAR_LINK_ALLOWLIST = Object.freeze([
   ".credentials.json",
@@ -107,6 +111,67 @@ async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
       { encoding: "utf8", flag: "wx", mode: 0o600 },
     );
     await rename(temporary, settingsPath);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+  await writeOpenVscodeProfileState(serverDataRoot);
+}
+
+async function writeOpenVscodeProfileState(serverDataRoot) {
+  // The code-server web workbench resolves BrowserWorkbenchEnvironmentService.stateResource
+  // to <user-data-dir>/User/State/storage.json. User/globalStorage serves unrelated
+  // extension storage and is not the workbench profile-state resource.
+  const storageDirectory = resolve(serverDataRoot, "data", "User", "State");
+  const storagePath = resolve(storageDirectory, "storage.json");
+  await mkdir(storageDirectory, { mode: 0o700, recursive: true });
+  if (await realpath(storageDirectory) !== storageDirectory) {
+    throw new Error("OpenVSCode profile storage directory must not be redirected");
+  }
+  const existing = await lstatOrUndefined(storagePath);
+  if (existing && (!existing.isFile() || existing.isSymbolicLink() || existing.size > PROFILE_STORAGE_MAX_BYTES)) {
+    throw new Error("OpenVSCode profile storage must be a bounded real file");
+  }
+  let preserved = {};
+  if (existing) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile(storagePath, "utf8"));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      parsed = {};
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("OpenVSCode profile storage must be a JSON object");
+    }
+    preserved = parsed;
+  }
+  const existingHidden = preserved[HIDDEN_STATUS_ENTRY_STORAGE_KEY];
+  let hiddenEntries = [];
+  if (typeof existingHidden === "string") {
+    try {
+      const parsed = JSON.parse(existingHidden);
+      if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string")) hiddenEntries = parsed;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+  }
+  if (!hiddenEntries.includes(HIDDEN_STATUS_ENTRY_ID)) hiddenEntries.push(HIDDEN_STATUS_ENTRY_ID);
+  const serialized = `${JSON.stringify({
+    ...preserved,
+    [HIDDEN_STATUS_ENTRY_STORAGE_KEY]: JSON.stringify(hiddenEntries),
+    [ACCOUNTS_VISIBILITY_STORAGE_KEY]: "false",
+  }, null, 2)}\n`;
+  if (Buffer.byteLength(serialized, "utf8") > PROFILE_STORAGE_MAX_BYTES) {
+    throw new Error("OpenVSCode profile storage exceeds its bounded size");
+  }
+  const temporary = `${storagePath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(
+      temporary,
+      serialized,
+      { encoding: "utf8", flag: "wx", mode: 0o600 },
+    );
+    await rename(temporary, storagePath);
   } finally {
     await rm(temporary, { force: true });
   }

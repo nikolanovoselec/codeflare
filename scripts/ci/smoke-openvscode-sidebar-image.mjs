@@ -293,23 +293,34 @@ async function verifyCodeServerWorkspaceProjection() {
 
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.enabledApiProposals, ['chatProvider', 'defaultChatParticipant']);
+  assert.deepEqual(manifest.enabledApiProposals, [
+    'chatParticipantAdditions',
+    'chatProvider',
+    'defaultChatParticipant',
+  ]);
   assert.equal(manifest.displayName, 'Codeflare');
   assert.deepEqual(manifest.activationEvents, [
-    'onStartupFinished',
+    '*',
     'onChatParticipant:codeflare.pi',
     'onCommand:codeflare.pi.reviewFile',
   ]);
-  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
-    vendor: 'copilot',
-    displayName: 'Codeflare',
-  }]);
+  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [
+    {
+      vendor: 'copilot',
+      displayName: 'Codeflare',
+    },
+    {
+      vendor: 'codeflare',
+      displayName: 'Codeflare',
+    },
+  ]);
   const [participant] = manifest.contributes?.chatParticipants ?? [];
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
   assert.equal(participant?.fullName, 'Codeflare');
   assert.equal(participant?.isDefault, true);
   assert.equal(participant?.isSticky, true);
+  assert.deepEqual(participant?.locations, ['panel', 'editor']);
   assert.deepEqual(participant?.modes, ['ask', 'edit', 'agent']);
   assert.deepEqual(manifest.contributes?.menus?.['editor/context'], [{
     command: 'codeflare.pi.reviewFile',
@@ -325,7 +336,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let executedCommand;
   const contextValues = new Map();
   let handler;
-  let hostModelProvider;
+  const hostModelProviders = new Map();
   let reviewFile;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
@@ -359,8 +370,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
     languages: { getDiagnostics: () => [] },
     lm: {
       registerLanguageModelChatProvider: (vendor, provider) => {
-        assert.equal(vendor, 'copilot');
-        hostModelProvider = provider;
+        assert.ok(vendor === 'copilot' || vendor === 'codeflare');
+        assert.equal(hostModelProviders.has(vendor), false);
+        hostModelProviders.set(vendor, provider);
         return disposable();
       },
     },
@@ -397,18 +409,32 @@ async function verifyPackagedNativeChat(extensionRoot) {
     extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
-    assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
-    const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
-    assert.equal(models.length, 1);
-    assert.equal(models[0].name, 'Codeflare');
-    assert.deepEqual(models[0].isDefault, { 1: true });
-    assert.equal(models[0].isUserSelectable, false);
-    assert.equal(models[0].requiresAuthorization, undefined);
-    await assert.rejects(
-      hostModelProvider.provideLanguageModelChatResponse(),
-      /compatibility.*cannot generate|cannot generate.*compatibility/i,
-    );
-    assert.equal(await hostModelProvider.provideTokenCount(), 0);
+    assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
+    const fallbackProvider = hostModelProviders.get('copilot');
+    const visibleProvider = hostModelProviders.get('codeflare');
+    const fallbackModels = await fallbackProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(fallbackModels.length, 1);
+    assert.equal(fallbackModels[0].id, 'host-compatibility');
+    assert.equal(fallbackModels[0].name, 'Codeflare');
+    assert.deepEqual(fallbackModels[0].isDefault, { 1: true });
+    assert.equal(fallbackModels[0].isUserSelectable, false);
+    assert.deepEqual(fallbackModels[0].capabilities, {});
+    assert.equal(fallbackModels[0].requiresAuthorization, undefined);
+    const visibleModels = await visibleProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(visibleModels.length, 1);
+    assert.equal(visibleModels[0].id, 'host-visible');
+    assert.equal(visibleModels[0].name, 'Codeflare');
+    assert.deepEqual(visibleModels[0].isDefault, { 1: true, 4: true });
+    assert.equal(visibleModels[0].isUserSelectable, true);
+    assert.deepEqual(visibleModels[0].capabilities, { toolCalling: true });
+    assert.equal(visibleModels[0].requiresAuthorization, undefined);
+    for (const provider of [fallbackProvider, visibleProvider]) {
+      await assert.rejects(
+        provider.provideLanguageModelChatResponse(),
+        /compatibility.*cannot generate|cannot generate.*compatibility/i,
+      );
+      assert.equal(await provider.provideTokenCount(), 0);
+    }
     assert.equal(typeof reviewFile, 'function', 'packaged extension did not register file review');
     const reviewResource = uri(reviewPath);
     activeEditorUri = reviewResource;
@@ -490,10 +516,22 @@ async function verifyOpenVscodeSettings() {
     assert.deepEqual(settings, managed.buildOpenVscodeSettings(claudeConfigRoot));
     assert.equal(settings['chat.disableAIFeatures'], true);
 
+    const piDataRoot = join(root, 'pi-data');
+    await preparation.prepareBaseOpenVscodeSettings(piDataRoot);
+    const piSettings = JSON.parse(await readFile(join(piDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(piSettings, managed.buildPiOpenVscodeSettings());
+    assert.deepEqual(piSettings['chat.agentFilesLocations'], { '~/.claude/agents': false });
+
     const unsupportedDataRoot = join(root, 'unsupported-data');
     await preparation.prepareUnsupportedOpenVscodeSettings(unsupportedDataRoot);
     const unsupportedSettings = JSON.parse(await readFile(join(unsupportedDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(unsupportedSettings, managed.buildUnsupportedOpenVscodeSettings());
+
+    for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
+      const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'State', 'storage.json'), 'utf8'));
+      assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
+      assert.equal(profileState['workbench.activity.showAccounts'], 'false');
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -516,13 +554,18 @@ async function verifyUiStateHelper() {
     await mkdir(workspace);
     await writeFile(join(live, 'data', 'User', 'settings.json'), JSON.stringify({
       'workbench.colorTheme': 'Default Dark Modern',
+      'keyboard.layout': 'de',
+      'editor.fontSize': 18,
       'github.copilot.token': 'must-not-persist',
     }));
     execFileSync('python3', [helper, 'capture', '--data-root', live, '--snapshot', snapshot, '--workspace', workspace]);
     execFileSync('python3', [helper, 'restore', '--data-root', restored, '--snapshot', snapshot, '--workspace', workspace]);
     const restoredSettings = JSON.parse(await readFile(join(restored, 'data', 'User', 'settings.json'), 'utf8'));
-    assert.deepEqual(restoredSettings, { 'workbench.colorTheme': 'Default Dark Modern' });
-    assert.doesNotMatch(await readFile(snapshot, 'utf8'), /copilot|must-not-persist/);
+    assert.deepEqual(restoredSettings, {
+      'keyboard.layout': 'de',
+      'workbench.colorTheme': 'Default Dark Modern',
+    });
+    assert.doesNotMatch(await readFile(snapshot, 'utf8'), /fontSize|copilot|must-not-persist/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
