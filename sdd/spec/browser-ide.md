@@ -609,11 +609,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- The runtime uses the fixed local `pi --mode rpc --no-session --no-themes` process contract and the existing request generation cleanup.
-- Editor Pi retains the normal Codeflare tools, extensions, root access, and external interceptors; it adds no command sandbox.
-- Selection is context, not confinement.
-- Direct Pi filesystem and external side effects are not represented as host text-edit parts and are not promised to participate in Keep/Undo.
-
+- The fixed local `pi --mode rpc --no-session --no-themes` runtime retains normal tools, extensions, root access, external interceptors, and generation cleanup without a command sandbox; selection is context, not confinement, and direct effects carry no host Keep/Undo promise.
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
@@ -637,12 +633,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- The implementation uses Code OSS's supported status-entry visibility storage contract rather than a code-server or Code OSS source patch.
-- Codeflare adds only `chat.statusBarEntry`; user-hidden entries already present in profile storage are preserved.
-- Profile state remains ephemeral and is not added to the bounded persistent UI snapshot.
-- The upstream code-server artifact, Docker pin, and Bump Shadow Pins workflow remain unmodified; pin updates must retain the supported status-entry visibility contract.
-- Authentication APIs, Codeflare Chat, Claude credentials, and status entries other than the one added by Codeflare are outside this preparation mutation.
-
+- Codeflare uses supported ephemeral profile storage to add only `chat.statusBarEntry`, preserves existing hidden entries, and does not patch code-server or persist this state in the UI snapshot.
+- The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; pin updates must retain this contract.
+- Authentication APIs, Chat, credentials, and other status entries are outside this mutation.
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
@@ -656,7 +649,6 @@ A full code-server browser editor for an advanced running session. The editor op
 ### REQ-IDE-022: Native Pi blocking UI protocol
 
 **Intent:** Native Pi questions complete through bounded editor dialogs without leaving the active request generation blocked or approving unsupported requests.
-
 **Applies To:** User
 
 **Acceptance Criteria:**
@@ -670,10 +662,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- Manifest-backed `confirm` behavior remains unchanged.
-- No multiline `editor` substitute or broad unknown-method approval is introduced.
-- Dialog titles, options, placeholders, values, and timeouts remain bounded at the RPC boundary.
-
+- Manifest-backed `confirm` remains unchanged; no multiline `editor` substitute or unknown-method approval is introduced, and dialog fields and timeouts remain bounded at the RPC boundary.
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-unrestricted-pi-editor-request-execution)

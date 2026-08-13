@@ -112,12 +112,15 @@ test('REQ-IDE-022: Pi RPC select and input use bounded native VS Code dialogs', 
 
   assert.equal(await host.select('Choose one', ['First', 'Second']), 'Second');
   assert.equal(await host.input('Type an answer', 'Answer'), 'typed answer');
-  assert.deepEqual(vscode.quickPicks, [
-    [['First', 'Second'], { title: 'Choose one', ignoreFocusOut: true }],
+  assert.deepEqual(vscode.quickPicks[0]?.slice(0, 2), [
+    ['First', 'Second'],
+    { title: 'Choose one', ignoreFocusOut: true },
   ]);
-  assert.deepEqual(vscode.inputBoxes, [
-    [{ title: 'Type an answer', placeHolder: 'Answer', ignoreFocusOut: true }],
+  assert.equal(typeof (vscode.quickPicks[0]?.[2] as { onCancellationRequested?: unknown })?.onCancellationRequested, 'function');
+  assert.deepEqual(vscode.inputBoxes[0]?.slice(0, 1), [
+    { title: 'Type an answer', placeHolder: 'Answer', ignoreFocusOut: true },
   ]);
+  assert.equal(typeof (vscode.inputBoxes[0]?.[1] as { onCancellationRequested?: unknown })?.onCancellationRequested, 'function');
 });
 
 test('REQ-IDE-022: cancelling active Pi dialogs closes them with correlated responses', async () => {
