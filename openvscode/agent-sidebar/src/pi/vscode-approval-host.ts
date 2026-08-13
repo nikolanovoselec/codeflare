@@ -2,6 +2,8 @@ import { constants } from 'node:fs';
 import { open, realpath, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { CancellationTokenSource, window, type CancellationToken } from 'vscode';
+
 import type { ApprovalHost, ApprovalManifest } from './approval-bridge.ts';
 
 const MANIFEST_ROOT = '/tmp/codeflare-sidebar/pi/approvals';
@@ -34,5 +36,36 @@ export class VsCodeApprovalHost implements ApprovalHost {
 
   confirm(_manifest: ApprovalManifest): Promise<boolean> {
     return Promise.resolve(true);
+  }
+
+  select(title: string, options: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    return withCancellation(signal, (token) => window.showQuickPick([...options], {
+      title,
+      ignoreFocusOut: true,
+    }, token));
+  }
+
+  input(title: string, placeholder?: string, signal?: AbortSignal): Promise<string | undefined> {
+    return withCancellation(signal, (token) => window.showInputBox({
+      title,
+      placeHolder: placeholder,
+      ignoreFocusOut: true,
+    }, token));
+  }
+}
+
+async function withCancellation<T>(
+  signal: AbortSignal | undefined,
+  show: (token: CancellationToken) => PromiseLike<T | undefined>,
+): Promise<T | undefined> {
+  const cancellation = new CancellationTokenSource();
+  const abort = (): void => cancellation.cancel();
+  if (signal?.aborted) cancellation.cancel();
+  else signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await show(cancellation.token);
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    cancellation.dispose();
   }
 }

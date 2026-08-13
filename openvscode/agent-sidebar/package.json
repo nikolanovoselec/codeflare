@@ -15,11 +15,12 @@
     "workspace"
   ],
   "activationEvents": [
-    "onStartupFinished",
+    "*",
     "onChatParticipant:codeflare.pi",
     "onCommand:codeflare.pi.reviewFile"
   ],
   "enabledApiProposals": [
+    "chatParticipantAdditions",
     "chatProvider",
     "defaultChatParticipant"
   ],
@@ -33,6 +34,10 @@
       {
         "vendor": "copilot",
         "displayName": "Codeflare"
+      },
+      {
+        "vendor": "codeflare",
+        "displayName": "Codeflare"
       }
     ],
     "chatParticipants": [
@@ -43,6 +48,10 @@
         "description": "Codeflare agent with workspace and editor context.",
         "isDefault": true,
         "isSticky": true,
+        "locations": [
+          "panel",
+          "editor"
+        ],
         "modes": [
           "ask",
           "edit",

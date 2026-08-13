@@ -1822,5 +1822,250 @@
     "modes": [
       "advanced"
     ]
+  },
+  "skills/design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/LICENSE": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/ORIGIN.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/app-interface.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/charts.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/colors.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/google-fonts.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/icons.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/landing.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/motion.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/products.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/react-performance.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/angular.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/astro.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/avalonia.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/flutter.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/html-tailwind.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/javafx.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/laravel.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/nextjs.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/nuxtjs.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/react-native.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/react.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/shadcn.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/svelte.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/swiftui.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/threejs.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/uno.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/uwp.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/vue.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/winui.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/stacks/wpf.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/styles.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/typography.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/ui-reasoning.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/data/ux-guidelines.csv": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/references/pro-rules.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/references/quick-reference.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/scripts/core.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/scripts/design_system.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/scripts/search.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ui-ux-pro-max/scripts/validate_data.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/LICENSE.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/ORIGIN.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

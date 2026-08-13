@@ -65,13 +65,18 @@ test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore 
   });
 });
 
-test("REQ-IDE-018: Pi native Chat uses Code OSS browser notifications", () => {
-  assert.deepEqual(buildPiOpenVscodeSettings(), {
+test("REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source", () => {
+  const settings = buildPiOpenVscodeSettings();
+  assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": false,
+    },
   });
+  assert.equal(settings["chat.agentFilesLocations"]["~/.copilot/agents"], undefined);
 });
 
 test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setup", () => {

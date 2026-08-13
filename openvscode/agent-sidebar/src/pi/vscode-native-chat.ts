@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 
 import {
   DiagnosticSeverity,
+  Range,
   languages,
   window,
   workspace,
@@ -11,9 +12,10 @@ import {
   type ChatRequest,
   type ChatResponseMarkdownPart,
   type ChatResponseTurn,
+  type Diagnostic,
   type Location,
-  type Range,
   type TextDocument,
+  type TextEditor,
   type Uri,
 } from 'vscode';
 
@@ -28,6 +30,24 @@ import type {
 const WORKSPACE_ROOT = '/home/user/workspace';
 const MAX_COLLECTED_DOCUMENTS = 32;
 const MAX_COLLECTED_DIAGNOSTICS = 256;
+
+interface ActiveEditorSnapshot {
+  readonly uri: Uri;
+  readonly languageId: string;
+  readonly dirty: boolean;
+  readonly content: string;
+  readonly selection?: NonNullable<NativePiActiveEditor['selection']>;
+}
+
+interface ReferenceSnapshot {
+  readonly uri?: Uri;
+  readonly range?: {
+    readonly start: { readonly line: number; readonly character: number };
+    readonly end: { readonly line: number; readonly character: number };
+  };
+  readonly description?: string;
+  readonly text: string | Promise<string | undefined>;
+}
 
 export async function canonicalWorkspaceFilePath(
   uri: Uri,
@@ -45,14 +65,24 @@ export async function collectNativePiPromptInput(
   context: ChatContext,
   workspaceRoot: string = WORKSPACE_ROOT,
 ): Promise<NativePiPromptInput> {
+  // Snapshot host-owned request state before the first await. The persistent
+  // runtime may queue this turn behind another, and a later editor focus change
+  // must not rewrite which context the user invoked it with.
+  const prompt = request.prompt;
+  const requestReferences = [...request.references];
+  const documentSnapshots = workspace.textDocuments.filter((document) => !document.isClosed);
+  const referenceSnapshots = snapshotReferences(requestReferences, documentSnapshots);
+  const history = collectHistory(context);
+  const activeEditorSnapshot = snapshotActiveEditor(window.activeTextEditor);
+  const diagnosticSnapshots = snapshotDiagnostics(activeEditorSnapshot?.uri, requestReferences);
   const canonicalRoot = await realpath(workspaceRoot);
-  const activeEditor = await collectActiveEditor(canonicalRoot);
-  const openFiles = await collectOpenFiles(canonicalRoot);
-  const references = await collectReferences(request.references, canonicalRoot);
+  const activeEditor = await collectActiveEditor(activeEditorSnapshot, canonicalRoot);
+  const openFiles = await collectOpenFiles(documentSnapshots, canonicalRoot);
+  const references = await collectReferences(referenceSnapshots, canonicalRoot);
   const diagnosticPaths = new Map<string, Uri>();
-  const activeUri = window.activeTextEditor?.document.uri;
+  const activeUri = activeEditorSnapshot?.uri;
   if (activeEditor && activeUri) diagnosticPaths.set(activeEditor.path, activeUri);
-  for (const reference of request.references) {
+  for (const reference of requestReferences) {
     const uri = referenceUri(reference);
     if (!uri) continue;
     const path = await canonicalWorkspacePath(uri, canonicalRoot);
@@ -60,23 +90,20 @@ export async function collectNativePiPromptInput(
   }
 
   return {
-    prompt: request.prompt,
-    history: collectHistory(context),
+    prompt,
+    history,
     activeEditor,
     openFiles,
-    diagnostics: await collectDiagnostics(diagnosticPaths, canonicalRoot),
+    diagnostics: await collectDiagnostics(diagnosticPaths, diagnosticSnapshots, canonicalRoot),
     references,
   };
 }
 
-async function collectActiveEditor(canonicalRoot: string): Promise<NativePiActiveEditor | undefined> {
-  const editor = window.activeTextEditor;
+function snapshotActiveEditor(editor: TextEditor | undefined): ActiveEditorSnapshot | undefined {
   if (!editor) return undefined;
-  const path = await canonicalWorkspacePath(editor.document.uri, canonicalRoot);
-  if (!path) return undefined;
   const selection = editor.selection;
   return {
-    path,
+    uri: editor.document.uri,
     languageId: editor.document.languageId,
     dirty: editor.document.isDirty,
     content: editor.document.getText(),
@@ -90,43 +117,91 @@ async function collectActiveEditor(canonicalRoot: string): Promise<NativePiActiv
   };
 }
 
-async function collectOpenFiles(canonicalRoot: string): Promise<string[]> {
+async function collectActiveEditor(
+  editor: ActiveEditorSnapshot | undefined,
+  canonicalRoot: string,
+): Promise<NativePiActiveEditor | undefined> {
+  if (!editor) return undefined;
+  const path = await canonicalWorkspacePath(editor.uri, canonicalRoot);
+  if (!path) return undefined;
+  return {
+    path,
+    languageId: editor.languageId,
+    dirty: editor.dirty,
+    content: editor.content,
+    selection: editor.selection,
+  };
+}
+
+async function collectOpenFiles(
+  documents: readonly TextDocument[],
+  canonicalRoot: string,
+): Promise<string[]> {
   const paths: string[] = [];
-  for (const document of workspace.textDocuments) {
+  for (const document of documents) {
     if (paths.length >= MAX_COLLECTED_DOCUMENTS) break;
-    if (document.isClosed) continue;
     const path = await canonicalWorkspacePath(document.uri, canonicalRoot);
     if (path && !paths.includes(path)) paths.push(path);
   }
   return paths;
 }
 
-async function collectReferences(
+function snapshotReferences(
   values: readonly ChatPromptReference[],
+  documents: readonly TextDocument[],
+): readonly ReferenceSnapshot[] {
+  return values.slice(0, MAX_COLLECTED_DOCUMENTS).map((reference) => {
+    if (typeof reference.value === 'string') {
+      return { text: reference.value, description: reference.modelDescription };
+    }
+    const uri = referenceUri(reference);
+    const liveRange = referenceRange(reference);
+    const range = liveRange ? {
+      start: { line: liveRange.start.line, character: liveRange.start.character },
+      end: { line: liveRange.end.line, character: liveRange.end.character },
+    } : undefined;
+    if (!uri) return { text: '', description: reference.modelDescription };
+    const open = documents.find((document) => document.uri.fsPath === uri.fsPath);
+    return {
+      uri,
+      range,
+      description: reference.modelDescription,
+      text: open ? open.getText(toRange(range)) : readReferenceText(uri, range),
+    };
+  });
+}
+
+function toRange(range: ReferenceSnapshot['range']): Range | undefined {
+  return range ? new Range(range.start.line, range.start.character, range.end.line, range.end.character) : undefined;
+}
+
+async function readReferenceText(uri: Uri, range: ReferenceSnapshot['range']): Promise<string | undefined> {
+  const document = await openDocument(uri);
+  return document?.getText(toRange(range));
+}
+
+async function collectReferences(
+  values: readonly ReferenceSnapshot[],
   canonicalRoot: string,
 ): Promise<NativePiReference[]> {
   const references: NativePiReference[] = [];
-  for (const reference of values.slice(0, MAX_COLLECTED_DOCUMENTS)) {
-    if (typeof reference.value === 'string') {
-      references.push({
-        text: reference.value,
-        description: reference.modelDescription,
-      });
+  for (const reference of values) {
+    if (!reference.uri) {
+      if (typeof reference.text === 'string' && reference.text) {
+        references.push({ text: reference.text, description: reference.description });
+      }
       continue;
     }
-    const uri = referenceUri(reference);
-    if (!uri) continue;
-    const path = await canonicalWorkspacePath(uri, canonicalRoot);
+    const path = await canonicalWorkspacePath(reference.uri, canonicalRoot);
     if (!path) continue;
-    const range = referenceRange(reference);
-    const document = await openDocument(uri);
-    if (!document || await canonicalWorkspacePath(document.uri, canonicalRoot) !== path) continue;
+    const text = await reference.text;
+    if (text === undefined) continue;
     references.push({
       path,
-      startLine: range ? range.start.line + 1 : undefined,
-      endLine: range ? range.end.line + 1 : undefined,
-      text: document.getText(range),
-      description: reference.modelDescription,
+      startLine: reference.range ? reference.range.start.line + 1 : undefined,
+      endLine: reference.range ? reference.range.end.line + 1 : undefined,
+      text,
+      description: reference.description,
     });
   }
   return references;
@@ -147,15 +222,31 @@ function collectHistory(context: ChatContext): NativePiHistoryEntry[] {
   return history;
 }
 
+function snapshotDiagnostics(
+  activeUri: Uri | undefined,
+  references: readonly ChatPromptReference[],
+): ReadonlyMap<Uri, readonly Diagnostic[]> {
+  const snapshots = new Map<Uri, readonly Diagnostic[]>();
+  const uris = [activeUri, ...references.map(referenceUri)].filter((uri): uri is Uri => uri !== undefined);
+  for (const uri of uris) {
+    if (![...snapshots.keys()].some((existing) => existing.fsPath === uri.fsPath)) {
+      snapshots.set(uri, [...languages.getDiagnostics(uri)]);
+    }
+  }
+  return snapshots;
+}
+
 async function collectDiagnostics(
   paths: ReadonlyMap<string, Uri>,
+  snapshots: ReadonlyMap<Uri, readonly Diagnostic[]>,
   canonicalRoot: string,
 ): Promise<NativePiDiagnostic[]> {
   const diagnostics: NativePiDiagnostic[] = [];
   for (const [path, uri] of paths) {
     if (diagnostics.length >= MAX_COLLECTED_DIAGNOSTICS) break;
     if (!await canonicalWorkspacePath(uri, canonicalRoot)) continue;
-    for (const diagnostic of languages.getDiagnostics(uri)) {
+    const snapshot = [...snapshots].find(([candidate]) => candidate.fsPath === uri.fsPath)?.[1] ?? [];
+    for (const diagnostic of snapshot) {
       diagnostics.push({
         path,
         severity: diagnosticSeverity(diagnostic.severity),

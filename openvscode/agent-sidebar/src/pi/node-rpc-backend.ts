@@ -158,6 +158,7 @@ export class PiRpcBackend {
   #abortRequested = false;
   #abortSent = false;
   #stopRequested = false;
+  #stopPromise: Promise<void> | undefined;
   #starting = false;
   readonly #startupCancellation = new AbortController();
   running = false;
@@ -165,6 +166,10 @@ export class PiRpcBackend {
   constructor(spawner: PiProcessSpawner, approvalBridge: ApprovalBridge) {
     this.#session = new PiSession(spawner);
     this.#approvalBridge = approvalBridge;
+  }
+
+  isReusable(): boolean {
+    return !this.#stopRequested;
   }
 
   async #start(): Promise<void> {
@@ -272,7 +277,13 @@ export class PiRpcBackend {
     }
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.#stopPromise) return this.#stopPromise;
+    this.#stopPromise = this.#stop();
+    return this.#stopPromise;
+  }
+
+  async #stop(): Promise<void> {
     this.#stopRequested = true;
     this.#turn?.cancellation.abort();
     this.#startupCancellation.abort();
@@ -320,9 +331,14 @@ export class PiRpcBackend {
   async #handleEnvelope(envelope: PiRpcEnvelope, generation: number): Promise<void> {
     if (!this.running || generation !== this.#generation) return;
     if (envelope.type === 'extension_ui_request') {
+      const turn = this.#turn;
+      if (!turn) {
+        this.#protocolFailure(new PiProtocolError('UNSOLICITED_RESPONSE'), generation);
+        return;
+      }
       const response = await this.#approvalBridge.handlePiRequest(
         envelope as unknown as PiExtensionUiRequest,
-        this.#turn?.cancellation.signal,
+        turn.cancellation.signal,
       );
       if (response && this.running && generation === this.#generation) {
         await this.#session.writeEnvelope(response as unknown as Readonly<Record<string, unknown>>);
@@ -357,6 +373,7 @@ export class PiRpcBackend {
 
   #handleExit(child: PiChildProcess, generation: number): void {
     if (!this.running || generation !== this.#generation) return;
+    this.#stopRequested = true;
     this.running = false;
     this.#transport.markExited();
     for (const detach of this.#detach.splice(0)) detach();

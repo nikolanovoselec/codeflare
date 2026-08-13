@@ -18,6 +18,9 @@ export function buildPiOpenVscodeSettings() {
     ...buildBaseOpenVscodeSettings(),
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": false,
+    },
   };
 }
 
@@ -34,6 +37,7 @@ export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "chat.disableAIFeatures",
   "chat.notifyWindowOnResponseReceived",
   "chat.notifyWindowOnConfirmation",
+  "chat.agentFilesLocations",
   "claudeCode.environmentVariables",
   "claudeCode.useTerminal",
   "claudeCode.initialPermissionMode",

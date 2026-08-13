@@ -64,7 +64,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
 | `/tmp/codeflare-sidebar/**` | **NO** | Browser IDE temporary runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
 | `/tmp/openvscode-data/**` | **NO** | Live session-isolated editor databases, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
-| `~/.codeflare/ide-ui-state.json` | Yes | The only persistent Browser IDE state: an atomic, maximum-1-MiB allowlist of theme values and key-specific canonical Explorer/open-file resources, captured after code-server is reaped; unknown fields and opaque strings are rejected. Every other `~/.codeflare/**` path is excluded ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering)). |
+| `~/.codeflare/ide-ui-state.json` | Yes | Bounded Browser IDE continuity for theme, keyboard layout, Explorer, and open files ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering)). <!-- @impl: scripts/browser-ide-ui-state.py::capture --> |
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/`, `~/.cache/**` | **NO** | Package manager caches, regenerated |
@@ -89,6 +89,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
 | `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
+
+The Browser IDE snapshot is atomic, mode `0600`, and capped at 1 MiB. It contains only allowlisted theme values, string-valued `keyboard.layout`, and key-specific canonical Explorer/open-file resources captured after code-server is reaped. Other User settings, unknown fields, opaque strings, and every other `~/.codeflare/**` path are excluded. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
 `vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot. The extraction manifest prevents a restored vault from being reprocessed wholesale.
 

@@ -2727,6 +2727,110 @@ None.
 
 ---
 
+### REQ-AGENT-134: Advanced Design Skill Suite
+
+**Intent:** Advanced sessions expose one composable design entry point that routes interface, UX-system, static-art, and frontend-direction work to focused skills without copying every specialist into the always-on prompt.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
+2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
+3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 license texts. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/LICENSE::MIT License --> <!-- @impl: preseed/agents/claude/skills/canvas-design/LICENSE.txt::Apache License --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
+4. The vendored UI UX Pro Max and Canvas Design sources retain their pinned upstream provenance. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md::Upstream provenance --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md::Upstream provenance --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves pinned provenance values and omits a Copilot skill lane) -->
+5. Modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/canvas-design/SKILL.md::Modification notice --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
+6. Frontend Design is independently authored and Codeflare-owned rather than copied or transformed from Anthropic's all-rights-reserved Claude Code repository. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @manual: Compare the committed skill and its creation history against the referenced Anthropic source before release; verify independent wording and no transformed proprietary text. -->
+7. UI UX Pro Max invokes its auxiliary search implementation from each generated runtime's own skills directory. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime) -->
+
+**Constraints:**
+
+- The Claude preseed remains canonical; supported agents receive generated path adaptations.
+- Copilot receives no skills because its runtime has no skills directory contract.
+- `impeccable` remains optional and available only in the runtimes that carry its full tool bundle.
+- Vendored auxiliary data and scripts load on demand rather than entering always-on instructions.
+- The compact `design` router references specialists instead of embedding their bodies.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+
+**Verification:** Generated-seed artifact tests plus manual router-selection and provenance review
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-135: UI UX Pro Max Query and Generation
+
+**Intent:** The advanced design suite returns relevant records and a generated recommendation from its delivered database.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/core.py::search --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
+2. Design-system generation returns a recommendation for the query. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::generate_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
+
+**Constraints:** The helper remains standard-library-only.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-136: UI UX Pro Max Persistence
+
+**Intent:** Persisted design systems remain inside their selected root and preserve prior decisions unless replacement is explicit.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Persistence writes project and page files beneath sanitized path segments. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::safe_slug --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
+2. Persistence preserves an existing master unless the caller explicitly forces replacement. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
+3. Persistence rejects symbolic links in every owned destination directory or file. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::_open_owned_directory --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::_write_file_atomically --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: rejects symlinked persistence destinations) -->
+
+**Constraints:** Persistence writes only beneath the caller-selected output root. Regular destination files are replaced atomically through a temporary file owned by the opened destination directory.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-137: UI UX Pro Max Data Validation
+
+**Intent:** Invalid design data is reported before it can silently degrade search recommendations.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Data validation reports duplicate identifiers. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values) -->
+2. Data validation reports malformed JSON rule values. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values) -->
+
+**Constraints:** Validation remains standard-library-only.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
+
+**Status:** Partial
+
+---
+
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
 **Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable and crash-free out of the box: context-mode is disabled by default for Pi pending an upstream memory-safe adapter while explicit `/ctx on` remains available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.

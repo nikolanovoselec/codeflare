@@ -97,7 +97,7 @@ test('REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the
   ]);
 });
 
-test('REQ-IDE-005 AC4: one request-scoped Pi session reuses only its one child', async () => {
+test('REQ-IDE-005: one IDE-owned Pi session reuses only its child', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner);
 
@@ -157,7 +157,7 @@ test('REQ-IDE-008 AC2: Pi disposal uses bounded generation reaping when TERM is 
   assert.ok(spawner.events.includes('reap:pi-generation-1'));
 });
 
-test('REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation', async () => {
+test('REQ-IDE-008 AC2: Pi disposal settles and reaps the Pi generation', async () => {
   const spawner = new RecordingPiSpawner();
   const session = new PiSession(spawner, {
     generationFactory: () => 'pi-generation-1',

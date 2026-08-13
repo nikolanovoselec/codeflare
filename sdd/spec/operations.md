@@ -506,6 +506,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. OSSF Scorecard runs a security-posture assessment on pushes to `main`. <!-- @manual -->
 5. OSSF Scorecard runs on a weekly schedule. <!-- @manual -->
 6. CodeQL runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/codeql.yml::pull_request = branches: [main, develop] --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
+7. CodeQL initialization, autobuild, and analysis run one compatible action release rather than mixing state formats across releases. <!-- @impl: .github/workflows/codeql.yml::github/codeql-action --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-019 AC7: CodeQL init, autobuild, and analyze use one compatible action release) -->
 
 **Constraints:**
 
@@ -516,7 +517,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated protected-branch CodeQL trigger contract for AC6; manual verification for AC1 through AC5.
+**Verification:** Automated protected-branch CodeQL trigger contract for AC6 and release-coherence contract for AC7; manual verification for AC1 through AC5.
 
 **Status:** Implemented
 

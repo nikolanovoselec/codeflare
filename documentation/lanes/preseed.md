@@ -360,6 +360,8 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
+Advanced mode also delivers a composable design suite. `design` is its default entry point: it routes product-interface decisions to `ui-ux-pro-max`, static PNG/PDF work to `canvas-design`, distinctive frontend implementation to the Codeflare-owned `frontend-design`, and critique/polish to `impeccable` where that optional full bundle is installed. The canonical files live under `preseed/agents/claude/skills/`; the normal generator adapts them for each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @impl: scripts/generate-agent-seed.mjs::generate -->
+
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare
 `PRESEED_CONTENT_HASH` with `lastPreseedHash` in `UserPreferences` KV. If they
@@ -402,10 +404,7 @@ git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
 
-The design skills are emil-design-eng and design-taste-frontend for all agents,
-plus impeccable for Claude + Pi only. Impeccable ships the design skill and offline
-detector in advanced mode; Pi gets a dedicated verbatim copy, not the
-prose-transformed lane.
+Advanced design uses `design` as the composable entry point. It routes to `ui-ux-pro-max`, `canvas-design`, the independently written `frontend-design`, and the existing `emil-design-eng`, `design-taste-frontend`, `frontend-components`, and `frontend-patterns` specialists when relevant. `impeccable` remains available for Claude + Pi only; it ships its design skill and offline detector in advanced mode, and Pi gets a dedicated verbatim copy rather than the prose-transformed lane. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite))
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
@@ -1349,6 +1348,10 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) - LLM API key management UI
 - [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
 - [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) - Graph Publication Artifacts and Optional Labels
+- [REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite) - Advanced Design Skill Suite
+- [REQ-AGENT-135](../../sdd/spec/agents.md#req-agent-135-ui-ux-pro-max-query-and-generation) - UI UX Pro Max Query and Generation
+- [REQ-AGENT-136](../../sdd/spec/agents.md#req-agent-136-ui-ux-pro-max-persistence) - UI UX Pro Max Persistence
+- [REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-ui-ux-pro-max-data-validation) - UI UX Pro Max Data Validation
 - [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
 - [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
 - [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing

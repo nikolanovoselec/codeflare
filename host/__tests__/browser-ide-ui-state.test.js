@@ -106,6 +106,30 @@ test('REQ-IDE-002: captures and restores only allowlisted theme, editor, and Exp
   );
 });
 
+test('REQ-IDE-002: persists the selected keyboard layout without broad settings state', () => {
+  const { workspace, dataRoot, snapshot, root } = fixture();
+  const settings = join(dataRoot, 'data', 'User', 'settings.json');
+  mkdirSync(join(settings, '..'), { recursive: true });
+  writeFileSync(settings, JSON.stringify({
+    'keyboard.layout': 'de',
+    'editor.fontSize': 18,
+    'github.copilot.token': 'must-not-persist',
+  }));
+
+  execFileSync('python3', [SCRIPT, 'capture', '--data-root', dataRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  const capturedText = readFileSync(snapshot, 'utf8');
+  const captured = JSON.parse(capturedText);
+  assert.deepEqual(captured.settings, { 'keyboard.layout': 'de' });
+  assert.doesNotMatch(capturedText, /fontSize|copilot|must-not-persist/);
+
+  const restoredRoot = join(root, 'restored');
+  execFileSync('python3', [SCRIPT, 'restore', '--data-root', restoredRoot, '--snapshot', snapshot, '--workspace', workspace]);
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(restoredRoot, 'data', 'User', 'settings.json'), 'utf8')),
+    { 'keyboard.layout': 'de' },
+  );
+});
+
 test('REQ-IDE-002: matches and replays the projected vscode-remote workspace identity', () => {
   const { workspace, dataRoot, snapshot, root } = fixture();
   const remoteFolder = `vscode-remote://sess.example.com${workspace}`;
