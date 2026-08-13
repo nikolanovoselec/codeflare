@@ -496,7 +496,7 @@ sequenceDiagram
 | ready | 100% | All checks passed. "Open" button appears. Click reveals terminal canvas with pre-buffered content |
 | error | 0% | Sync failed or other error |
 
-### Session Lifecycle State Machine
+### Session Lifecycle State Machine ([REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit))
 
 ```mermaid
 stateDiagram-v2
@@ -527,7 +527,7 @@ Reset, confirmation, success, and exhaustion logs correlate the DO and attempt i
 
 **Fast container-stopped detection (frontend):** When the Container DO's "not running" guard returns close code `4503` (`WS_CONTAINER_STOPPED_CODE`), the terminal store stops retrying and marks the connection as disconnected. This is server-authoritative - the container is definitively not running. Non-4503 close codes (1006, 1001, 1011, etc.) trigger automatic reconnection with 1s delay.
 
-**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. The primary source of a stale KV "running" is now closed at the writer: every exit enters confirmation and `collectMetrics()` persists `stopped` (rationale #5, [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)). This guard is defense-in-depth against a transient lag before that catch-all write, not the load-bearing fix it once was when KV could dangle at `running` indefinitely.
+**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. The primary source of a stale KV "running" is now closed at the writer: unexpected exits enter recovery or confirmation, and `collectMetrics()` persists `stopped` once not-running is confirmed (rationale #5, [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)). This guard is defense-in-depth against a transient lag before that catch-all write, not the load-bearing fix it once was when KV could dangle at `running` indefinitely.
 
 Newly started sessions have a 3-minute startup guard (`session-polling.ts`) during which only `4503` close code can transition them to stopped. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
 

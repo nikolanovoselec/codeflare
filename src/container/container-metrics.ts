@@ -496,8 +496,8 @@ export async function beginMonitorTransportRecovery(
       ...transportRecoveryLogContext(ctx, recovery, probes),
       error: err instanceof Error ? err.message : String(err),
     });
-    try { await clearTransportRecoveryState(ctx); } catch { /* remain fail-closed */ }
-    return 'suppressed';
+    try { await clearTransportRecoveryState(ctx); } catch { /* exit confirmation remains authoritative */ }
+    return 'fallback';
   }
 
   logger.warn('container monitor recovery: resetting Durable Object to reconstruct container transport', {

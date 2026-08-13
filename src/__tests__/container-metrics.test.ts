@@ -29,6 +29,7 @@ const testState = vi.hoisted(() => ({
   healthStatus: 200,
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
+  scheduleFailuresRemaining: 0,
   deleteScheduleCalls: [] as string[],
   abortReasons: [] as string[],
   activityHangs: false,
@@ -142,6 +143,10 @@ vi.mock('@cloudflare/containers', () => {
 
     // Mock schedule methods
     async schedule(delaySec: number, method: string) {
+      if (testState.scheduleFailuresRemaining > 0) {
+        testState.scheduleFailuresRemaining -= 1;
+        throw new Error('schedule failed');
+      }
       testState.scheduleCalls.push([delaySec, method]);
     }
 
@@ -226,6 +231,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       syncStatus: 'success',
     };
     testState.scheduleCalls = [];
+    testState.scheduleFailuresRemaining = 0;
     testState.deleteScheduleCalls = [];
     testState.abortReasons = [];
     testState.stopCalls = 0;
@@ -485,6 +491,19 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
       expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
+    it('failed monitor-recovery scheduling retains ordinary exit confirmation', async () => {
+      testState.containerRunning = false;
+      testState.scheduleFailuresRemaining = 1;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.deleteScheduleCalls).toEqual(['collectMetrics', 'collectMetrics']);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
     });
 
     it('REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction', async () => {
@@ -1690,6 +1709,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storageGetFailures.clear();
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
+    testState.scheduleFailuresRemaining = 0;
     testState.deleteScheduleCalls = [];
     testState.storedSleepAfter = undefined;
     testState.activityResult = {
