@@ -131,7 +131,7 @@ The public path creates a private single-tenant instance in four steps:
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the shared Worker, KV control plane, session container image, and Access application in the operator's account. Each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Configuration](documentation/lanes/configuration.md) for the resource lifecycle.
+The workflow provisions the shared Worker, KV control plane, session container image, and Access application in the operator's account. Each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
 
 ### Enterprise deployment
 
