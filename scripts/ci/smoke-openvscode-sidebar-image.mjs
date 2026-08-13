@@ -304,10 +304,16 @@ async function verifyPackagedNativeChat(extensionRoot) {
     'onChatParticipant:codeflare.pi',
     'onCommand:codeflare.pi.reviewFile',
   ]);
-  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [{
-    vendor: 'copilot',
-    displayName: 'Codeflare',
-  }]);
+  assert.deepEqual(manifest.contributes?.languageModelChatProviders, [
+    {
+      vendor: 'copilot',
+      displayName: 'Codeflare',
+    },
+    {
+      vendor: 'codeflare',
+      displayName: 'Codeflare',
+    },
+  ]);
   const [participant] = manifest.contributes?.chatParticipants ?? [];
   assert.equal(participant?.id, 'codeflare.pi');
   assert.equal(participant?.name, 'codeflare');
