@@ -3,7 +3,7 @@
   "private": true,
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.222",
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
     "@github/copilot": "1.0.78",
     "@openai/codex": "0.146.0",
     "bun": "1.3.14",
@@ -13,9 +13,9 @@
     "opencode-ai": "1.18.13"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-tui": "0.83.0"
+    "@earendil-works/pi-agent-core": "0.84.0",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0"
   },
   "overrides": {
     "@hono/node-server": "2.0.12",
