@@ -24,6 +24,17 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
       assert.equal(workflow.jobs[job].name, requiredContext === 'CodeQL' ? 'Analyze' : requiredContext);
     });
   }
+
+  it('REQ-OPS-019 AC7: CodeQL init, autobuild, and analyze use one compatible action release', () => {
+    const workflow = readWorkflow('codeql.yml');
+    const actionRefs = workflow.jobs.analyze.steps
+      .map((step) => step.uses)
+      .filter((uses) => uses?.startsWith('github/codeql-action/'));
+    const versions = actionRefs.map((uses) => uses.split('@')[1]);
+
+    assert.equal(actionRefs.length, 3);
+    assert.equal(new Set(versions).size, 1);
+  });
 });
 
 describe('REQ-OPS-021: workflow-file static analysis', () => {
@@ -47,7 +58,7 @@ describe('REQ-OPS-021: workflow-file static analysis', () => {
     assert.deepEqual(
       { uses: sarifAudit?.uses, with: sarifAudit?.with },
       {
-        uses: 'zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5',
+        uses: 'zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054',
         with: {
           'online-audits': false,
           version: '${{ steps.zizmor-pin.outputs.version }}',
