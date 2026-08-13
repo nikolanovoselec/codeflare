@@ -18,7 +18,7 @@ const TARGET_PREFIXES = [
 const docsFor = (suffix: string) => AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.endsWith(suffix));
 const canonicalSkillsRoot = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../preseed/agents/claude/skills',
+  '../../../preseed/agents/claude/skills',
 );
 const canonicalSkill = (relativePath: string) => readFileSync(join(canonicalSkillsRoot, relativePath), 'utf8');
 
