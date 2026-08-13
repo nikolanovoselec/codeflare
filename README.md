@@ -32,9 +32,9 @@
 
 Most engineering agents stop at code. The awkward work remains with you: prepare the environment, watch the process, chase CI, handle review, deploy the result, and collect enough evidence to trust what happened. Infrastructure work is usually left out altogether.
 
-Codeflare runs software delivery and infrastructure operations in isolated environments inside your Cloudflare account. Agents can inspect repositories, implement changes, open pull requests, repair CI, deploy applications, investigate systems, patch fleets, execute migrations, and verify the result.
+Codeflare runs software delivery and infrastructure operations in isolated environments inside your Cloudflare account. Agents can inspect repositories, implement changes, open pull requests, repair CI, deploy applications, investigate systems, patch fleets, execute migrations, and verify the result. The runtime and isolation model is documented in [Architecture](documentation/lanes/architecture.md).
 
-The agent gets room to work. Your controls stay in charge. GitHub still owns the merge. CI still owns verification. Infrastructure operations keep defined targets, rollout plans, stop conditions, and consequential approval points. Cloudflare Access controls admission, while your account owns compute, storage, model routing, and network policy.
+The agent gets room to work. Your controls stay in charge. GitHub still owns the merge. CI still owns verification. Infrastructure operations keep defined targets, rollout plans, stop conditions, and consequential approval points. Cloudflare Access controls admission, while your account owns compute, storage, model routing, and network policy. See [Security](documentation/lanes/security.md) for the trust boundaries.
 
 <p align="center">
   <img src="assets/documentation/execution-software.gif" width="49%" alt="A Codeflare software delivery run">
@@ -49,7 +49,7 @@ For software delivery, that means architecture, implementation, behavioral tests
 
 For infrastructure operations, the agent can discover the estate, plan a bounded change, work through canaries and rollout gates, stop on defined conditions, and publish evidence. It does not receive a flat path around the organization's network or approval model. That would be automation theatre with a larger blast radius.
 
-Deployed verification belongs in the same run. With Cloudflare Browser Rendering configured, Browser Run can read JavaScript-rendered public pages as Markdown or drive a live flow through Chrome DevTools for responsive checks, screenshots, and semantic investigation. Deterministic assertions remain in CI.
+Deployed verification belongs in the same run. With Cloudflare Browser Rendering configured, Browser Run can read JavaScript-rendered public pages as Markdown or drive a live flow through Chrome DevTools for responsive checks, screenshots, and semantic investigation. Deterministic assertions remain in CI; the evidence model is documented in [CI/CD and Testing](documentation/lanes/ci-cd.md).
 
 ![Codeflare governed execution terminals](assets/documentation/bottleneck-grid.gif)
 
@@ -57,11 +57,11 @@ Codeflare's spec-driven development framework links requirements and acceptance 
 
 ## Why run it in your own estate
 
-Enterprise Codeflare is a single-tenant deployment in the customer's Cloudflare account. There is no Codeflare-operated shared execution plane that needs custody of source code, session storage, or agent credentials.
+Enterprise Codeflare is a single-tenant deployment in the customer's Cloudflare account. There is no Codeflare-operated shared execution plane that needs custody of source code, session storage, or agent credentials. The component and tenancy boundaries are documented in [Architecture](documentation/lanes/architecture.md).
 
 Each session gets a separate ephemeral container, authenticated route, terminal set, and agent process tree. Trusted agents have broad power inside that container because useful engineering work requires it. Codeflare governs the boundaries around the work rather than pretending every shell command can be made harmless.
 
-The customer chooses the identity provider, GitHub organization, storage regime, model routes, and egress policy. Existing branch protection and CI remain the delivery system. Destroying a session removes its transient processes and state, but it cannot undo a Git push, deployment, API call, synchronized file, or infrastructure change that already happened. That limit is real and documented.
+The customer chooses the identity provider, GitHub organization, storage regime, model routes, and egress policy. Existing branch protection and CI remain the delivery system. Destroying a session removes its transient processes and state, but it cannot undo a Git push, deployment, API call, synchronized file, or infrastructure change that already happened. [Security](documentation/lanes/security.md) documents that residual boundary.
 
 ## Bring the agent and model strategy you already have
 
@@ -80,9 +80,9 @@ Existing repositories do not need a ceremonial rewrite before agents can help. `
 
 Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute hibernates when unused.
 
-When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and has documented own-account Cloudflare exceptions. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary; one session cannot select another user's credential.
+When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and has documented own-account Cloudflare exceptions. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary; one session cannot select another user's credential. See [Strict Gateway Egress](documentation/lanes/security.md#strict-gateway-egress-enterprise-mode) for the exact boundary.
 
-`ENCRYPTION_KEY` enables AES-256-GCM protection for supported KV secrets and SSE-C for R2 objects. Governed Mode can make R2 content inspectable by customer security tooling while retaining Vault and KV secret encryption. These are technical controls, not a borrowed compliance badge. Codeflare makes no independent certification or universal audit-log claim.
+`ENCRYPTION_KEY` enables AES-256-GCM protection for supported KV secrets and SSE-C for R2 objects. Governed Mode can make R2 content inspectable by customer security tooling while retaining Vault and KV secret encryption. These are technical controls, not a borrowed compliance badge. Codeflare makes no independent certification or universal audit-log claim. The storage contracts are documented in [Storage and Sync](documentation/lanes/storage-and-sync.md).
 
 ![Codeflare orchestration and agent observability](assets/documentation/observability.gif)
 
@@ -98,7 +98,7 @@ Every session arrives with organizational rules, reusable skills, specialist age
 
 The browser workspace provides up to six terminal tabs, multi-pane layouts, MultiView for following several sessions, GitHub repository and pull-request workflows, per-user R2 persistence, and a mobile-oriented terminal that works without a local agent toolchain.
 
-A lazy-started Browser VS Code instance runs inside the active session. Pi sessions receive native Codeflare Chat, editor Inline Chat, and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. A bounded snapshot preserves theme, the selected web keyboard layout, Explorer expansion, and open files. Credentials, authentication, other User settings, extension state, editor databases, chat history, and logs remain temporary.
+A lazy-started Browser VS Code instance runs inside the active session. Pi sessions receive native Codeflare Chat, editor Inline Chat, and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. A bounded snapshot preserves theme, the selected web keyboard layout, Explorer expansion, and open files. Credentials, authentication, other User settings, extension state, editor databases, chat history, and logs remain temporary. See [Browser IDE architecture](documentation/lanes/architecture.md) for the owned state boundary.
 
 ![Codeflare Browser VS Code workspace](assets/documentation/browser-vscode.gif)
 
@@ -131,7 +131,7 @@ The public path creates a private single-tenant instance in four steps:
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the Worker, KV control plane, session container image, per-user R2 buckets, and Access application in the operator's account. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow.
+The workflow provisions the shared Worker, KV control plane, session container image, and Access application in the operator's account. Each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Configuration](documentation/lanes/configuration.md) for the resource lifecycle.
 
 ### Enterprise deployment
 
@@ -141,9 +141,9 @@ Exact enterprise secrets, token scopes, environment layouts, promotion checks, a
 
 ## Verification and release discipline
 
-This repository uses the same delivery controls it gives to agents. PR Checks cover lint, types, audits, backend and frontend behavior, host integration, dependency review, workflow analysis, bundle limits, and complete-image Browser IDE verification. Container publication verifies content-addressed inputs, scans fixable HIGH and CRITICAL findings, and emits an SBOM and provenance for fresh images.
+This repository uses the same delivery controls it gives to agents. PR Checks cover lint, types, audits, backend and frontend behavior, host integration, dependency review, workflow analysis, bundle limits, and complete-image Browser IDE verification. Container publication verifies content-addressed inputs, scans fixable HIGH and CRITICAL findings, and emits an SBOM and provenance for fresh images. The maintained gate is documented in [CI/CD and Testing](documentation/lanes/ci-cd.md).
 
-Published releases include deterministic source archives, checksums, keyless Sigstore bundles, and GitHub provenance. Deployment verifies the reviewed source tree before promoting Worker assets and the session image. Rollback begins from a known successful deployment and closes only when the original failed user flow passes.
+Published releases include deterministic source archives, checksums, keyless Sigstore bundles, and GitHub provenance. Deployment verifies the reviewed source tree before promoting Worker assets and the session image. Rollback begins from a known successful deployment and closes only when the original failed user flow passes. Release and rollback procedures live in [CI/CD and Testing](documentation/lanes/ci-cd.md) and [Deployment](documentation/lanes/deployment.md).
 
 The complete evidence model is documented in [CI/CD and Testing](documentation/lanes/ci-cd.md). Historical probe evidence is in [Penetration Testing](documentation/lanes/pentest.md), and load procedures are in [Stress Testing](documentation/lanes/stress-test.md).
 
