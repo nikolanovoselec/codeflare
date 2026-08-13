@@ -415,8 +415,11 @@ export class container extends Container<Env> implements ContainerEnvState {
    *                        (a deploy-roll the container survives, a brief monitor
    *                        blip), and an immediate write there flips a live
    *                        session to stopped and then sticks (REQ-SESSION-018
-   *                        AC3). Instead onError opens the not-running
-   *                        confirmation window and re-arms collectMetrics, which
+   *                        AC3). A monitor `Network connection lost` first enters
+   *                        bounded DO reconstruction so a surviving container can
+   *                        be rediscovered. Other errors, or exhausted recovery,
+   *                        open the not-running confirmation window and re-arm
+   *                        collectMetrics, which
    *                        confirms a genuine exit to 'stopped' within the window
    *                        and clears it on recovery. Empirically onError is the
    *                        COMMON way idle containers die: over a 96h prod sample

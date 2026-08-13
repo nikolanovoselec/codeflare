@@ -257,10 +257,15 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
   // the package directory, so a plain `web-ui/src` would resolve to `web-ui/web-ui/src`,
   // match nothing, and hand the evaluator an empty diff -- which reads as "no changed
   // production lines" and passes the package unconditionally.
-  const sourcePathspec = `:(top)${packageRoot === '.' ? 'src' : `${packageRoot}/src`}`;
+  const sourceRoot = packageRoot === '.' ? 'src' : `${packageRoot}/src`;
+  const sourcePathspec = `:(top)${sourceRoot}`;
+  // Generated TypeScript is not production coverage input (isProductionPath
+  // rejects it below), so exclude it in Git rather than buffering a potentially
+  // multi-megabyte seed diff only to discard it after spawnSync returns.
+  const generatedTypeScriptPathspec = `:(top,exclude,glob)${sourceRoot}/**/*.generated.ts`;
   const diffResult = spawnSync(
     'git',
-    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec],
+    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec, generatedTypeScriptPathspec],
     { encoding: 'utf8', maxBuffer: CHANGED_COVERAGE_LIMITS.maxDiffBytes + 1 },
   );
   if (diffResult.status !== 0 || diffResult.error) {

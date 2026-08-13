@@ -433,6 +433,65 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     }, 25_000);
 
+    it('REQ-SESSION-021 AC6: reconstructs immediately when the SDK monitor loses container services after running becomes false', async () => {
+      testState.containerRunning = false;
+
+      await expect(containerInstance.onError(new Error('Network connection lost.')))
+        .rejects.toThrow('mock Durable Object abort');
+
+      expect(testState.abortReasons).toEqual(['container monitor lost its connection to container services']);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptId: expect.any(String),
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      });
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+    });
+
+    it('REQ-SESSION-022 AC5: bounds monitor-loss recovery while running remains false, then resumes exit confirmation', async () => {
+      testState.containerRunning = false;
+      await expect(containerInstance.onError(new Error('Network connection lost.')))
+        .rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
+      containerInstance = createContainerInstance();
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+      expect(testState.abortReasons).toHaveLength(2);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+
+      testState.scheduleCalls = [];
+      await containerInstance.collectMetrics();
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
+    it('REQ-SESSION-022 AC4: monitor loss cannot reconstruct when deliberate-stop ownership is unreadable', async () => {
+      testState.containerRunning = false;
+      testState.storageGetFailures.add('shutdownRequested');
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+    });
+
     it('REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',

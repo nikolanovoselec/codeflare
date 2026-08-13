@@ -2766,7 +2766,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/search.py --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
+1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/core.py::search --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
 2. Design-system generation returns a recommendation for the query. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::generate_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
 
 **Constraints:** The helper remains standard-library-only.

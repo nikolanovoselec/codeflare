@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
 
-const skillScripts = resolve('preseed/agents/claude/skills/ui-ux-pro-max/scripts');
+const skillScripts = fileURLToPath(new URL('../../preseed/agents/claude/skills/ui-ux-pro-max/scripts/', import.meta.url));
 const temporaryDirectories = [];
 
 function runPython(args) {

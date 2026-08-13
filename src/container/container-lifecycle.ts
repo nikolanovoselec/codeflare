@@ -16,6 +16,7 @@ import {
   collectMetrics as doCollectMetrics,
   updateKvStatus,
   openNotRunningConfirmation,
+  beginMonitorTransportRecovery,
   SHUTDOWN_REQUESTED_KEY,
   TRANSPORT_FAILURE_STREAK_KEY,
   TRANSPORT_RECOVERY_KEY,
@@ -354,7 +355,21 @@ export async function onStop(host: LifecycleHost): Promise<void> {
 
 /** Called when the container encounters an error. */
 export async function onError(host: LifecycleHost, error: unknown): Promise<void> {
-  host.logger.error('Container error', error instanceof Error ? error : new Error(toErrorMessage(error)));
+  const errorMessage = toErrorMessage(error);
+  host.logger.error('Container error', error instanceof Error ? error : new Error(errorMessage));
+
+  // The Containers SDK already aborts its Durable Object when this exact
+  // container-services failure occurs during startup. Its monitor path instead
+  // marks private SDK state stopped and invokes onError, which makes the
+  // running-only watchdog miss the same recovery opportunity. Persist and arm
+  // the existing bounded incident before reconstructing the coordinator.
+  if (errorMessage.toLowerCase().includes('network connection lost')) {
+    const recovery = await beginMonitorTransportRecovery(
+      host.ctx,
+      () => host.schedule(5, 'collectMetrics'),
+    );
+    if (recovery !== 'fallback') return;
+  }
   // The SDK (@cloudflare/containers v0.3.5) calls onError - and awaits it -
   // when its monitor flags the container as exited (crash, deploy-roll,
   // platform reap); it does NOT call onStop on that path, so without a write
@@ -365,8 +380,10 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
   // !running guard passed on a momentary false reading, and an immediate
   // 'stopped' write then stuck - the collectMetrics clobber guard refused to
   // correct it and the session hung falsely-stopped for ~14 min until a real
-  // restart. So onError no longer writes 'stopped' itself. On a not-running
-  // reading it opens the SAME confirmation window collectMetrics uses and
+  // restart. So onError no longer writes 'stopped' itself. Monitor-side network
+  // loss first enters bounded coordinator reconstruction above; other not-running
+  // errors, and exhausted monitor recovery, open the SAME confirmation window
+  // collectMetrics uses and
   // re-arms a single tick (deleteSchedules first so onError can't stack a
   // duplicate alarm onto a still-armed loop), delegating the stopped decision
   // to that window: a container that stays down is confirmed stopped within

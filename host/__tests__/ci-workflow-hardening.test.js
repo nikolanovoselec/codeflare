@@ -249,7 +249,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     }
   });
 
-  it('REQ-OPS-022 AC6: reads only the package source tree, so a large generated artifact cannot exhaust the diff bound', () => {
+  it('REQ-OPS-022 AC6: excludes generated TypeScript before buffering the package source diff', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'coverage-artifact-'));
     const git = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
 
@@ -268,9 +268,9 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       // buffering it only cost the job its budget: the whole-repository request died with
       // ENOBUFS and reported it as an unreadable pull-request diff.
       writeFileSync(join(fixture, 'src/example.ts'), 'export const value = 2;\n');
-      mkdirSync(join(fixture, 'graphify-out'), { recursive: true });
-      const artifact = '<div>generated</div>\n'.repeat(600_000);
-      writeFileSync(join(fixture, 'graphify-out/graph.html'), artifact);
+      mkdirSync(join(fixture, 'src/lib'), { recursive: true });
+      const artifact = 'export const generated = "payload";\n'.repeat(400_000);
+      writeFileSync(join(fixture, 'src/lib/agent-seed.generated.ts'), artifact);
       assert.equal(git(fixture, ['add', '.']).status, 0);
       assert.equal(git(fixture, ['commit', '-m', 'head']).status, 0);
       // Measured from what was written rather than from a second `git diff`: reading a diff

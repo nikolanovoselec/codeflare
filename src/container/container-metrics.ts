@@ -95,6 +95,7 @@ const TRANSPORT_FAILURE_ABORT_THRESHOLD = 3;
 const TRANSPORT_FAILURE_RETRY_SECONDS = 5;
 const TRANSPORT_RECOVERY_MAX_ATTEMPTS = 2;
 const TRANSPORT_ABORT_REASON = 'container transport unresponsive after 3 complete probe failures';
+const MONITOR_TRANSPORT_ABORT_REASON = 'container monitor lost its connection to container services';
 
 // Budget the DO gives the in-container final sync (drainFinalSync) to complete
 // before a stop (REQ-SESSION-011 AC4). 120s pairs with the 135s teardown
@@ -415,6 +416,98 @@ async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<voi
   ]);
 }
 
+function monitorNetworkLossProbes(): TransportProbeObservations {
+  const error = new Error('Network connection lost.');
+  return {
+    activity: failedProbeObservation(error, Date.now()),
+    health: failedProbeObservation(error, Date.now()),
+  };
+}
+
+type MonitorRecoveryStart = 'recovering' | 'fallback' | 'suppressed';
+
+/**
+ * Bridge the SDK monitor's Network connection lost error into the same durable,
+ * bounded recovery incident used by failed host probes. The SDK applies this
+ * ctx.abort workaround only in its startup path; monitor rejection otherwise
+ * marks its private state stopped before invoking onError, so waiting for the
+ * running-only probes permanently misses the reattachment opportunity.
+ */
+export async function beginMonitorTransportRecovery(
+  ctx: DurableObjectState,
+  scheduleConfirmation: () => Promise<unknown>,
+): Promise<MonitorRecoveryStart> {
+  const probes = monitorNetworkLossProbes();
+  let shutdownRequested: number | undefined;
+  try {
+    shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
+  } catch (err) {
+    logger.warn('container monitor recovery: failed to read shutdown marker; suppressing reconstruction', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return 'suppressed';
+  }
+  if (typeof shutdownRequested === 'number') {
+    try { await clearTransportRecoveryState(ctx); } catch { /* teardown remains authoritative */ }
+    return 'suppressed';
+  }
+
+  let storedRecovery: unknown;
+  try {
+    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+  } catch (err) {
+    logger.warn('container monitor recovery: failed to read transport recovery state', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return 'suppressed';
+  }
+  if (storedRecovery != null) {
+    if (!isTransportRecoveryRecord(storedRecovery)) {
+      logger.error('container monitor recovery: invalid recovery record; suppressing reconstruction', undefined, {
+        durableObjectId: ctx.id.toString(),
+        valueType: typeof storedRecovery,
+      });
+      try { await ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* remain fail-closed */ }
+      return 'suppressed';
+    }
+    if (storedRecovery.status === 'exhausted') return 'fallback';
+    await scheduleConfirmation();
+    return 'recovering';
+  }
+
+  const now = Date.now();
+  const recovery: TransportRecoveryRecord = {
+    attemptId: crypto.randomUUID(),
+    startedAt: now,
+    lastAttemptAt: now,
+    attemptCount: 1,
+    postResetFailureCount: 0,
+    totalFailureCount: TRANSPORT_FAILURE_ABORT_THRESHOLD,
+    status: 'resetting',
+  };
+  try {
+    await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_FAILURE_ABORT_THRESHOLD);
+    await persistTransportRecovery(ctx, recovery);
+    await scheduleConfirmation();
+  } catch (err) {
+    logger.warn('container monitor recovery: failed to persist and arm reconstruction', {
+      ...transportRecoveryLogContext(ctx, recovery, probes),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    try { await clearTransportRecoveryState(ctx); } catch { /* remain fail-closed */ }
+    return 'suppressed';
+  }
+
+  logger.warn('container monitor recovery: resetting Durable Object to reconstruct container transport', {
+    ...transportRecoveryLogContext(ctx, recovery, probes),
+    consecutiveFailures: TRANSPORT_FAILURE_ABORT_THRESHOLD,
+  });
+  ctx.abort(MONITOR_TRANSPORT_ABORT_REASON);
+  return 'recovering';
+}
+
 function transportRecoveryLogContext(
   ctx: DurableObjectState,
   recovery: TransportRecoveryRecord,
@@ -512,6 +605,47 @@ async function reconcileActiveTransportRecovery(
   );
   ctx.abort(TRANSPORT_ABORT_REASON);
   return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
+}
+
+async function reconcileNotRunningTransportRecovery(
+  ctx: DurableObjectState,
+): Promise<TransportReconciliation | 'none' | 'suppressed'> {
+  const probes = monitorNetworkLossProbes();
+  let shutdownRequested: number | undefined;
+  try {
+    shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read shutdown marker; suppressing not-running recovery', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return 'suppressed';
+  }
+  if (typeof shutdownRequested === 'number') return 'suppressed';
+
+  let storedRecovery: unknown;
+  try {
+    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read not-running transport recovery state', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return 'suppressed';
+  }
+  if (storedRecovery == null) return 'none';
+  if (!isTransportRecoveryRecord(storedRecovery)) {
+    logger.error('collectMetrics: invalid not-running transport recovery record; suppressing reconstruction', undefined, {
+      durableObjectId: ctx.id.toString(),
+      valueType: typeof storedRecovery,
+    });
+    try { await ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* remain fail-closed */ }
+    return 'suppressed';
+  }
+  // Once both reconstruction attempts are exhausted, the ordinary persisted
+  // not-running window decides whether the container really vanished.
+  if (storedRecovery.status === 'exhausted') return 'none';
+  return reconcileActiveTransportRecovery(ctx, storedRecovery, probes);
 }
 
 async function reconcileContainerTransport(
@@ -704,6 +838,13 @@ export async function collectMetrics(
   // observed (REQ-SESSION-018). The marker lives in DO storage so it survives
   // the hibernation/reset that causes the false reading.
   if (!ctx.container?.running) {
+    const recovery = await reconcileNotRunningTransportRecovery(ctx);
+    if (recovery === 'suppressed') return;
+    if (recovery !== 'none') {
+      try { await callbacks.schedule(recovery.nextDelaySec, 'collectMetrics'); } catch { /* DO shutting down */ }
+      return;
+    }
+
     const now = Date.now();
     const since = await ctx.storage.get<number>(NOT_RUNNING_SINCE_KEY);
     // No marker yet (real DO storage returns undefined; some mocks null): open
@@ -729,6 +870,7 @@ export async function collectMetrics(
       elapsedMs: now - since,
     });
     await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
+    await clearTransportRecoveryState(ctx);
     await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
     return;
   }
