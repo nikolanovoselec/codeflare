@@ -330,7 +330,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let executedCommand;
   const contextValues = new Map();
   let handler;
-  let hostModelProvider;
+  const hostModelProviders = new Map();
   let reviewFile;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
@@ -364,8 +364,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
     languages: { getDiagnostics: () => [] },
     lm: {
       registerLanguageModelChatProvider: (vendor, provider) => {
-        assert.equal(vendor, 'copilot');
-        hostModelProvider = provider;
+        assert.ok(vendor === 'copilot' || vendor === 'codeflare');
+        assert.equal(hostModelProviders.has(vendor), false);
+        hostModelProviders.set(vendor, provider);
         return disposable();
       },
     },
@@ -402,19 +403,32 @@ async function verifyPackagedNativeChat(extensionRoot) {
     extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
-    assert.equal(typeof hostModelProvider, 'object', 'packaged extension did not register its host compatibility model');
-    const models = await hostModelProvider.provideLanguageModelChatInformation({}, {});
-    assert.equal(models.length, 1);
-    assert.equal(models[0].name, 'Codeflare');
-    assert.deepEqual(models[0].isDefault, { 1: true, 4: true });
-    assert.equal(models[0].isUserSelectable, true);
-    assert.deepEqual(models[0].capabilities, { toolCalling: true });
-    assert.equal(models[0].requiresAuthorization, undefined);
-    await assert.rejects(
-      hostModelProvider.provideLanguageModelChatResponse(),
-      /compatibility.*cannot generate|cannot generate.*compatibility/i,
-    );
-    assert.equal(await hostModelProvider.provideTokenCount(), 0);
+    assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
+    const fallbackProvider = hostModelProviders.get('copilot');
+    const visibleProvider = hostModelProviders.get('codeflare');
+    const fallbackModels = await fallbackProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(fallbackModels.length, 1);
+    assert.equal(fallbackModels[0].id, 'host-compatibility');
+    assert.equal(fallbackModels[0].name, 'Codeflare');
+    assert.deepEqual(fallbackModels[0].isDefault, { 1: true });
+    assert.equal(fallbackModels[0].isUserSelectable, false);
+    assert.deepEqual(fallbackModels[0].capabilities, {});
+    assert.equal(fallbackModels[0].requiresAuthorization, undefined);
+    const visibleModels = await visibleProvider.provideLanguageModelChatInformation({}, {});
+    assert.equal(visibleModels.length, 1);
+    assert.equal(visibleModels[0].id, 'host-visible');
+    assert.equal(visibleModels[0].name, 'Codeflare');
+    assert.deepEqual(visibleModels[0].isDefault, { 1: true, 4: true });
+    assert.equal(visibleModels[0].isUserSelectable, true);
+    assert.deepEqual(visibleModels[0].capabilities, { toolCalling: true });
+    assert.equal(visibleModels[0].requiresAuthorization, undefined);
+    for (const provider of [fallbackProvider, visibleProvider]) {
+      await assert.rejects(
+        provider.provideLanguageModelChatResponse(),
+        /compatibility.*cannot generate|cannot generate.*compatibility/i,
+      );
+      assert.equal(await provider.provideTokenCount(), 0);
+    }
     assert.equal(typeof reviewFile, 'function', 'packaged extension did not register file review');
     const reviewResource = uri(reviewPath);
     activeEditorUri = reviewResource;
@@ -495,6 +509,12 @@ async function verifyOpenVscodeSettings() {
     const settings = JSON.parse(await readFile(join(serverDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(settings, managed.buildOpenVscodeSettings(claudeConfigRoot));
     assert.equal(settings['chat.disableAIFeatures'], true);
+
+    const piDataRoot = join(root, 'pi-data');
+    await preparation.prepareBaseOpenVscodeSettings(piDataRoot);
+    const piSettings = JSON.parse(await readFile(join(piDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
+    assert.deepEqual(piSettings, managed.buildPiOpenVscodeSettings());
+    assert.deepEqual(piSettings['chat.agentFilesLocations'], { '~/.claude/agents': false });
 
     const unsupportedDataRoot = join(root, 'unsupported-data');
     await preparation.prepareUnsupportedOpenVscodeSettings(unsupportedDataRoot);

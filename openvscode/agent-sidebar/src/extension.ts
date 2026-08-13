@@ -28,21 +28,37 @@ import {
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
 const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
-// Code OSS resolves participant defaults only from its reserved fallback
-// vendor. This is an internal selection key, not a GitHub Copilot integration:
-// the selectable model remains account-free and inert.
-const HOST_MODEL_VENDOR = 'copilot';
+// The pinned extension host still resolves an absent request model only from
+// its reserved Copilot vendor. Keep that fallback hidden, and expose a distinct
+// Codeflare vendor so the visible picker bypasses Copilot entitlement/setup.
+// Both adapters are inert; the participant performs inference through Pi RPC.
+const HOST_FALLBACK_VENDOR = 'copilot';
+const HOST_VISIBLE_VENDOR = 'codeflare';
 const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
 const CHAT_LOCATION_EDITOR = 4 as const;
-const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
+const HOST_FALLBACK_MODEL: LanguageModelChatInformation & {
+  readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
+  readonly isUserSelectable: false;
+} = Object.freeze({
+  id: 'host-compatibility',
+  name: 'Codeflare',
+  family: HOST_MODEL_FAMILY,
+  version: '1',
+  maxInputTokens: 1,
+  maxOutputTokens: 1,
+  capabilities: Object.freeze({}),
+  isDefault: Object.freeze({ [CHAT_LOCATION_PANEL]: true as const }),
+  isUserSelectable: false,
+});
+const HOST_VISIBLE_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<
     typeof CHAT_LOCATION_PANEL | typeof CHAT_LOCATION_EDITOR,
     true
   >>;
   readonly isUserSelectable: true;
 } = Object.freeze({
-  id: 'host-compatibility',
+  id: 'host-visible',
   name: 'Codeflare',
   family: HOST_MODEL_FAMILY,
   version: '1',
@@ -55,13 +71,18 @@ const HOST_COMPATIBILITY_MODEL: LanguageModelChatInformation & {
   }),
   isUserSelectable: true,
 });
-const HOST_COMPATIBILITY_PROVIDER: LanguageModelChatProvider = Object.freeze({
-  provideLanguageModelChatInformation: () => [HOST_COMPATIBILITY_MODEL],
-  provideLanguageModelChatResponse: async () => {
-    throw new Error('Codeflare host compatibility model cannot generate responses');
-  },
+const failClosedCompatibilityResponse = async (): Promise<never> => {
+  throw new Error('Codeflare host compatibility model cannot generate responses');
+};
+const hostCompatibilityProvider = (
+  model: LanguageModelChatInformation,
+): LanguageModelChatProvider => Object.freeze({
+  provideLanguageModelChatInformation: () => [model],
+  provideLanguageModelChatResponse: failClosedCompatibilityResponse,
   provideTokenCount: async () => 0,
 });
+const HOST_FALLBACK_PROVIDER = hostCompatibilityProvider(HOST_FALLBACK_MODEL);
+const HOST_VISIBLE_PROVIDER = hostCompatibilityProvider(HOST_VISIBLE_MODEL);
 let activeRuntime: NativePiRuntime | undefined;
 
 export function activate(context: ExtensionContext): void {
@@ -70,9 +91,13 @@ export function activate(context: ExtensionContext): void {
   // participant, so mark that compatibility setup complete without disabling Chat.
   void commands.executeCommand('setContext', 'chatSetupCompleted', true);
   const runtime = new NativePiRuntime();
-  const hostModelProvider = lm.registerLanguageModelChatProvider(
-    HOST_MODEL_VENDOR,
-    HOST_COMPATIBILITY_PROVIDER,
+  const hostFallbackProvider = lm.registerLanguageModelChatProvider(
+    HOST_FALLBACK_VENDOR,
+    HOST_FALLBACK_PROVIDER,
+  );
+  const hostVisibleProvider = lm.registerLanguageModelChatProvider(
+    HOST_VISIBLE_VENDOR,
+    HOST_VISIBLE_PROVIDER,
   );
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
@@ -90,7 +115,8 @@ export function activate(context: ExtensionContext): void {
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
   context.subscriptions.push(
-    hostModelProvider,
+    hostFallbackProvider,
+    hostVisibleProvider,
     participant,
     reviewFile,
     { dispose: () => { void runtime.dispose(); } },

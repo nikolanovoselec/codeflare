@@ -179,6 +179,9 @@ test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme bu
     "workbench.colorTheme": "Default Light Modern",
     "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "off",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": true,
+    },
     "claudeCode.disableLoginPrompt": false,
   }));
 
@@ -190,6 +193,9 @@ test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme bu
     "extensions.ignoreRecommendations": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
+    "chat.agentFilesLocations": {
+      "~/.claude/agents": false,
+    },
   });
 });
 

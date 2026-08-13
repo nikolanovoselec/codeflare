@@ -34,6 +34,10 @@
       {
         "vendor": "copilot",
         "displayName": "Codeflare"
+      },
+      {
+        "vendor": "codeflare",
+        "displayName": "Codeflare"
       }
     ],
     "chatParticipants": [
