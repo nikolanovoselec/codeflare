@@ -2736,7 +2736,7 @@ None.
 **Acceptance Criteria:**
 
 1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
-2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition rather than embedding their bodies. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
+2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
 3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 license texts. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/LICENSE::MIT License --> <!-- @impl: preseed/agents/claude/skills/canvas-design/LICENSE.txt::Apache License --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 4. The vendored UI UX Pro Max and Canvas Design sources retain their pinned upstream provenance. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md::Upstream provenance --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md::Upstream provenance --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves canonical provenance artifacts and omits a Copilot skill lane) -->
 5. Modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/canvas-design/SKILL.md::Modification notice --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
@@ -2749,6 +2749,7 @@ None.
 - Copilot receives no skills because its runtime has no skills directory contract.
 - `impeccable` remains optional and available only in the runtimes that carry its full tool bundle.
 - Vendored auxiliary data and scripts load on demand rather than entering always-on instructions.
+- The compact `design` router references specialists instead of embedding their bodies.
 
 **Priority:** P2
 
