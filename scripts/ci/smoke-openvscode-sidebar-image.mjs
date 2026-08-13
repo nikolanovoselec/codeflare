@@ -300,7 +300,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   ]);
   assert.equal(manifest.displayName, 'Codeflare');
   assert.deepEqual(manifest.activationEvents, [
-    'onStartupFinished',
+    '*',
     'onChatParticipant:codeflare.pi',
     'onCommand:codeflare.pi.reviewFile',
   ]);
@@ -528,7 +528,7 @@ async function verifyOpenVscodeSettings() {
     assert.deepEqual(unsupportedSettings, managed.buildUnsupportedOpenVscodeSettings());
 
     for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
-      const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'globalStorage', 'storage.json'), 'utf8'));
+      const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'State', 'storage.json'), 'utf8'));
       assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
     }
   } finally {

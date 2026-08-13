@@ -15,7 +15,7 @@
     "workspace"
   ],
   "activationEvents": [
-    "onStartupFinished",
+    "*",
     "onChatParticipant:codeflare.pi",
     "onCommand:codeflare.pi.reviewFile"
   ],

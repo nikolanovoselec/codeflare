@@ -240,7 +240,7 @@ test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status
   for (const prepare of preparations) {
     const { sourceRoot } = await fixture();
     const serverDataRoot = join(sourceRoot, "openvscode-data");
-    const storageDirectory = join(serverDataRoot, "data", "User", "globalStorage");
+    const storageDirectory = join(serverDataRoot, "data", "User", "State");
     await mkdir(storageDirectory, { recursive: true });
     await writeFile(join(storageDirectory, "storage.json"), JSON.stringify({
       unrelated: "preserved",
@@ -261,7 +261,7 @@ test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status
 test("REQ-IDE-021: malformed profile storage recovers and redirected storage fails closed", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "openvscode-data");
-  const storageDirectory = join(serverDataRoot, "data", "User", "globalStorage");
+  const storageDirectory = join(serverDataRoot, "data", "User", "State");
   const storagePath = join(storageDirectory, "storage.json");
   await mkdir(storageDirectory, { recursive: true });
   await writeFile(storagePath, "not json");

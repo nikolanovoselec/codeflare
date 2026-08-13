@@ -117,7 +117,10 @@ async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
 }
 
 async function writeOpenVscodeProfileState(serverDataRoot) {
-  const storageDirectory = resolve(serverDataRoot, "data", "User", "globalStorage");
+  // The code-server web workbench resolves BrowserWorkbenchEnvironmentService.stateResource
+  // to <user-data-dir>/User/State/storage.json. User/globalStorage serves unrelated
+  // extension storage and is not the workbench profile-state resource.
+  const storageDirectory = resolve(serverDataRoot, "data", "User", "State");
   const storagePath = resolve(storageDirectory, "storage.json");
   await mkdir(storageDirectory, { mode: 0o700, recursive: true });
   if (await realpath(storageDirectory) !== storageDirectory) {
