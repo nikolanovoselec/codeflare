@@ -198,7 +198,7 @@ test('REQ-IDE-008 AC3: an asynchronous Pi stdin failure stops the backend withou
   assert.equal(backend.running, false);
 });
 
-test('REQ-IDE-020: a timed-out Pi RPC dialog writes cancellation and the active turn continues', async () => {
+test('REQ-IDE-022: a timed-out Pi RPC dialog writes cancellation and the active turn continues', async () => {
   const spawner = new FakePiSpawner();
   const host = new UnexpectedApprovalHost();
   host.waitForSelectCancellation = true;
@@ -237,7 +237,7 @@ test('REQ-IDE-020: a timed-out Pi RPC dialog writes cancellation and the active 
   await backend.stop();
 });
 
-test('REQ-IDE-020: an unknown blocking Pi UI request fails and stops the active generation', async () => {
+test('REQ-IDE-022: an unknown blocking Pi UI request fails and stops the active generation', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runPrompt('reject an unknown dialog', {

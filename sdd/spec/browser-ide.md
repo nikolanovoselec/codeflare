@@ -604,10 +604,8 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Editor requests receive the canonical active document's unsaved content, the selection when present, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) -->
 2. Every editor request runs in a fresh isolated Pi process. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend) -->
 3. Edit, Write, and Bash proceed without an editor permission prompt. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
-4. Pi's documented select and input requests use bounded native editor dialogs and return correlated values, dismissal, or timeout cancellation without terminating the active turn. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-020: Pi RPC select and input dialogs return correlated values) --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-020: Pi RPC dialog dismissal or timeout returns a correlated cancellation) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-020: Pi RPC select and input use bounded native VS Code dialogs) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-020: a timed-out Pi RPC dialog writes cancellation and the active turn continues) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-020: cancelling active Pi dialogs closes them with correlated responses) -->
-5. Malformed or unsupported blocking UI requests stop the request generation without being approved or ignored. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (Pi approval bridge compatibility rejects malformed or unsupported UI requests) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-020: an unknown blocking Pi UI request fails and stops the active generation) -->
-6. Assistant text and tool progress stream in editor Inline Chat, and normal completion waits for settlement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
-7. Cancellation or deactivation reaps the active request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi request and cleanup still runs) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation) -->
+4. Assistant text and tool progress stream in editor Inline Chat, and normal completion waits for settlement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
+5. Cancellation or deactivation reaps the active request generation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi request and cleanup still runs) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: Pi disposal settles and reaps the request generation) -->
 
 **Constraints:**
 
@@ -634,8 +632,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Browser IDE sessions omit the Copilot sign-in status control in Pi, Claude, and unsupported inventories. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
-2. Existing unrelated status visibility and profile values are retained, while authentication APIs, Codeflare Chat, Claude credentials, and other status entries remain unchanged. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
+1. Before code-server starts, Pi, Claude, and unsupported inventories prepare the Copilot sign-in status entry as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
+2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
 
 **Constraints:**
 
@@ -643,12 +641,44 @@ A full code-server browser editor for an advanced running session. The editor op
 - Codeflare adds only `chat.statusBarEntry`; user-hidden entries already present in profile storage are preserved.
 - Profile state remains ephemeral and is not added to the bounded persistent UI snapshot.
 - The upstream code-server artifact, Docker pin, and Bump Shadow Pins workflow remain unmodified; pin updates must retain the supported status-entry visibility contract.
+- Authentication APIs, Codeflare Chat, Claude credentials, and status entries other than the one added by Codeflare are outside this preparation mutation.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
 **Verification:** PR-boundary review and GitHub Actions CI only. Configured preparation tests verify the exact ephemeral profile behavior; complete-image smoke verifies that each packaged inventory receives the prepared value.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-022: Native Pi blocking UI protocol
+
+**Intent:** Native Pi questions complete through bounded editor dialogs without leaving the active request generation blocked or approving unsupported requests.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Select requests present only their bounded options and return the selected value to the matching Pi request. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-022: Pi RPC select and input dialogs return correlated values) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-022: Pi RPC select and input use bounded native VS Code dialogs) -->
+2. Input requests present a bounded native input dialog and return its value to the matching Pi request. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-022: Pi RPC select and input dialogs return correlated values) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-022: Pi RPC select and input use bounded native VS Code dialogs) -->
+3. Dialog dismissal returns cancellation to the matching Pi request. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-022: Pi RPC dialog dismissal returns a correlated cancellation) -->
+4. A bounded Pi timeout closes the dialog, returns cancellation, and allows the active turn to continue. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-022: Pi RPC dialog timeout returns a correlated cancellation) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-022: a timed-out Pi RPC dialog writes cancellation and the active turn continues) -->
+5. Request cancellation closes an active native dialog and returns a correlated cancellation response. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-022: cancelling active Pi dialogs closes them with correlated responses) -->
+6. Malformed, editor, and unknown blocking UI requests stop the request generation without approval or silent fallback. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/approval-bridge.test.ts (REQ-IDE-022: Pi approval bridge rejects malformed or unsupported UI requests) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-022: an unknown blocking Pi UI request fails and stops the active generation) -->
+
+**Constraints:**
+
+- Manifest-backed `confirm` behavior remains unchanged.
+- No multiline `editor` substitute or broad unknown-method approval is introduced.
+- Dialog titles, options, placeholders, values, and timeouts remain bounded at the RPC boundary.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-unrestricted-pi-editor-request-execution)
+
+**Verification:** PR-boundary review and GitHub Actions CI only. Configured bridge, host, and backend tests cover each blocking protocol result and generation behavior.
 
 **Status:** Partial
 

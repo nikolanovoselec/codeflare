@@ -107,7 +107,7 @@ test('REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no e
   assert.deepEqual(vscode.warnings, []);
 });
 
-test('REQ-IDE-020: Pi RPC select and input use bounded native VS Code dialogs', async () => {
+test('REQ-IDE-022: Pi RPC select and input use bounded native VS Code dialogs', async () => {
   const host = new VsCodeApprovalHost();
 
   assert.equal(await host.select('Choose one', ['First', 'Second']), 'Second');
@@ -120,7 +120,7 @@ test('REQ-IDE-020: Pi RPC select and input use bounded native VS Code dialogs', 
   ]);
 });
 
-test('REQ-IDE-020: cancelling active Pi dialogs closes them with correlated responses', async () => {
+test('REQ-IDE-022: cancelling active Pi dialogs closes them with correlated responses', async () => {
   const bridge = new ApprovalBridge(new VsCodeApprovalHost());
   vscode.pendingDialogs = true;
   for (const request of [

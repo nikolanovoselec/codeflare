@@ -162,7 +162,7 @@ test('Pi fire-and-forget notifications require no response and never enter appro
   assert.deepEqual(host.events, []);
 });
 
-test('REQ-IDE-020: Pi RPC select and input dialogs return correlated values', async () => {
+test('REQ-IDE-022: Pi RPC select and input dialogs return correlated values', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
@@ -194,9 +194,31 @@ test('REQ-IDE-020: Pi RPC select and input dialogs return correlated values', as
   ]);
 });
 
-test('REQ-IDE-020: Pi RPC dialog dismissal or timeout returns a correlated cancellation', async () => {
+test('REQ-IDE-022: Pi RPC dialog dismissal returns a correlated cancellation', async () => {
   const host = new RecordingApprovalHost();
-  host.select = async (_title, _options, signal) => new Promise((resolve) => {
+  host.select = async () => undefined;
+  const bridge = new ApprovalBridge(host);
+
+  assert.deepEqual(await bridge.handlePiRequest({
+    type: 'extension_ui_request',
+    id: 'ui-dismissed',
+    method: 'select',
+    title: 'Choose one',
+    options: ['First', 'Second'],
+  }), {
+    type: 'extension_ui_response',
+    id: 'ui-dismissed',
+    cancelled: true,
+  });
+});
+
+test('REQ-IDE-022: Pi RPC dialog timeout returns a correlated cancellation', async () => {
+  const host = new RecordingApprovalHost();
+  host.select = async (
+    _title: string,
+    _options: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<string | undefined> => new Promise<string | undefined>((resolve) => {
     if (signal?.aborted) resolve(undefined);
     else signal?.addEventListener('abort', () => resolve(undefined), { once: true });
   });
@@ -204,19 +226,19 @@ test('REQ-IDE-020: Pi RPC dialog dismissal or timeout returns a correlated cance
 
   assert.deepEqual(await bridge.handlePiRequest({
     type: 'extension_ui_request',
-    id: 'ui-cancelled',
+    id: 'ui-timeout-cancelled',
     method: 'select',
     title: 'Choose one',
     options: ['First', 'Second'],
     timeout: 1,
   }), {
     type: 'extension_ui_response',
-    id: 'ui-cancelled',
+    id: 'ui-timeout-cancelled',
     cancelled: true,
   });
 });
 
-test('Pi approval bridge compatibility rejects malformed or unsupported UI requests', async () => {
+test('REQ-IDE-022: Pi approval bridge rejects malformed or unsupported UI requests', async () => {
   const host = new RecordingApprovalHost();
   const bridge = new ApprovalBridge(host);
 
