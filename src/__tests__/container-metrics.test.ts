@@ -506,6 +506,19 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
     });
 
+    it('REQ-SESSION-024 AC1: schedule and cleanup failure retain the partial recovery without parallel exit confirmation', async () => {
+      testState.containerRunning = false;
+      testState.scheduleFailuresRemaining = 1;
+      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'resetting' });
+    });
+
     it('REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction', async () => {
       await storage().put('shutdownRequested', Date.now());
       testState.containerRunning = false;

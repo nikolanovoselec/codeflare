@@ -368,7 +368,7 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
       host.ctx,
       async () => {
         try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-        return host.schedule(5, 'collectMetrics');
+        return await host.schedule(5, 'collectMetrics');
       },
     );
     if (recovery !== 'fallback') return;

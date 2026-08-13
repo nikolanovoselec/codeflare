@@ -496,8 +496,14 @@ export async function beginMonitorTransportRecovery(
       ...transportRecoveryLogContext(ctx, recovery, probes),
       error: err instanceof Error ? err.message : String(err),
     });
-    try { await clearTransportRecoveryState(ctx); } catch { /* exit confirmation remains authoritative */ }
-    return 'fallback';
+    try {
+      await clearTransportRecoveryState(ctx);
+      return 'fallback';
+    } catch {
+      // The valid partial incident still owns the lifecycle. Do not start exit
+      // confirmation beside state that a later tick could treat as recovery.
+      return 'suppressed';
+    }
   }
 
   logger.warn('container monitor recovery: resetting Durable Object to reconstruct container transport', {
