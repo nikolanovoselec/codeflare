@@ -610,6 +610,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - The fixed local `pi --mode rpc --no-session --no-themes` runtime retains normal tools, extensions, root access, external interceptors, and generation cleanup without a command sandbox; selection is context, not confinement, and direct effects carry no host Keep/Undo promise.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
@@ -636,6 +637,7 @@ A full code-server browser editor for an advanced running session. The editor op
 - Codeflare uses supported ephemeral profile storage to add only `chat.statusBarEntry`, preserves existing hidden entries, and does not patch code-server or persist this state in the UI snapshot.
 - The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; pin updates must retain this contract.
 - Authentication APIs, Chat, credentials, and other status entries are outside this mutation.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
@@ -649,6 +651,7 @@ A full code-server browser editor for an advanced running session. The editor op
 ### REQ-IDE-022: Native Pi blocking UI protocol
 
 **Intent:** Native Pi questions complete through bounded editor dialogs without leaving the active request generation blocked or approving unsupported requests.
+
 **Applies To:** User
 
 **Acceptance Criteria:**
@@ -663,6 +666,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Manifest-backed `confirm` remains unchanged; no multiline `editor` substitute or unknown-method approval is introduced, and dialog fields and timeouts remain bounded at the RPC boundary.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-unrestricted-pi-editor-request-execution)
