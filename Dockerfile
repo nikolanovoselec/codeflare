@@ -491,8 +491,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.1
-ARG UV_X86_64_LINUX_SHA256=90b2f223fb69d19db49e117da601f64978593417988530aa733d456141b4bcbb
+ARG UV_VERSION=0.12.2
+ARG UV_X86_64_LINUX_SHA256=d66e96b5f1ca3b99806eee283a8125d33a0bd669e6e6d9bc4ab7ffda63c41bf4
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
