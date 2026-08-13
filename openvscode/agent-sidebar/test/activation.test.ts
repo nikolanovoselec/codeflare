@@ -100,7 +100,7 @@ afterEach(async () => {
   host.warnings = [];
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registers account-free panel and editor Chat', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
   activate({
     extensionUri: { fsPath: '/extension' },
@@ -143,7 +143,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registe
   assert.equal(subscriptions.length, 5);
 });
 
-test('REQ-IDE-019 AC9: participant requests run the local Pi backend without provider generation', async () => {
+test('REQ-IDE-019 AC7: participant requests run the local Pi backend without provider generation', async () => {
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: { backend: unknown }) => {
     assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
     return 'completed';

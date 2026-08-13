@@ -65,7 +65,7 @@ test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore 
   });
 });
 
-test("REQ-IDE-018 + REQ-IDE-019 AC4: Pi native Chat uses notifications and one personal agent source", () => {
+test("REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source", () => {
   const settings = buildPiOpenVscodeSettings();
   assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,

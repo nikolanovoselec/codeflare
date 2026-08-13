@@ -4,6 +4,8 @@ description: Create beautiful visual art in .png and .pdf documents using design
 license: Apache-2.0; see LICENSE.txt
 ---
 
+## Modification notice
+
 > Modified by Codeflare for agent-neutral execution: references to a specific model instance were replaced with role-based workflow language. The visual-design method is otherwise retained.
 
 These are instructions for creating design philosophies - aesthetic movements that are then EXPRESSED VISUALLY. Output only .md files, .pdf files, and .png files.
