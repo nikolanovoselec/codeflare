@@ -623,14 +623,15 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-021: Account-free Browser IDE chrome
 
-**Intent:** Browser IDE sessions omit Code OSS's Copilot sign-in status affordance while retaining Codeflare Chat and independent agent credentials.
+**Intent:** Browser IDE sessions omit Code OSS's Copilot sign-in status affordance and left-side Accounts chrome while retaining Codeflare Chat and independent agent credentials.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Before code-server starts, Pi, Claude, and unsupported inventories prepare the Copilot sign-in status entry as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
-2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry) -->
+1. Before code-server starts, Pi, Claude, and unsupported inventories prepare the Copilot sign-in status entry as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
+2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
+3. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
 
 **Constraints:**
 

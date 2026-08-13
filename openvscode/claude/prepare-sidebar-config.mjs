@@ -14,6 +14,7 @@ export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.jso
 const PROFILE_STORAGE_MAX_BYTES = 256 * 1024;
 const HIDDEN_STATUS_ENTRY_STORAGE_KEY = "workbench.statusbar.hidden";
 const HIDDEN_STATUS_ENTRY_ID = "chat.statusBarEntry";
+const ACCOUNTS_VISIBILITY_STORAGE_KEY = "workbench.activity.showAccounts";
 
 export const SIDEBAR_LINK_ALLOWLIST = Object.freeze([
   ".credentials.json",
@@ -158,6 +159,7 @@ async function writeOpenVscodeProfileState(serverDataRoot) {
   const serialized = `${JSON.stringify({
     ...preserved,
     [HIDDEN_STATUS_ENTRY_STORAGE_KEY]: JSON.stringify(hiddenEntries),
+    [ACCOUNTS_VISIBILITY_STORAGE_KEY]: "false",
   }, null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > PROFILE_STORAGE_MAX_BYTES) {
     throw new Error("OpenVSCode profile storage exceeds its bounded size");

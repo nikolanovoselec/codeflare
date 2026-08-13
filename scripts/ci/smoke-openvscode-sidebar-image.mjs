@@ -530,6 +530,7 @@ async function verifyOpenVscodeSettings() {
     for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
       const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'State', 'storage.json'), 'utf8'));
       assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
+      assert.equal(profileState['workbench.activity.showAccounts'], 'false');
     }
   } finally {
     await rm(root, { recursive: true, force: true });

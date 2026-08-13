@@ -226,7 +226,7 @@ test("REQ-IDE-002: malformed restored settings cannot prevent managed settings r
   );
 });
 
-test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status entry", async () => {
+test("REQ-IDE-021: every prepared inventory hides account login chrome", async () => {
   const preparations = [
     async (root) => prepareBaseOpenVscodeSettings(root),
     async (root) => prepareUnsupportedOpenVscodeSettings(root),
@@ -245,6 +245,7 @@ test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status
     await writeFile(join(storageDirectory, "storage.json"), JSON.stringify({
       unrelated: "preserved",
       "workbench.statusbar.hidden": '["other.status.entry"]',
+      "workbench.activity.showAccounts": "true",
     }));
     await prepare(serverDataRoot);
     await prepare(serverDataRoot);
@@ -253,6 +254,7 @@ test("REQ-IDE-021: every prepared inventory adds only the Copilot sign-in status
       {
         unrelated: "preserved",
         "workbench.statusbar.hidden": '["other.status.entry","chat.statusBarEntry"]',
+        "workbench.activity.showAccounts": "false",
       },
     );
   }
@@ -268,6 +270,7 @@ test("REQ-IDE-021: malformed profile storage recovers and redirected storage fai
   await prepareBaseOpenVscodeSettings(serverDataRoot);
   assert.deepEqual(JSON.parse(await readFile(storagePath, "utf8")), {
     "workbench.statusbar.hidden": '["chat.statusBarEntry"]',
+    "workbench.activity.showAccounts": "false",
   });
 
   const redirectedRoot = join(sourceRoot, "redirected-data");
