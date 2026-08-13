@@ -271,7 +271,7 @@ test("REQ-IDE-021: malformed profile storage recovers and redirected storage fai
   });
 
   const redirectedRoot = join(sourceRoot, "redirected-data");
-  const redirectedStorage = join(redirectedRoot, "data", "User", "globalStorage");
+  const redirectedStorage = join(redirectedRoot, "data", "User", "State");
   await mkdir(redirectedStorage, { recursive: true });
   await rm(join(redirectedStorage, "storage.json"), { force: true });
   await symlink(storagePath, join(redirectedStorage, "storage.json"));
