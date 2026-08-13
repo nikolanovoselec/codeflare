@@ -554,13 +554,18 @@ async function verifyUiStateHelper() {
     await mkdir(workspace);
     await writeFile(join(live, 'data', 'User', 'settings.json'), JSON.stringify({
       'workbench.colorTheme': 'Default Dark Modern',
+      'keyboard.layout': 'de',
+      'editor.fontSize': 18,
       'github.copilot.token': 'must-not-persist',
     }));
     execFileSync('python3', [helper, 'capture', '--data-root', live, '--snapshot', snapshot, '--workspace', workspace]);
     execFileSync('python3', [helper, 'restore', '--data-root', restored, '--snapshot', snapshot, '--workspace', workspace]);
     const restoredSettings = JSON.parse(await readFile(join(restored, 'data', 'User', 'settings.json'), 'utf8'));
-    assert.deepEqual(restoredSettings, { 'workbench.colorTheme': 'Default Dark Modern' });
-    assert.doesNotMatch(await readFile(snapshot, 'utf8'), /copilot|must-not-persist/);
+    assert.deepEqual(restoredSettings, {
+      'keyboard.layout': 'de',
+      'workbench.colorTheme': 'Default Dark Modern',
+    });
+    assert.doesNotMatch(await readFile(snapshot, 'utf8'), /fontSize|copilot|must-not-persist/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

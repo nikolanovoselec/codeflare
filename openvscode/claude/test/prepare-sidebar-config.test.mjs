@@ -170,13 +170,14 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
 });
 
-test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme but replaces stale managed inventory settings", async () => {
+test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const settingsDirectory = join(serverDataRoot, "data", "User");
   await mkdir(settingsDirectory, { recursive: true });
   await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
     "workbench.colorTheme": "Default Light Modern",
+    "keyboard.layout": "de",
     "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "off",
     "chat.agentFilesLocations": {
@@ -189,6 +190,7 @@ test("REQ-IDE-002 AC3 + REQ-IDE-016 AC2: settings preparation preserves theme bu
 
   assert.deepEqual(JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")), {
     "workbench.colorTheme": "Default Light Modern",
+    "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",

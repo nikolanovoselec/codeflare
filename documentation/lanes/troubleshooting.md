@@ -38,13 +38,13 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Use a fresh session on an image where Worker and host reject decoded selector keys, the private root hop injects the fixed folder, and the host projects its equivalent `folderUri` into the root workbench configuration. The normal public location is `/api/vscode/<sessionId>/`. A projection mismatch returns `VSCODE_WORKBENCH_CONFIGURATION_INVALID`; deployment image smoke must validate the packaged root HTML before deployment. This is not an OS sandbox; terminals, trusted extensions, and agents retain container filesystem access.
 
-### Browser IDE theme, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering))
+### Browser IDE theme, keyboard layout, Explorer state, or open files do not persist ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering))
 
-**Symptom:** A fresh session returns to default UI state, or unexpected IDE databases appear in persistent storage.
+**Symptom:** A fresh session returns to the default theme or keyboard layout, loses Explorer/open-file state, or unexpected IDE databases appear in persistent storage.
 
 **Cause:** code-server may not have been reaped before final sync, `~/.codeflare/ide-ui-state.json` may be absent or invalid, or the snapshot/filter allowlist may have drifted.
 
-**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore.
+**Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only that exact path survives the `~/.codeflare/**` R2 filter. Theme values and string-valued `keyboard.layout` are the only allowlisted User settings. Never sync other User settings, `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
 
 ### Native Browser IDE agent is missing ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-013](../../sdd/spec/browser-ide.md#req-ide-013-account-backed-code-review-suppression), [REQ-IDE-014](../../sdd/spec/browser-ide.md#req-ide-014-active-editor-review-with-codeflare))
 

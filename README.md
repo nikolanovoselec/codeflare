@@ -119,7 +119,7 @@ The browser workspace includes:
 
 ![Codeflare Browser VS Code workspace](assets/documentation/browser-vscode.gif)
 
-Pi sessions receive native Codeflare Chat and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. Other agents open code-server without an agent-specific sidebar. Only a bounded allowlist of theme, Explorer, and open-file UI state can persist; credentials, authentication, extension state, editor databases, chat history, and logs remain temporary.
+Pi sessions receive native Codeflare Chat and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. Other agents open code-server without an agent-specific sidebar. Only a bounded allowlist of theme, the user-selected web keyboard layout, Explorer, and open-file UI state can persist; credentials, authentication, other User settings, extension state, editor databases, chat history, and logs remain temporary.
 
 Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Copilot, Pi, Google Antigravity, OpenCode, and Bash. Enterprise administrators select from the gateway-capable Pi and GitHub Copilot agents, with Bash always available.
 

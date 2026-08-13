@@ -42,7 +42,7 @@ The official package contributes its own Claude Code webview, not a code-server 
 
 The browser keeps a clean `/api/vscode/<sessionId>/` location. Public `folder`, `workspace`, and `ew` selectors are rejected independently by the Worker and container host for HTTP and WebSocket requests. Only the private loopback root request receives `folder=/home/user/workspace`; redirects remove selectors before they become browser-visible. This confines public workspace selection, not terminal, trusted-extension, or agent filesystem access.
 
-Live code-server state remains under `/tmp/openvscode-data`. After the launch generation is fully reaped, `browser-ide-ui-state.py` exports only theme, Explorer expansion, and canonical in-workspace open-file state into the atomic, maximum-1-MiB `~/.codeflare/ide-ui-state.json` snapshot. A later session reconstructs fresh workspace storage before managed inventory settings are reapplied. Raw databases, `workspaceStorage`, `globalStorage`, SecretStorage, Accounts authentication, chat history, logs, WAL, and SHM are never synced.
+Live code-server state remains under `/tmp/openvscode-data`. After the launch generation is fully reaped, `browser-ide-ui-state.py` exports only theme, the string-valued `keyboard.layout` User setting, Explorer expansion, and canonical in-workspace open-file state into the atomic, maximum-1-MiB `~/.codeflare/ide-ui-state.json` snapshot. A later session reconstructs fresh workspace storage before managed inventory settings are reapplied. The upstream keyboard-layout status item remains visible. Other User settings, raw databases, `workspaceStorage`, `globalStorage`, SecretStorage, Accounts authentication, chat history, logs, WAL, and SHM are never synced.
 
 ## Build and verification
 

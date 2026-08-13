@@ -29,6 +29,8 @@ THEME_SETTING_KEYS = frozenset({
     "workbench.preferredLightColorTheme",
     "window.autoDetectColorScheme",
 })
+KEYBOARD_LAYOUT_SETTING_KEY = "keyboard.layout"
+PERSISTED_SETTING_KEYS = THEME_SETTING_KEYS | {KEYBOARD_LAYOUT_SETTING_KEY}
 
 
 def canonical_root(value: str, label: str) -> Path:
@@ -154,7 +156,18 @@ def safe_state_value(key: str, raw: object, workspace: Path) -> str | None:
     return raw if state_matches_schema(key, parsed, workspace) else None
 
 
-def read_theme_settings(settings_path: Path) -> dict[str, object]:
+def safe_setting_value(key: str, value: object) -> object | None:
+    if key == KEYBOARD_LAYOUT_SETTING_KEY:
+        return value if isinstance(value, str) and len(value.encode("utf8")) <= 256 else None
+    if key in THEME_SETTING_KEYS:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and len(value.encode("utf8")) <= 256:
+            return value
+    return None
+
+
+def read_persisted_settings(settings_path: Path) -> dict[str, object]:
     try:
         info = settings_path.lstat()
         if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_size > MAX_VALUE_BYTES:
@@ -165,9 +178,9 @@ def read_theme_settings(settings_path: Path) -> dict[str, object]:
     if not isinstance(parsed, dict):
         return {}
     result: dict[str, object] = {}
-    for key in THEME_SETTING_KEYS:
-        value = parsed.get(key)
-        if isinstance(value, bool) or (isinstance(value, str) and len(value.encode("utf8")) <= 256):
+    for key in PERSISTED_SETTING_KEYS:
+        value = safe_setting_value(key, parsed.get(key))
+        if value is not None:
             result[key] = value
     return result
 
@@ -270,7 +283,7 @@ def atomic_json_write(path: Path, value: object) -> None:
 
 def capture(data_root: Path, snapshot: Path, workspace: Path) -> None:
     located = locate_workspace_database(data_root, workspace)
-    settings = read_theme_settings(data_root / "data" / "User" / "settings.json")
+    settings = read_persisted_settings(data_root / "data" / "User" / "settings.json")
     state = read_workspace_state(located[0] if located else None, workspace)
     if located is None and not settings and not state:
         return
@@ -315,12 +328,12 @@ def load_snapshot(path: Path, workspace: Path) -> dict[str, object] | None:
         return None
     safe_settings: dict[str, object] = {}
     for key, value in settings.items():
-        if key not in THEME_SETTING_KEYS:
+        if key not in PERSISTED_SETTING_KEYS:
             return None
-        if isinstance(value, bool) or (isinstance(value, str) and len(value.encode("utf8")) <= 256):
-            safe_settings[key] = value
-        else:
+        safe = safe_setting_value(key, value)
+        if safe is None:
             return None
+        safe_settings[key] = safe
     safe_state: dict[str, str] = {}
     for key, raw in state_values.items():
         if key not in WORKSPACE_STATE_KEYS:
