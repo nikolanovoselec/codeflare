@@ -589,7 +589,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI only. CI validates package metadata, proposal admission, both adapter metadata contracts, fail-closed generation, and inventory isolation through `scripts/ci/smoke-openvscode-sidebar-image.mjs` and the `Measure idle code-server resources` job block in `.github/workflows/container-image.yml`.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -620,6 +620,6 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI only. Existing native context, RPC lifecycle, approval, process-generation, and complete-image checks cover the shared runtime contract.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
