@@ -86,11 +86,11 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `.claude/mcp-*.json` | **NO** | MCP auth cache; created and deleted within milliseconds, listing-then-missing causes bisync fatal errors. Regenerated on every connect. |
 | `~/.graphify/**` | **NO** | Per-machine global graph store (absolute paths, machine-specific). Each container builds its own from the per-repo `graphify-out/` artefacts. |
 | `**/graphify-out/**` ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | **NO** | Knowledge-graph artifacts live in the repo, not in R2: owners commit `graphify-out/` to git and clones receive it. Repos without push permission keep the graph local-only and ephemeral. R2 bisync is not in the graphify persistence path. |
-
-The Browser IDE snapshot is atomic, mode `0600`, and capped at 1 MiB. It contains only allowlisted theme values, string-valued `keyboard.layout`, and key-specific canonical Explorer/open-file resources captured after code-server is reaped. Other User settings, unknown fields, opaque strings, and every other `~/.codeflare/**` path are excluded. <!-- @impl: scripts/browser-ide-ui-state.py::capture -->
 | `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
 | `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
+
+The Browser IDE snapshot is atomic, mode `0600`, and capped at 1 MiB. It contains only allowlisted theme values, string-valued `keyboard.layout`, and key-specific canonical Explorer/open-file resources captured after code-server is reaped. Other User settings, unknown fields, opaque strings, and every other `~/.codeflare/**` path are excluded. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
 `vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot. The extraction manifest prevents a restored vault from being reprocessed wholesale.
 
