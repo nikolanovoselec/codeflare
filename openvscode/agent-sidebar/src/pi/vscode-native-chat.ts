@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 
 import {
   DiagnosticSeverity,
+  Range,
   languages,
   window,
   workspace,
@@ -13,7 +14,6 @@ import {
   type ChatResponseTurn,
   type Diagnostic,
   type Location,
-  type Range,
   type TextDocument,
   type TextEditor,
   type Uri,
@@ -166,14 +166,18 @@ function snapshotReferences(
       uri,
       range,
       description: reference.modelDescription,
-      text: open ? open.getText(range) : readReferenceText(uri, range),
+      text: open ? open.getText(toRange(range)) : readReferenceText(uri, range),
     };
   });
 }
 
-async function readReferenceText(uri: Uri, range: Range | undefined): Promise<string | undefined> {
+function toRange(range: ReferenceSnapshot['range']): Range | undefined {
+  return range ? new Range(range.start.line, range.start.character, range.end.line, range.end.character) : undefined;
+}
+
+async function readReferenceText(uri: Uri, range: ReferenceSnapshot['range']): Promise<string | undefined> {
   const document = await openDocument(uri);
-  return document?.getText(range);
+  return document?.getText(toRange(range));
 }
 
 async function collectReferences(

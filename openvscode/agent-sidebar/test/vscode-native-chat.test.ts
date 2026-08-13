@@ -8,10 +8,22 @@ const host = vi.hoisted(() => ({
   activeTextEditor: undefined as unknown,
   documents: [] as unknown[],
   diagnostics: [] as unknown[],
+  ranges: [] as unknown[],
+  openedDocuments: [] as unknown[],
 }));
 
 vi.mock('vscode', () => ({
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+  Range: class Range {
+    readonly start: { line: number; character: number };
+    readonly end: { line: number; character: number };
+
+    constructor(startLine: number, startCharacter: number, endLine: number, endCharacter: number) {
+      this.start = { line: startLine, character: startCharacter };
+      this.end = { line: endLine, character: endCharacter };
+      host.ranges.push(this);
+    }
+  },
   languages: { getDiagnostics: () => host.diagnostics },
   window: {
     get activeTextEditor() { return host.activeTextEditor; },
@@ -19,7 +31,8 @@ vi.mock('vscode', () => ({
   workspace: {
     get textDocuments() { return host.documents; },
     openTextDocument: async (uri: { fsPath: string }) =>
-      host.documents.find((value) => (value as { uri?: { fsPath?: string } }).uri?.fsPath === uri.fsPath),
+      [...host.documents, ...host.openedDocuments]
+        .find((value) => (value as { uri?: { fsPath?: string } }).uri?.fsPath === uri.fsPath),
   },
 }));
 
@@ -31,6 +44,8 @@ afterEach(async () => {
   host.activeTextEditor = undefined;
   host.documents = [];
   host.diagnostics = [];
+  host.ranges = [];
+  host.openedDocuments = [];
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -100,6 +115,10 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   assert.deepEqual(input.openFiles, [activePath, referencePath]);
   assert.equal(input.references[0]?.path, referencePath);
   assert.equal(input.references[0]?.text, 'export const reference = true;\n');
+  assert.deepEqual(host.ranges.map((range) => (range as { start: unknown; end: unknown })), [{
+    start: { line: 0, character: 0 },
+    end: { line: 0, character: 29 },
+  }]);
   assert.deepEqual(input.history, [
     { role: 'user', text: 'Earlier question' },
     { role: 'assistant', text: 'Earlier answer' },
@@ -187,6 +206,43 @@ test('REQ-IDE-005 AC7: native Pi context collection ignores the host-selected mo
 
   assert.equal(input.prompt, 'Inspect this workspace.');
   assert.equal(modelReads, 0);
+});
+
+test('REQ-IDE-006 AC1: open and newly opened reference documents receive native Range instances', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'native-chat-native-ranges-'));
+  roots.push(root);
+  const openPath = join(root, 'open.ts');
+  const closedPath = join(root, 'closed.ts');
+  await writeFile(openPath, 'open reference');
+  await writeFile(closedPath, 'closed reference');
+  const seen: unknown[] = [];
+  const document = (path: string, text: string) => ({
+    uri: { scheme: 'file', fsPath: path },
+    languageId: 'typescript',
+    isDirty: false,
+    isClosed: false,
+    getText: (range?: unknown) => {
+      seen.push(range);
+      return text;
+    },
+  });
+  const openDocument = document(openPath, 'open reference');
+  const closedDocument = document(closedPath, 'closed reference');
+  host.documents = [openDocument];
+  host.openedDocuments = [closedDocument];
+
+  const input = await collectNativePiPromptInput({
+    prompt: 'Inspect references.',
+    references: [
+      { value: { uri: openDocument.uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } } } },
+      { value: { uri: closedDocument.uri, range: { start: { line: 0, character: 1 }, end: { line: 0, character: 7 } } } },
+    ],
+  } as never, { history: [] } as never, root);
+
+  assert.deepEqual(input.references.map((reference) => reference.text), ['open reference', 'closed reference']);
+  assert.equal(seen.length, 2);
+  assert.ok(seen.every((range) => range?.constructor?.name === 'Range'));
+  assert.deepEqual(host.ranges, seen);
 });
 
 test('REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary', async () => {

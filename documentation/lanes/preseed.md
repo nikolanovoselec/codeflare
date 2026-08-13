@@ -360,6 +360,8 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
+Advanced mode also delivers a composable design suite. `design` is its default entry point: it routes product-interface decisions to `ui-ux-pro-max`, static PNG/PDF work to `canvas-design`, distinctive frontend implementation to the Codeflare-owned `frontend-design`, and critique/polish to `impeccable` where that optional full bundle is installed. The canonical files live under `preseed/agents/claude/skills/`; the normal generator adapts them for each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @impl: scripts/generate-agent-seed.mjs::generate -->
+
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare
 `PRESEED_CONTENT_HASH` with `lastPreseedHash` in `UserPreferences` KV. If they
