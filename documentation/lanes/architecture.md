@@ -508,12 +508,14 @@ stateDiagram-v2
     stopping --> stopped : poll stopped
     running --> running : 3 complete probe failures (DO reconstructs, container and PTY preserved)
     running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
-    running --> stopped : onError / collectMetrics (unexpected exit: crash, deploy-roll, platform reap)
+    running --> stopped : onError then collectMetrics confirmation (unexpected exit)
 ```
 
-(`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` fires on a **running** container's unexpected exit, hence the `running --> stopped` transition above.)
+(`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` starts recovery or exit confirmation; `collectMetrics()` owns the eventual `running --> stopped` write.)
 
-**Transport reconstruction (unreachable host or monitor network loss):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, or running final sync. When the SDK monitor reports `Network connection lost`, `onError()` enters that same incident immediately because the SDK has already changed its private running state and the running-only probes cannot execute ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC6). Accelerated confirmation preserves usage and quota under [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota).
+**Transport reconstruction (unreachable host or monitor network loss):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, or running final sync.
+
+When the SDK monitor reports `Network connection lost`, `onError()` enters that same incident immediately because the SDK has already changed its private running state and the running-only probes cannot execute ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC6). Accelerated confirmation preserves usage and quota under [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota).
 
 A post-reset host response confirms recovery only after durable evidence is successfully cleared, then restores 60 s metrics. A failed clear retains the evidence and five-second, non-billable confirmation cadence. Continued failure permits one more reconstruction after three confirmations; three failures after the second attempt mark recovery exhausted and retain 60 s checks with normal usage accounting, without another reset.
 
@@ -525,7 +527,7 @@ Reset, confirmation, success, and exhaustion logs correlate the DO and attempt i
 
 **Fast container-stopped detection (frontend):** When the Container DO's "not running" guard returns close code `4503` (`WS_CONTAINER_STOPPED_CODE`), the terminal store stops retrying and marks the connection as disconnected. This is server-authoritative - the container is definitively not running. Non-4503 close codes (1006, 1001, 1011, etc.) trigger automatic reconnection with 1s delay.
 
-**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. The primary source of a stale KV "running" is now closed at the writer - every container exit persists `stopped` (rationale #5, [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)) - so this guard is defense-in-depth against a transient lag between exit and the catch-all write, not the load-bearing fix it once was when KV could dangle at `running` indefinitely.
+**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. The primary source of a stale KV "running" is now closed at the writer: every exit enters confirmation and `collectMetrics()` persists `stopped` (rationale #5, [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)). This guard is defense-in-depth against a transient lag before that catch-all write, not the load-bearing fix it once was when KV could dangle at `running` indefinitely.
 
 Newly started sessions have a 3-minute startup guard (`session-polling.ts`) during which only `4503` close code can transition them to stopped. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
 
@@ -543,10 +545,11 @@ flowchart TD
     R2 --> R3{"Host responds after reset?"}
     R3 -->|"Yes"| A["Clear attempt; 60s metrics"]
     R3 -->|"No after max 2 resets"| E["Exhausted; 60s checks"]
-    X1["Unexpected exit"] --> X2["onError or collectMetrics writes stopped"]
+    X1["Unexpected exit"] --> X2["onError starts recovery or confirmation"]
+    X2 --> X3["collectMetrics writes stopped after confirmation"]
     U3 -.-> K["prevents session resurrection"]
     R2 -.-> P["container + KV running preserved"]
-    X2 -.-> B["KV status authoritative (AD70)"]
+    X3 -.-> B["KV status authoritative (AD70)"]
 ```
 
 **Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
@@ -817,9 +820,9 @@ Architectural principles and design rationale.
 
      For that to hold, every exit path must persist `stopped`, written through the shared `updateKvStatus()` helper: (a) graceful hibernation/idle-stop fires `onStop()`, which writes `stopped` and calls `deleteSchedules('collectMetrics')` to kill the alarm loop (otherwise zombie alarms fire on a dead container indefinitely);
 
-     (b) an **unexpected** exit (crash, deploy-roll, platform reap) fires `onError()` - **not** `onStop()` - which writes `stopped` guarded on `!ctx.container.running` so a transient startup error cannot flip a still-starting container;
+     (b) an **unexpected** exit (crash, deploy-roll, platform reap) fires `onError()` - **not** `onStop()` - which starts bounded recovery for transport loss or opens the persisted not-running confirmation window;
 
-     (c) `collectMetrics()` is the 60s catch-all: its `!ctx.container.running` branch writes `stopped` on the next tick after any exit the hooks missed, then returns without re-arming. Without (b)/(c) an unexpected exit would dangle as `running` in KV forever.
+     (c) `collectMetrics()` is the catch-all: after recovery is exhausted or ordinary exit confirmation matures, its `!ctx.container.running` branch writes `stopped`, then returns without re-arming. Without (b)/(c) an unexpected exit could dangle as `running` in KV forever.
 
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
 7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.

@@ -480,6 +480,47 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
     });
 
+    it('REQ-SESSION-022 AC2: repeated monitor loss joins the existing incident without another reconstruction', async () => {
+      const recovery = {
+        attemptId: 'existing-monitor-incident',
+        startedAt: Date.now() - 5_000,
+        lastAttemptAt: Date.now() - 5_000,
+        attemptCount: 1,
+        postResetFailureCount: 0,
+        totalFailureCount: 3,
+        status: 'resetting',
+      };
+      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
+      await storage().put(TRANSPORT_RECOVERY_KEY, recovery);
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual(recovery);
+    });
+
+    it('REQ-SESSION-022 AC5: exhausted monitor loss returns to ordinary exit confirmation', async () => {
+      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'exhausted-monitor-incident',
+        startedAt: Date.now() - 30_000,
+        lastAttemptAt: Date.now() - 15_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.containerRunning = false;
+
+      await containerInstance.onError(new Error('Network connection lost.'));
+
+      expect(testState.abortReasons).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
+    });
+
     it('REQ-SESSION-022 AC4: monitor loss cannot reconstruct when deliberate-stop ownership is unreadable', async () => {
       testState.containerRunning = false;
       testState.storageGetFailures.add('shutdownRequested');
