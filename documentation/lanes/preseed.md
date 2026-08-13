@@ -1349,7 +1349,9 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 - [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
 - [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) - Graph Publication Artifacts and Optional Labels
 - [REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite) - Advanced Design Skill Suite
-- [REQ-AGENT-135](../../sdd/spec/agents.md#req-agent-135-ui-ux-pro-max-runtime-contract) - UI UX Pro Max Runtime Contract
+- [REQ-AGENT-135](../../sdd/spec/agents.md#req-agent-135-ui-ux-pro-max-query-and-generation) - UI UX Pro Max Query and Generation
+- [REQ-AGENT-136](../../sdd/spec/agents.md#req-agent-136-ui-ux-pro-max-persistence) - UI UX Pro Max Persistence
+- [REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-ui-ux-pro-max-data-validation) - UI UX Pro Max Data Validation
 - [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
 - [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
 - [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing

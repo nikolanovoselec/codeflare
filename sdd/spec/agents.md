@@ -2758,29 +2758,68 @@ None.
 
 ---
 
-### REQ-AGENT-135: UI UX Pro Max Runtime Contract
+### REQ-AGENT-135: UI UX Pro Max Query and Generation
 
-**Intent:** The advanced design suite's searchable data and persistence helper remain usable and fail visibly when their inputs are invalid.
+**Intent:** The advanced design suite returns relevant records and a generated recommendation from its delivered database.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/search.py --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: returns matching design records) -->
-2. Design-system generation returns a recommendation for the query. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::generate_design_system --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: generates and safely persists design systems without overwriting by default) -->
-3. Persistence writes project and page files beneath sanitized path segments. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::safe_slug --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: generates and safely persists design systems without overwriting by default) -->
-4. Persistence preserves an existing master unless the caller explicitly forces replacement. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: generates and safely persists design systems without overwriting by default) -->
-5. Data validation reports duplicate identifiers. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: reports malformed design data) -->
-6. Data validation reports malformed JSON rule values. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: reports malformed design data) -->
+1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/search.py --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
+2. Design-system generation returns a recommendation for the query. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::generate_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-135: returns matching records and a generated recommendation) -->
 
-**Constraints:**
-
-- The helper remains standard-library-only.
-- Persistence writes only beneath the caller-selected output root.
+**Constraints:** The helper remains standard-library-only.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-136: UI UX Pro Max Persistence
+
+**Intent:** Persisted design systems remain inside their selected root and preserve prior decisions unless replacement is explicit.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Persistence writes project and page files beneath sanitized path segments. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::safe_slug --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
+2. Persistence preserves an existing master unless the caller explicitly forces replacement. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
+
+**Constraints:** Persistence writes only beneath the caller-selected output root.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-137: UI UX Pro Max Data Validation
+
+**Intent:** Invalid design data is reported before it can silently degrade search recommendations.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Data validation reports duplicate identifiers. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values) -->
+2. Data validation reports malformed JSON rule values. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values) -->
+
+**Constraints:** Validation remains standard-library-only.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
 
 **Verification:** UI UX Pro Max CLI behavioral tests
 

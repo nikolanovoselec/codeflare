@@ -1,10 +1,6 @@
 // REQ-AGENT-134: advanced sessions receive one design entry point plus its
 // licensed specialists through the canonical multi-agent preseed pipeline.
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
 const SKILLS = ['design', 'ui-ux-pro-max', 'canvas-design', 'frontend-design'];
@@ -17,18 +13,6 @@ const TARGET_PREFIXES = [
 ];
 
 const docsFor = (suffix: string) => AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.endsWith(suffix));
-const skillScripts = resolve('preseed/agents/claude/skills/ui-ux-pro-max/scripts');
-const temporaryDirectories: string[] = [];
-
-function runPython(args: string[]) {
-  return spawnSync('python3', args, { encoding: 'utf8', timeout: 15_000 });
-}
-
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
 
 describe('REQ-AGENT-134: advanced design skill suite', () => {
   it('REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent', () => {
@@ -105,58 +89,4 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-135: returns matching design records', () => {
-    const search = runPython([join(skillScripts, 'search.py'), 'saas software', '--domain', 'product', '--json']);
-    expect(search.status, search.stderr).toBe(0);
-    const result = JSON.parse(search.stdout);
-    expect(result.domain).toBe('product');
-    expect(result.count).toBeGreaterThan(0);
-    expect(result.results.some((record: Record<string, string>) => record['Product Type'] === 'SaaS (General)')).toBe(true);
-  });
-
-  it('REQ-AGENT-135: generates and safely persists design systems without overwriting by default', () => {
-    const outputRoot = mkdtempSync(join(tmpdir(), 'design-skill-'));
-    temporaryDirectories.push(outputRoot);
-    const args = [
-      join(skillScripts, 'search.py'), 'saas analytics dashboard', '--design-system', '--json',
-      '--project-name', '../../Customer Portal', '--persist', '--page', '../overview', '--output-dir', outputRoot,
-    ];
-    const generated = runPython(args);
-    expect(generated.status, generated.stderr).toBe(0);
-    const result = JSON.parse(generated.stdout);
-    expect(result.design_system.pattern).toBeDefined();
-    expect(result.persistence.status).toBe('success');
-    const master = join(outputRoot, 'design-system', 'customer-portal', 'MASTER.md');
-    const page = join(outputRoot, 'design-system', 'customer-portal', 'pages', 'overview.md');
-    expect(readFileSync(master, 'utf8').length).toBeGreaterThan(0);
-    expect(readFileSync(page, 'utf8').length).toBeGreaterThan(0);
-
-    writeFileSync(master, 'preserve prior decisions\n');
-    const repeated = runPython(args);
-    expect(repeated.status, repeated.stderr).toBe(0);
-    expect(JSON.parse(repeated.stdout).persistence.status).toBe('skipped_exists');
-    expect(readFileSync(master, 'utf8')).toBe('preserve prior decisions\n');
-
-    const forced = runPython([...args, '--force']);
-    expect(forced.status, forced.stderr).toBe(0);
-    expect(JSON.parse(forced.stdout).persistence.status).toBe('success');
-    expect(readFileSync(master, 'utf8')).not.toBe('preserve prior decisions\n');
-  });
-
-  it('REQ-AGENT-135: reports malformed design data', () => {
-    const outputRoot = mkdtempSync(join(tmpdir(), 'design-skill-validation-'));
-    temporaryDirectories.push(outputRoot);
-    const invalidCsv = join(outputRoot, 'invalid.csv');
-    writeFileSync(invalidCsv, 'No,Decision_Rules\n1,{bad json}\n1,{}\n');
-    const validation = runPython([
-      '-c',
-      'import json,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from validate_data import _check_file; p=[]; _check_file("fixture",Path(sys.argv[2]),["No"],["No","Decision_Rules"],p); print(json.dumps(p))',
-      skillScripts,
-      invalidCsv,
-    ]);
-    expect(validation.status, validation.stderr).toBe(0);
-    const problems = JSON.parse(validation.stdout);
-    expect(problems.some((problem: string) => problem.includes("duplicate 'No' value"))).toBe(true);
-    expect(problems.some((problem: string) => problem.includes('is not valid JSON'))).toBe(true);
-  });
 });
