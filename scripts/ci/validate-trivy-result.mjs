@@ -20,30 +20,6 @@ const REVIEWED_FINDINGS = [
     severity: 'HIGH',
   },
   {
-    // Deployment 30849615814 at head a2fc364 first exposed this tuple; complete
-    // scan 30850703965 at head fc9d3df and image
-    // sha256:d49c09b199af57af6bc435360a4fffab86f3a4920030318ec50bbd5b03a013aa
-    // proved that it occurs twice. Remove when that exact multiplicity changes.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69152',
-    packageName: 'brace-expansion',
-    packagePath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
-    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
-    installedVersion: '5.0.7',
-    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
-    severity: 'HIGH',
-  },
-  {
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69152',
-    packageName: 'brace-expansion',
-    packagePath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
-    packagePurl: 'pkg:npm/brace-expansion@5.0.7',
-    installedVersion: '5.0.7',
-    fixedVersion: '1.1.18, 2.1.4, 3.0.6, 5.0.9',
-    severity: 'HIGH',
-  },
-  {
     // Integration deployments 30893082736/30893082817 at head 8a745b7 and
     // image IDs sha256:2ee1ac0/sha256:5847655 reported this stale declaration.
     // Every committed runtime lock resolves ip-address to patched 10.4.0.
@@ -81,29 +57,6 @@ const REVIEWED_FINDINGS = [
     packagePath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
     packagePurl: 'pkg:npm/undici@7.28.0',
     installedVersion: '7.28.0',
-    fixedVersion: '7.29.0, 8.9.0',
-    severity: 'HIGH',
-  },
-  {
-    // Two upstream Pi package manifests still declare undici 8.5.0, while both
-    // committed runtime locks override and install patched 8.9.0. The exact
-    // scanner multiplicity remains bounded until upstream updates its metadata.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-13697',
-    packageName: 'undici',
-    packagePath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
-    packagePurl: 'pkg:npm/undici@8.5.0',
-    installedVersion: '8.5.0',
-    fixedVersion: '7.29.0, 8.9.0',
-    severity: 'HIGH',
-  },
-  {
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-13697',
-    packageName: 'undici',
-    packagePath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
-    packagePurl: 'pkg:npm/undici@8.5.0',
-    installedVersion: '8.5.0',
     fixedVersion: '7.29.0, 8.9.0',
     severity: 'HIGH',
   },

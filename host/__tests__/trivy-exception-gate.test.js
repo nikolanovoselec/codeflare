@@ -65,16 +65,6 @@ function report(results = [
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.5' },
       }),
-      braceExpansionVulnerability({
-        InstalledVersion: '5.0.7',
-        PkgPath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
-      }),
-      braceExpansionVulnerability({
-        InstalledVersion: '5.0.7',
-        PkgPath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
-      }),
       ipAddressVulnerability('10.1.0', {
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0' },
@@ -87,14 +77,6 @@ function report(results = [
         PkgPath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/undici@7.28.0' },
       }),
-      undiciVulnerability('8.5.0', {
-        PkgPath: 'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/undici@8.5.0' },
-      }),
-      undiciVulnerability('8.5.0', {
-        PkgPath: 'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/undici@8.5.0' },
-      }),
     ],
   },
 ]) {
@@ -106,13 +88,11 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     const result = validateTrivyResult(report());
     assert.deepEqual(result.accepted, [
       'Node.js@5.0.5',
-      'Node.js@5.0.7',
       'Node.js@10.1.0',
       'Node.js@10.2.0',
       'Node.js@7.28.0',
-      'Node.js@8.5.0',
     ]);
-    assert.equal(result.evidence.length, 8);
+    assert.equal(result.evidence.length, 4);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -135,13 +115,9 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       const prefix = 'Observed reviewed Trivy identity: ';
       assert.deepEqual(identities, [
         `${prefix}CVE-2026-69152 brace-expansion 5.0.5 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.5]`,
-        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
-        `${prefix}CVE-2026-69152 brace-expansion 5.0.7 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.7]`,
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
-        `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
-        `${prefix}CVE-2026-13697 undici 8.5.0 at Node.js [path=opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules/undici/package.json; purl=pkg:npm/undici@8.5.0]`,
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -161,6 +137,29 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         ...report().Results,
       ]);
       assert.throws(() => validateTrivyResult(input), new RegExp(`unexpected HIGH/CRITICAL finding.*${target}`, 's'));
+    }
+  });
+
+  it('rejects retired Pi findings after the runtime upgrade', () => {
+    const piRoots = [
+      'opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/node_modules',
+      'opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/node_modules',
+    ];
+    const retiredFindings = piRoots.flatMap((root) => [
+      braceExpansionVulnerability({
+        InstalledVersion: '5.0.7',
+        PkgPath: `${root}/brace-expansion/package.json`,
+        PkgIdentifier: { PURL: 'pkg:npm/brace-expansion@5.0.7' },
+      }),
+      undiciVulnerability('8.5.0', {
+        PkgPath: `${root}/undici/package.json`,
+        PkgIdentifier: { PURL: 'pkg:npm/undici@8.5.0' },
+      }),
+    ]);
+    for (const finding of retiredFindings) {
+      const input = report();
+      input.Results[0].Vulnerabilities.push(finding);
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
     }
   });
 
@@ -297,7 +296,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         && error.message.includes('purl=pkg:npm/first@1.0.0')
         && error.message.includes('CVE-2099-0002')
         && error.message.includes('path=opt/second/package.json')
-        && error.message.includes('missing reviewed finding: CVE-2026-69152 brace-expansion 5.0.7'),
+        && error.message.includes('missing reviewed finding: CVE-2026-69192 ip-address 10.1.0'),
     );
   });
 
