@@ -246,7 +246,7 @@ Anthropic's documented loopback IDE MCP uses a fresh private token to supply act
 
 Sidebar Pi registers no guarded tool replacements, and the Browser IDE host auto-approves any extension confirmation without opening an editor document or modal. Claude installs no managed ask rules or permission hook and runs every tool under `bypassPermissions`. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildManagedSettings -->
 
-Browser IDE launch generations record PID, process group, start time, and a random token. Native Pi requests add a narrower process token, while official Claude descendants inherit the launch token. Cancellation, completion, editor restart, and session shutdown reap the applicable generation completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
+Browser IDE launch generations record PID, process group, start time, and a random token. Native Pi requests add a narrower process token, while official Claude descendants inherit the launch token. Active cancellation, backend failure, deactivation, editor restart, and session shutdown reap the applicable generation completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
 ### Terminal Server (node-pty)
 

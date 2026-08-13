@@ -19,6 +19,8 @@ import csv
 import json
 import os
 import re
+import secrets
+import stat
 import sys
 import io
 from datetime import datetime
@@ -826,6 +828,66 @@ def safe_slug(name, fallback: str = "default") -> str:
     return slug or fallback
 
 
+def _open_owned_directory(base_dir: Path, components: tuple[str, ...]) -> int:
+    """Create and open owned directories without following component symlinks."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    directory_fd = os.open(base_dir, flags)
+    try:
+        for component in components:
+            try:
+                os.mkdir(component, dir_fd=directory_fd)
+            except FileExistsError:
+                pass
+            try:
+                child_fd = os.open(component, flags | os.O_NOFOLLOW, dir_fd=directory_fd)
+            except OSError as error:
+                raise ValueError(f"unsafe persistence directory: {component}") from error
+            os.close(directory_fd)
+            directory_fd = child_fd
+        return directory_fd
+    except Exception:
+        os.close(directory_fd)
+        raise
+
+
+def _is_symlink(directory_fd: int, name: str) -> bool:
+    """Return whether an existing directory entry is a symbolic link."""
+    try:
+        metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(metadata.st_mode)
+
+
+def _write_file_atomically(directory_fd: int, name: str, content: str) -> None:
+    """Replace a regular destination atomically without following symbolic links."""
+    if _is_symlink(directory_fd, name):
+        raise ValueError(f"unsafe persistence file: {name}")
+
+    temporary_name = f".{name}.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+    temporary_fd = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+    try:
+        temporary_file = os.fdopen(temporary_fd, 'w', encoding='utf-8')
+        temporary_fd = -1
+        with temporary_file:
+            temporary_file.write(content)
+        os.replace(
+            temporary_name,
+            name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+
+
 def persist_design_system(design_system: dict, page: str = None, output_dir: str = None,
                            page_query: str = None, force: bool = False) -> dict:
     """
@@ -855,39 +917,46 @@ def persist_design_system(design_system: dict, page: str = None, output_dir: str
     pages_dir = design_system_dir / "pages"
 
     master_file = design_system_dir / "MASTER.md"
+    design_system_fd = _open_owned_directory(base_dir, ("design-system", project_slug))
+    try:
+        if _is_symlink(design_system_fd, "MASTER.md"):
+            raise ValueError("unsafe persistence file: MASTER.md")
+        try:
+            os.stat("MASTER.md", dir_fd=design_system_fd, follow_symlinks=False)
+            master_exists = True
+        except FileNotFoundError:
+            master_exists = False
 
-    if master_file.exists() and not force:
-        return {
-            "status": "skipped_exists",
-            "design_system_dir": str(design_system_dir),
-            "master_file": str(master_file),
-            "created_files": [],
-            "message": (
-                f"{master_file} already exists and was not modified. "
-                "Read it first to check for prior design decisions, then "
-                "re-run with force=True / --force to overwrite."
-            ),
-        }
+        if master_exists and not force:
+            return {
+                "status": "skipped_exists",
+                "design_system_dir": str(design_system_dir),
+                "master_file": str(master_file),
+                "created_files": [],
+                "message": (
+                    f"{master_file} already exists and was not modified. "
+                    "Read it first to check for prior design decisions, then "
+                    "re-run with force=True / --force to overwrite."
+                ),
+            }
 
-    created_files = []
+        created_files = []
+        master_content = format_master_md(design_system)
+        _write_file_atomically(design_system_fd, "MASTER.md", master_content)
+        created_files.append(str(master_file))
 
-    # Create directories
-    design_system_dir.mkdir(parents=True, exist_ok=True)
-    pages_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate and write MASTER.md
-    master_content = format_master_md(design_system)
-    with open(master_file, 'w', encoding='utf-8') as f:
-        f.write(master_content)
-    created_files.append(str(master_file))
-
-    # If page is specified, create page override file with intelligent content
-    if page:
-        page_file = pages_dir / f"{safe_slug(page, 'page')}.md"
-        page_content = format_page_override_md(design_system, page, page_query)
-        with open(page_file, 'w', encoding='utf-8') as f:
-            f.write(page_content)
-        created_files.append(str(page_file))
+        if page:
+            page_name = f"{safe_slug(page, 'page')}.md"
+            page_file = pages_dir / page_name
+            pages_fd = _open_owned_directory(base_dir, ("design-system", project_slug, "pages"))
+            try:
+                page_content = format_page_override_md(design_system, page, page_query)
+                _write_file_atomically(pages_fd, page_name, page_content)
+            finally:
+                os.close(pages_fd)
+            created_files.append(str(page_file))
+    finally:
+        os.close(design_system_fd)
 
     return {
         "status": "success",

@@ -2736,9 +2736,9 @@ None.
 **Acceptance Criteria:**
 
 1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
-2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition rather than embedding their bodies. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: keeps the master as routing policy instead of duplicating specialist bodies) -->
-3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 licenses and provenance; modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
-4. Frontend Design is independently authored and Codeflare-owned rather than copied or transformed from Anthropic's all-rights-reserved Claude Code repository. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: uses an independently authored Codeflare frontend skill) -->
+2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition rather than embedding their bodies. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves the canonical compact router artifact) --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
+3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 licenses and provenance; modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves canonical provenance artifacts and omits a Copilot skill lane) -->
+4. Frontend Design is independently authored and Codeflare-owned rather than copied or transformed from Anthropic's all-rights-reserved Claude Code repository. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md --> <!-- @manual: Compare the committed skill and its creation history against the referenced Anthropic source before release; verify independent wording and no transformed proprietary text. -->
 5. UI UX Pro Max invokes its auxiliary search implementation from each generated runtime's own skills directory. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime) -->
 
 **Constraints:**
@@ -2752,7 +2752,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Generated-seed behavioral tests
+**Verification:** Generated-seed artifact tests plus manual router-selection and provenance review
 
 **Status:** Partial
 
@@ -2791,6 +2791,7 @@ None.
 
 1. Persistence writes project and page files beneath sanitized path segments. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::safe_slug --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
 2. Persistence preserves an existing master unless the caller explicitly forces replacement. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: safely persists design systems without overwriting by default) -->
+3. Persistence rejects symbolic links in every owned destination directory or file and atomically replaces only a non-symlink destination. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::_open_owned_directory --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::_write_file_atomically --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-136: rejects symlinked persistence destinations) -->
 
 **Constraints:** Persistence writes only beneath the caller-selected output root.
 

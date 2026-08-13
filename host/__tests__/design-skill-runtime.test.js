@@ -1,7 +1,7 @@
 // Behavioral coverage for REQ-AGENT-135, REQ-AGENT-136, and REQ-AGENT-137.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,86 @@ describe('UI UX Pro Max runtime contract', () => {
     assert.equal(forced.status, 0, forced.stderr);
     assert.equal(JSON.parse(forced.stdout).persistence.status, 'success');
     assert.notEqual(readFileSync(master, 'utf8'), 'preserve prior decisions\n');
+  });
+
+  it('REQ-AGENT-136: rejects symlinked persistence destinations', () => {
+    const cases = [
+      {
+        name: 'design-system directory',
+        prepare(outputRoot) {
+          const outsideDirectory = join(outputRoot, 'outside');
+          const outsideFile = join(outsideDirectory, 'portal', 'MASTER.md');
+          mkdirSync(join(outsideDirectory, 'portal'), { recursive: true });
+          writeFileSync(outsideFile, 'outside\n');
+          symlinkSync(outsideDirectory, join(outputRoot, 'design-system'));
+          return outsideFile;
+        },
+        page: undefined,
+      },
+      {
+        name: 'project directory',
+        prepare(outputRoot) {
+          const outsideDirectory = join(outputRoot, 'outside');
+          const outsideFile = join(outsideDirectory, 'MASTER.md');
+          mkdirSync(join(outputRoot, 'design-system'));
+          mkdirSync(outsideDirectory);
+          writeFileSync(outsideFile, 'outside\n');
+          symlinkSync(outsideDirectory, join(outputRoot, 'design-system', 'portal'));
+          return outsideFile;
+        },
+        page: undefined,
+      },
+      {
+        name: 'master file',
+        prepare(outputRoot) {
+          const outsideFile = join(outputRoot, 'outside-target');
+          mkdirSync(join(outputRoot, 'design-system', 'portal', 'pages'), { recursive: true });
+          writeFileSync(outsideFile, 'outside\n');
+          symlinkSync(outsideFile, join(outputRoot, 'design-system', 'portal', 'MASTER.md'));
+          return outsideFile;
+        },
+        page: undefined,
+      },
+      {
+        name: 'pages directory',
+        prepare(outputRoot) {
+          const outsideDirectory = join(outputRoot, 'outside');
+          const outsideFile = join(outsideDirectory, 'overview.md');
+          mkdirSync(join(outputRoot, 'design-system', 'portal'), { recursive: true });
+          mkdirSync(outsideDirectory);
+          writeFileSync(outsideFile, 'outside\n');
+          symlinkSync(outsideDirectory, join(outputRoot, 'design-system', 'portal', 'pages'));
+          return outsideFile;
+        },
+        page: 'overview',
+      },
+      {
+        name: 'page file',
+        prepare(outputRoot) {
+          const outsideFile = join(outputRoot, 'outside-target');
+          mkdirSync(join(outputRoot, 'design-system', 'portal', 'pages'), { recursive: true });
+          writeFileSync(outsideFile, 'outside\n');
+          symlinkSync(outsideFile, join(outputRoot, 'design-system', 'portal', 'pages', 'overview.md'));
+          return outsideFile;
+        },
+        page: 'overview',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const outputRoot = mkdtempSync(join(tmpdir(), 'design-skill-symlink-'));
+      temporaryDirectories.push(outputRoot);
+      const outsideFile = testCase.prepare(outputRoot);
+      const args = [
+        join(skillScripts, 'search.py'), 'saas dashboard', '--design-system', '--json',
+        '--project-name', 'portal', '--persist', '--output-dir', outputRoot, '--force',
+      ];
+      if (testCase.page) args.push('--page', testCase.page);
+
+      const generated = runPython(args);
+      assert.notEqual(generated.status, 0, `${testCase.name} must fail closed`);
+      assert.equal(readFileSync(outsideFile, 'utf8'), 'outside\n');
+    }
   });
 
   it('REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values', () => {
