@@ -105,36 +105,42 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-134: executes search, design generation, bounded persistence, and data validation', () => {
+  it('REQ-AGENT-135: returns matching design records', () => {
     const search = runPython([join(skillScripts, 'search.py'), 'saas software', '--domain', 'product', '--json']);
     expect(search.status, search.stderr).toBe(0);
-    const searchResult = JSON.parse(search.stdout);
-    expect(searchResult.domain).toBe('product');
-    expect(searchResult.count).toBeGreaterThan(0);
-    expect(searchResult.results.some((result: Record<string, string>) => result['Product Type'] === 'SaaS (General)')).toBe(true);
+    const result = JSON.parse(search.stdout);
+    expect(result.domain).toBe('product');
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.results.some((record: Record<string, string>) => record['Product Type'] === 'SaaS (General)')).toBe(true);
+  });
 
+  it('REQ-AGENT-135: generates and safely persists design systems without overwriting by default', () => {
     const outputRoot = mkdtempSync(join(tmpdir(), 'design-skill-'));
     temporaryDirectories.push(outputRoot);
-    const designArgs = [
+    const args = [
       join(skillScripts, 'search.py'), 'saas analytics dashboard', '--design-system', '--json',
       '--project-name', '../../Customer Portal', '--persist', '--page', '../overview', '--output-dir', outputRoot,
     ];
-    const generated = runPython(designArgs);
+    const generated = runPython(args);
     expect(generated.status, generated.stderr).toBe(0);
-    const generatedResult = JSON.parse(generated.stdout);
-    expect(generatedResult.design_system.pattern).toBeDefined();
-    expect(generatedResult.persistence.status).toBe('success');
+    const result = JSON.parse(generated.stdout);
+    expect(result.design_system.pattern).toBeDefined();
+    expect(result.persistence.status).toBe('success');
     const master = join(outputRoot, 'design-system', 'customer-portal', 'MASTER.md');
     const page = join(outputRoot, 'design-system', 'customer-portal', 'pages', 'overview.md');
     expect(readFileSync(master, 'utf8').length).toBeGreaterThan(0);
     expect(readFileSync(page, 'utf8').length).toBeGreaterThan(0);
 
     writeFileSync(master, 'preserve prior decisions\n');
-    const repeated = runPython(designArgs);
+    const repeated = runPython(args);
     expect(repeated.status, repeated.stderr).toBe(0);
     expect(JSON.parse(repeated.stdout).persistence.status).toBe('skipped_exists');
     expect(readFileSync(master, 'utf8')).toBe('preserve prior decisions\n');
+  });
 
+  it('REQ-AGENT-135: reports malformed design data', () => {
+    const outputRoot = mkdtempSync(join(tmpdir(), 'design-skill-validation-'));
+    temporaryDirectories.push(outputRoot);
     const invalidCsv = join(outputRoot, 'invalid.csv');
     writeFileSync(invalidCsv, 'No,Decision_Rules\n1,{bad json}\n1,{}\n');
     const validation = runPython([

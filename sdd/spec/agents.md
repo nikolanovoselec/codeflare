@@ -2740,7 +2740,6 @@ None.
 3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 licenses and provenance; modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 4. Frontend Design is independently authored and Codeflare-owned rather than copied or transformed from Anthropic's all-rights-reserved Claude Code repository. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: uses an independently authored Codeflare frontend skill) -->
 5. UI UX Pro Max invokes its auxiliary search implementation from each generated runtime's own skills directory. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime) -->
-6. The delivered UI UX Pro Max CLI returns matching database results, generates a design system, confines persisted project/page names to safe path segments, preserves an existing master unless forced, and reports malformed data. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/search.py --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: executes search, design generation, bounded persistence, and data validation) -->
 
 **Constraints:**
 
@@ -2754,6 +2753,34 @@ None.
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
 **Verification:** Generated-seed behavioral tests
+
+**Status:** Partial
+
+---
+
+### REQ-AGENT-135: UI UX Pro Max Runtime Contract
+
+**Intent:** The advanced design suite's searchable data and persistence helper remain usable and fail visibly when their inputs are invalid.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A domain query returns matching records from the delivered design database. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/search.py --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: returns matching design records) -->
+2. Design-system generation returns a recommendation and persists project and page files beneath sanitized path segments. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::safe_slug --> <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: generates and safely persists design systems without overwriting by default) -->
+3. Persistence preserves an existing master unless the caller explicitly forces replacement. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/design_system.py::persist_design_system --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: generates and safely persists design systems without overwriting by default) -->
+4. Data validation reports duplicate identifiers and malformed JSON rule values. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/scripts/validate_data.py::_check_file --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-135: reports malformed design data) -->
+
+**Constraints:**
+
+- The helper remains standard-library-only.
+- Persistence writes only beneath the caller-selected output root.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** UI UX Pro Max CLI behavioral tests
 
 **Status:** Partial
 

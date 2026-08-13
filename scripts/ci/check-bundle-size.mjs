@@ -40,7 +40,7 @@ const BUDGETS = {
     // The advanced design suite added an on-demand UI/UX dataset and its
     // runtime search implementation across every skill-capable agent. Removing
     // that generated fan-out would undo the feature. 6800 keeps a 337 KiB
-    // regression margin while leaving 3420 KiB below the paid-plan hard limit.
+    // regression margin while leaving 3440 KiB below the paid-plan hard limit.
     budgetKiB: 6800,
   },
 };

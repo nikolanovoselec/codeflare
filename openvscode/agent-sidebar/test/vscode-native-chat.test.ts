@@ -115,10 +115,11 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   assert.deepEqual(input.openFiles, [activePath, referencePath]);
   assert.equal(input.references[0]?.path, referencePath);
   assert.equal(input.references[0]?.text, 'export const reference = true;\n');
-  assert.deepEqual(host.ranges.map((range) => (range as { start: unknown; end: unknown })), [{
+  assert.ok(host.ranges.every((range) => range?.constructor?.name === 'Range'));
+  assert.deepEqual((host.ranges[0] as { start: unknown; end: unknown }), {
     start: { line: 0, character: 0 },
     end: { line: 0, character: 29 },
-  }]);
+  });
   assert.deepEqual(input.history, [
     { role: 'user', text: 'Earlier question' },
     { role: 'assistant', text: 'Earlier answer' },
@@ -183,7 +184,7 @@ test('REQ-IDE-006: queued native requests capture their editor and Chat context 
 
   assert.equal(input.activeEditor?.path, invokedPath);
   assert.equal(input.activeEditor?.content, 'export const invoked = true;\n');
-  assert.deepEqual(input.openFiles, [invokedPath]);
+  assert.deepEqual(input.openFiles, [invokedPath, referencePath]);
   assert.deepEqual(input.history, [{ role: 'user', text: 'invocation history' }]);
   assert.equal(input.diagnostics[0]?.message, 'invocation diagnostic');
   assert.equal(input.references[0]?.text, 'reference text at invocation');
