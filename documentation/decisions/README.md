@@ -3470,7 +3470,7 @@ Integration promotion requires pass@3 evidence for Pi native Chat, official Clau
 
 **Context:** code-server's CLI folder made `/home/user/workspace` the initial location but its root redirect exposed that path as a public `folder` query, and callers could substitute `folder`, `workspace`, or `ew`. Code OSS reads browser-visible selectors or a server-provided `folderUri`; a selector added only to the private proxy request therefore leaves a clean browser document as an empty window.
 
-Code OSS also contributed an account-backed **Code Review** action while setup was incomplete. Users want theme, keyboard-layout, Explorer, and open-file continuity, but syncing live code-server storage would also carry mutable databases, arbitrary User settings, extension/global state, SecretStorage, authentication, chat history, logs, and unsafe WAL/SHM companions.
+Code OSS also contributed an account-backed **Code Review** action while setup was incomplete. Users want theme, keyboard-layout, Explorer, and open-file continuity, but syncing live code-server storage would also carry mutable databases, arbitrary User settings, extension/global state, SecretStorage, authentication, chat history, logs, and unsafe WAL/SHM companions. <!-- @impl: scripts/browser-ide-ui-state.py::safe_setting_value -->
 
 The image-size audit also found a 120.2 MiB uncompressed duplicate Pi SDK inside the extension prewarm tree. Replacing it with a symlink would save only about 27.7 MiB compressed while changing the realpath and dependency topology used by the path-sensitive Jiti prewarm cache.
 
