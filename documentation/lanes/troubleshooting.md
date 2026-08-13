@@ -54,7 +54,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** Reproduce in a fresh or restarted session, then inspect tab 1, `CODEFLARE_SIDEBAR_AGENT`, `/opt/codeflare/openvscode/extensions/{pi,claude,none}`, and `/opt/code-server/lib/vscode/extensions/copilot`. Pi must contain only `codeflare-agent-sidebar` and launch with `--enable-proposed-api codeflare.codeflare-agent-sidebar`; the bundled Copilot directory must be absent; Claude must contain only `anthropic.claude-code`; `none` must be empty. Do not sign into Copilot. Deploy only after complete-image evidence reports `host_discovery` for Pi and Claude, an empty inventory, `DEFAULT_NATIVE_PI_OK`, `OFFICIAL_CLAUDE_OK`, cold readiness, process count, and RSS.
 
-### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval))
+### Pi native Chat fails or lacks editor context ([REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution))
 
 **Symptom:** Codeflare reports `Language model unavailable`, editor Inline Chat shows only a Copilot login, cannot identify the active file/selection, emits a protocol error, never settles, or rejects a guarded operation.
 
