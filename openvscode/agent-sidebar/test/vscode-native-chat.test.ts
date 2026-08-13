@@ -116,10 +116,8 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   assert.equal(input.references[0]?.path, referencePath);
   assert.equal(input.references[0]?.text, 'export const reference = true;\n');
   assert.ok(host.ranges.every((range) => range?.constructor?.name === 'Range'));
-  assert.deepEqual((host.ranges[0] as { start: unknown; end: unknown }), {
-    start: { line: 0, character: 0 },
-    end: { line: 0, character: 29 },
-  });
+  assert.deepEqual((host.ranges[0] as { start: unknown }).start, { line: 0, character: 0 });
+  assert.deepEqual((host.ranges[0] as { end: unknown }).end, { line: 0, character: 29 });
   assert.deepEqual(input.history, [
     { role: 'user', text: 'Earlier question' },
     { role: 'assistant', text: 'Earlier answer' },

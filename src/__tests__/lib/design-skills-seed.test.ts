@@ -136,6 +136,11 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     expect(repeated.status, repeated.stderr).toBe(0);
     expect(JSON.parse(repeated.stdout).persistence.status).toBe('skipped_exists');
     expect(readFileSync(master, 'utf8')).toBe('preserve prior decisions\n');
+
+    const forced = runPython([...args, '--force']);
+    expect(forced.status, forced.stderr).toBe(0);
+    expect(JSON.parse(forced.stdout).persistence.status).toBe('success');
+    expect(readFileSync(master, 'utf8')).not.toBe('preserve prior decisions\n');
   });
 
   it('REQ-AGENT-135: reports malformed design data', () => {
