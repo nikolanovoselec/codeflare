@@ -89,7 +89,7 @@ test("REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and n
   }
 });
 
-test("REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
+test("REQ-IDE-006 AC4: projection rejects an allowlisted source entry redirected by a symbolic link", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   await writeEntry(sourceRoot, "history.jsonl", "terminal transcript");
   await symlink(join(sourceRoot, "history.jsonl"), join(sourceRoot, "CLAUDE.md"));
@@ -99,7 +99,7 @@ test("REQ-IDE-006 AC3: projection rejects an allowlisted source entry redirected
   assert.equal((await readdir(targetRoot)).includes("CLAUDE.md"), false);
 });
 
-test("REQ-IDE-006 AC3: projection excludes terminal history, runtime state, and unknown entries", async () => {
+test("REQ-IDE-006 AC4: projection excludes terminal history, runtime state, and unknown entries", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const excluded = [
     "history.jsonl",

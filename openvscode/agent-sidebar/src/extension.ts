@@ -4,10 +4,6 @@ import {
   commands,
   lm,
   window,
-  type CancellationToken,
-  type ChatContext,
-  type ChatRequest,
-  type ChatResponseStream,
   type ExtensionContext,
   type LanguageModelChatInformation,
   type LanguageModelChatProvider,
@@ -15,7 +11,7 @@ import {
 
 import { ApprovalBridge } from './pi/approval-bridge.ts';
 import {
-  type NativePiBackend,
+  NativePiRuntime,
   runNativePiChat,
 } from './pi/native-chat.ts';
 import { NodePiProcessSpawner, PiRpcBackend } from './pi/node-rpc-backend.ts';
@@ -90,7 +86,7 @@ export function activate(context: ExtensionContext): void {
   // only while chat setup is incomplete. Codeflare owns an account-free native
   // participant, so mark that compatibility setup complete without disabling Chat.
   void commands.executeCommand('setContext', 'chatSetupCompleted', true);
-  const runtime = new NativePiRuntime();
+  const runtime = new NativePiRuntime(createBackend, runNativePiChat);
   const hostFallbackProvider = lm.registerLanguageModelChatProvider(
     HOST_FALLBACK_VENDOR,
     HOST_FALLBACK_PROVIDER,
@@ -101,12 +97,14 @@ export function activate(context: ExtensionContext): void {
   );
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
-    (request, chatContext, response, cancellation) => runtime.handle(
-      request,
-      chatContext,
-      response,
+    (request, chatContext, response, cancellation) => runtime.handle({
+      input: collectNativePiPromptInput(request, chatContext),
+      response: {
+        markdown: (value) => response.markdown(value),
+        progress: (value) => response.progress(value),
+      },
       cancellation,
-    ),
+    }),
   );
   const reviewFile = commands.registerCommand(
     REVIEW_FILE_COMMAND,
@@ -161,48 +159,6 @@ function isUriResource(value: unknown): value is Uri {
     && typeof value.scheme === 'string'
     && 'fsPath' in value
     && typeof value.fsPath === 'string';
-}
-
-class NativePiRuntime {
-  readonly #active = new Set<NativePiBackend>();
-  #disposed = false;
-
-  async handle(
-    request: ChatRequest,
-    context: ChatContext,
-    response: ChatResponseStream,
-    cancellation: CancellationToken,
-  ): Promise<void> {
-    if (this.#disposed || cancellation.isCancellationRequested) return;
-    const input = await collectNativePiPromptInput(request, context);
-    let backend: NativePiBackend | undefined;
-    try {
-      await runNativePiChat({
-        input,
-        response: {
-          markdown: (value) => response.markdown(value),
-          progress: (value) => response.progress(value),
-        },
-        cancellation,
-        createBackend: () => {
-          if (this.#disposed) throw new Error('Codeflare Chat is disposed');
-          backend = createBackend();
-          this.#active.add(backend);
-          return backend;
-        },
-      });
-    } finally {
-      if (backend) this.#active.delete(backend);
-    }
-  }
-
-  async dispose(): Promise<void> {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    const active = [...this.#active];
-    this.#active.clear();
-    await Promise.all(active.map((backend) => backend.stop()));
-  }
 }
 
 function createBackend(): PiRpcBackend {

@@ -62,7 +62,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 **Fix:** For model-boundary or editor-picker errors, verify the packaged Pi manifest enables `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant`, contributes `codeflare.pi` at panel and editor locations, publishes a hidden panel-default `copilot` fallback, and publishes a selectable panel/editor-default model under the distinct `codeflare` vendor with tool calling and no authorization. Generation through either adapter must still reject while participant requests use local Pi RPC. If custom agents appear twice, verify Pi User settings contain `"chat.agentFilesLocations": { "~/.claude/agents": false }`; retain `~/.copilot/agents` and do not remove Pi's own `~/.pi/agent/agents`. Do not sign into Copilot.
 
-For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Inspect the native Chat and fixed RPC child logs; correct the source defect rather than weakening the editor-context boundary. `agent_end` is not normal completion; the native handler waits for `agent_settled` unless cancellation has already sent the correlated abort.
+For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. One healthy IDE-owned child is expected to remain after `agent_settled` and is shared by panel and editor, but never terminal Pi. Requests must run FIFO. Cancellation or failure must retire that child before a later request creates a replacement; cold replacement history comes from the requesting Chat surface. Inspect native Chat and RPC logs rather than weakening the context boundary. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
 
 ### Official Claude panel fails ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation))
 
@@ -76,9 +76,9 @@ For request failures, confirm the file is under `/home/user/workspace`, the part
 
 **Symptom:** A Pi request child or official Claude bundled process remains after cancellation, editor restart, or shutdown.
 
-**Cause:** Request or launch-generation cleanup did not converge before replacement.
+**Cause:** Shared-backend or launch-generation cleanup did not converge before replacement. A single healthy IDE-owned Pi child after normal settlement is expected and is not an orphan.
 
-**Fix:** Do not delete pidfiles first. Stop or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Use deployment container-image evidence for package identity, process count, and RSS.
+**Fix:** Do not delete pidfiles first. Cancel the active request or restart the Browser IDE and inspect `/tmp/openvscode-generation.pid`; cleanup sweeps the recorded token even when leader metadata is stale, while processes carrying another token remain untouched. Deactivation blocks queued and new spawns. Use deployment container-image evidence for package identity, process count, and RSS. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
 
 If a normal Pi question fails, inspect the emitted `extension_ui_request`: only bounded `select` and `input` dialogs with bounded optional timeouts are supported in addition to the manifest-backed `confirm` contract; malformed, `editor`, and unknown blocking methods intentionally stop generation. The bottom-right provider **Sign In** control is `chat.statusBarEntry`, not the Accounts icon; web-profile preparation at `User/State/storage.json` adds only that entry to the existing hidden-entry list; `workbench.activity.showAccounts=false` independently hides the left-side Accounts control. Neither path patches code-server or disables authentication. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 

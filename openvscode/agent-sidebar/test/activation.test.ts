@@ -144,9 +144,9 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC3: native Pi registe
 });
 
 test('REQ-IDE-019 AC6: participant requests run the local Pi backend without provider generation', async () => {
-  nativeChat.runNativePiChat.mockImplementationOnce(async (options: { createBackend(): unknown }) => {
-    const backend = options.createBackend();
-    assert.equal((backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
+  nativeChat.runNativePiChat.mockImplementationOnce(async (options: { backend: unknown }) => {
+    assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
+    return 'completed';
   });
   activate({
     extensionUri: { fsPath: '/extension' },

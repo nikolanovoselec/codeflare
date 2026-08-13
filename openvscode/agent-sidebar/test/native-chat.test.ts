@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { setImmediate as waitForImmediate } from 'node:timers/promises';
 import { test } from 'vitest';
 
 import {
   MAX_NATIVE_CHAT_PROMPT_BYTES,
+  NativePiRuntime,
   buildNativePiPrompt,
   runNativePiChat,
   type NativePiBackend,
@@ -119,18 +121,69 @@ test('REQ-IDE-005 AC2: native Pi prompt truncation is deterministic and remains 
 
 class RecordingBackend implements NativePiBackend {
   readonly prompts: string[] = [];
-  stopped = false;
+  readonly observers: NativePiTurnObserver[] = [];
+  aborts = 0;
+  stops = 0;
+  reusable = true;
+  readonly #autoSettle: boolean;
+  readonly #failure: Error | undefined;
+  #active: Array<{ resolve(): void; reject(error: Error): void }> = [];
+
+  constructor(options: { autoSettle?: boolean; failure?: Error } = {}) {
+    this.#autoSettle = options.autoSettle ?? true;
+    this.#failure = options.failure;
+  }
 
   async runPrompt(message: string, observer: NativePiTurnObserver): Promise<void> {
     this.prompts.push(message);
-    observer.progress('Reading workspace files…');
-    observer.markdown('Applied the guarded change.');
+    this.observers.push(observer);
+    if (this.#failure) throw this.#failure;
+    if (this.#autoSettle) {
+      observer.progress('Reading workspace files…');
+      observer.markdown('Applied the guarded change.');
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.#active.push({ resolve, reject });
+    });
   }
 
-  async abort(): Promise<void> {}
+  settle(index = 0): void {
+    this.#active[index]?.resolve();
+  }
+
+  async abort(): Promise<void> {
+    this.aborts += 1;
+    this.#active.at(-1)?.resolve();
+  }
+
+  isReusable(): boolean {
+    return this.reusable;
+  }
 
   async stop(): Promise<void> {
-    this.stopped = true;
+    this.stops += 1;
+    for (const active of this.#active.splice(0)) active.reject(new Error('backend stopped'));
+  }
+}
+
+class RecordingCancellation implements NativePiCancellation {
+  #requested = false;
+  readonly #listeners = new Set<() => void>();
+
+  get isCancellationRequested(): boolean {
+    return this.#requested;
+  }
+
+  onCancellationRequested(listener: () => void): { dispose(): void } {
+    this.#listeners.add(listener);
+    return { dispose: () => this.#listeners.delete(listener) };
+  }
+
+  cancel(): void {
+    if (this.#requested) return;
+    this.#requested = true;
+    for (const listener of [...this.#listeners]) listener();
   }
 }
 
@@ -152,75 +205,351 @@ const activeCancellation: NativePiCancellation = {
   onCancellationRequested: () => ({ dispose: () => undefined }),
 };
 
-test('REQ-IDE-005 AC4 + REQ-IDE-006 AC3: each native Chat request uses and reaps a fresh isolated Pi backend', async () => {
+test('REQ-IDE-005: lazy native Pi reuses one backend after settled turns', async () => {
   const backends: RecordingBackend[] = [];
-  const first = responseRecorder();
-  const second = responseRecorder();
-  const createBackend = (): NativePiBackend => {
+  const runtime = new NativePiRuntime(() => {
     const backend = new RecordingBackend();
     backends.push(backend);
     return backend;
-  };
+  }, runNativePiChat);
+  const first = responseRecorder();
+  const second = responseRecorder();
 
-  await runNativePiChat({
+  assert.equal(backends.length, 0);
+  await runtime.handle({
     input: promptInput({ prompt: 'first request' }),
     response: first.response,
     cancellation: activeCancellation,
-    createBackend,
   });
-  await runNativePiChat({
-    input: promptInput({ prompt: 'second request', history: [] }),
+  await runtime.handle({
+    input: promptInput({ prompt: 'second request' }),
     response: second.response,
     cancellation: activeCancellation,
-    createBackend,
+  });
+
+  assert.equal(backends.length, 1);
+  assert.equal(backends[0]?.stops, 0);
+  assert.match(backends[0]?.prompts[0] ?? '', /first request/);
+  assert.match(backends[0]?.prompts[1] ?? '', /second request/);
+  assert.deepEqual(first.progress, ['Reading workspace files…']);
+  assert.deepEqual(first.markdown, ['Applied the guarded change.']);
+
+  await runtime.dispose();
+  assert.equal(backends[0]?.stops, 1);
+});
+
+test('REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation', async () => {
+  const backend = new RecordingBackend();
+  const runtime = new NativePiRuntime(() => backend, runNativePiChat);
+
+  await runtime.handle({
+    input: promptInput({
+      prompt: 'cold panel request',
+      history: [{ role: 'user', text: 'cold bootstrap history' }],
+    }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  await runtime.handle({
+    input: promptInput({
+      prompt: 'warm editor request',
+      history: [{ role: 'assistant', text: 'must not be replayed' }],
+    }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.deepEqual(editorContext(backend.prompts[0] ?? '').history, [
+    { role: 'user', text: 'cold bootstrap history' },
+  ]);
+  assert.equal(editorContext(backend.prompts[1] ?? '').history, undefined);
+  assert.doesNotMatch(backend.prompts[1] ?? '', /must not be replayed/);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-006: replacement Pi hydrates from the requesting Chat surface history', async () => {
+  const backends: RecordingBackend[] = [];
+  const cancellation = new RecordingCancellation();
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend({ autoSettle: backends.length !== 0 });
+    backends.push(backend);
+    return backend;
+  }, runNativePiChat);
+  const first = runtime.handle({
+    input: promptInput({ prompt: 'panel request' }),
+    response: responseRecorder().response,
+    cancellation,
+  });
+  await waitForImmediate();
+
+  cancellation.cancel();
+  await first;
+  await runtime.handle({
+    input: promptInput({
+      prompt: 'editor request after replacement',
+      history: [{ role: 'user', text: 'editor-visible bootstrap' }],
+    }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
   });
 
   assert.equal(backends.length, 2);
-  assert.equal(backends[0]?.stopped, true);
-  assert.equal(backends[1]?.stopped, true);
-  assert.match(backends[0]?.prompts[0] ?? '', /first request/);
-  assert.doesNotMatch(backends[1]?.prompts[0] ?? '', /first request/);
-  assert.deepEqual(first.progress, ['Reading workspace files…']);
-  assert.deepEqual(first.markdown, ['Applied the guarded change.']);
+  assert.equal(backends[0]?.aborts, 1);
+  assert.equal(backends[0]?.stops, 1);
+  assert.deepEqual(editorContext(backends[1]?.prompts[0] ?? '').history, [
+    { role: 'user', text: 'editor-visible bootstrap' },
+  ]);
+  await runtime.dispose();
 });
 
-test('REQ-IDE-008 AC1+AC3: native Chat cancellation is registered before the Pi request and cleanup still runs', async () => {
-  const events: string[] = [];
-  let cancel = (): void => undefined;
-  const cancellation: NativePiCancellation = {
-    isCancellationRequested: false,
-    onCancellationRequested: (listener) => {
-      events.push('listen');
-      cancel = listener;
-      return { dispose: () => events.push('dispose-listener') };
-    },
-  };
-  let finishPrompt = (): void => undefined;
-  const backend: NativePiBackend = {
-    runPrompt: async () => {
-      events.push('prompt');
-      const pending = new Promise<void>((resolve) => { finishPrompt = resolve; });
-      cancel();
-      await pending;
-    },
-    abort: async () => {
-      events.push('abort');
-      finishPrompt();
-    },
-    stop: async () => { events.push('stop'); },
-  };
+test('REQ-IDE-008: concurrent native Chat requests execute in strict FIFO order', async () => {
+  const backend = new RecordingBackend({ autoSettle: false });
+  const runtime = new NativePiRuntime(() => backend, runNativePiChat);
+  let releaseFirstInput = (_input: NativePiPromptInput): void => undefined;
+  const firstInput = new Promise<NativePiPromptInput>((resolve) => { releaseFirstInput = resolve; });
+  const first = runtime.handle({
+    input: firstInput,
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  const second = runtime.handle({
+    input: promptInput({ prompt: 'second queued request' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  await waitForImmediate();
 
-  await runNativePiChat({
-    input: promptInput(),
+  assert.equal(backend.prompts.length, 0);
+  releaseFirstInput(promptInput({ prompt: 'first queued request' }));
+  await waitForImmediate();
+  assert.equal(backend.prompts.length, 1);
+  assert.match(backend.prompts[0] ?? '', /first queued request/);
+  backend.settle(0);
+  await first;
+  await waitForImmediate();
+  assert.equal(backend.prompts.length, 2);
+  assert.match(backend.prompts[1] ?? '', /second queued request/);
+  backend.settle(1);
+  await second;
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: queued cancellation skips its prompt without aborting the active turn', async () => {
+  const backend = new RecordingBackend({ autoSettle: false });
+  const queuedCancellation = new RecordingCancellation();
+  const runtime = new NativePiRuntime(() => backend, runNativePiChat);
+  const active = runtime.handle({
+    input: promptInput({ prompt: 'active request' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  const queued = runtime.handle({
+    input: promptInput({ prompt: 'must not run' }),
+    response: responseRecorder().response,
+    cancellation: queuedCancellation,
+  });
+  await waitForImmediate();
+
+  queuedCancellation.cancel();
+  assert.equal(backend.aborts, 0);
+  backend.settle(0);
+  await Promise.all([active, queued]);
+  assert.equal(backend.prompts.length, 1);
+  assert.doesNotMatch(backend.prompts[0] ?? '', /must not run/);
+  assert.equal(backend.aborts, 0);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: startup cancellation after backend creation retires without a prompt', async () => {
+  const cancellation = new RecordingCancellation();
+  const backends: RecordingBackend[] = [];
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend();
+    backends.push(backend);
+    cancellation.cancel();
+    return backend;
+  }, runNativePiChat);
+
+  await runtime.handle({
+    input: promptInput({ prompt: 'must not start' }),
     response: responseRecorder().response,
     cancellation,
-    createBackend: () => backend,
   });
 
-  assert.deepEqual(events, ['listen', 'prompt', 'abort', 'dispose-listener', 'stop']);
+  assert.equal(backends.length, 1);
+  assert.deepEqual(backends[0]?.prompts, []);
+  assert.equal(backends[0]?.aborts, 0);
+  assert.equal(backends[0]?.stops, 1);
+  await runtime.dispose();
 });
 
-test('REQ-IDE-006 AC5: an over-budget history replay keeps the newest turns and drops the oldest', () => {
+test('REQ-IDE-008: active cancellation retires the backend before replacement', async () => {
+  const backends: RecordingBackend[] = [];
+  const cancellation = new RecordingCancellation();
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend({ autoSettle: backends.length !== 0 });
+    backends.push(backend);
+    return backend;
+  }, runNativePiChat);
+  const active = runtime.handle({
+    input: promptInput({ prompt: 'cancel active request' }),
+    response: responseRecorder().response,
+    cancellation,
+  });
+  await waitForImmediate();
+
+  cancellation.cancel();
+  await active;
+  await runtime.handle({
+    input: promptInput({ prompt: 'replacement request' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(backends.length, 2);
+  assert.equal(backends[0]?.aborts, 1);
+  assert.equal(backends[0]?.stops, 1);
+  assert.match(backends[1]?.prompts[0] ?? '', /replacement request/);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: an unexpected idle process exit is reaped before transparent replacement', async () => {
+  const backends: RecordingBackend[] = [];
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend();
+    backends.push(backend);
+    return backend;
+  }, runNativePiChat);
+
+  await runtime.handle({
+    input: promptInput({ prompt: 'request before idle exit' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  const exited = backends[0];
+  assert.ok(exited);
+  exited.reusable = false;
+  await runtime.handle({
+    input: promptInput({
+      prompt: 'request after idle exit',
+      history: [{ role: 'user', text: 'replacement bootstrap' }],
+    }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(backends.length, 2);
+  assert.equal(exited.stops, 1);
+  assert.match(backends[1]?.prompts[0] ?? '', /request after idle exit/);
+  assert.deepEqual(editorContext(backends[1]?.prompts[0] ?? '').history, [
+    { role: 'user', text: 'replacement bootstrap' },
+  ]);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: protocol or process failure retires the backend before replacement', async () => {
+  const backends: RecordingBackend[] = [];
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend(backends.length === 0
+      ? { failure: new Error('Pi RPC process exited') }
+      : undefined);
+    backends.push(backend);
+    return backend;
+  }, runNativePiChat);
+
+  await assert.rejects(runtime.handle({
+    input: promptInput({ prompt: 'failing request' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  }), /process exited/);
+  await runtime.handle({
+    input: promptInput({ prompt: 'request after failure' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(backends.length, 2);
+  assert.equal(backends[0]?.stops, 1);
+  assert.match(backends[1]?.prompts[0] ?? '', /request after failure/);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: queued cancellation releases a never-resolving input slot without spawning', async () => {
+  const cancellation = new RecordingCancellation();
+  let created = 0;
+  const runtime = new NativePiRuntime(() => {
+    created += 1;
+    return new RecordingBackend();
+  }, runNativePiChat);
+  const pending = runtime.handle({
+    input: new Promise<NativePiPromptInput>(() => undefined),
+    response: responseRecorder().response,
+    cancellation,
+  });
+
+  cancellation.cancel();
+  await pending;
+  assert.equal(created, 0);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-008: repeated disposal releases never-resolving input without spawning', async () => {
+  let created = 0;
+  const runtime = new NativePiRuntime(() => {
+    created += 1;
+    return new RecordingBackend();
+  }, runNativePiChat);
+  const pending = runtime.handle({
+    input: new Promise<NativePiPromptInput>(() => undefined),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  await waitForImmediate();
+
+  const first = runtime.dispose();
+  const repeated = runtime.dispose();
+  assert.equal(repeated, first);
+  await Promise.all([first, pending]);
+  assert.equal(created, 0);
+});
+
+test('REQ-IDE-008: deactivation reaps once and prevents queued or later work from spawning', async () => {
+  const backends: RecordingBackend[] = [];
+  const runtime = new NativePiRuntime(() => {
+    const backend = new RecordingBackend({ autoSettle: false });
+    backends.push(backend);
+    return backend;
+  }, runNativePiChat);
+  const active = runtime.handle({
+    input: promptInput({ prompt: 'active at deactivation' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  const queued = runtime.handle({
+    input: promptInput({ prompt: 'queued at deactivation' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+  await waitForImmediate();
+
+  const outcomes = await Promise.allSettled([runtime.dispose(), runtime.dispose(), active, queued]);
+  await runtime.handle({
+    input: promptInput({ prompt: 'request after deactivation' }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(outcomes[0]?.status, 'fulfilled');
+  assert.equal(outcomes[1]?.status, 'fulfilled');
+  assert.equal(outcomes[2]?.status, 'rejected');
+  assert.equal(outcomes[3]?.status, 'fulfilled');
+  assert.equal(backends.length, 1);
+  assert.equal(backends[0]?.stops, 1);
+  assert.equal(backends[0]?.prompts.length, 1);
+  assert.doesNotMatch(backends[0]?.prompts[0] ?? '', /queued at deactivation|request after deactivation/);
+});
+
+test('REQ-IDE-006 AC6: an over-budget history replay keeps the newest turns and drops the oldest', () => {
   // Each entry is large enough that only a handful fit the history budget, so
   // the boundary is crossed well inside the list rather than at its edge.
   const entries = Array.from({ length: 40 }, (_, index) => ({
@@ -264,7 +593,7 @@ test('REQ-IDE-006 AC5: an over-budget history replay keeps the newest turns and 
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });
 
-test('REQ-IDE-006 AC5: a context over the envelope drops whole sections and stays parseable', () => {
+test('REQ-IDE-006 AC6: a context over the envelope drops whole sections and stays parseable', () => {
   // Every per-section budget is respected here, yet the rendered envelope still
   // overflows: the active editor's content is measured raw, and each control
   // character costs six bytes once JSON-escaped. Clamping the rendered string

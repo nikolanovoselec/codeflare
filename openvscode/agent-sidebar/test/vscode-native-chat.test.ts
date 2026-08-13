@@ -108,6 +108,69 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   assert.doesNotMatch(JSON.stringify(input), /outside-workspace-canary|escaped\.ts|stale-alias-canary|alias\.ts/);
 });
 
+test('REQ-IDE-006: queued native requests capture their editor and Chat context at invocation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'native-chat-invocation-context-'));
+  roots.push(root);
+  const invokedPath = join(root, 'invoked.ts');
+  const laterPath = join(root, 'later.ts');
+  const referencePath = join(root, 'reference.ts');
+  await writeFile(invokedPath, 'export const invoked = true;\n');
+  await writeFile(laterPath, 'export const later = true;\n');
+  await writeFile(referencePath, 'reference text at invocation');
+  const document = (path: string, text: string) => ({
+    uri: { scheme: 'file', fsPath: path },
+    languageId: 'typescript',
+    isDirty: true,
+    isClosed: false,
+    getText: () => text,
+  });
+  const invokedDocument = document(invokedPath, 'export const invoked = true;\n');
+  const laterDocument = document(laterPath, 'export const later = true;\n');
+  host.activeTextEditor = {
+    document: invokedDocument,
+    selection: { isEmpty: true, start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+  };
+  host.documents = [invokedDocument];
+  host.diagnostics = [{
+    severity: 1,
+    range: { start: { line: 0, character: 7 } },
+    message: 'invocation diagnostic',
+  }];
+  const history = [{ prompt: 'invocation history' }];
+  const referenceDocument = document(referencePath, 'reference text at invocation');
+  host.documents.push(referenceDocument);
+  const references: unknown[] = [{ value: referenceDocument.uri, modelDescription: 'attached file' }];
+
+  const collecting = collectNativePiPromptInput({
+    prompt: 'invocation prompt',
+    references,
+  } as never, { history } as never, root);
+  host.activeTextEditor = {
+    document: laterDocument,
+    selection: { isEmpty: true, start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+  };
+  host.documents = [laterDocument];
+  invokedDocument.getText = () => 'mutated after invocation';
+  referenceDocument.getText = () => 'mutated reference after invocation';
+  host.diagnostics = [{
+    severity: 0,
+    range: { start: { line: 0, character: 0 } },
+    message: 'later diagnostic',
+  }];
+  history[0] = { prompt: 'later history' };
+  references.push({ value: laterDocument.uri });
+
+  const input = await collecting;
+
+  assert.equal(input.activeEditor?.path, invokedPath);
+  assert.equal(input.activeEditor?.content, 'export const invoked = true;\n');
+  assert.deepEqual(input.openFiles, [invokedPath]);
+  assert.deepEqual(input.history, [{ role: 'user', text: 'invocation history' }]);
+  assert.equal(input.diagnostics[0]?.message, 'invocation diagnostic');
+  assert.equal(input.references[0]?.text, 'reference text at invocation');
+  assert.equal(input.references[0]?.description, 'attached file');
+});
+
 test('REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model', async () => {
   const root = await mkdtemp(join(tmpdir(), 'native-chat-model-independent-'));
   roots.push(root);
