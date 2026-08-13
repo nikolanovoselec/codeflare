@@ -493,20 +493,42 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
     });
 
-    it('failed monitor-recovery scheduling retains ordinary exit confirmation', async () => {
+    it('failed monitor-recovery scheduling still converges a persistently unavailable session to stopped', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
       testState.containerRunning = false;
       testState.scheduleFailuresRemaining = 1;
 
-      await containerInstance.onError(new Error('Network connection lost.'));
+      vi.useFakeTimers();
+      try {
+        await containerInstance.onError(new Error('Network connection lost.'));
 
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.deleteScheduleCalls).toEqual(['collectMetrics', 'collectMetrics']);
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+        expect(testState.abortReasons).toEqual([]);
+        expect(testState.deleteScheduleCalls).toEqual(['collectMetrics', 'collectMetrics']);
+        expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+        expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+
+        vi.advanceTimersByTime(91_000);
+        await containerInstance.collectMetrics();
+
+        const putCall = mockKV.put.mock.calls.find(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+        );
+        expect(putCall).toBeDefined();
+        expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
-    it('REQ-SESSION-024 AC1: schedule and cleanup failure retain the partial recovery without parallel exit confirmation', async () => {
+    it('REQ-SESSION-024 AC1: schedule and cleanup failure retain recovery ownership with a confirmation tick', async () => {
       testState.containerRunning = false;
       testState.scheduleFailuresRemaining = 1;
       testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
@@ -514,7 +536,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.onError(new Error('Network connection lost.'));
 
       expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([]);
+      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
       expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'resetting' });
     });

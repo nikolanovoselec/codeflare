@@ -500,8 +500,15 @@ export async function beginMonitorTransportRecovery(
       await clearTransportRecoveryState(ctx);
       return 'fallback';
     } catch {
-      // The valid partial incident still owns the lifecycle. Do not start exit
-      // confirmation beside state that a later tick could treat as recovery.
+      // The valid partial incident still owns the lifecycle. Keep its recovery
+      // cadence armed rather than starting exit confirmation beside it.
+      try {
+        await scheduleConfirmation();
+      } catch (scheduleErr) {
+        logger.error('container monitor recovery: failed to re-arm retained recovery', toError(scheduleErr), {
+          ...transportRecoveryLogContext(ctx, recovery, probes),
+        });
+      }
       return 'suppressed';
     }
   }
