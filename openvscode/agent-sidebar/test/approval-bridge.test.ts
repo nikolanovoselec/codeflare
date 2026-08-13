@@ -194,9 +194,12 @@ test('REQ-IDE-020: Pi RPC select and input dialogs return correlated values', as
   ]);
 });
 
-test('REQ-IDE-020: Pi RPC dialog dismissal returns a correlated cancellation', async () => {
+test('REQ-IDE-020: Pi RPC dialog dismissal or timeout returns a correlated cancellation', async () => {
   const host = new RecordingApprovalHost();
-  host.select = async () => undefined;
+  host.select = async (_title, _options, signal) => new Promise((resolve) => {
+    if (signal?.aborted) resolve(undefined);
+    else signal?.addEventListener('abort', () => resolve(undefined), { once: true });
+  });
   const bridge = new ApprovalBridge(host);
 
   assert.deepEqual(await bridge.handlePiRequest({
@@ -205,6 +208,7 @@ test('REQ-IDE-020: Pi RPC dialog dismissal returns a correlated cancellation', a
     method: 'select',
     title: 'Choose one',
     options: ['First', 'Second'],
+    timeout: 1,
   }), {
     type: 'extension_ui_response',
     id: 'ui-cancelled',
@@ -218,6 +222,7 @@ test('Pi approval bridge compatibility rejects malformed or unsupported UI reque
 
   for (const request of [
     { type: 'extension_ui_request' as const, id: 'ui-malformed', method: 'select', title: 'Untrusted input', options: [] },
+    { type: 'extension_ui_request' as const, id: 'ui-timeout', method: 'input', title: 'Untrusted timeout', timeout: -1 },
     { type: 'extension_ui_request' as const, id: 'ui-editor', method: 'editor', title: 'Untrusted editor' },
     { type: 'extension_ui_request' as const, id: 'ui-unknown', method: 'futureBlockingDialog', title: 'Unknown dialog' },
   ]) {

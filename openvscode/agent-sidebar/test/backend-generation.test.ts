@@ -7,6 +7,9 @@ import { PiRpcBackend } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
 class UnexpectedApprovalHost implements ApprovalHost {
+  selectResult: string | undefined;
+  waitForSelectCancellation = false;
+
   async loadManifest(): Promise<string> {
     throw new Error('Approval was not expected');
   }
@@ -15,8 +18,15 @@ class UnexpectedApprovalHost implements ApprovalHost {
     throw new Error('Approval was not expected');
   }
 
-  async select(): Promise<string | undefined> {
-    throw new Error('Selection was not expected');
+  async select(_title: string, options: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    if (this.selectResult !== undefined) return this.selectResult;
+    if (this.waitForSelectCancellation) {
+      return new Promise((resolve) => {
+        if (signal?.aborted) resolve(undefined);
+        else signal?.addEventListener('abort', () => resolve(undefined), { once: true });
+      });
+    }
+    throw new Error(`Selection was not expected: ${options.join(',')}`);
   }
 
   async input(): Promise<string | undefined> {
@@ -188,10 +198,10 @@ test('REQ-IDE-008 AC3: an asynchronous Pi stdin failure stops the backend withou
   assert.equal(backend.running, false);
 });
 
-test('REQ-IDE-020: a Pi RPC dialog response is written and the active turn continues', async () => {
+test('REQ-IDE-020: a timed-out Pi RPC dialog writes cancellation and the active turn continues', async () => {
   const spawner = new FakePiSpawner();
   const host = new UnexpectedApprovalHost();
-  host.select = async (_title: string, options: readonly string[]) => options[1];
+  host.waitForSelectCancellation = true;
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(host));
   const markdown: string[] = [];
   const turn = backend.runPrompt('ask before continuing', {
@@ -208,13 +218,14 @@ test('REQ-IDE-020: a Pi RPC dialog response is written and the active turn conti
     method: 'select',
     title: 'Choose one',
     options: ['First', 'Second'],
+    timeout: 1,
   });
-  await waitForImmediate();
+  await waitForTimeout(10);
 
   assert.deepEqual(JSON.parse(spawner.children[0]?.writes[1] ?? '{}'), {
     type: 'extension_ui_response',
     id: 'question-1',
-    value: 'Second',
+    cancelled: true,
   });
   spawner.children[0]?.emit({
     type: 'message_update',

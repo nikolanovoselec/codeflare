@@ -37,6 +37,7 @@ export interface PiExtensionUiRequest {
   readonly message?: string;
   readonly options?: readonly string[];
   readonly placeholder?: string;
+  readonly timeout?: number;
 }
 
 export type PiExtensionUiResponse =
@@ -77,20 +78,23 @@ export class ApprovalBridge {
     if (!validRpcId(request.id)) throw new ApprovalBridgeError('INVALID_APPROVAL_ID');
     if (FIRE_AND_FORGET_METHODS.has(request.method)) return undefined;
     if (request.method === 'select') {
-      if (!bounded(request.title, 16 * 1024) || !validOptions(request.options)) {
+      if (!bounded(request.title, 16 * 1024) || !validOptions(request.options) || !validTimeout(request.timeout)) {
         throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
       }
-      const value = await this.#host.select(request.title, request.options, signal);
+      const dialog = dialogSignal(signal, request.timeout);
+      const value = await this.#host.select(request.title, request.options, dialog.signal).finally(dialog.dispose);
       if (value === undefined) return { type: 'extension_ui_response', id: request.id, cancelled: true };
       if (!request.options.includes(value)) throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
       return { type: 'extension_ui_response', id: request.id, value };
     }
     if (request.method === 'input') {
       if (!bounded(request.title, 16 * 1024) ||
-        (request.placeholder !== undefined && !boundedOptional(request.placeholder, 4 * 1024))) {
+        (request.placeholder !== undefined && !boundedOptional(request.placeholder, 4 * 1024)) ||
+        !validTimeout(request.timeout)) {
         throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
       }
-      const value = await this.#host.input(request.title, request.placeholder, signal);
+      const dialog = dialogSignal(signal, request.timeout);
+      const value = await this.#host.input(request.title, request.placeholder, dialog.signal).finally(dialog.dispose);
       if (value === undefined) return { type: 'extension_ui_response', id: request.id, cancelled: true };
       if (Buffer.byteLength(value, 'utf8') > 64 * 1024) throw new ApprovalBridgeError('UNSUPPORTED_UI_REQUEST');
       return { type: 'extension_ui_response', id: request.id, value };
@@ -215,6 +219,28 @@ function bounded(value: unknown, maxBytes: number): value is string {
 
 function boundedOptional(value: unknown, maxBytes: number): value is string {
   return typeof value === 'string' && Buffer.byteLength(value, 'utf8') <= maxBytes;
+}
+
+function validTimeout(value: unknown): value is number | undefined {
+  return value === undefined || (Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 24 * 60 * 60 * 1_000);
+}
+
+function dialogSignal(parent: AbortSignal | undefined, timeout: number | undefined): Readonly<{
+  signal: AbortSignal;
+  dispose: () => void;
+}> {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+  if (parent?.aborted) controller.abort();
+  else parent?.addEventListener('abort', abort, { once: true });
+  const timer = timeout === undefined ? undefined : setTimeout(abort, timeout);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      parent?.removeEventListener('abort', abort);
+    },
+  };
 }
 
 function validOptions(value: unknown): value is readonly string[] {
