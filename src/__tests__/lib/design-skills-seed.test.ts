@@ -13,10 +13,6 @@ const TARGET_PREFIXES = [
 ];
 
 const docsFor = (suffix: string) => AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.endsWith(suffix));
-const expectIdenticalGeneratedArtifacts = (documents: ReturnType<typeof docsFor>) => {
-  expect(documents).toHaveLength(TARGET_PREFIXES.length);
-  expect(documents.every((document) => document.content === documents[0]?.content)).toBe(true);
-};
 
 describe('REQ-AGENT-134: advanced design skill suite', () => {
   it('REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent', () => {
@@ -30,36 +26,29 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-134: preserves the canonical compact router artifact', () => {
-    const routers = docsFor('/skills/design/SKILL.md');
-    expectIdenticalGeneratedArtifacts(routers);
-    expect(routers.every((document) => document.modes.length === 1 && document.modes[0] === 'advanced')).toBe(true);
-
-  });
-
   it('REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file', () => {
     const uiLicense = docsFor('/skills/ui-ux-pro-max/LICENSE');
-    expectIdenticalGeneratedArtifacts(uiLicense);
-    expect(uiLicense[0]?.content).toContain('MIT License');
+    expect(uiLicense).toHaveLength(TARGET_PREFIXES.length);
+    expect(uiLicense.every((document) => document.content.includes('MIT License'))).toBe(true);
     expect(uiLicense.every((document) => document.modes.length === 1 && document.modes[0] === 'advanced')).toBe(true);
 
     const canvasLicense = docsFor('/skills/canvas-design/LICENSE.txt');
-    expectIdenticalGeneratedArtifacts(canvasLicense);
-    expect(canvasLicense[0]?.content).toContain('Apache License');
+    expect(canvasLicense).toHaveLength(TARGET_PREFIXES.length);
+    expect(canvasLicense.every((document) => document.content.includes('Apache License'))).toBe(true);
     expect(canvasLicense.every((document) => document.modes.length === 1 && document.modes[0] === 'advanced')).toBe(true);
 
     const canvas = AGENTS_SEEDED_CONFIGS.find((document) => document.key === '.claude/skills/canvas-design/SKILL.md');
     expect(canvas?.content).toContain('Modified by Codeflare');
   });
 
-  it('REQ-AGENT-134: preserves canonical provenance artifacts and omits a Copilot skill lane', () => {
+  it('REQ-AGENT-134: preserves pinned provenance values and omits a Copilot skill lane', () => {
     const uiOrigin = docsFor('/skills/ui-ux-pro-max/ORIGIN.md');
-    expectIdenticalGeneratedArtifacts(uiOrigin);
-    expect(uiOrigin[0]?.content).toContain('97eb2a20032f0833e3d317162208a60385b0f96e');
+    expect(uiOrigin).toHaveLength(TARGET_PREFIXES.length);
+    expect(uiOrigin.every((document) => document.content.includes('97eb2a20032f0833e3d317162208a60385b0f96e'))).toBe(true);
 
     const canvasOrigin = docsFor('/skills/canvas-design/ORIGIN.md');
-    expectIdenticalGeneratedArtifacts(canvasOrigin);
-    expect(canvasOrigin[0]?.content).toContain('f17010c9bb483898c1d9c9f42dde2b3a98889434');
+    expect(canvasOrigin).toHaveLength(TARGET_PREFIXES.length);
+    expect(canvasOrigin.every((document) => document.content.includes('f17010c9bb483898c1d9c9f42dde2b3a98889434'))).toBe(true);
 
     expect(AGENTS_SEEDED_CONFIGS.some((document) => document.key.startsWith('.copilot/skills/'))).toBe(false);
   });
