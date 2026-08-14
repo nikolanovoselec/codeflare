@@ -42,6 +42,7 @@ const testState = vi.hoisted(() => ({
   finalSyncStatus: 200,
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
+  storagePutFailures: new Set<string>(),
   storageDeleteFailures: new Set<string>(),
   storageStore: new Map<string, unknown>(),
 }));
@@ -121,7 +122,10 @@ vi.mock('@cloudflare/containers', () => {
               if (key === 'userEmail') return testState.storedUserEmail as T;
               return store.has(key) ? (store.get(key) as T) : undefined;
             },
-            put: vi.fn(async (key: string, value: unknown) => { store.set(key, value); }),
+            put: vi.fn(async (key: string, value: unknown) => {
+              if (testState.storagePutFailures.has(key)) throw new Error(`storage write failed: ${key}`);
+              store.set(key, value);
+            }),
             delete: vi.fn(async (keys: string | string[]) => {
               const keyList = Array.isArray(keys) ? keys : [keys];
               const failedKey = keyList.find((key) => testState.storageDeleteFailures.has(key));
@@ -248,6 +252,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.finalSyncStatus = 200;
     testState.callOrder = [];
     testState.storageGetFailures.clear();
+    testState.storagePutFailures.clear();
     testState.storageDeleteFailures.clear();
     testState.storageStore.clear();
 
@@ -757,6 +762,34 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
+    it('REQ-SESSION-020 AC2: re-arms when the early recovery ownership read fails', async () => {
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(mockTimekeeperClient.updateUsage).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: failed to read terminal recovery ownership',
+        expect.objectContaining({ error: `storage read failed: ${TRANSPORT_RECOVERY_KEY}` }),
+      );
+    });
+
+    it('REQ-SESSION-020 AC2: propagates scheduling failure after the early recovery ownership read fails', async () => {
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleFailuresRemaining = 1;
+
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'collectMetrics: failed to schedule recovery ownership read retry',
+        undefined,
+        expect.objectContaining({ error: 'schedule failed' }),
+      );
+    });
+
     it('REQ-SESSION-022 AC2-AC3: bounds reconstruction and converges an exhausted unreachable session to stopped', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
@@ -973,6 +1006,119 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         'collectMetrics: failed to schedule terminal convergence retry',
         undefined,
         expect.objectContaining({ error: 'schedule failed' }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC7: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
+      const sessionKey = 'session:test-bucket:testsession123456';
+      mockKV._set(sessionKey, {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'stopped',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'pre-upgrade-exhausted-stopped',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.tcpFetchShouldFail = false;
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(mockTimekeeperClient.updateUsage).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
+    });
+
+    it('REQ-SESSION-022 AC7: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
+      await mockKV.delete('session:test-bucket:testsession123456');
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'pre-upgrade-exhausted-absent',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.tcpFetchShouldFail = false;
+
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.stopCalls).toBe(1);
+    });
+
+    it('REQ-SESSION-022 AC7: re-arms without probing when pre-upgrade terminal KV ownership cannot be read', async () => {
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'pre-upgrade-exhausted-kv-read-failure',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      mockKV.get.mockRejectedValueOnce(new Error('KV GET failed'));
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'collectMetrics: failed to resolve pre-upgrade terminal ownership',
+        expect.objectContaining({ error: 'KV GET failed' }),
+      );
+    });
+
+    it('REQ-SESSION-022 AC7: retains exhausted ownership when pre-upgrade terminal migration cannot persist', async () => {
+      const sessionKey = 'session:test-bucket:testsession123456';
+      mockKV._set(sessionKey, {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'stopped',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'pre-upgrade-exhausted-migration-failure',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.storagePutFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'collectMetrics: failed to migrate pre-upgrade terminal ownership',
+        undefined,
+        expect.objectContaining({ error: `storage write failed: ${TRANSPORT_RECOVERY_KEY}` }),
       );
     });
 

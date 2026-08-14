@@ -426,6 +426,21 @@ async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<voi
   ]);
 }
 
+async function scheduleRecoveryOwnershipReadRetry(
+  ctx: DurableObjectState,
+  callbacks: MetricsCallbacks,
+): Promise<void> {
+  try {
+    await callbacks.schedule(60, 'collectMetrics');
+  } catch (err) {
+    logger.error('collectMetrics: failed to schedule recovery ownership read retry', undefined, {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
 async function scheduleTerminalConvergenceRetry(
   ctx: DurableObjectState,
   callbacks: MetricsCallbacks,
@@ -925,13 +940,56 @@ export async function collectMetrics(
       durableObjectId: ctx.id.toString(),
       error: err instanceof Error ? err.message : String(err),
     });
+    await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
     return;
   }
-  if (isTransportRecoveryRecord(storedRecovery)
-      && (storedRecovery.status === 'terminal-status-pending'
-        || storedRecovery.status === 'terminal-stop-pending')) {
-    await continueTerminalConvergence(state, ctx, env, callbacks, storedRecovery);
-    return;
+  if (isTransportRecoveryRecord(storedRecovery)) {
+    if (storedRecovery.status === 'terminal-status-pending'
+        || storedRecovery.status === 'terminal-stop-pending') {
+      await continueTerminalConvergence(state, ctx, env, callbacks, storedRecovery);
+      return;
+    }
+
+    // Upgrade compatibility: the preceding implementation could write KV
+    // stopped and retain only exhausted ownership when its stop request failed. Do not let
+    // a newly responsive probe self-heal that terminal session.
+    if (storedRecovery.status === 'exhausted') {
+      let sessionId: string | undefined;
+      let bucketName: string | null;
+      let session: Session | null;
+      try {
+        sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
+        bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+        session = sessionId && bucketName
+          ? await env.KV.get<Session>(getSessionKey(bucketName, sessionId), 'json')
+          : null;
+      } catch (err) {
+        logger.warn('collectMetrics: failed to resolve pre-upgrade terminal ownership', {
+          durableObjectId: ctx.id.toString(),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
+        return;
+      }
+      if (sessionId && bucketName && (!session || session.status === 'stopped')) {
+        const terminalRecovery: TransportRecoveryRecord = {
+          ...storedRecovery,
+          status: 'terminal-stop-pending',
+        };
+        try {
+          await persistTransportRecovery(ctx, terminalRecovery);
+        } catch (err) {
+          logger.error('collectMetrics: failed to migrate pre-upgrade terminal ownership', undefined, {
+            durableObjectId: ctx.id.toString(),
+            error: err instanceof Error ? err.message : String(err),
+          });
+          await scheduleTerminalConvergenceRetry(ctx, callbacks);
+          return;
+        }
+        await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
+        return;
+      }
+    }
   }
 
   // Container reads as not-running. This is EITHER a genuine exit (crash,
