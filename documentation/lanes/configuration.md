@@ -6,20 +6,35 @@ Environment variables, secrets, CORS configuration, and API token permissions, o
 
 **Owns:** public settings, defaults, configuration source, consumers, and security consequences. **Does not own:** request flows, credential-containment mechanics, migration state machines, or private non-default deployment values.
 
-Codeflare runs in four deployment modes. **Default mode** is self-contained — a single-developer fork needs only the configuration in that section. **Onboarding**, **SaaS**, and **Enterprise** are additive layers that document only the extra configuration each requires on top of Default. The **Reference** section (user token scopes, tooling, spec coverage) applies to every mode.
+Codeflare runs in four deployment modes. **Default mode** is self-contained — a single-developer fork needs only the configuration in that section. **Onboarding**, **SaaS**, and **Enterprise** are additive layers that document only the extra configuration each requires on top of Default. The **Reference** section (user token scopes and tooling) applies to every mode.
 
 ---
 
 ## Contents
 
+- [Configuration Sources and Precedence](#configuration-sources-and-precedence)
 - [Default mode](#default-mode)
 - [Onboarding mode](#onboarding-mode)
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ---
+
+## Configuration Sources and Precedence
+
+| Source | Scope | Change mechanism | Precedence / authority |
+|---|---|---|---|
+| Source defaults and `wrangler.toml` | Public baseline | Reviewed source change and deployment | Lowest runtime precedence |
+| GitHub repository/environment variables | Deployment/build selection | Repository or environment administration | Applied by the reviewed workflow |
+| Worker secrets | Credential/config material that must not be public | GitHub deployment workflow or setup-owned secret operation | Runtime secret binding; exact non-default placement remains private |
+| Setup KV (`setup:*`) | Runtime-reconfigurable deployment policy | Authenticated setup/admin flow | Preferred runtime value where the consumer defines KV-first resolution |
+| User preferences/records | Per-user behavior and entitlement projection | Authenticated user/admin flow | Bounded to the verified user's authority |
+| Generated container environment | Per-session projection | Worker/DO constructs from authoritative sources | Never an independent configuration source |
+
+Every table below identifies default, required state, consumer, and requirement. Sensitive values are never written into public documentation. When a setting exists in more than one source, its row or specialist owner states the exact precedence; do not infer a global fallback rule.
 
 ## Default mode
 
@@ -487,40 +502,20 @@ Additional details:
 
 **`GRAPHIFY_SEMANTIC_MAX_PARALLEL`:** Maximum number of semantic-extraction Task subagents dispatched per wave by the `/graphify` skill. Caps the parallel fan-out on full-semantic builds so a dense repo (with hundreds of non-code files) cannot flood the Task-tool concurrency or trip Anthropic API rate limits in a single burst. Higher values finish a build faster; lower values smooth the rate-limit / token-budget surface.
 
-### Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) - ENTERPRISE_MODE forces unlimited tier and Pro mode
-- [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) - Governed Mode toggle and configuration surface (setup:r2_sse_disabled; ENCRYPTION_KEY omitted when active)
-- [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) - Agent allowlist in Enterprise Mode
-- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway (AIG_GATEWAY_URL, AIG_TOKEN)
-- [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) - Deploy-time AIG secrets and ENTERPRISE_MODE var (AIG_GATEWAY_URL, AIG_TOKEN; now an optional fallback)
-- [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard) - AI Gateway configured in the Setup wizard (setup:aig_gateway_url, setup:aig_token; KV-first, deploy-secret fallback)
-- [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning) - Gateway route-pinning (catalog-driven handle -> dynamic/<route> mapping)
-- [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) - Setup-configured dynamic-route catalog and access-group list (KV, no redeploy)
-- [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (setup:group_routing, first-match by configured order)
-- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning (setup:enterprise_access_group)
-- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin access via Cloudflare Access groups (setup:enterprise_admin_access_group)
-- [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable) - View-Only Storage: enterprise anti-exfil toggle (setup:downloads_disabled), attachment downloads blocked (403), inline view of allowlisted types only
-- [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) - Wizard-governed active coding agents (setup:active_agents, minimum one, capable-agents-only); enforcement in [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)
-- [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) - Onboarding login shell
-- [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) - Onboarding OAuth secrets and access-request confirmation email (Resend)
-- [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
-- [REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) - Claude browser-run MCP server (read-surface parity)
-- [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) - Pi interactive browser via chrome-devtools through the pi-mcp-adapter
-- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (Setup wizard)
-- [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) - GitHub token capture and storage (App vs OAuth precedence; GITHUB_APP_CLIENT_ID/SECRET, GITHUB_HOST, GITHUB_API_HOST)
-- [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (GH_TOKEN via the deploy-keys path)
-- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - GitHub provider configuration via Setup, admin-gated any mode (setup:github_*, KV-first resolution)
-- [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Cloudflare Connect (OAuth): operator client (setup:cloudflare_oauth_client_*) + per-user token, tier->scope
-- [REQ-AGENT-079](../../sdd/spec/agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) - Advanced Cloudflare OAuth tier scope catalog (the user-token Advanced tier above)
-- [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise (connect decoupled from panel gate; advanced-session entitlement moved to dashboard frontend)
-- [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
-- [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
-- [REQ-SETUP-006](../../sdd/spec/setup.md#req-setup-006-setup-streams-progress-via-ndjson) - Setup streams progress via NDJSON
-- [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) - Custom domain with DNS validation
-- [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection) - Subscribe page with tier selection
-- [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
-- [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
+Exhaustive status belongs to the active SDD domains. Configuration tables carry clause-local requirement links; this map identifies source classes and specialist owners without duplicating an incomplete requirement ledger.
+
+| Configuration concern | Source owner | Normative domains | Specialist owner |
+|---|---|---|---|
+| Default Worker/container settings | `wrangler.toml`, deploy workflow, Worker types | Setup, Operations, Session Lifecycle | [Deployment](deployment.md), [Container](container.md) |
+| Setup KV and mode overlays | setup key catalogue and setup routes | Setup, Enterprise, Authentication | [Authentication](authentication.md), [User Provisioning](user-provisioning.md) |
+| Provider clients and user credentials | setup/provider/deploy-key routes | Agents, GitHub, Browser Run, Security | [Security](security.md), [API Reference](api-reference.md) |
+| Resource/capacity settings | deployment workflow and tier resolver | Operations, Subscription | [CI/CD](ci-cd.md), [Billing](billing.md) |
+| Graphify/tooling | preseed manifests and runtime configuration | Agents, Memory | [Preseed](preseed.md), [Vault](vault.md) |
+
+Every row's current default and consumer must be validated against source during changes; this map does not imply requirements absent from it are uncovered.
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

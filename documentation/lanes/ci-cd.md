@@ -8,15 +8,20 @@ GitHub Actions workflows, test suites, and deployment pipeline.
 
 ## Contents
 
-- [CI/CD (GitHub Actions)](#cicd-github-actions)
-- [Testing](#testing)
-- [Specification Coverage](#specification-coverage)
+- [Workflow Catalogue](#workflow-catalogue)
+- [Merge and Promotion Gates](#merge-and-promotion-gates)
+- [Deployment Pipeline Contract](#deployment-pipeline-contract)
+- [Pull Request Verification](#pull-request-verification)
+- [Scheduled Security Probes](#scheduled-security-probes)
+- [Test Suite Catalogue](#test-suite-catalogue)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Decisions](#related-decisions)
 - [Related Documentation](#related-documentation)
 
 ---
 
-## CI/CD (GitHub Actions)
+<a id="cicd-github-actions"></a>
+## Workflow Catalogue
 
 Workflows covering deploy, testing, fuzzing, penetration testing, stress testing, supply chain security, workflow auditing, and dependency pin maintenance. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
@@ -88,6 +93,8 @@ gh attestation verify "codeflare-${TAG}.tar.gz" --repo nikolanovoselec/codeflare
 
 Set `TAG` to the downloaded release tag, including its leading `v`. The signature check proves the workflow identity; the checksum manifest alone does not. Implements [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility) and [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
 
+## Merge and Promotion Gates
+
 ### GitHub Environments
 
 | Environment | Used by | Trigger |
@@ -123,7 +130,7 @@ A default deployment requires only these repository secrets:
 
 Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate that operational matrix.
 
-### Deploy Workflow Detail
+## Deployment Pipeline Contract
 
 **Workflow permissions:** top-level is `contents: read` in [PR Checks](../../.github/workflows/test.yml) and [Deploy](../../.github/workflows/deploy.yml). PR Checks never build container images and receive no package-cache permission. Deployment's `container` job receives `packages: write` to import and publish the GHCR BuildKit cache, plus `id-token: write` and `attestations: write`; only fresh-image runs invoke provenance attestation. Login failure disables cache use, and export errors do not fail the image build. <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/container-image.yml::image -->
 
@@ -165,7 +172,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
 
 Application test suites are not re-run in deployment—the exact SHA already passed PR Checks. Deployment separately owns packaged-image smoke because it is the only workflow that builds the image. That smoke executes every deploy-selected agent launcher's version command inside the built image with a ten-second timeout; missing, crashing, non-zero, or timed-out launchers fail the image job.
 
-### Test Workflow Detail
+## Pull Request Verification
 
 Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
 
@@ -198,7 +205,8 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
 
 PR-boundary eligibility, exact-head target resolution, and CI-monitor recovery are owned by [Preseed — Resetting Review-Spawn Checkpoints](preseed.md#resetting-review-spawn-checkpoints).
 
-### Pentest Workflow Detail
+<a id="pentest-workflow-detail"></a>
+## Scheduled Security Probes
 
 One validation job constrains `PENTEST_TARGET` to an HTTPS DNS origin, then fans six lightweight external probes out in parallel against that exact output using only `curl` and `openssl` (no heavy scanning tools). Paths, credentials, IP/single-label hosts, queries, fragments, and control characters fail before any probe runs. Only the validator and TLS jobs receive repository-read permission because they check out owned validation scripts.
 
@@ -213,7 +221,8 @@ One validation job constrains `PENTEST_TARGET` to an HTTPS DNS origin, then fans
 
 ---
 
-## Testing
+<a id="testing"></a>
+## Test Suite Catalogue
 
 ### Backend Tests
 
@@ -282,27 +291,19 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and staged pipeline
-- [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
-- [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) - PR checks run lint, test, typecheck, and security audit
-- [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) - Weekly fuzz testing
-- [REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation) - Shadow-pin version bump automation
-- [REQ-OPS-032](../../sdd/spec/operations.md#req-ops-032-silverbullet-coupled-release-automation) - SilverBullet coupled-release automation
-- [REQ-OPS-027](../../sdd/spec/operations.md#req-ops-027-code-server-coupled-pin-automation) - code-server coupled-pin automation
-- [REQ-OPS-025](../../sdd/spec/operations.md#req-ops-025-pi-preseed-bump-artifact-coherence) - Pi preseed bump artifact coherence
-- [REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis) - Workflow-file static analysis (zizmor + actionlint)
-- [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) - Coverage-threshold gate fails closed on missing evidence
-- [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) - Suite results are gated on machine-readable reports
-- [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy) - Worker bundle size is gated before it can fail a deploy
-- [REQ-OPS-026](../../sdd/spec/operations.md#req-ops-026-concurrent-deploy-dispatches-are-legible-and-independently-verified) - Concurrent deploy dispatches are legible and independently verified
-- [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate) - Deploy verification and outcome gate
-- [REQ-OPS-029](../../sdd/spec/operations.md#req-ops-029-automatic-manual-deploy-verification-reuse) - Automatic manual-deploy verification reuse
-- [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance) - Retained container image provenance
-- [REQ-OPS-043](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) - Isolated nightly full-matrix verification
-- [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) - Read-only stress target verification
-- [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) - Parallel PR Checks performance
+Exhaustive Operations status remains in `sdd/spec/operations.md`. Workflow sections carry clause-local links; this map records the maintained gate families.
+
+| Gate family | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| PR classification and required summary | [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) | `.github/workflows/test.yml` | Machine-readable reports and exact-tree summary |
+| Coverage/result completeness | [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence), [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) | composite suite actions and CI scripts | Report/artifact reconciliation tests |
+| Build and promotion | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate) | deploy/container-image workflows | Tested-tree receipt, image digest, deployment outcome |
+| Supply-chain automation | REQ-OPS-020/021/025/027/032 and release requirements | shadow-pin, CodeQL, Scorecard, release workflows | Workflow contracts and generated-artifact tests |
+| Nightly/fuzz/probe/stress | REQ-OPS-018/043/044 and REQ-OPS-005 | dedicated workflows | Dated run receipts; specialist lanes own execution interpretation |
+| Provenance and reuse | [REQ-OPS-042](../../sdd/spec/operations.md#req-ops-042-retained-container-image-provenance), REQ-OPS-026/029 | image/deploy receipts | Content-addressed artifact and run validation |
 
 ---
 

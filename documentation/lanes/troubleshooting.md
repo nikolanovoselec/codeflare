@@ -9,13 +9,20 @@ Diagnostic commands, common failure modes, and resolution steps.
 ## Contents
 
 - [Start Here](#start-here)
-- [Common Issues](#common-issues)
-- [Common Failure Modes](#common-failure-modes)
+- [Browser IDE](#browser-ide)
+- [Container Image and Startup Compatibility](#container-image-and-startup-compatibility)
+- [Authentication and Setup](#authentication-and-setup)
+- [Terminal and Mobile](#terminal-and-mobile)
+- [Session and Container Lifecycle](#session-and-container-lifecycle)
+- [Storage and Vault](#storage-and-vault)
+- [Agent Runtime, Review, and CI](#agent-runtime-review-and-ci)
+- [Failure Index](#failure-index)
+- [Detailed Recovery Notes](#detailed-recovery-notes)
 - [GitHub Integration](#github-integration)
 - [Browser Run](#browser-run)
-- [Diagnostic Commands](#diagnostic-commands)
+- [Diagnostic Command Reference](#diagnostic-command-reference)
 - [Related Documentation](#related-documentation)
-- [Specification Coverage](#specification-coverage)
+- [Requirement and Source Map](#requirement-and-source-map)
 
 ---
 
@@ -27,9 +34,10 @@ Diagnostic commands, common failure modes, and resolution steps.
 4. **Separate persistence from presentation.** Vault or workspace content errors require the R2/bisync evidence in [Storage & Sync](storage-and-sync.md); editor readiness alone does not prove persistence completed.
 5. **Verify the correction.** Capture request/session identifiers, the failing step, relevant Worker and container logs, and the observable expected result. Escalate only after the corrective action below fails with that evidence.
 
-## Common Issues
+Every recipe inherits this record contract unless it overrides a field: **Symptom** is the heading/first paragraph; **Diagnose** uses the named boundary and correlated evidence; **Cause** and **Fix** are explicit; **Verify** repeats the exact failing path and confirms the stated expected result; **Escalate** attaches identifiers/logs when the verified fix fails. State-changing or destructive fixes must state their special rollback before execution.
 
-Frequently encountered problems grouped by symptom, with causes and resolution steps.
+<a id="common-issues"></a>
+## Browser IDE
 
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
@@ -97,6 +105,8 @@ The bottom-right provider **Sign In** control is `chat.statusBarEntry`, not the 
 
 See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
+## Container Image and Startup Compatibility
+
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
 **Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
@@ -106,6 +116,8 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 **Diagnose:** Container stdout/stderr is not shipped to Workers logs, so reproduce the enterprise block locally with the same env the Worker fans (`ENTERPRISE_ROUTE_CATALOG`, `ENTERPRISE_DEFAULT_ROUTE`, `ENTERPRISE_DEFAULT_REASONING`) under `set -euo pipefail` and watch for the first non-zero exit. The configured route catalog/default live in the env KV under `setup:dynamic_routes` / `setup:default_route`.
 
 **Fix:** Correct the failing entrypoint command and redeploy the enterprise image. Keep enterprise-block `jq` calls either guarded (`if jq …; then … else warn; fi`) or free of reserved-keyword `--arg` names; `entrypoint-enterprise-pi-models.test.js` now runs the real models.json build and forbids reserved-keyword jq args.
+
+## Authentication and Setup
 
 ### New User Has Preseed Configs but No "Docs & Examples"
 
@@ -204,6 +216,8 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production and integration deployments.
 
+## Terminal and Mobile
+
 ### SPA Shows a Blank/White Page on Return from Background (Mobile App-Switch)
 
 **Symptom:** After backgrounding the browser (mobile app-switch, tab eviction, bfcache) and returning, the loaded app is blank, partly unstyled, or stuck on its redirecting/loading shell. Reloading immediately repairs the styling or opens Cloudflare Access sign-in.
@@ -266,6 +280,8 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 **Verify:** With permission granted and the terminal unfocused, a settled Pi turn or completed Claude task in terminal tab 1 produces one notification titled with the agent and session name. `useTerminal.test.ts` covers the late-store registration, `agent-notifications.test.ts` covers the activated-worker path, and `entrypoint-governed-sync.test.js` covers the bake backfill.
 
+## Session and Container Lifecycle
+
 ### Container start is rejected or returns to stopped
 
 **Symptom:** Create/start returns a policy error, or start is accepted but `/api/container/startup-status` returns to `stopped` before services become ready.
@@ -308,6 +324,8 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 **Fix:** For a normally-progressing migration, wait — it advances on each dashboard poll and clears automatically. For a genuinely stalled one, inspect `lastError`: an oversized/un-migratable object is recorded and skipped, and key rotation halts-with-error by design (see [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)).
 
+## Storage and Vault
+
 ### R2 Sync Issues
 
 See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
@@ -331,6 +349,8 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 It then empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
 If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode:** only admin-role users removed from the admin list are cleaned up - JIT-provisioned regular users are preserved. Each user's KV entry is checked for `role: 'admin'` before qualifying for removal.
+
+## Agent Runtime, Review, and CI
 
 ### Chrome in CI (Ubuntu 22.04)
 
@@ -376,7 +396,8 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Fix:** Redeploy an image with [pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
 
-## Common Failure Modes
+<a id="common-failure-modes"></a>
+## Failure Index
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -443,7 +464,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | Enterprise Mode: Strict Gateway Egress ON and container logs show `[entrypoint] WARNING: R2_ACCESS_KEY_ID contains unexpected characters (expected hex)` (and the same for `R2_SECRET_ACCESS_KEY`) | Expected under strict egress: the container holds only the non-secret placeholder R2 key (`codeflare-enterprise`, not hex), so entrypoint.sh's hex-format heuristic warns ([REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport) AC4, [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props)) | Not a bug — rclone signs with the placeholder and the `EgressController` re-signs own-account R2 with the worker-held key at the boundary, discarding the placeholder signature. Only strict egress warns; non-enterprise / strict-off carries the real hex key. |
 
 
-### Notes on Common Failure Modes
+## Detailed Recovery Notes
 
 These notes hold details moved out of long table cells above; the table keeps the symptom/cause/fix scanable.
 
@@ -657,7 +678,8 @@ Update the deploy to the build with the WebSocket-**bridge** path (`src/egress-c
 | In an advanced session the browser tools (`browser_markdown` / `chrome-devtools`) are missing and the `browser-run` / `browser-e2e` skills are absent | No Cloudflare Browser Rendering token is configured, so the whole browser-run surface is withheld — the MCP servers and the Pi extension self-gate, and the skills are stripped ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)) | Enterprise: an admin sets the Browser Rendering token (+ account id) in the Setup wizard. Other modes: paste a Cloudflare token carrying `Browser Rendering - Edit` in Push & Deploy settings. Takes effect on the next session start. |
 | Browser tools missing in a Standard (default) session | Browser Run is advanced-mode only | Switch the session to advanced/Pro mode (enterprise sessions are always advanced). |
 
-## Diagnostic Commands
+<a id="diagnostic-commands"></a>
+## Diagnostic Command Reference
 
 **Check container status:**
 ```bash
@@ -690,37 +712,17 @@ wrangler tail codeflare --status error
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) - Knowledge-Graph Capability (Graphify)
-- [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) - PR-Boundary Review Trigger Conditions
-- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) - Pi Native Review Result Correlation
-- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
-- [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) - Pi CI Result and Launch Checkpoint
-- [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Connect to Cloudflare via OAuth (token-exchange `invalid_client`: auth-method vs. broken secret rotation)
-- [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) - Pi context-mode enablement and tool-extension defaults
-- [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership) - one context-mode process owner; in-process subagents use native transports
-- [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
-- [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) - Session-expiry on resume → clean redirect, never a blank page
-- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token
-- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing (enterprise CA trust, interceptor wiring)
-- [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + agent base-URLs)
-- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress (Gateway policy deny, EGRESS unbound 503, OFF = direct egress)
-- [REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) - Governed Mode re-encrypt migration engine (reconcile decision, progress %)
-- [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) - Governed Mode migration safety boundary (New Session button stuck on "Migrating"; mixed-bucket self-heal; background-poll flag clear)
-- [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials
-- [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
-- [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
-- [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Native agent inventory and launch diagnostics
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor-context and isolation diagnostics
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted-tool diagnostics
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent cleanup diagnostics
-- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
-- [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
-- [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
-- [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
-- [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
-- [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures) - Automatic WebSocket reconnection (connect-timeout force-close, equal-jitter exponential backoff, pause-while-hidden)
-- [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) - SilverBullet native service worker (registration short-circuit, precache/redirect suppression)
-- [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) - SilverBullet native service worker runtime graft (SW parse validity, graft-layer coercions, key-flush neutering)
+Exhaustive requirement status remains in the specialist SDD domains. Recipes carry clause-local links; this map routes diagnosis to the authoritative subsystem.
+
+| Recipe family | Requirements / source owner | Canonical contract |
+|---|---|---|
+| Browser IDE | Browser IDE SDD; Worker/host/package sources | [Container](container.md), [Architecture Internals](architecture-internals.md) |
+| Authentication/setup | Authentication and Setup SDD | [Authentication](authentication.md), [Configuration](configuration.md) |
+| Terminal/mobile | Terminal and Mobile SDD | [Mobile](mobile.md), [API Reference](api-reference.md#terminal) |
+| Session/container | Session Lifecycle and Operations SDD | [Container](container.md), [Storage & Sync](storage-and-sync.md) |
+| Storage/Vault | Storage, Vault, Memory SDD | [Storage & Sync](storage-and-sync.md), [Vault](vault.md) |
+| Agents/review/CI | Agents and Operations SDD | [Preseed](preseed.md), [CI/CD](ci-cd.md) |
+| Enterprise/provider | Enterprise, GitHub, Browser Run SDD | [Security](security.md), private operations for non-public runbooks |

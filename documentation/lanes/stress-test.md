@@ -10,32 +10,52 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 
 ## Contents
 
-- [Prerequisites](#prerequisites)
-- [Running](#running)
-- [Test Suites](#test-suites)
-- [Session Lifecycle Rate Limits Detail](#session-lifecycle-rate-limits-detail)
-- [Think Time Model](#think-time-model)
-- [VU-to-Real-User Mapping](#vu-to-real-user-mapping)
-- [Concurrency Scaling](#concurrency-scaling)
-- [Rate Limit Bypass](#rate-limit-bypass)
-- [Configuration Reference](#configuration-reference)
-- [Workflow Architecture](#workflow-architecture)
-- [Results](#results)
+- [Target Modes and Preconditions](#target-modes-and-preconditions)
+- [Execution Runbooks](#execution-runbooks)
+- [Suite Contracts](#suite-contracts)
+- [Load Model](#load-model)
+- [Target Safety and Rate-Limit Bypass](#target-safety-and-rate-limit-bypass)
+- [Configuration and Workflow Aliases](#configuration-and-workflow-aliases)
+- [Results and Historical Evidence](#results-and-historical-evidence)
 - [Related Documentation](#related-documentation)
-- [Specification Coverage](#specification-coverage)
+- [Requirement and Source Map](#requirement-and-source-map)
 
-## Prerequisites
+<a id="prerequisites"></a>
+## Target Modes and Preconditions
 
 1. **Integration worker deployed** with `STRESS_TEST_MODE=active` for the three load suites, or with it inactive for `rate-limit-validation`
 2. **Deploy completed with service authentication configured.** Deploy writes `SERVICE_AUTH_SECRET` and fail-closed seeds `e2e-service@codeflare.local`; Stress Test only validates and exercises that deployed state.
 3. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variable `E2E_BASE_URL`.
 4. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts).
 
-## Running
+<a id="running"></a>
+## Execution Runbooks
 
-Go to **Actions > Stress Test > Run workflow** and select one compatible suite. Do not use `all` against one unchanged target until the workflow owns a mode transition or separate target: source currently includes rate-limit validation in `all`, but its prerequisite is opposite to the load suites. The setup job rejects a non-origin target, confirms reachability and service authentication, and does not mutate Worker secrets, KV, or deployment resources.
+### Load suites against a bypass-enabled target
 
-To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments > integration > Environment variables**:
+**Prerequisites:** Deploy the integration target with exact `STRESS_TEST_MODE=active`, service authentication, and the intended resource profile. Record the target commit/configuration and ensure no production origin is selected.
+
+**Action:** In **Actions → Stress Test → Run workflow**, select `api-throughput`, `session-lifecycle`, or `storage-operations`. Set `STRESS_TEST_CONCURRENCY` only when the run intentionally changes VU counts.
+
+**Verifies:** Setup accepts one HTTPS origin and service identity; the selected k6 thresholds pass; result artifacts identify the run. Interpret only measured request/latency/error data.
+
+**Cleanup / abort:** Session/storage suites clean up their created records/files. Abort when the target, mode, resource profile, or service identity differs from the recorded precondition; do not repair or redeploy from this workflow.
+
+### Rate-limit validation against a rate-limited target
+
+**Prerequisites:** Deploy the integration target with `STRESS_TEST_MODE` inactive and the intended endpoint limits.
+
+**Action:** Select only `rate-limit-validation`.
+
+**Verifies:** Requests succeed before the configured limit, at least one 429 is observed for each tested policy, and unexpected server errors stay below threshold.
+
+**Cleanup / abort:** The suite deletes created sessions where possible. Abort if bypass is active; a bypassed run cannot validate enforcement.
+
+### Unsupported `all` selector
+
+Do not use `all` against one unchanged target. Source currently selects the three bypass-dependent load suites and rate-limit validation together, although they require opposite `STRESS_TEST_MODE` states. Until the workflow owns a mode transition or separate target, `all` is structurally incapable of proving both contracts.
+
+### Concurrency input
 
 | Value | Effect |
 |-------|--------|
@@ -44,7 +64,8 @@ To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments
 | `200` | 20-67x baseline VUs, unchanged per-VU think times, loosened thresholds |
 | `1000` | 100-333x baseline VUs, unchanged per-VU think times, loosened thresholds |
 
-## Test Suites
+<a id="test-suites"></a>
+## Suite Contracts
 
 ### API Throughput (`api-throughput.js`)
 
@@ -135,7 +156,7 @@ Validates that rate limits are enforced when `STRESS_TEST_MODE` is **not** set. 
 
 **Prerequisite:** `STRESS_TEST_MODE` must NOT be set on the worker (or set to anything other than `"active"`).
 
-## Session Lifecycle Rate Limits Detail
+### Session Lifecycle Rate Limits Detail
 
 The session lifecycle suite hits multiple 10/min rate limits:
 
@@ -150,7 +171,9 @@ The test validates that:
 - Sessions can be deleted (200 or 204)
 - Error rates remain <15% throughout
 
-## Think Time Model
+## Load Model
+
+### Think Time Model
 
 All scripts use a `think(min, max)` helper that adds realistic pauses between operations:
 
@@ -165,7 +188,7 @@ This produces uniformly distributed delays between `min` and `max` seconds, simu
 **Per-user behavior stays constant regardless of VU count.** Scaling `STRESS_TEST_CONCURRENCY` adds more virtual users running the same realistic interaction pattern. A single VU's think times, request sequences, and file sizes don't change - only the number of concurrent users increases.
 
 <a id="vu-to-real-user-mapping"></a>
-## Load Interpretation Limits
+### Load Interpretation Limits
 
 Virtual-user counts are workload inputs, not supported-user or capacity guarantees. The suites have different operations and think times, so Codeflare does not convert one VU into a number of real users. Interpret a run from its observed request rate, latency distribution, error rate, target resource profile, and exact suite revision.
 
@@ -177,7 +200,7 @@ Virtual-user counts are workload inputs, not supported-user or capacity guarante
 
 A dated run is evidence only for its tested commit, target class, configuration, and workload. It must not be presented as current production capacity without a representative traffic model and a separately reviewed capacity methodology.
 
-## Concurrency Scaling
+### Concurrency Scaling
 
 All scripts use the same scaling pattern:
 
@@ -192,7 +215,8 @@ When `STRESS_TEST_CONCURRENCY=0` (default), `SCALE=1` and all VU targets remain 
 
 Think times stay constant regardless of concurrency - scaling adds more users running the same realistic behavior, not faster robots.
 
-## Rate Limit Bypass
+<a id="rate-limit-bypass"></a>
+## Target Safety and Rate-Limit Bypass
 
 All VUs share a single CF Access service token (single identity). Without bypass, per-user rate limits block meaningful load testing:
 
@@ -217,7 +241,8 @@ Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-li
 
 **Production must never have `STRESS_TEST_MODE` set.** Enable the flag only on integration workers used for load testing.
 
-## Configuration Reference
+<a id="configuration-reference"></a>
+## Configuration and Workflow Aliases
 
 ### Worker environment variable
 
@@ -244,7 +269,7 @@ The Stress Test workflow never mutates this value or deploys its target. Prepare
 | `CF_ACCESS_CLIENT_SECRET` | Service token secret used by the probe; Deploy owns the matching Worker secret and service-user seed |
 | `OAUTH_E2E_TEST_SECRET` | Optional service-auth fallback used when CF Access credentials are not configured |
 
-## Workflow Architecture
+### Workflow Architecture
 
 ```
 stress-test.yml (workflow_dispatch)
@@ -263,12 +288,21 @@ Selected test jobs run in parallel after setup. The summary job downloads their 
 
 Results are uploaded as artifacts (retained 30 days).
 
-## Results
+<a id="results"></a>
+## Results and Historical Evidence
 
 <a id="latest-results-2026-03-07-50-vus"></a>
 ### Historical Results (2026-03-07 workflow and suite definitions, 50 VUs)
 
-All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#22808941531](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531).
+**Observed:** 2026-03-07
+
+**Source revision:** `a226f3e30c6d8059722258f363702d413a293d38` on then-current `develop`
+
+**Run:** [#22808941531](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531), workflow dispatch, conclusion success
+
+**Configuration:** `STRESS_TEST_CONCURRENCY=50`; target class was the integration deployment configured for that run
+
+All three then-current load suites passed their thresholds. The scripts and workflow have changed since this evidence; it is not evidence for current capacity or for the current rate-limit-validation job.
 
 #### API Throughput
 
@@ -355,7 +389,12 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) - Stress testing validates rate limits and concurrency
-- [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) - Read-only stress target verification
+| Contract | Requirements | Source | Evidence |
+|---|---|---|---|
+| Suite scenarios and scaling | [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) | `stress/*.js` | k6 thresholds and artifacts |
+| Read-only target validation | [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) | `.github/workflows/stress-test.yml::setup` | Target/auth smoke and workflow contracts |
+| Rate-limit bypass/enforcement | Security and Operations SDD | rate-limit middleware plus rate validation suite | Backend limiter tests and selected k6 run |
+| Historical result | Dated evidence only | Run `22808941531` and its then-current scripts | Not current capacity evidence |
