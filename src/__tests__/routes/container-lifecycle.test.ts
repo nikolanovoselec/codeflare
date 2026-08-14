@@ -652,8 +652,7 @@ describe('Container Lifecycle Routes', () => {
         new Response(JSON.stringify({ bucketName: null }), { status: 200 })
       );
 
-      // Seed 5 running sessions (above user limit 3, below admin limit 10)
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 9; i++) {
         const id = `runningsession${String(i).padStart(8, '0')}`;
         mockKV._set(`session:test-bucket:${id}`, {
           id,
@@ -665,11 +664,24 @@ describe('Container Lifecycle Routes', () => {
         });
       }
 
-      const res = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
+      const allowed = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
         method: 'POST',
       });
+      expect(allowed.status).toBe(200);
 
-      expect(res.status).toBe(200);
+      const tenthId = 'runningsession00000010';
+      mockKV._set(`session:test-bucket:${tenthId}`, {
+        id: tenthId,
+        name: 'Running 10',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      const rejected = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(rejected.status).toBe(402);
     });
 
     it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override', async () => {
@@ -708,6 +720,36 @@ describe('Container Lifecycle Routes', () => {
       });
 
       expect(res.status).toBe(200);
+    });
+
+    it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_ADMIN env var override', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        user: { email: 'admin@example.com', authenticated: true, role: 'admin' },
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', MAX_SESSIONS_ADMIN: '2' } as Partial<Env>,
+      });
+      const fetchAdminOverride = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+      for (let i = 1; i <= 2; i++) {
+        const id = `adminoverride${String(i).padStart(11, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Admin Override ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchAdminOverride('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(res.status).toBe(402);
     });
 
     it('falls back to default when env var is invalid', async () => {

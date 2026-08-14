@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import mermaid from 'mermaid';
+import { JSDOM } from 'jsdom';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '../..');
@@ -221,7 +221,42 @@ function localMarkdownLinks(path) {
 }
 
 function mermaidBlocks(markdown) {
-  return [...markdown.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((match) => match[1]);
+  const blocks = [];
+  const lines = markdown.split('\n');
+  let section = '';
+  for (let index = 0; index < lines.length; index++) {
+    const heading = /^###\s+(.+?)\s*$/.exec(lines[index]);
+    if (heading) section = visibleHeadingText(heading[1]);
+    if (lines[index].trim() !== '```mermaid') continue;
+    const source = [];
+    for (index += 1; index < lines.length && lines[index].trim() !== '```'; index++) source.push(lines[index]);
+    blocks.push({ section, source: source.join('\n') });
+  }
+  return blocks;
+}
+
+function parsedRelationships(diagram) {
+  const relationships = [];
+  const db = diagram.db;
+  if (typeof db.getEdges === 'function') {
+    for (const edge of db.getEdges()) relationships.push(`${edge.start}->${edge.end}`);
+  }
+  if (typeof db.getMessages === 'function') {
+    for (const message of db.getMessages()) {
+      if (message.from && message.to) relationships.push(`${message.from}->${message.to}`);
+    }
+  }
+  if (typeof db.getRelations === 'function') {
+    for (const relation of db.getRelations()) relationships.push(`${relation.id1}->${relation.id2}`);
+  }
+  return relationships;
+}
+
+function assertSectionRelationships(parsed, section, required) {
+  const actual = new Set(parsed.filter((entry) => entry.section === section).flatMap((entry) => parsedRelationships(entry.diagram)));
+  for (const relationship of required) {
+    assert.ok(actual.has(relationship), `${section} missing parsed relationship ${relationship}`);
+  }
 }
 
 describe('Architecture documentation contract', () => {
@@ -275,9 +310,33 @@ describe('Architecture documentation contract', () => {
     }
   });
 
-  it('parses every cross-component Mermaid diagram', async () => {
-    const blocks = mermaidBlocks(markdown);
-    assert.ok(blocks.length > 0, 'missing Architecture Mermaid diagrams');
-    for (const block of blocks) await mermaid.parse(block);
+  it('parses every Mermaid diagram and preserves required relationships', async () => {
+    const dom = new JSDOM('<!doctype html>');
+    globalThis.window = dom.window;
+    globalThis.document = dom.window.document;
+    try {
+      const { default: mermaid } = await import('mermaid');
+      mermaid.initialize({ startOnLoad: false });
+      const blocks = mermaidBlocks(markdown);
+      assert.equal(blocks.length, 10, 'unexpected Architecture Mermaid diagram count');
+      const parsed = [];
+      for (const block of blocks) {
+        parsed.push({ section: block.section, diagram: await mermaid.mermaidAPI.getDiagramFromText(block.source) });
+      }
+
+      assertSectionRelationships(parsed, 'System at a Glance', ['B->W', 'W->DO1', 'DO1->C1', 'C1->R2']);
+      assertSectionRelationships(parsed, 'Session Creation to Terminal Connection', ['U->W', 'W->KV', 'W->DO', 'DO->C']);
+      assertSectionRelationships(parsed, 'Session Lifecycle State Machine', ['stopped->running', 'running->stopped', 'initializing->error']);
+      assertSectionRelationships(parsed, 'Metrics Data Flow', ['DO->A', 'DO->H', 'A->KV', 'H->KV', 'KV->W', 'W->F']);
+      assertSectionRelationships(parsed, 'Dashboard WS Disconnect Flow', ['U->F', 'F->T', 'T->C']);
+      assertSectionRelationships(parsed, 'Contact Relay Data Flow', ['Form->W', 'W->RL', 'RL->T', 'T->R', 'R->Inbox']);
+      assertSectionRelationships(parsed, 'Enterprise LLM Routing', ['C->I', 'I->G', 'G->P']);
+      assertSectionRelationships(parsed, 'Strict Gateway Egress', ['C->X', 'X->E', 'E->G', 'G->U', 'U->C']);
+      assertSectionRelationships(parsed, 'Pi Memory and Vault Extraction Data Flow', ['R->A', 'A->G', 'A->R', 'R->R']);
+    } finally {
+      dom.window.close();
+      delete globalThis.window;
+      delete globalThis.document;
+    }
   });
 });

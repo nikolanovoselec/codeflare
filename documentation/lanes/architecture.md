@@ -403,7 +403,8 @@ Bucket creation is lazy and idempotent. Session start and storage browse ensure 
 
 ### Session Creation to Terminal Connection
 
-<!-- doc-allow-element: AD1 complete create/start/proxy flow must remain one sequence -->
+#### Creation and start
+
 ```mermaid
 sequenceDiagram
     participant U as Browser
@@ -420,6 +421,16 @@ sequenceDiagram
     W->>KV: Write persisted running status
     W->>DO: Start container asynchronously
     DO->>C: Restore workspace#59; start host and selected services
+```
+
+#### Terminal connection
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant W as Worker
+    participant DO as Container DO
+    participant C as Container host
     U->>W: Poll startup status
     W-->>U: Ready
     U->>W: Upgrade terminal WebSocket
