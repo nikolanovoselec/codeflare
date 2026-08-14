@@ -8,6 +8,7 @@ import {
   COMMANDS_PATCH_MARKER,
   CONTROL_CHANNEL,
   EXPECTED_PI_GOAL_VERSION,
+  NEXT_PI_GOAL_VERSION,
   PATCH_MARKER,
   RUNTIME_PATCH_MARKER,
   SETTINGS_PATCH_MARKER,
@@ -42,6 +43,23 @@ const fixtureGoalSource = `function registerGoalRuntime(pi: ExtensionAPI, option
 \tconst runController = new GoalRunController(runtime, commands);
 \trunController.register(pi);
 
+\tpi.on("session_start", async (_event, ctx) => {
+\t\truntime.replaceMenuSession();
+\t});
+
+\tpi.on("session_shutdown", (_event, ctx) => {
+\t\trunController.unbindSession();
+\t});
+}
+`;
+
+const fixtureLifecycleSource = `export function registerGoalLifecycle(
+\tpi: ExtensionAPI,
+\truntime: GoalRuntime,
+\tcommands: GoalCommandController,
+\trunController: GoalRunController,
+\toptions: GoalLifecycleOptions = {},
+) {
 \tpi.on("session_start", async (_event, ctx) => {
 \t\truntime.replaceMenuSession();
 \t});
@@ -406,11 +424,31 @@ function writeFixturePackage(root, overrides = {}) {
   return files;
 }
 
-function readFixturePackage(root) {
+function readFixturePackage(root, sessionSourceName = 'goal') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', 'src/goal.ts', 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
+}
+
+function writeNextFixturePackage(root, overrides = {}) {
+  mkdirSync(join(root, 'src'), { recursive: true });
+  const files = {
+    'package.json': `${JSON.stringify({ version: NEXT_PI_GOAL_VERSION })}\n`,
+    'src/commands.ts': fixtureCommandsSource,
+    'src/lifecycle.ts': fixtureLifecycleSource,
+    'src/runtime.ts': fixtureRuntimeSource.replace(
+      'this.goalToolsAvailable()',
+      'this.toolPolicy.toolsAvailable()',
+    ),
+    'src/settings.ts': fixtureSettingsSource.replaceAll(
+      'automaticTurns: null',
+      'automaticTurns: 25',
+    ),
+    ...overrides,
+  };
+  for (const [path, contents] of Object.entries(files)) writeFileSync(join(root, path), contents);
+  return files;
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
@@ -640,13 +678,28 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(readFixturePackage(root), first);
   });
 
+  it('REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-next-review-control-'));
+    writeNextFixturePackage(root);
+
+    patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
+    const first = readFixturePackage(root, 'lifecycle');
+    assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
+    assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
+    assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
+    assert.match(first['src/settings.ts'], new RegExp(SETTINGS_PATCH_MARKER));
+    assert.equal(first['src/lifecycle.ts'].match(/runController\.register/g), null);
+    assert.match(first['src/settings.ts'], /automaticTurns: 25, noProgressTurns: 3, minIntervalMs: 0/);
+
+    patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
+    assert.deepEqual(readFixturePackage(root, 'lifecycle'), first);
+  });
+
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
-    // Only the expected half is derived. Spelled out, it has to be hand-edited on
-    // every Goal bump, and a miss fails the suite on the version string instead of
-    // on the refusal these rows exist to prove -- which is exactly how the 0.46.0
-    // bump broke, because the literal was regex-escaped and a plain version grep
-    // could not see it. The installed 0.44.0 stays literal: it is this fixture's
-    // own value, so it still pins that the message names both sides.
+    // The current expected half is derived. The admitted successor stays literal
+    // in the refusal assertion, so changing the bounded compatibility window must
+    // update both the successful candidate fixture and this fail-closed contract.
+    // The installed 0.44.0 stays literal because it is this fixture's own value.
     const expected = EXPECTED_PI_GOAL_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const versionDrift = mkdtempSync(join(tmpdir(), 'pi-goal-version-drift-'));
     writeFixturePackage(versionDrift, { 'package.json': '{"version":"0.44.0"}\n' });
@@ -658,7 +711,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
     assert.throws(
       () => patchPiGoalDirectory('0.44.0', versionDrift),
-      new RegExp(`review-control patch supports only pi-goal ${expected}`),
+      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.5`),
     );
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
 

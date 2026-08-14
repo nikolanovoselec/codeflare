@@ -26,6 +26,7 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
@@ -58,10 +59,11 @@ test("REQ-IDE-007 AC3: unrestricted mode keeps configuration isolation and telem
   assert.deepEqual(settings.enabledMcpjsonServers, []);
 });
 
-test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore extension recommendations", () => {
+test("REQ-IDE-009 + REQ-IDE-021: base settings remove workspace and account setup chrome", () => {
   assert.deepEqual(buildBaseOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
   });
 });
 
@@ -70,6 +72,7 @@ test("REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one p
   assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
@@ -83,6 +86,7 @@ test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setu
   assert.deepEqual(buildUnsupportedOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
   });
 });
@@ -92,4 +96,5 @@ test("REQ-IDE-009: Claude settings also carry the base workspace-trust and recom
 
   assert.equal(settings["security.workspace.trust.enabled"], false);
   assert.equal(settings["extensions.ignoreRecommendations"], true);
+  assert.equal(settings["chat.titleBar.signIn.enabled"], false);
 });

@@ -190,6 +190,31 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + RE
   assert.equal(manifest.contributes.views, undefined);
 });
 
+test('REQ-IDE-024 AC1+AC2: the shared welcome extension contributes no agent surface', async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL('../welcome-package.json', import.meta.url), 'utf8'),
+  ) as {
+    name: string;
+    publisher: string;
+    activationEvents: string[];
+    contributes: Record<string, unknown>;
+  };
+
+  assert.equal(manifest.name, 'codeflare-welcome');
+  assert.equal(manifest.publisher, 'codeflare');
+  assert.deepEqual(manifest.activationEvents, [
+    'onStartupFinished',
+    'onCommand:codeflare.welcome.open',
+  ]);
+  assert.deepEqual(manifest.contributes.commands, [{
+    command: 'codeflare.welcome.open',
+    title: 'Codeflare: Open Welcome',
+  }]);
+  assert.equal(manifest.contributes.chatParticipants, undefined);
+  assert.equal(manifest.contributes.languageModelChatProviders, undefined);
+  assert.equal(manifest.contributes.views, undefined);
+});
+
 test('REQ-IDE-010 AC3: refuses retained VSIX and substituted publisher or version metadata', async () => {
   for (const forbidden of ['vsix', 'owned-publisher', 'official-publisher', 'official-version']) {
     const { source, claudeSource, target } = await fixture();

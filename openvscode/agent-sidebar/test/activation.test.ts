@@ -9,7 +9,8 @@ const host = vi.hoisted(() => ({
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>) | undefined,
-  modelProviders: new Map<string, Record<string, (...args: never[]) => unknown>>(),
+  modelProviders: new Map<string, Record<string, (...args: unknown[]) => unknown>>(),
+  modelChanges: [] as string[],
   warnings: [] as string[],
 }));
 
@@ -34,6 +35,19 @@ vi.mock('../src/pi/native-chat.ts', async (importOriginal) => {
 });
 
 vi.mock('vscode', () => ({
+  EventEmitter: class EventEmitter {
+    private readonly listeners: Array<() => void> = [];
+    readonly event = (listener: () => void) => {
+      this.listeners.push(listener);
+      return { dispose() {} };
+    };
+    fire() {
+      for (const listener of this.listeners) listener();
+    }
+    dispose() {
+      this.listeners.length = 0;
+    }
+  },
   Uri: {
     file: (fsPath: string) => ({ fsPath, scheme: 'file' }),
     joinPath: (base: { fsPath?: string }, ...parts: string[]) => ({ fsPath: [base.fsPath, ...parts].join('/') }),
@@ -65,8 +79,9 @@ vi.mock('vscode', () => ({
   },
   languages: { getDiagnostics: () => [] },
   lm: {
-    registerLanguageModelChatProvider: (vendor: string, provider: Record<string, (...args: never[]) => unknown>) => {
+    registerLanguageModelChatProvider: (vendor: string, provider: Record<string, (...args: unknown[]) => unknown>) => {
       host.modelProviders.set(vendor, provider);
+      provider.onDidChangeLanguageModelChatInformation?.(() => host.modelChanges.push(vendor));
       return { dispose() {} };
     },
   },
@@ -96,6 +111,7 @@ afterEach(async () => {
   host.participantId = undefined;
   host.participantHandler = undefined;
   host.modelProviders.clear();
+  host.modelChanges = [];
   nativeChat.runNativePiChat.mockReset();
   host.warnings = [];
 });
@@ -110,6 +126,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registe
   assert.equal(host.participantId, 'codeflare.pi');
   assert.deepEqual(host.contextValues, [{ key: 'chatSetupCompleted', value: true }]);
   assert.deepEqual([...host.modelProviders.keys()], ['copilot', 'codeflare']);
+  assert.deepEqual(host.modelChanges, ['copilot', 'codeflare']);
   const fallbackProvider = host.modelProviders.get('copilot');
   const visibleProvider = host.modelProviders.get('codeflare');
   assert.ok(fallbackProvider);
@@ -140,7 +157,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registe
     );
     assert.equal(await provider.provideTokenCount(), 0);
   }
-  assert.equal(subscriptions.length, 5);
+  assert.equal(subscriptions.length, 6);
 });
 
 test('REQ-IDE-019 AC7: participant requests run the local Pi backend without provider generation', async () => {

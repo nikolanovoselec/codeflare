@@ -631,7 +631,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-021: Account-free Browser IDE chrome
 
-**Intent:** Browser IDE sessions omit Code OSS's Copilot sign-in status affordance and left-side Accounts chrome while retaining Codeflare Chat and independent agent credentials.
+**Intent:** Browser IDE sessions omit Code OSS's Copilot status, Chat title-bar sign-in, and left-side Accounts chrome while retaining Codeflare Chat and independent agent credentials.
 
 **Applies To:** User
 
@@ -640,12 +640,13 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Before code-server starts, Pi, Claude, and unsupported inventories prepare the Copilot sign-in status entry as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
 2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
 3. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
+4. Pi, Claude, and unsupported inventories disable Code OSS's Chat title-bar sign-in affordance through managed User settings. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021: base settings remove workspace and account setup chrome) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
 - Codeflare uses supported ephemeral profile storage to add only `chat.statusBarEntry`, preserves existing hidden entries, and does not patch code-server or persist this state in the UI snapshot.
 - The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; pin updates must retain this contract.
-- Authentication APIs, Chat, credentials, and other status entries are outside this mutation.
+- Authentication APIs, Chat behavior, credentials, and unrelated status entries remain outside these bounded profile and User-setting mutations.
 
 **Priority:** P1
 
@@ -653,7 +654,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI only. Configured preparation tests verify the exact web-profile behavior; complete-image smoke verifies that each packaged inventory receives the prepared value.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -709,6 +710,34 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI validate the five independently packaged compatibility surfaces.
 
-**Status:** Partial
+**Status:** Implemented
+
+---
+
+### REQ-IDE-024: Codeflare Browser IDE welcome
+
+**Intent:** Every Browser IDE opens with a Codeflare-owned explanation of the editor’s traditional and agentic roles, while agent controls remain truthful to the selected inventory.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi, Claude, and unsupported sessions open a theme-responsive Codeflare welcome editor that explains traditional VS Code functionality, the observability-plane role, and the shared isolated ephemeral container. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC1+AC3: welcome HTML explains the editor plane without external content) --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs::main -->
+2. The welcome action opens Codeflare Chat only for Pi, opens the official Claude Code panel only for Claude, and exposes no agent action for unsupported selections. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC1+AC2: every inventory gets an honest shared-runtime welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2: only exact Pi and Claude selections enable an IDE agent) -->
+3. The welcome extension loads no external content, contributes no Chat participant, language-model provider, or agent view, and leaves all agent inventory ownership unchanged. <!-- @impl: openvscode/agent-sidebar/welcome-package.json --> <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-024 AC1+AC2: the shared welcome extension contributes no agent surface) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC1+AC3: welcome HTML explains the editor plane without external content) -->
+
+**Constraints:**
+
+- The owned welcome package is installed beside code-server’s bundled extensions without modifying code-server or Code OSS source.
+- Pi and Claude remain the only selections with native IDE agents; the unsupported fixed inventory remains empty.
+- The welcome page adapts to VS Code theme variables, remains keyboard accessible and responsive, and respects reduced-motion preferences.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-009](#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-017](#req-ide-017-unsupported-ide-inventory-runtime-metadata)
+
+**Verification:** PR-boundary review and GitHub Actions CI only. Owned-extension behavioral tests verify inventory-specific actions and CSP isolation; complete-image smoke verifies the packaged built-in extension.
+
+**Status:** Implemented
 
 ---

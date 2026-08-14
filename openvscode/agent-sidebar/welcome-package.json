@@ -1,0 +1,32 @@
+{
+  "name": "codeflare-welcome",
+  "displayName": "Codeflare Welcome",
+  "description": "Codeflare Browser IDE orientation and agent entry point",
+  "version": "0.0.0",
+  "publisher": "codeflare",
+  "private": true,
+  "main": "./dist/welcome-extension.cjs",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:codeflare.welcome.open"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeflare.welcome.open",
+        "title": "Codeflare: Open Welcome"
+      }
+    ]
+  }
+}

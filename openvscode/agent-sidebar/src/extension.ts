@@ -1,4 +1,5 @@
 import {
+  EventEmitter,
   Uri,
   chat,
   commands,
@@ -72,13 +73,13 @@ const failClosedCompatibilityResponse = async (): Promise<never> => {
 };
 const hostCompatibilityProvider = (
   model: LanguageModelChatInformation,
+  onDidChangeLanguageModelChatInformation: LanguageModelChatProvider['onDidChangeLanguageModelChatInformation'],
 ): LanguageModelChatProvider => Object.freeze({
+  onDidChangeLanguageModelChatInformation,
   provideLanguageModelChatInformation: () => [model],
   provideLanguageModelChatResponse: failClosedCompatibilityResponse,
   provideTokenCount: async () => 0,
 });
-const HOST_FALLBACK_PROVIDER = hostCompatibilityProvider(HOST_FALLBACK_MODEL);
-const HOST_VISIBLE_PROVIDER = hostCompatibilityProvider(HOST_VISIBLE_MODEL);
 let activeRuntime: NativePiRuntime | undefined;
 
 export function activate(context: ExtensionContext): void {
@@ -87,14 +88,19 @@ export function activate(context: ExtensionContext): void {
   // participant, so mark that compatibility setup complete without disabling Chat.
   void commands.executeCommand('setContext', 'chatSetupCompleted', true);
   const runtime = new NativePiRuntime(createBackend, runNativePiChat);
+  const modelChanges = new EventEmitter<void>();
   const hostFallbackProvider = lm.registerLanguageModelChatProvider(
     HOST_FALLBACK_VENDOR,
-    HOST_FALLBACK_PROVIDER,
+    hostCompatibilityProvider(HOST_FALLBACK_MODEL, modelChanges.event),
   );
   const hostVisibleProvider = lm.registerLanguageModelChatProvider(
     HOST_VISIBLE_VENDOR,
-    HOST_VISIBLE_PROVIDER,
+    hostCompatibilityProvider(HOST_VISIBLE_MODEL, modelChanges.event),
   );
+  // Registration alone does not populate Code OSS's language-model cache. A
+  // provider change resolves both descriptors and refreshes model pickers before
+  // the first request, rather than only after later chat activity.
+  modelChanges.fire();
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
     (request, chatContext, response, cancellation) => runtime.handle({
@@ -113,6 +119,7 @@ export function activate(context: ExtensionContext): void {
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
   context.subscriptions.push(
+    modelChanges,
     hostFallbackProvider,
     hostVisibleProvider,
     participant,

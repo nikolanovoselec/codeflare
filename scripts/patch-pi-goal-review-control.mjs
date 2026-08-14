@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Applies Codeflare's reviewed compatibility patch to the exact locked pi-goal
-// release. The package remains upstream-owned and integrity-locked; this
-// version-aware image-build transform adds the session-local PR-review control
+// Applies Codeflare's reviewed compatibility patch to the current locked pi-goal
+// release and the one cooldown-eligible successor admitted by automation. The
+// package remains upstream-owned and integrity-locked; this version-aware
+// image-build transform adds the session-local PR-review control
 // channel and a bounded continuation dispatch interval without a companion
 // extension or permanent fork. Every transformed source is calculated before
 // any package file is written so version or source-layout drift fails closed.
@@ -10,6 +11,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_GOAL_VERSION = '0.46.0';
+export const NEXT_PI_GOAL_VERSION = '0.49.5';
+export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
+  EXPECTED_PI_GOAL_VERSION,
+  NEXT_PI_GOAL_VERSION,
+]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
@@ -19,7 +25,6 @@ export const CONTROL_CHANNEL = 'codeflare:pi-goal:control';
 const CONTROL_BLOCK = `
 \tlet codeflareControlCtx: StatusContext | undefined;
 \tconst CODEFLARE_GOAL_CONTROL_CHANNEL = "${CONTROL_CHANNEL}";
-\trunController.register(pi);
 \tpi.events.on(CODEFLARE_GOAL_CONTROL_CHANNEL, async (data: unknown) => {
 \t\tconst request = data as {
 \t\t\taction?: unknown;
@@ -106,6 +111,11 @@ const RUNTIME_DISPATCH_SOURCE = `\tdispatchContinuationIfSettled(ctx: StatusCont
 \t\t\treturn false;
 \t\t}
 \t}`;
+
+const RUNTIME_DISPATCH_SOURCE_049 = RUNTIME_DISPATCH_SOURCE.replace(
+  'this.goalToolsAvailable()',
+  'this.toolPolicy.toolsAvailable()',
+);
 
 const RUNTIME_DISPATCH_PATCH = `\tdispatchContinuationIfSettled(ctx: StatusContext) {
 \t\tconst intent = this.continuationIntent;
@@ -255,8 +265,38 @@ export function patchPiGoalSource(source) {
   let patched = replaceOnce(
     source,
     '\tconst runController = new GoalRunController(runtime, commands);\n\trunController.register(pi);',
-    `\tconst runController = new GoalRunController(runtime, commands);${CONTROL_BLOCK}`,
+    `\tconst runController = new GoalRunController(runtime, commands);\n\trunController.register(pi);${CONTROL_BLOCK}`,
     'controller registration',
+  );
+  patched = replaceOnce(
+    patched,
+    '\tpi.on("session_start", async (_event, ctx) => {\n\t\truntime.replaceMenuSession();',
+    '\tpi.on("session_start", async (_event, ctx) => {\n\t\tcodeflareControlCtx = ctx;\n\t\truntime.replaceMenuSession();',
+    'session start',
+  );
+  patched = replaceOnce(
+    patched,
+    '\tpi.on("session_shutdown", (_event, ctx) => {\n\t\trunController.unbindSession();',
+    '\tpi.on("session_shutdown", (_event, ctx) => {\n\t\tcodeflareControlCtx = undefined;\n\t\trunController.unbindSession();',
+    'session shutdown',
+  );
+  return patched;
+}
+
+export function patchPiGoalLifecycleSource(source) {
+  if (
+    isCompleteMarkedPatch(
+      source,
+      PATCH_MARKER,
+      [CONTROL_CHANNEL, 'codeflareControlCtx = ctx;', 'codeflareControlCtx = undefined;'],
+      'review control',
+    )
+  ) return source;
+  let patched = replaceOnce(
+    source,
+    ') {\n\tpi.on("session_start", async (_event, ctx) => {',
+    `) {${CONTROL_BLOCK}\n\n\tpi.on("session_start", async (_event, ctx) => {`,
+    'lifecycle registration',
   );
   patched = replaceOnce(
     patched,
@@ -304,10 +344,13 @@ export function patchPiGoalSettingsSource(source) {
     ].join('\n'),
     'continuation settings interface',
   );
+  const defaultAutomaticTurns = source.includes(
+    '\tcontinuationLimits: { automaticTurns: 25, noProgressTurns: 3 },',
+  ) ? '25' : 'null';
   patched = replaceOnce(
     patched,
-    '\tcontinuationLimits: { automaticTurns: null, noProgressTurns: 3 },',
-    '\tcontinuationLimits: { automaticTurns: null, noProgressTurns: 3, minIntervalMs: 0 },',
+    `\tcontinuationLimits: { automaticTurns: ${defaultAutomaticTurns}, noProgressTurns: 3 },`,
+    `\tcontinuationLimits: { automaticTurns: ${defaultAutomaticTurns}, noProgressTurns: 3, minIntervalMs: 0 },`,
     'continuation settings default',
   );
   patched = replaceOnce(
@@ -420,9 +463,12 @@ export function patchPiGoalRuntimeSource(source) {
     ].join('\n'),
     'continuation timer state',
   );
+  const dispatchSource = source.includes('this.toolPolicy.toolsAvailable()')
+    ? RUNTIME_DISPATCH_SOURCE_049
+    : RUNTIME_DISPATCH_SOURCE;
   patched = replaceOnce(
     patched,
-    RUNTIME_DISPATCH_SOURCE,
+    dispatchSource,
     RUNTIME_DISPATCH_PATCH,
     'continuation dispatcher',
   );
@@ -483,16 +529,17 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   if (!expectedVersion || !directory) {
     throw new Error('expected version and package directory are required');
   }
-  if (expectedVersion !== EXPECTED_PI_GOAL_VERSION) {
+  if (!SUPPORTED_PI_GOAL_VERSIONS.includes(expectedVersion)) {
     throw new Error(
-      `review-control patch supports only pi-goal ${EXPECTED_PI_GOAL_VERSION}; received ${expectedVersion}`,
+      `review-control patch supports only pi-goal ${SUPPORTED_PI_GOAL_VERSIONS.join(' or ')}; received ${expectedVersion}`,
     );
   }
 
+  const sessionSourceName = expectedVersion === NEXT_PI_GOAL_VERSION ? 'lifecycle' : 'goal';
   const paths = {
     packageJson: join(directory, 'package.json'),
     commands: join(directory, 'src', 'commands.ts'),
-    goal: join(directory, 'src', 'goal.ts'),
+    [sessionSourceName]: join(directory, 'src', `${sessionSourceName}.ts`),
     runtime: join(directory, 'src', 'runtime.ts'),
     settings: join(directory, 'src', 'settings.ts'),
   };
@@ -514,20 +561,22 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   const originals = {
     commands: readFileSync(paths.commands, 'utf8'),
-    goal: readFileSync(paths.goal, 'utf8'),
+    [sessionSourceName]: readFileSync(paths[sessionSourceName], 'utf8'),
     runtime: readFileSync(paths.runtime, 'utf8'),
     settings: readFileSync(paths.settings, 'utf8'),
   };
   const patched = {
     commands: patchPiGoalCommandsSource(originals.commands),
-    goal: patchPiGoalSource(originals.goal),
+    [sessionSourceName]: sessionSourceName === 'lifecycle'
+      ? patchPiGoalLifecycleSource(originals[sessionSourceName])
+      : patchPiGoalSource(originals[sessionSourceName]),
     runtime: patchPiGoalRuntimeSource(originals.runtime),
     settings: patchPiGoalSettingsSource(originals.settings),
   };
 
   const markers = {
     commands: COMMANDS_PATCH_MARKER,
-    goal: PATCH_MARKER,
+    [sessionSourceName]: PATCH_MARKER,
     runtime: RUNTIME_PATCH_MARKER,
     settings: SETTINGS_PATCH_MARKER,
   };
@@ -537,7 +586,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     }
   }
 
-  for (const name of ['commands', 'goal', 'runtime', 'settings']) {
+  for (const name of ['commands', sessionSourceName, 'runtime', 'settings']) {
     writeFileSync(paths[name], patched[name]);
   }
 }
