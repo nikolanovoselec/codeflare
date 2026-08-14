@@ -4,6 +4,8 @@ The public marketing site for codeflare.ch: a prerendered Astro app served by
 the Worker at `/` for unauthenticated visitors in SaaS and onboarding modes
 (REQ-LANDING-001). Enterprise/default deployments never serve it.
 
+This package reference owns landing composition, tokens, browser behavior, build output, and Worker-facing contact routes. Product-wide runtime and security contracts remain in the canonical documentation lanes.
+
 ## Architecture
 
 Strict separation of concerns; each layer changes independently:

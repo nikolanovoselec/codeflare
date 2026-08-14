@@ -1,6 +1,6 @@
 # Official Claude Code IDE configuration
 
-These files configure Anthropic's official Claude Code extension without modifying its package.
+These files configure Anthropic's official Claude Code extension without modifying its package. This directory owns the allowlisted configuration projection and managed settings only; package selection, pinning, lifecycle, and verification belong to [`../README.md`](../README.md).
 
 `prepare-sidebar-config.sh` prepares `/tmp/codeflare-sidebar/claude/config` before Claude OpenVSCode launches. The mode-0700 root links only `.credentials.json`, `CLAUDE.md`, `agents`, `commands`, `plugins`, and `skills` from the terminal-side config when those entries exist. `settings.json` points to the root-owned `/etc/codeflare/claude-sidebar/settings.json`. Terminal projects, history, session state, logs, caches, telemetry, source settings, and unknown entries are not projected. The marker records projection schema version 1 without credential bytes. A valid existing projection survives an OpenVSCode restart so official-extension conversations remain available inside that IDE lifecycle.
 

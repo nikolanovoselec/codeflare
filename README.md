@@ -30,6 +30,8 @@
 
 ![Codeflare, engineering agents that can finish the job](assets/documentation/og.png)
 
+This page is the product synopsis and default deployment entry point. Exact contracts, limits, implementation mechanics, and operator recovery procedures belong to the linked documentation lanes.
+
 Most engineering agents stop at code. The awkward work remains with you: prepare the environment, watch the process, chase CI, handle review, deploy the result, and collect enough evidence to trust what happened. Infrastructure work is usually left out altogether.
 
 Codeflare runs software delivery and infrastructure operations in isolated environments inside your Cloudflare account. Agents can inspect repositories, implement changes, open pull requests, repair CI, deploy applications, investigate systems, patch fleets, execute migrations, and verify the result. The runtime and isolation model is documented in [Architecture](documentation/lanes/architecture.md).
@@ -78,7 +80,7 @@ Existing repositories do not need a ceremonial rewrite before agents can help. `
 
 ## Enterprise control without a second control plane
 
-Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute hibernates when unused.
+Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute stops when unused; a later start restores selected durable files into fresh ephemeral local storage.
 
 When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and has documented own-account Cloudflare exceptions. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary; one session cannot select another user's credential. See [Strict Gateway Egress](documentation/lanes/security.md#strict-gateway-egress-enterprise-mode) for the exact boundary.
 

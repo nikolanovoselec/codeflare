@@ -1,6 +1,6 @@
 # Contributing to Codeflare
 
-Thank you for your interest in contributing to Codeflare. This guide covers everything you need to get started.
+This guide owns contributor setup, development practice, behavioral verification, and pull-request expectations. Product setup belongs to [README](README.md); exact workflow behavior belongs to [CI/CD](documentation/lanes/ci-cd.md).
 
 ## License
 
@@ -46,7 +46,7 @@ cd web-ui && npm run dev           # Frontend dev server (Vite)
 
 ## Running Tests
 
-Codeflare has five test layers totaling ~3,000 tests. Run them with:
+Codeflare has package-specific behavioral suites. Run the suites affected by your change; GitHub Actions is the authoritative full verification environment:
 
 ```bash
 # Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)
@@ -57,6 +57,12 @@ cd web-ui && npm test
 
 # Host unit tests (Node.js test runner)
 cd host && npm test
+
+# Landing behavior (Vitest)
+cd landing && npm test
+
+# Browser IDE extension behavior (Node.js test runner)
+cd openvscode/agent-sidebar && npm test
 ```
 
 ### Rate Limit Tests
@@ -67,7 +73,7 @@ If you add or modify API endpoints that should be rate-limited, run:
 npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
-See `src/middleware/rate-limit.ts` for the rate limiting implementation and [Stress Testing](documentation/lanes/deployment.md#stress-testing-reference) for load testing details.
+See `src/middleware/rate-limit.ts` for the implementation and [Stress Testing](documentation/lanes/stress-test.md) for load-test safety and execution.
 
 ### Subscription and Usage Tests
 
@@ -94,7 +100,7 @@ cd web-ui && npm run typecheck     # Frontend
 ## Code Style
 
 - **TypeScript** with strict mode enabled across all layers.
-- **Vitest** for all testing (backend uses `@cloudflare/vitest-pool-workers`, frontend uses jsdom).
+- **Behavioral tests** assert observable contracts. Backend, frontend, and landing use Vitest; host and Browser IDE packages use Node's test runner.
 - **SolidJS** for the frontend -- not React. Reactivity is signal-based. See `web-ui/src/stores/` for patterns.
 - **Hono** as the backend router on Cloudflare Workers.
 - **Zod** for input validation on both backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`).
@@ -111,18 +117,18 @@ Use descriptive branch names with a prefix:
 - `fix/` -- bug fixes
 - `refactor/` -- code restructuring
 - `test/` -- test additions or fixes
-- `documentation/` -- documentation changes
+- `docs/` -- documentation changes
 
 Example: `fix/websocket-reconnect-race-condition`
 
 ### Pull Request Process
 
 1. Create a feature branch from `develop`.
-2. Make your changes. Write tests for new functionality.
-3. Ensure all tests pass locally (`npm test` and `cd web-ui && npm test` at minimum).
-4. Run linting and type checking -- CI will reject PRs that fail these.
-5. Open a pull request against `develop` with a clear description of the change and its motivation.
-6. CI runs automatically on all PRs: lint, tests, typecheck, security audit, dependency review, and CodeQL analysis.
+2. For behavior changes, update the owning REQ and write a failing behavioral test before implementation; keep changed `@impl` and `@test` anchors truthful.
+3. Make the smallest implementation and documentation change that satisfies the acceptance criteria.
+4. Run affected tests, lint, and type checks where your environment supports them; GitHub Actions remains authoritative.
+5. Open a pull request against `develop` with a clear description, verification evidence, and REQ backlinks where applicable.
+6. Required checks classify the diff and run the affected lint, type, test, security, dependency, workflow, and package lanes against the exact PR head.
 
 ### What Makes a Good PR
 
@@ -135,7 +141,7 @@ Example: `fix/websocket-reconnect-race-condition`
 
 If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/security.md#penetration-testing-reference) for a full breakdown of what gets tested.
+An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/pentest.md) for the current probe contract and dated evidence.
 
 **Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, and token scopes do not belong in this repository — they live in the private [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) repo. Never commit them here (code, `sdd/`, or `documentation/`); read or change them in that repo. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
 
@@ -146,4 +152,4 @@ Open an issue for questions about the codebase, architecture, or contribution pr
 **Related Documentation:**
 - [Documentation](documentation/README.md) - Full technical reference
 - [README.md](README.md) - Product overview and setup
-- [Stress Testing](documentation/lanes/deployment.md#stress-testing-reference) - Load testing guide
+- [Stress Testing](documentation/lanes/stress-test.md) - Load-test safety and execution

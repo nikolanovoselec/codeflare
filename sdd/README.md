@@ -6,7 +6,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 1. **Isolation per session** -- Every session runs in its own container. No shared shells, no cross-session access. An agent can `rm -rf /` and the only victim is itself.
 
-2. **Files persist, containers don't** -- R2 storage survives container teardown. Containers are ephemeral and disposable. Bisync runs every 15 minutes with a manual Sync-now trigger and a final sync on stop, so work is never lost even if a session dies before `git push`.
+2. **Files persist, containers don't** -- Selected files persist in R2; containers and local disk are ephemeral. Lifecycle sync, the manual Sync-now trigger, and a bounded final drain reduce loss, but sync is periodic rather than transactional and abrupt failure can lose changes not yet persisted. Git remains the preferred source-code authority.
 
 3. **Zero setup** -- Four steps from fork to live deployment (fork, set two secrets, deploy, run wizard). No Kubernetes, no Terraform, no local installs. Users connect GitHub and Cloudflare once; every subsequent session is pre-authenticated.
 
@@ -14,7 +14,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 5. **Scale Container metering down** -- Containers stop after a configurable idle timeout (15m-4h, input-aware). Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
 
-6. **Agent-agnostic, Claude-optimized** -- Multiple agents supported with identical container infrastructure. Pro mode features (knowledge graph memory, curated skills, advanced workflows) are designed for Claude Code; other agents receive rules and definitions but may not support all capabilities.
+6. **Agent-aware parity** -- Multiple agents share the container infrastructure, while manifests and runtime adapters deliver only capabilities each agent supports. Claude and Pi carry the richest advanced workflow surfaces; other agents intentionally differ where commands, skills, tools, or transport are unavailable.
 
 7. **Stateless dashboard, stateful containers** -- Dashboard status endpoints are pure KV reads with zero Durable Object contact, preserving container hibernation. The DO owns session lifecycle; the Worker owns routing and auth; KV owns state visibility.
 
@@ -73,14 +73,15 @@ One support file lives at the `sdd/` root (the path is the `/review` skill's tri
 - **Multi-user collaboration** -- Each session is single-user. No shared terminals, no real-time collaboration, no pair programming within a session.
 - **Local execution** -- Codeflare does not run on the user's machine. No desktop app, no Electron wrapper, no local Docker mode.
 - **Custom container images** -- All sessions use the same Dockerfile. Users cannot bring their own base image or install system packages that persist across sessions (though they can install packages within a session).
-- **Database hosting** -- No managed PostgreSQL, MySQL, or MongoDB. KV and D1 are available via Cloudflare integration, but Codeflare itself uses KV only.
+- **Database hosting** -- No managed PostgreSQL, MySQL, or MongoDB. Codeflare uses KV, R2, and Durable Object storage for its own control, persistence, and accounting state; user projects may provision other Cloudflare storage independently.
 - **Long-running services** -- Containers are for interactive coding sessions, not for hosting web servers or background workers. They stop and go to sleep on inactivity; persistent files come back from R2 rather than local-disk hibernation.
 - **Node.js APIs in the Worker** -- The Worker runs on Cloudflare's web-standard runtime. No `fs`, `child_process`, `net`, or other Node.js-specific APIs (except via `nodejs_compat` flag for specific modules).
 
 ## How This Spec Works
 
-1. New requirements are added to the relevant domain file
-2. Each requirement has an ID, intent, acceptance criteria, and constraints
-3. Implementation is planned from the spec via Plan Mode
-4. After implementation, documentation is updated
-5. Tests verify acceptance criteria
+1. Add or amend behavior in the owning domain requirement; preserve stable REQ fragments.
+2. State observable acceptance criteria and constraints before implementation.
+3. Write a behavioral test that fails when the required implementation is absent or broken.
+4. Keep changed `@impl` and `@test` anchors adjacent to the acceptance criteria they support.
+5. Update owned documentation and `spec/changes.md` with the behavior change.
+6. Do not mark a touched requirement Implemented while any changed acceptance criterion is partial or unsupported.

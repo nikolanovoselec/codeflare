@@ -2,6 +2,8 @@
 
 Codeflare gives the agent selected in terminal tab 1 an editor-native code-server integration. The directory name is a retained private migration identifier. The IDE agent remains a separate process and conversation from terminal tab 1.
 
+This package reference owns inventory selection, extension composition, process isolation, UI-state projection, package compatibility, and image verification. Public routes and system-wide lifecycle or security rationale remain in the canonical documentation lanes.
+
 ## Selection and UI
 
 | Tab 1 | Immutable inventory | IDE experience |
