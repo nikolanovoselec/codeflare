@@ -124,6 +124,10 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ## Deploy Codeflare
 
+### Before you begin
+
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the maintained minimum-scope operator token from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+
 ### Default self-operated deployment
 
 The public path creates a private single-tenant instance in four steps:
@@ -134,6 +138,10 @@ The public path creates a private single-tenant instance in four steps:
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
 The workflow provisions the shared Worker, KV control plane, and session container image in the operator's account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+
+### Verify the deployment
+
+Retain the successful Deploy run and commit, confirm public health and provider discovery on the deployed origin, then exercise the changed user path. Session changes require creating, starting, opening, and deleting a disposable session; a health response alone is not deployment evidence. The executable checks and rollback procedure live in [Development & Deployment](documentation/lanes/deployment.md#standard-deployment).
 
 ### Enterprise deployment
 

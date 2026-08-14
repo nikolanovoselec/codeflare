@@ -2,11 +2,21 @@
 
 This guide owns contributor setup, development practice, behavioral verification, and pull-request expectations. Product setup belongs to [README](README.md); exact workflow behavior belongs to [CI/CD](documentation/lanes/ci-cd.md).
 
+## Scope
+
+Contributions may change runtime behavior, tests, canonical documentation, package-local integration, or delivery controls. Keep each fact in its owning collection and link rather than duplicating contracts. Generated, vendored, archived, and runtime-payload files change only through their generator or owning upstream workflow.
+
 ## License
 
 Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitting a contribution, you agree that your work will be distributed under the same license. Commercial use, resale, or paid hosted offerings require a separate written license from the maintainer.
 
 ## Getting Started
+
+### Prerequisites
+
+Use Git, GitHub access to your fork, and Node.js 22 with npm. Package and workflow definitions remain authoritative for exact CI versions. Cloudflare credentials are required only for changes that need an integration deployment; never commit them.
+
+### Fork and install
 
 1. **Fork** this repository on GitHub.
 2. **Clone** your fork locally:
@@ -40,7 +50,16 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 
 For a full architecture overview, see [documentation/lanes/architecture.md](documentation/lanes/architecture.md).
 
-## Development
+<a id="development"></a>
+## Development Workflow
+
+### Requirements and behavioral tests
+
+For behavior changes, update the owning SDD requirement first, write a behavioral test that fails when the implementation is absent or broken, and keep changed `@impl`/`@test` anchors adjacent to the acceptance criteria they support. Do not use UI copy or source-text matching as a substitute for observable behavior.
+
+### Implementation and documentation
+
+Make the smallest implementation that satisfies the acceptance criteria. Update the canonical owner lane, its package reference where package-local mechanics changed, and `sdd/spec/changes.md` when the required behavior changed.
 
 ```bash
 npm run dev                        # Run backend locally (requires wrangler)
@@ -68,28 +87,18 @@ cd landing && npm test
 cd openvscode/agent-sidebar && npm test
 ```
 
-### Rate Limit Tests
+### Verification by change
 
-If you add or modify API endpoints that should be rate-limited, run:
+| Change | Minimum affected verification | Canonical detail |
+|---|---|---|
+| Worker routes, auth, storage, subscription, or Durable Objects | Root behavioral suite plus affected type/lint checks | [CI/CD — Backend Tests](documentation/lanes/ci-cd.md#backend-tests) |
+| Frontend behavior | `web-ui` behavioral suite plus affected type/lint checks | [CI/CD — Frontend Tests](documentation/lanes/ci-cd.md#frontend-tests) |
+| Container host, entrypoint, or documentation contracts | `host` suite | [CI/CD — Host Tests](documentation/lanes/ci-cd.md#host-tests) |
+| Landing package | `landing` suite | [Landing package reference](landing/README.md#develop-and-verify) |
+| Browser IDE or Claude projection | `openvscode/agent-sidebar` suite | [Browser IDE package reference](openvscode/README.md#develop-and-verify) |
+| Rate-limit or load-model behavior | Affected backend tests; run k6 only against a prepared integration target | [Stress Testing](documentation/lanes/stress-test.md) |
 
-```bash
-npm test -- src/__tests__/routes/rate-limits.test.ts
-```
-
-See `src/middleware/rate-limit.ts` for the implementation and [Stress Testing](documentation/lanes/stress-test.md) for load-test safety and execution.
-
-### Subscription and Usage Tests
-
-The subscription system has dedicated test files:
-
-```bash
-npm test -- src/__tests__/lib/subscription.test.ts     # Tier resolution, config, session modes
-npm test -- src/__tests__/lib/email.test.ts             # Email sending (welcome, subscription, tier change)
-npm test -- src/__tests__/routes/auth-subscribe.test.ts # Subscribe endpoint, Turnstile, idempotency
-npm test -- src/__tests__/timekeeper/index.test.ts      # Timekeeper DO, usage accumulation, quota enforcement
-npm test -- src/__tests__/lib/access-tier.test.ts       # Tier-based access control
-npm test -- src/__tests__/lib/kv-keys.test.ts           # Timekeeper KV key generation, date utilities
-```
+GitHub Actions classifies the complete diff and remains the authoritative exact-head result. File names and shard membership may change; use package scripts and the CI catalogue rather than maintaining a second named-test inventory here.
 
 ### Linting and Type Checking
 

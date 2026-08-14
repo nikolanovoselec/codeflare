@@ -58,6 +58,28 @@ When their public workflows or consumers change, update the private README in th
 | [Penetration Testing](lanes/pentest.md) | Current scheduled probe contract and dated black-box evidence | Security |
 | [Stress Testing](lanes/stress-test.md) | Load-suite safety, execution, thresholds, and dated results | Operators |
 
+## Package Reference Index
+
+| Package reference | Owns | System contracts remain in |
+|---|---|---|
+| [Landing](../landing/README.md) | Landing source map, browser behavior, build order, package verification | [Architecture Internals](lanes/architecture-internals.md), [API Reference](lanes/api-reference.md), [Security](lanes/security.md) |
+| [Browser IDE agents](../openvscode/README.md) | Extension inventories, package composition, local verification | [Container](lanes/container.md), [Architecture Internals](lanes/architecture-internals.md), [Security](lanes/security.md) |
+| [Claude IDE configuration](../openvscode/claude/README.md) | Claude projection files and managed settings | [Browser IDE agents](../openvscode/README.md) and [Container](lanes/container.md) |
+
+## Change Routing
+
+| Change type | Canonical owner | Secondary updates when affected |
+|---|---|---|
+| Public or private route contract | [API Reference](lanes/api-reference.md) | Security, specialist runtime lane, owning SDD requirement |
+| Public configuration, default, or mode overlay | [Configuration](lanes/configuration.md) | Deployment, Security, owning SDD requirement |
+| Operator deployment, verification, or rollback | [Development & Deployment](lanes/deployment.md) | CI/CD when workflow topology changes |
+| Workflow trigger, permission, gate, or artifact | [CI/CD & Testing](lanes/ci-cd.md) | Deployment or package reference for consumer changes |
+| Runtime image, process, lifecycle, or recovery | [Container](lanes/container.md) or specialist runtime lane | Architecture map only when component ownership changes |
+| Identity, entitlement, provisioning, or security control | Authentication, Billing, User Provisioning, or Security lane | API and Configuration only for their owned surfaces |
+| Package-only source composition or build | Owning package reference above | Canonical system lane only when the public contract changes |
+| Vulnerability reporting policy | [Security Policy](../SECURITY.md) | Technical controls remain in [Security](lanes/security.md) |
+| Required behavior or evidence | Owning file in [`sdd/spec/`](../sdd/README.md) | Canonical lane and changelog |
+
 ## Architecture Decisions
 
 All significant design choices are recorded as Architecture Decision Records (ADRs) with context, alternatives considered, and rationale. See [decisions/README.md](decisions/README.md) for the full ledger.
