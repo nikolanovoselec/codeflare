@@ -103,7 +103,7 @@ cd web-ui && npm run typecheck     # Frontend
 ## Code Style
 
 - **TypeScript** with strict mode enabled across all layers.
-- **Behavioral tests** assert observable contracts. Backend, frontend, and landing use Vitest; host and Browser IDE packages use Node's test runner.
+- **Behavioral tests** assert observable contracts. Backend, frontend, landing, and Browser IDE packages use Vitest; host uses Node's test runner.
 - **SolidJS** for the frontend -- not React. Reactivity is signal-based. See `web-ui/src/stores/` for patterns.
 - **Hono** as the backend router on Cloudflare Workers.
 - **Zod** for input validation on both backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`).

@@ -147,7 +147,7 @@ The suite does not exercise the stop endpoint. With 3 base VUs and each cycle ta
 The test validates that:
 - Sessions are created successfully (201)
 - Sessions can be fetched (200)
-- Sessions can be deleted (204)
+- Sessions can be deleted (200 or 204)
 - Error rates remain <15% throughout
 
 ## Think Time Model

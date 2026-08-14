@@ -238,7 +238,7 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 2. **READ_SCROLLBACK** -- wheel, pointer, navigation-key, touch-drag, and registered external intent transfer ownership to the user until the viewport returns to the live bottom.
 
-While ownership is active, `flushWriteBuffer()` defers streamed output (bounded by a 2M-character cap) so trimming cannot move the owned viewport; returning to bottom releases the held output in one write. xterm alone applies any trimming that does occur (e.g. a cap-exceeding flush), and no restoration is ever injected.
+While ownership is active, `flushWriteBuffer()` defers streamed output (bounded by a 2M-character cap) so trimming cannot move the owned viewport; returning to bottom releases whole held units toward a 65,536-character per-tick target. Overflow beyond the 2M-character cap drops the oldest whole held units rather than writing through beneath the reader; xterm applies any later trimming, and no restoration is ever injected.
 
 3. **MOBILE_INPUT_LOCKED** -- opening the touch keyboard keeps the established fit-and-bottom transition in `useTerminal()`.
 

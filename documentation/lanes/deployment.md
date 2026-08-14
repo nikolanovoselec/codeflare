@@ -74,7 +74,9 @@ Cloudflare immediately creates a deployment that sends 100% of traffic to the se
 **Verifies:** Confirm the active deployment, public health, and provider discovery:
 
 ```sh
+CODEFLARE_URL=https://<production-host>
 npx wrangler deployments status --name "$WORKER_NAME"
+curl -fsS "$CODEFLARE_URL/api/health" | jq -e '.status == "ok"'
 curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "array"'
 ```
 

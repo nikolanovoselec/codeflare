@@ -39,7 +39,7 @@ Codeflare supports two fundamentally different authentication flows:
 | **User management** | CF Access groups + email allowlists | Worker KV records, JIT provisioning |
 | **Setup wizard** | Creates CF Access app, groups, policies | No CF Access resources created |
 | **Cost** | Free for 50 users, $3/user/month after | Free for unlimited users |
-| **Service automation auth** | `CF_ACCESS_CLIENT_SECRET` (CF Access + service headers) | `OAUTH_E2E_TEST_SECRET` (X-Service-Auth only) |
+| **Service automation auth** | CF Access service headers or optional `X-Service-Auth` | Optional `X-Service-Auth` |
 | **Logout** | `/cdn-cgi/access/logout` (CF Access system endpoint) | `/auth/github/logout` (clears `codeflare_session` cookie) |
 
 `web-ui/src/components/Header.tsx` and `web-ui/src/components/Dashboard.tsx` always call `/auth/logout`; `src/routes/auth-redirects.ts` dispatches to the correct logout flow based on mode: any mode that issues a `codeflare_session` (SaaS or onboarding) takes the `/auth/github/logout` path, and only default/enterprise CF Access deployments use the CF Access system endpoint. The CF Access logout endpoint treats an onboarding/SaaS `returnTo` as an invalid redirect URL, which is why those modes take the GitHub path ([REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode)).
