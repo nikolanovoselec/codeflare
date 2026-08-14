@@ -205,26 +205,28 @@ export function parseSleepAfterMs(s: string): number {
  * Update a timestamp field on the KV session record (best-effort).
  * Optionally sets session.status (e.g. 'stopped' on hibernation).
  */
+export type KvStatusUpdateResult = 'written' | 'absent' | 'failed';
+
 export async function updateKvStatus(
   ctx: DurableObjectState,
   env: Env,
   bucketNameOverride: string | null,
   status: 'running' | 'stopped' | null,
   field: 'lastStartedAt' | 'lastActiveAt',
-): Promise<void> {
+): Promise<KvStatusUpdateResult> {
   try {
     const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
     // Fallback: if _bucketName isn't set on the instance, try loading from storage
     const bucketName = bucketNameOverride || await ctx.storage.get<string>('bucketName') || null;
     if (!sessionId || !bucketName) {
       logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
-      return;
+      return 'failed';
     }
     const key = getSessionKey(bucketName, sessionId);
     const session = await env.KV.get<Session>(key, 'json');
     if (!session) {
       logger.info('updateKvStatus: session not found in KV', { key, status, field });
-      return;
+      return 'absent';
     }
     const updated = {
       ...session,
@@ -233,8 +235,10 @@ export async function updateKvStatus(
     };
     await putSessionWithMetadata(env.KV, key, updated);
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
+    return 'written';
   } catch (err) {
     logger.error('Failed to update KV status', toError(err));
+    return 'failed';
   }
 }
 
@@ -310,13 +314,16 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
  * does not identify whether the DO attachment, container network, or host is
  * wedged. Persist correlated recovery evidence before resetting the Durable
  * Object, confirm recovery only from a later response, and stop resetting after
- * two attempts while preserving slower checks. The Containers SDK constructor
- * has a running-container reattachment path; reconnecting through it remains a
+ * two attempts. If both probes still fail on the next tick, converge the stale
+ * running record to stopped instead of monitoring and billing it forever. The
+ * Containers SDK constructor has a running-container reattachment path;
+ * reconnecting through it remains a
  * deployed smoke check rather than a unit-tested contract.
  */
 type TransportReconciliation = {
   nextDelaySec: number;
   recordUsage: boolean;
+  terminalUnavailable?: true;
 };
 
 type ProbeFailureCategory = 'timeout' | 'network-lost' | 'connection-refused' | 'other';
@@ -543,9 +550,11 @@ async function reconcileActiveTransportRecovery(
   probes: TransportProbeObservations,
 ): Promise<TransportReconciliation> {
   if (recovery.status === 'exhausted') {
-    // The transition to exhausted is logged once. Keep normal metering and the
-    // watchdog alive without emitting another error every minute.
-    return { nextDelaySec: 60, recordUsage: true };
+    // Two coordinator reconstructions plus another complete probe failure are
+    // durable evidence that the recorded session is unavailable. The SDK can
+    // leave container.running stuck true on this path, so waiting for the
+    // not-running branch would leave KV and usage falsely running forever.
+    return { nextDelaySec: 0, recordUsage: false, terminalUnavailable: true };
   }
 
   const nextPostResetFailures = recovery.postResetFailureCount + 1;
@@ -883,6 +892,13 @@ export async function collectMetrics(
     logger.info('collectMetrics: container not running past confirmation window, marking stopped', {
       elapsedMs: now - since,
     });
+    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+    if (stoppedUpdate === 'failed') {
+      // Keep the confirmation marker and recovery evidence until the
+      // authoritative status write succeeds; retry without recording usage.
+      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
+      return;
+    }
     await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
     try {
       await clearTransportRecoveryState(ctx);
@@ -895,7 +911,6 @@ export async function collectMetrics(
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
     return;
   }
   // Container is running - clear any pending not-running confirmation marker so
@@ -1082,6 +1097,29 @@ export async function collectMetrics(
   if (transportReconciliation === null) {
     // Deliberate teardown owns the lifecycle, or its ownership cannot be read.
     // Fail closed: do not re-arm or reset the Durable Object.
+    return;
+  }
+  if (transportReconciliation.terminalUnavailable) {
+    logger.error('collectMetrics: exhausted transport remains unreachable, marking session stopped', undefined, {
+      durableObjectId: ctx.id.toString(),
+      containerRunning: ctx.container?.running ?? false,
+      probes: { activity: activityProbe, health: healthProbe },
+    });
+    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+    if (stoppedUpdate === 'failed') {
+      // Preserve the exhausted record as retry ownership. This retry is
+      // terminal convergence, not a billable metrics tick.
+      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
+      return;
+    }
+    try {
+      await clearTransportRecoveryState(ctx);
+    } catch (err) {
+      logger.warn('collectMetrics: failed to clear exhausted recovery after stopped write', {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     return;
   }
 
