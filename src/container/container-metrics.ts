@@ -971,7 +971,8 @@ export async function collectMetrics(
         await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
         return;
       }
-      if (sessionId && bucketName && (!session || session.status === 'stopped')) {
+      if (sessionId && bucketName
+          && (session?.status === 'stopped' || (!session && ctx.container?.running))) {
         const terminalRecovery: TransportRecoveryRecord = {
           ...storedRecovery,
           status: 'terminal-stop-pending',

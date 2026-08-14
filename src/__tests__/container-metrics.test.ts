@@ -23,6 +23,7 @@ const testState = vi.hoisted(() => ({
     syncStatus: 'success',
   } as Record<string, string>,
   tcpFetchShouldFail: false,
+  hostProbeCalls: 0,
   activityFetchShouldFail: false,
   healthFetchShouldFail: false,
   activityStatus: 200,
@@ -83,6 +84,7 @@ vi.mock('@cloudflare/containers', () => {
                   headers: { 'Content-Type': 'application/json' },
                 });
               }
+              testState.hostProbeCalls += 1;
               if (testState.tcpFetchShouldFail
                   || (url.includes('/activity') && testState.activityFetchShouldFail)
                   || (url.includes('/health') && testState.healthFetchShouldFail)) {
@@ -217,12 +219,32 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     return instance;
   };
 
+  const enableTimekeeper = async () => {
+    testState.storedUserEmail = 'quota@example.com';
+    containerInstance = createContainerInstance();
+    const timekeeperStub = {
+      fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
+    };
+    const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
+    instanceEnv.SAAS_MODE = 'active';
+    instanceEnv.TIMEKEEPER = {
+      idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+      get: vi.fn(() => timekeeperStub),
+    };
+    await vi.waitFor(
+      () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+      { timeout: 1000 },
+    );
+    return timekeeperStub;
+  };
+
   beforeEach(async () => {
     mockKV = createMockKV();
     testState.containerRunning = true;
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.hostProbeCalls = 0;
     testState.activityFetchShouldFail = false;
     testState.healthFetchShouldFail = false;
     testState.activityStatus = 200;
@@ -762,14 +784,16 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-020 AC2: re-arms when the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-020 AC2: attempts to re-arm when the early recovery ownership read fails', async () => {
+      const timekeeperStub = await enableTimekeeper();
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleCalls = [];
 
       await containerInstance.collectMetrics();
 
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(mockTimekeeperClient.updateUsage).not.toHaveBeenCalled();
+      expect(testState.hostProbeCalls).toBe(0);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'collectMetrics: failed to read terminal recovery ownership',
@@ -1029,6 +1053,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         totalFailureCount: 9,
         status: 'exhausted',
       });
+      const timekeeperStub = await enableTimekeeper();
       testState.tcpFetchShouldFail = false;
       testState.scheduleCalls = [];
 
@@ -1038,7 +1063,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
       expect(testState.stopCalls).toBe(1);
       expect(testState.scheduleCalls).toEqual([]);
-      expect(mockTimekeeperClient.updateUsage).not.toHaveBeenCalled();
+      expect(testState.hostProbeCalls).toBe(0);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
@@ -1073,6 +1099,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         totalFailureCount: 9,
         status: 'exhausted',
       });
+      const timekeeperStub = await enableTimekeeper();
       mockKV.get.mockRejectedValueOnce(new Error('KV GET failed'));
       testState.scheduleCalls = [];
 
@@ -1081,6 +1108,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
       expect(testState.stopCalls).toBe(0);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(testState.hostProbeCalls).toBe(0);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'collectMetrics: failed to resolve pre-upgrade terminal ownership',
         expect.objectContaining({ error: 'KV GET failed' }),
@@ -2073,6 +2103,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
+    testState.hostProbeCalls = 0;
     testState.activityFetchShouldFail = false;
     testState.healthFetchShouldFail = false;
     testState.activityStatus = 200;
