@@ -28,6 +28,14 @@ const UNDICI_8_9_0 = Object.freeze({
   engines: { node: '>=22.19.0' },
 });
 
+// Pi's published shrinkwrap omits these nested registry integrities. Keep the
+// independently reviewed npm dist values here so every committed production
+// lock remains complete after deterministic regeneration.
+const REVIEWED_SHRINKWRAP_INTEGRITIES = new Map([
+  ['@earendil-works/pi-client@0.84.1', 'sha512-/V5hGHE4Zq+jG0GtwIB9PyBUOGd6gBLZ7lkQYFKchKnxYHeH3rmWC5xw4kpnZKKBuBuFTdLVbU9vEjlAGMMb2A=='],
+  ['@earendil-works/pi-protocol@0.84.1', 'sha512-Ox1pciyeSPGEEUcxvR0/dJcrY7C6hrEGA8y71rOsvSIUlXN1Cbp/be/eoL71OGDBk5O97TeQPfWN6Ju/2Ehjww=='],
+]);
+
 function compareVersions(left, right) {
   const a = left.split('.').map(Number);
   const b = right.split('.').map(Number);
@@ -63,7 +71,7 @@ function main() {
   }
 
   const packageName = (packagePath) => packagePath.slice(packagePath.lastIndexOf('node_modules/') + 13);
-  const committedIntegrity = new Map();
+  const committedIntegrity = new Map(REVIEWED_SHRINKWRAP_INTEGRITIES);
   for (const [packagePath, metadata] of Object.entries(lock.packages)) {
     if (!packagePath || !metadata?.version || !metadata.integrity) continue;
     committedIntegrity.set(`${packageName(packagePath)}@${metadata.version}`, metadata.integrity);

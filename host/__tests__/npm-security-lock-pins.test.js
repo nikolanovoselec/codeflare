@@ -44,6 +44,14 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
             version: '2.0.0',
             resolved: 'https://registry.example/scoped-2.0.0.tgz',
           },
+          'node_modules/vendor/node_modules/@earendil-works/pi-client': {
+            version: '0.84.1',
+            resolved: 'https://registry.npmjs.org/@earendil-works/pi-client/-/pi-client-0.84.1.tgz',
+          },
+          'node_modules/vendor/node_modules/@earendil-works/pi-protocol': {
+            version: '0.84.1',
+            resolved: 'https://registry.npmjs.org/@earendil-works/pi-protocol/-/pi-protocol-0.84.1.tgz',
+          },
           'node_modules/unrelated': { version: '1.2.3', integrity: 'unchanged' },
         },
       }));
@@ -76,6 +84,14 @@ describe('REQ-OPS-019: bounded npm security lock pins', () => {
         lock.packages['node_modules/vendor/node_modules/scoped'].integrity,
         'sha512-canonical',
         'nested shrinkwrap entries inherit committed integrity from the same locked package and version',
+      );
+      assert.equal(
+        lock.packages['node_modules/vendor/node_modules/@earendil-works/pi-client'].integrity,
+        'sha512-/V5hGHE4Zq+jG0GtwIB9PyBUOGd6gBLZ7lkQYFKchKnxYHeH3rmWC5xw4kpnZKKBuBuFTdLVbU9vEjlAGMMb2A==',
+      );
+      assert.equal(
+        lock.packages['node_modules/vendor/node_modules/@earendil-works/pi-protocol'].integrity,
+        'sha512-Ox1pciyeSPGEEUcxvR0/dJcrY7C6hrEGA8y71rOsvSIUlXN1Cbp/be/eoL71OGDBk5O97TeQPfWN6Ju/2Ehjww==',
       );
       assert.deepEqual(lock.packages['node_modules/unrelated'], { version: '1.2.3', integrity: 'unchanged' });
     } finally {

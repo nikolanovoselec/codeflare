@@ -233,7 +233,21 @@ scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
 The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
 checks `impeccable.style`, refreshes both agent copies, updates both manifests,
-and regenerates the seed.
+and regenerates the seed. Version 4.1.0 adds native-platform review inputs,
+comp-first/code-first workflow defaults, richer direction decisions, and a
+bounded degraded-agent path without changing Codeflare's Claude-and-Pi delivery
+boundary.
+
+The Apache-2.0 Cloudflare bundle tracks `cloudflare/skills` commit
+`f96bff754e428838818017f75817f0f9428acd48`. Its former ambiguous `sandbox-sdk`
+entry is replaced by `sandbox-stable`, `sandbox-next`, and
+`sandbox-migrate-to-next`, preventing stable string-command APIs from being mixed
+with the 1.0-preview argv/process-handle APIs. The canonical Turnstile skill is
+also refreshed through upstream commit `30553f89ae1ef1e3c2917cd09d72dac992bb4e9a`;
+obsolete vendored deployment templates are retired in favor of the current
+siteverify-first runbook and scripts. Codeflare keeps the mega-skill reference
+tree slimmed and excludes upstream MCP configuration as specified by
+[REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed).
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
@@ -246,7 +260,7 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.20.1 provides JSONC configuration, direct-tool unregister cleanup, and MCP elicitation without changing Codeflare's proxy contract; its MCP transport runs on `@modelcontextprotocol/client`/`@modelcontextprotocol/core` 2.0.0 and pulls `jose`, `pkce-challenge`, `eventsource`, and `cross-spawn` into the container's dependency tree. Because adapter 2.15+
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.21.0 retains the 2.20 proxy contract and modular MCP v2 transport while adding opt-in MCP 2026-07-28 discovery, Agent Plugins MCP loading, safer server-name ownership resolution, configurable panel saving, and an explicit OAuth issuer-validation escape hatch. Codeflare leaves the legacy protocol default and plugin paths unchanged, so no owned MCP skill or configuration migration is required. The adapter's transport runs on `@modelcontextprotocol/client`/`@modelcontextprotocol/core` 2.0.0 and pulls `jose`, `pkce-challenge`, `eventsource`, and `cross-spawn` into the container's dependency tree. Because adapter 2.15+
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. The Pi entrypoint-owned
