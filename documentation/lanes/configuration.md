@@ -97,17 +97,21 @@ Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_A
 
 Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
 
+The `workers.dev` URL is only the initial setup surface. After setup configures the custom domain, operators route normal traffic through that domain and its configured authentication. In Cloudflare Access mode, gate the `workers.dev` URL behind one-click Access in the Cloudflare dashboard so it cannot remain an unprotected alternate entry ([REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7).
+
 `R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
 
 ### Container Specs
 
-| Tier | Config | Max Instances | Notes |
-|------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 12 GB | 10 | Higher parallelism |
+| Tier | Config | Notes |
+|------|--------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
+| default or `saas` | 1 vCPU, 3 GiB, 6 GB | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
+| `high` | 2 vCPU, 6 GiB, 12 GB | Higher parallelism |
 
-Selected via the `RESSOURCE_TIER` GitHub Actions repo variable at deploy time (`low` / `default` / `high`). The misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
+One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
+
+The `RESSOURCE_TIER` misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
 
 Base image: Node.js 24 Debian (bookworm-slim).
 
@@ -304,7 +308,7 @@ Additional details:
 
 `setup:enterprise_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs. A user in **any** configured group is admitted (any-of gate); a user in no configured group receives 403 (fail-closed). When the key is unset, any user the Access application policy admits is provisioned on their valid Access JWT alone.
 
-Every matched group is forwarded to the customer's AI Gateway as a per-group `cf-aig-metadata.group_<sanitized>_<hash>=1` tag (alongside `cf-aig-metadata.user` = the user's email), within CF's 5-entry metadata cap (`user` + up to 4 groups, excess truncated deterministically in configured order), so gateway rules can branch routing, cost, and rate-limit policies per group ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). No group metadata is stamped when no groups are configured. The same matched-group list also drives per-group dynamic routing when configured ([REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)).
+Every matched group from the configured `setup:enterprise_access_group` user-access list is forwarded to the customer's AI Gateway as a `cf-aig-metadata.group_<sanitized>_<hash>=1` tag (alongside `cf-aig-metadata.user` = the user's email), within CF's 5-entry metadata cap (`user` + up to 4 groups, excess truncated deterministically in configured-list order), so gateway rules can branch routing, cost, and rate-limit policies per group ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). Unconfigured IdP memberships and `setup:enterprise_admin_access_group` memberships are not stamped. No group metadata is stamped when no user-access groups are configured. The same ordered matched-user-group list also drives per-group dynamic routing when configured ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)).
 
 **Tag-key format (what you see in AI Gateway logs and what your Dynamic Route must filter on).** The metadata key is `group_<sanitized>_<hash>`, not the raw group name, and its value is always `1`. Example: the Access group `codeflare_admins` is stamped as `group_codeflare_admins_150f5d1` with value `1` — in the AI Gateway log it reads `group_codeflare_admins_150f5d1:1`. The key is built by `sanitizeGroupKey` (`src/llm-interceptor.ts`) in two parts: `<sanitized>` is the group name lower-cased with every run of non-`[a-z0-9]` characters collapsed to `_` (so `Dev Team` → `dev_team`), and `<hash>` is a deterministic djb2 hash of the **original** name in base-36.
 

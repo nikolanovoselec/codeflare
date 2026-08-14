@@ -88,14 +88,15 @@ export class container extends Container<Env> implements ContainerEnvState {
   // collectMetrics(), which polls the in-container /activity endpoint every 60s
   // and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref.
   //
-  // Why: @cloudflare/containers v0.3.5 refreshes the SDK timer on every
-  // WebSocket message in both directions (client<->container)
+  // Why: the pinned Containers SDK refreshes its timer on every WebSocket
+  // message in both directions (client<->container)
   // (parseTimeExpression('24h') = 86400s). That means the SDK timer tracks
   // "any activity", whereas we want "user-input activity" - a container running
   // `tail -f` or `yes` should still sleep when the user walks away.
-  // collectMetrics reads lastInputAt from the in-container terminal server,
-  // which tracks PTY input only, giving us the correct semantics independent of
-  // the SDK.
+  // collectMetrics reads lastInputAt from the in-container host. That timestamp
+  // advances for classified PTY input and client-to-server Browser IDE frames,
+  // but not terminal output or server-to-client editor traffic, giving us the
+  // required semantics independently of the SDK.
   //
   // NOTE: pinning the SDK timer does NOT stop Cloudflare from reaping an idle
   // container instance at the platform level. That reap arrives as onError
@@ -159,10 +160,10 @@ export class container extends Container<Env> implements ContainerEnvState {
   _sessionId: string | null = null;
   _userEmail: string | null = null;
   /**
-   * The user's matched Cloudflare Access groups (REQ-ENTERPRISE-004 revised),
-   * populated by the internal-config handler alongside _userEmail. Passed as the
-   * LlmInterceptor `groups` prop so cf-aig-metadata carries one tag per group for
-   * per-group gateway policies.
+   * The user's matches from the configured Cloudflare user-access group list
+   * (REQ-ENTERPRISE-004 revised), populated by the internal-config handler
+   * alongside _userEmail. Passed as the LlmInterceptor `groups` prop so
+   * cf-aig-metadata carries one tag per configured user group for gateway policy.
    */
   _userGroups: string[] = [];
   /**

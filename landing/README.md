@@ -14,9 +14,17 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; marketing-page opt-in scripts (`scramble.ts`, `splash.ts` + the `splash-*` / `webgl-utils` fluid set, `proof.ts`, `type-on-view.ts`, `reveal.ts`, `agentfoot.ts`, `feature-terminals.ts`, and `orch.ts`) run only on `index.astro`, so the marketing page keeps its WebGL/motion/proof system while login/privacy keep a clean first paint. `splash.ts` sets `html.flare-on` to switch the marketing page onto glass surfaces only after WebGL is live; reduced-motion or no-WebGL visitors keep solid surfaces. `login.ts` is the only login-page script: it reads the `?status` / `?error` query parameters from the Worker's OAuth round-trip and reshapes the page (swaps in the confirmation panel or shows an error); it has no animation and no reduced-motion gate. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Page-specific browser behavior. Marketing retains its WebGL, motion, and proof system; login and privacy retain a clean first paint. |
 | Components | `src/components/*.astro` | Markup rendering content data; components never carry their own text (it comes from `src/content/site.ts`). Layout primitives (`Section`, `SectionHead`, `Header`, `Footer`); the terminal system (`Terminal` chrome + `Transcript` [last-line cursor / typed / roll-middle styler] + `GateSteps` [rolling-rows styler] + `LedgerTable` / `ReviewBoard` / `OrchTree` bodies); sections (`Hero` / `HeroHeadline`, `FeatureTerminals`, `FeatureGrid` / `FeatureCard`, `TrustStrip`, `MicroCta`, `ContactForm`); login UI (`LoginCard`, `SsoAccordion`, `RequestedPanel`). Pages are pure composition of these. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `login.astro` (onboarding sign-in: GitHub OAuth + enterprise-SSO request flow), `privacy.astro`. |
+
+### Browser logic
+
+`contact-controller.ts` is pure and unit tested. The opt-in `scramble.ts`, `splash.ts`, `splash-*`, `webgl-utils`, `proof.ts`, `type-on-view.ts`, `reveal.ts`, `agentfoot.ts`, `feature-terminals.ts`, and `orch.ts` modules run only on `index.astro`.
+
+`BaseLayout.astro` server-renders `html.flare-on` on the marketing page, stabilizing its glass treatment before first paint. When WebGL is available, `splash.ts` mounts the canvas; reduced motion, unavailable WebGL, backgrounding, or context loss retires it to the CSS fallback.
+
+`login.ts` is the only login-page script. It reads the Worker's OAuth `?status` and `?error` response, then shows either the confirmation panel or an error; it has no animation or reduced-motion gate.
 
 ## Design
 

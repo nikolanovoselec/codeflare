@@ -1,1038 +1,754 @@
 # Architecture
 
-System architecture, components, data flow, and design rationale for Codeflare.
+System map, ownership boundaries, authoritative state, and cross-component flows for Codeflare.
 
-**Audience:** Developers
+**Audience:** Operators and developers
 
 ---
 
 ## Contents
 
-- [Architecture Overview](#architecture-overview)
+- [Purpose, Audience, and Ownership](#purpose-audience-and-ownership)
+- [System at a Glance](#system-at-a-glance)
 - [System Components](#system-components)
+- [Architectural Invariants](#architectural-invariants)
+- [State Ownership and Durability](#state-ownership-and-durability)
 - [Data Flow](#data-flow)
-- [Module-Level Caches](#module-level-caches)
-- [Design Rationale](#design-rationale)
-- [Landing Composition Implementation](#landing-composition-implementation)
-- [Specification Coverage](#specification-coverage)
+- [Failure Domains and Recovery Ownership](#failure-domains-and-recovery-ownership)
+- [Observability and Operator Signals](#observability-and-operator-signals)
+- [Capacity, Caching, and Performance Assumptions](#capacity-caching-and-performance-assumptions)
+- [Security and Privacy Boundaries](#security-and-privacy-boundaries)
+- [Decision and Requirement Map](#decision-and-requirement-map)
 - [Related Documentation](#related-documentation)
 
-## Architecture Overview
+## Purpose, Audience, and Ownership
 
-Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)).
+This document owns Codeflare's runtime topology, component boundaries, authoritative state, cross-component flows, failure domains, and architectural invariants. It is the starting point for an operator investigating which system owns a decision and for a developer tracing a request across processes.
+
+It does not own endpoint contracts, configuration catalogues, deploy commands, threat-control detail, troubleshooting procedures, or source-file inventories. Those facts live in their existing specialist lanes and are linked at the point where the boundary matters.
+
+| Question | Canonical owner |
+|---|---|
+| Which component owns this responsibility or state? | This document |
+| What does an HTTP or WebSocket endpoint accept and return? | [API Reference](api-reference.md) |
+| Which setting controls it? | [Configuration](configuration.md) |
+| How is it deployed or rolled back? | [Deployment](deployment.md) |
+| Which security control protects it? | [Security](security.md) |
+| How does the container or host implement it? | [Container](container.md) and [Architecture Internals](architecture-internals.md) |
+| How is persistent data reconciled? | [Storage & Sync](storage-and-sync.md) |
+| How are agents, review, and seeded policies delivered? | [Preseed](preseed.md) |
+| What should an operator do when it fails? | [Troubleshooting](troubleshooting.md) |
+| Why was a trade-off accepted? | [Architecture Decisions](../decisions/README.md) |
+
+<a id="architecture-overview"></a>
+## System at a Glance
+
+Codeflare runs each backend session in one isolated Cloudflare Container. Browser tabs, terminal panes, MultiView, and the Browser IDE connect to a session; they do not define its identity. A user's sessions share one R2 bucket for selected persistent data while each container keeps an ephemeral local working copy. Workers KV is the control-plane record, and Durable Objects coordinate session-local runtime state.
 
 ```mermaid
 graph TD
-    B1["Browser Tab 1 (xterm.js)"] -->|WebSocket| W["Cloudflare Worker (Hono router)"]
-    B2["Browser Tab 2 (xterm.js)"] -->|WebSocket| W
-    BI["Browser IDE"] -->|"authenticated /api/vscode/session"| W
-    W -->|"containerId=bucket-session1"| C1["Container 1"]
-    W -->|"containerId=bucket-session2"| C2["Container 2"]
-    C1 --- P1["PTY + Agent"]
-    C1 --- O1["code-server + native Pi / official Claude"]
-    C2 --- P2["PTY + Agent"]
-    P1 -->|"rclone bisync (15min + manual triggers)"| R2["R2 bucket (shared per user)"]
-    P2 -->|"rclone bisync (15min + manual triggers)"| R2
+    B["Browser: dashboard, terminal, Browser IDE"] -->|"HTTP / WebSocket"| W["Cloudflare Worker"]
+    W --> A["Authentication and setup policy"]
+    W --> KV["Workers KV: users, sessions, status, config"]
+    W --> DO1["Container DO: session A"]
+    W --> DO2["Container DO: session B"]
+    W --> TK["Timekeeper DO: per-user usage"]
+    DO1 --> C1["Container A"]
+    DO2 --> C2["Container B"]
+    C1 --> P1["PTY, agents, host, Browser IDE"]
+    C2 --> P2["PTY, agents, host, Browser IDE"]
+    C1 <-->|"restore + bounded bisync"| R2["R2 bucket: shared per user"]
+    C2 <-->|"restore + bounded bisync"| R2
 ```
 
-**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, operators route all traffic through that domain, protected by the configured auth mechanism (CF Access or GitHub OIDC), as required by [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7. In CF Access mode, gate the workers.dev URL behind one-click Access in the Cloudflare dashboard.
+The public Worker owns the edge boundary. Container credentials that must remain outside the workload are held or re-stamped at Worker-side interception boundaries. The container remains deliberately powerful inside its isolated workload and may change files or external systems permitted by its credentials and network policy.
 
----
+### Deployment modes
+
+| Mode | Identity boundary | Public entry | Billing | Enterprise interception |
+|---|---|---|---|---|
+| Default | Cloudflare Access | Authenticated application | Disabled | Off |
+| Onboarding | GitHub OIDC session | Public landing and integrated sign-in | Disabled | Off |
+| SaaS | GitHub OIDC session | Public landing and provider chooser | Enabled | Off |
+| Enterprise | Customer Cloudflare Access | Customer-controlled application | Suppressed | Optional AI Gateway, Browser token, GitHub token, and strict egress boundaries |
+
+The `workers.dev` URL is a setup surface, not the normal production entry. Custom-domain and Access configuration belong to [Configuration](configuration.md) and [Authentication](authentication.md); deployment procedure belongs to [Deployment](deployment.md). [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) defines the custom-domain contract.
 
 ## System Components
 
+The registry below keeps one stable evidence-bearing dossier per runtime component. The detailed owner link is where implementation and operator procedure continue.
+
 ### Worker (Hono Router)
 
-**Responsibility:** Serve as the public HTTP/API gateway, apply authentication and routing policy, and dispatch session work to the owning Durable Objects.
+**Responsibility:** Authenticate public requests, apply edge policy, serve static assets, and route API, WebSocket, and session work to the owning component.
 
-**Inputs:** HTTP and WebSocket requests, Worker bindings, setup state, and verified user identity.
+**Inputs:** HTTP and WebSocket requests, Worker bindings, setup state, and verified identity.
 
-**Outputs:** API and asset responses, WebSocket upgrades, and calls to session-scoped Durable Objects.
+**Outputs:** API and asset responses, WebSocket upgrades, and calls to Durable Objects or external integrations.
 
-**Source:** `src/index.ts` and `src/middleware/auth.ts`.
+**State owned:** No durable process-local authority; bounded per-isolate caches accelerate reads.
 
-Entry point and API gateway. Handles routing, WebSocket upgrade interception, authentication (CF Access JWT or GitHub OIDC session cookies), container lifecycle through Durable Objects, and CORS with configurable allowed origins.
+**Does not own:** Container processes, durable workspace content, or endpoint-specific business state.
 
-`src/middleware/auth.ts` owns shared authentication middleware and admin authorization through `requireAdmin`. Admin route modules run identity middleware first, then `requireAdmin`; the detailed auth model remains in [Authentication](authentication.md#authentication-modes). <!-- @impl: src/middleware/auth.ts::requireAdmin -->
+**Source:** `src/index.ts`, `src/middleware/auth.ts`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
-**WebSocket must be intercepted BEFORE Hono routing** (required workaround for CF Workers):
-```typescript
-// See: https://github.com/cloudflare/workerd/issues/2319
-const wsRouteResult = validateWebSocketRoute(request);
-if (wsRouteResult.isWebSocketRoute) {
-  return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
-}
-```
+**Requirements:** [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)
 
-**CORS:** Checks static patterns from `env.ALLOWED_ORIGINS` + dynamic origins from KV (cached in memory). Uses `matchesPattern()` with domain-boundary enforcement (dot-prefixed = suffix match, bare domains = exact or subdomain with dot boundary).
+**Decisions:** [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD34](../decisions/README.md#ad34-websocket-auth-bypass-of-hono-middleware)
 
-**Route Registration:** `/api/health`, `/api/auth`, `/auth`, `/public/auth/providers`, `/api/setup`, `/public`, `/api/user`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/users`, `/api/storage`, `/api/preferences`, `/api/llm-keys`, `/api/deploy-keys`, `/api/usage`, `/api/admin/tiers`
-
-**Workers Assets Routing Guardrails (`wrangler.toml`):**
-
-With SPA fallback (`not_found_handling = "single-page-application"`), control-plane and cache-policy paths execute Worker logic first via `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/landing/*", "/assets/*"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON); missing `/login` breaks the onboarding rewrite; missing `/assets/*` bypasses the immutable policy for Vite's fingerprinted CSS/JS and lets a restored page revalidate styles into Access login HTML after session expiry ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)).
+**Detailed documentation:** [API Reference](api-reference.md), [Authentication](authentication.md), [Architecture Internals](architecture-internals.md)
 
 ### Container DO (container)
 
-**Responsibility:** Own one session container's configuration, startup, proxying, metrics, idle enforcement, and teardown lifecycle.
+**Responsibility:** Coordinate one backend session's container configuration, startup, proxying, metrics, recovery, idle policy, and teardown.
 
-**Inputs:** Session and bucket identity, container preferences and credentials, internal control requests, and activity metrics.
+**Inputs:** Session and bucket identity, preferences, credentials, internal control requests, and host health/activity.
 
-**Outputs:** Container lifecycle transitions, authenticated proxied responses, persisted session status, and usage metrics.
+**Outputs:** Container lifecycle transitions, authenticated proxy traffic, persisted status, usage, and recovery evidence.
 
-**Source:** `src/container/index.ts`, `src/container/container-config.ts`, `src/container/container-lifecycle.ts`, `src/container/container-router.ts`, and `src/container/container-metrics.ts`.
+**State owned:** Session-local Durable Object coordination, deliberate-shutdown marker, recovery evidence, and container configuration.
 
-`src/container/index.ts` extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `index.ts` is the thin DO class shell; it delegates config (`setBucketName`; and `ensureVaultKey`, now superseded for vault encryption by the HKDF `getVaultEncryptionKey` per [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) to `container-config.ts`, lifecycle hooks (onStart/onStop/alarm) to `container-lifecycle.ts`, internal `/_internal/*` dispatch to `container-router.ts`, and idle enforcement/metrics to `container-metrics.ts`.
+**Does not own:** The user's durable files or the dashboard's read model.
 
-Together these own the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
+**Source:** `src/container/` and `src/routes/container/`.
 
-For Container DO internals including the `collectMetrics()` loop, `destroy()` override, auth token lifecycle, `setBucketName` idempotency, and SDK timer semantics, see [Container](container.md).
+**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
+
+**Decisions:** [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)
+
+**Detailed documentation:** [Container](container.md), [Session lifecycle internals](architecture-internals.md)
 
 ### LlmInterceptor (Enterprise Mode)
 
-**Responsibility:** Route enterprise agent LLM traffic through the configured Cloudflare AI Gateway without exposing the gateway credential to the container.
+**Responsibility:** Route configured enterprise LLM traffic through the customer's AI Gateway without exposing its credential to the container.
 
-**Inputs:** Intercepted provider HTTPS requests, session route catalog and identity metadata, and Worker-held AI Gateway configuration.
+**Inputs:** Intercepted OpenAI-wire requests, the configured route catalogue, matched configured user-access groups, and Worker-held gateway configuration.
 
-**Outputs:** Authenticated AI Gateway requests, normalized streaming responses, and bounded request-time errors when routing is unavailable.
+**Outputs:** Authenticated gateway requests, normalized streamed responses, or bounded fail-closed errors.
 
-**Source:** `src/llm-interceptor.ts` and `src/container/container-interception.ts`.
+**State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
 
-A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the customer's AI Gateway when `ENTERPRISE_MODE=active`. Instantiated per container session by the Container DO via `ctx.container.interceptOutboundHttps` + `ctx.exports`. The interceptor receives every outbound HTTPS connection the container opens to the LLM provider host (`api.openai.com`), strips the placeholder credential injected by `entrypoint.sh`, and forwards to the AI Gateway **REST API** first (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/<path>`, authenticated with `Authorization: Bearer <AIG_TOKEN>` using the Workers AI scope, plus a `cf-aig-gateway-id` header).
+**Does not own:** Provider keys, Access policy, per-group configuration, or agent model selection UI.
 
-On a `404` from the REST API (a provider not yet on that surface, e.g. Google/Gemini today), it replays the buffered request to the **deprecated compat path** (`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/<path>`, authenticated with `cf-aig-authorization: Bearer <AIG_TOKEN>` using the AI Gateway Run scope).
+**Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
 
-The 404-fallback is safe because a 404 is a complete error body, not a started stream (no double-billing, no truncation), and it stops firing automatically as Cloudflare migrates providers onto the REST API. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. Only OpenAI-wire-format agents (Copilot, Pi) run in enterprise mode, both via Chat Completions (`/chat/completions`); Pi runs with `reasoning: true` but starts each session at the configured default route's reasoning grade (default `off`), so gpt-5.5 stays tools-only by default (an OpenAI **Responses API** path was evaluated but reverted).
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)
 
-The interceptor maps the agent's slash-free `model` handle to the gateway dynamic route `dynamic/<route>` from the Setup-configured catalog on `/chat/completions` and `/responses` ([REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning)), failing safe to the default route on an unknown handle; an empty catalog or a non-model-routable body is forwarded unchanged. The catalog + default it enforces are resolved per the session's matched Access groups via the shared `resolveRouteCatalog` core — first matching configured group (in admin-configured order) wins, else the global catalog — the same core the container env fan (`loadEnterpriseRouteConfig`) uses, so the two routing sinks cannot drift ([REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)). On streaming `/chat/completions` it also normalizes the response stream (see **Streaming normalization** below).
+**Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)
 
-See [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST transport (it amends [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), whose interception mechanism is unchanged). On the compat replay the interceptor strips OpenAI-only fields (`store`, `prompt_cache_key`) that non-OpenAI providers reject with a 400 (the REST leg keeps them, so OpenAI prompt caching is unaffected).
-
-Per-user attribution is stamped into `cf-aig-metadata` as the IdP-verified `user` email plus one `group_<sanitized>_<hash>=1` tag per matched Cloudflare Access group (the scalar `group` key is dropped), within CF's 5-entry cap (`user` + up to 4 groups, deterministic truncation with a warn), so the customer's gateway analytics attribute usage to the real identity and can branch per-group routing/cost/rate-limit policies via an equals-filter on each `group_*` key.
-
-The key carries a deterministic djb2/base-36 suffix of the original group name (`sanitizeGroupKey`) so lossy `[a-z0-9_]` sanitization can't collide two distinct groups (e.g. `codeflare_admins` → `group_codeflare_admins_150f5d1`); the gateway equals-filter must target that full hashed key, not the bare name. See [Enterprise Access Group Configuration](configuration.md#enterprise-access-group-configuration) for the operator-facing detail.
-
-`ctx.exports` is default-on at the project's compat date (`2026-02-05`). No `enable_ctx_exports` compat flag is needed.
-
-The gateway URL (`AIG_GATEWAY_URL`) and token (`AIG_TOKEN`) live exclusively in the Worker/interceptor environment. They are never forwarded to the container and never appear in any container env var or log. When `ENTERPRISE_MODE` is unset the DO never calls `interceptOutboundHttps`, the interceptor is never instantiated, and the direct-key path is byte-identical to non-enterprise deployments.
+**Detailed documentation:** [Security](security.md#enterprise-mode-credential-containment-and-ca-trust), [Configuration](configuration.md#enterprise-access-group-configuration), [Architecture Internals](architecture-internals.md)
 
 ### EgressController (Strict Gateway Egress, Enterprise Mode)
 
-**Responsibility:** Force otherwise-unclaimed enterprise internet traffic through the configured Cloudflare Gateway boundary while preserving explicit own-account exemptions.
+**Responsibility:** Force otherwise-unclaimed enterprise direct-internet traffic through the customer's Cloudflare Gateway boundary.
 
-**Inputs:** Catch-all intercepted HTTPS and WebSocket requests, strict-egress state, account identity, and the VPC egress binding.
+**Inputs:** Catch-all intercepted requests, account identity, strict-egress state, and the VPC egress binding.
 
-**Outputs:** Gateway-proxied responses, direct own-account platform requests, bridged WebSockets, or fail-closed boundary errors.
+**Outputs:** Gateway-routed traffic, direct own-account platform traffic, bridged WebSockets, or fail-closed boundary errors.
 
-**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, and `src/container/container-interception.ts`.
+**State owned:** No durable state; strict mode and account identity arrive as Container DO props.
 
-A `WorkerEntrypoint` the Container DO wires as the catch-all (`interceptOutboundHttps('*', controller)`) only when the optional **Strict Gateway Egress** toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). Whereas `LlmInterceptor`/`GitHubInterceptor` own specific hosts and stamp the real credential, the `EgressController` is a **transparent proxy** for every other host: it stamps no `Authorization`/`cf-aig-*`/identity header, preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response, strips only the eight RFC 7230 hop-by-hop headers, and forwards with `redirect:'manual'` through the Workers VPC `env.EGRESS.fetch` (and from there the customer's Cloudflare Gateway). Its only job is to force otherwise-unintercepted **direct-internet** traffic onto the mandatory Gateway boundary.
+**Does not own:** Customer Gateway policy, host-specific credential injection, or own-account service authorization.
 
-It exempts only THIS deployment's own-account destinations via `isAccountScopedDestination(url, accountId)` (`src/lib/controller-egress.ts`, account id from `ctx.props.accountId`), checked **before** the `env.EGRESS` guard: own-account R2 (`<accountId>.r2.cloudflarestorage.com` + vhost form, rclone bisync) and the own-account CF API / Browser Rendering path (`api.cloudflare.com/client/v4/accounts/<accountId>/...`) egress **direct** even when the binding is unbound. Any other account's R2/CF host — and all genuine direct-internet hosts — ride `env.EGRESS`/the Gateway (an absent account id exempts nothing; fail-secure).
+**Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
 
-Own-account R2 is **re-signed** with the worker-held R2 key (`createR2Client`/aws4fetch, reusing the request's `x-amz-content-sha256` so the body streams unbuffered and SSE-C headers are preserved) at the boundary, so the container carries only a non-secret placeholder R2 key; **WebSocket upgrades** reaching this catch-all are proxied by **bridging a fresh `WebSocketPair`** to the upstream socket (frames/close/error forwarded both ways), not returned as-is. (browser-run's `api.cloudflare.com` Browser Rendering — REST + CDP WS — is claimed ahead of this catch-all by the dedicated **`CloudflareBrowserInterceptor`** ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), which strips the container's non-secret placeholder and injects the real Browser Rendering token worker-side, account-scoped to the wizard-configured account;
+**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport)
 
-the CF-API/Browser-Rendering passthrough here is a dormant fallback that can only ever carry the placeholder.) `strict` + `accountId` are resolved once by the DO (constructor) and passed via `ctx.props` — no per-request KV read — and a per-op diagnostic debug log (`{h, sc, tx, rs, fMs}`, off by default — `LOG_LEVEL=debug` to enable) makes the routing + worker-side latency observable (temporary, for the R2-speed measurement). See [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) and [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props).
+**Decisions:** [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props)
 
-The toggle is a global admin flag persisted in KV (`SETUP_KEYS.STRICT_EGRESS`, `'active'`/`'inactive'`, default OFF) and resolved by `hasStrictGatewayEgress(env)` = enterprise mode AND KV `=== 'active'` — read from KV **once** at container-start (the `ENTERPRISE_MODE` precedent), not threaded per-session and not re-read per request: the DO resolves it in its constructor into `_strictEgress` and passes `strict` to the `EgressController` via `ctx.props` (the controller fails closed with `503 EGRESS_NOT_CONFIGURED` if the prop is absent/false), and `buildEnvVars` reads the same `_strictEgress` to choose the placeholder vs real R2 key so the wiring and container creds always agree.
-
-A transient KV error returns `false` (OFF) so the container still boots rather than failing the start.
-
-The per-host LLM/GitHub registrations co-exist with and take precedence over the `'*'` catch-all (SDK precedence: deniedHosts > per-host > catch-all > allowedHosts > enableInternet), and when strict is ON the `GitHubInterceptor` swaps its single upstream `fetch` to `env.EGRESS.fetch` (GitHub is external; the `LlmInterceptor`'s AI Gateway upstream is platform-native and **always** egresses direct, so it never swaps — see [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)).
-
-The defining property is **fail-closed**: when strict is ON but `env.EGRESS` is unbound, the controller (on direct-internet hosts, incl. any other account's Cloudflare host) and the `GitHubInterceptor` return `503 EGRESS_UNAVAILABLE` and never fall back to global `fetch` — this account's own-account destinations (R2 + account-scoped CF API / Browser Rendering) and the AI Gateway stay exempt and egress direct; the controller additionally rejects SSRF literal-IP targets with `403 EGRESS_TARGET_BLOCKED` before any send. The `[[vpc_networks]]` `EGRESS` binding is enterprise-only — committed commented-out and injected by `deploy.yml` only when `ENTERPRISE_MODE=active` — so on non-enterprise deploys OFF + unbound is inert.
-
-See [Strict Gateway Egress](#strict-gateway-egress) for the data flow, [Security](security.md#strict-gateway-egress-enterprise-mode) for the boundary properties, and [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off).
+**Detailed documentation:** [Security](security.md#strict-gateway-egress-enterprise-mode), [Configuration](configuration.md), [Deployment](deployment.md#strict-gateway-egress-enterprise-mode)
 
 ### CloudflareBrowserInterceptor (non-enterprise OAuth mode)
 
-**Responsibility:** Inject a current user-scoped Cloudflare OAuth or enterprise Browser Rendering token at the Worker boundary for REST and CDP WebSocket traffic.
+**Responsibility:** Refresh and inject user-scoped Cloudflare OAuth or enterprise Browser Rendering credentials at the Worker boundary.
 
-**Inputs:** Intercepted Cloudflare API or AI Gateway requests, the session-bound bucket identity, and Worker-held token state.
+**Inputs:** Intercepted Cloudflare REST or CDP traffic, session-bound identity, and Worker-held token state.
 
-**Outputs:** Re-authenticated upstream HTTP requests, bridged WebSocket traffic, or a fail-closed authentication response.
+**Outputs:** Re-authenticated HTTP or WebSocket traffic, or a fail-closed authentication response.
 
-**Source:** `src/cloudflare-browser-interceptor.ts` and `src/container/container-interception.ts::cloudflareOauthApi`.
+**State owned:** No durable state beyond token stores owned by the authentication layer.
 
-The same `WorkerEntrypoint` that injects the enterprise Browser Rendering token ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) serves a **second mode** for **non-enterprise Connect-to-Cloudflare OAuth** sessions ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)). Because a dashboard OAuth access token is short-lived and nothing can refresh an env var inside a running container, the container is given only the non-secret placeholder `codeflare-oauth`, and this interceptor is wired for `api.cloudflare.com` to re-stamp **every** request (all paths — the OAuth token is full-scope) with a token freshly minted by `getValidCloudflareToken(bucket)` (refreshed via the stored per-user `refresh_token`).
+**Does not own:** OAuth consent, account authorization, browser session state, or arbitrary outbound traffic.
 
-Both the REST surface (`wrangler`) and the CDP WebSocket upgrade (browser-run) ride the interceptor's existing `relay()`/`bridge()` transport, so a session outlives the access-token TTL. The token is resolved solely from the session-bound `props.bucket` (never a request header) and the interceptor fails closed `401` with no upstream when no valid token can be minted.
+**Source:** `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
 
-The OAuth mode also intercepts the AI Gateway data-plane host `gateway.ai.cloudflare.com` (stamped as `cf-aig-authorization`, [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary) AC5). The platform TLS-terminates both intercepted hosts with a mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`); `entrypoint.sh` trusts it for the container's agent runtimes (Node/wrangler/curl) in a non-enterprise-only block gated on `ENTERPRISE_MODE != active` + CA-presence (AC6), separate from the enterprise CA-trust.
+**Requirements:** [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)
 
-The OAuth CF-API interception-registry entry (`cloudflareOauthApi`, container-interception.ts) is double-guarded — it acts only when `!isEnterpriseMode(env)` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on `api.cloudflare.com` in enterprise, and the enterprise branch above is unchanged. The GitHub interceptor is not involved: non-enterprise git stays direct (GitHub tokens are long-lived). See [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
+**Decisions:** [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor)
+
+**Detailed documentation:** [Authentication](authentication.md), [Security](security.md#api-token-containment)
 
 ### GitHub Integration
 
-**Responsibility:** Connect a user's GitHub identity to repository browsing, cloning, and in-session GitHub access while preserving mode-specific credential boundaries.
+**Responsibility:** Connect a user's GitHub identity to repository discovery, cloning, and in-session GitHub traffic through mode-appropriate credentials.
 
-**Inputs:** Authenticated GitHub API requests, OAuth tokens, repository selections, and session/bucket identity.
+**Inputs:** OAuth state and tokens, repository selection, clone requests, session identity, and intercepted GitHub traffic in enterprise mode.
 
-**Outputs:** Connection and repository metadata, contained clone requests, and mode-appropriate GitHub credentials or intercepted traffic.
+**Outputs:** Connection metadata, repository lists, clone operations, and authenticated GitHub requests.
 
-**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, and `web-ui/src/components/github/`.
+**State owned:** Encrypted per-user GitHub token in the existing deploy-key record.
 
-A GitHub panel sits beside the R2 storage panel: a connected user browses and clones their repos, and the in-session agent acts with the user's own GitHub permissions. The panel renders whenever GitHub is enabled — there is no session-tier gate — and GitHub leads as the default right-column face on every session ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+**Does not own:** Repository authorization, GitHub account policy, workspace persistence, or general network egress.
 
-**Components:**
+**Source:** `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `web-ui/src/components/github/`.
 
-- **Routes** `src/routes/github.ts` - `/api/github/status|repos|connect|disconnect|clone`, plus the OAuth callback `src/routes/github-auth.ts`.
-- **Token store + provider seam** `src/lib/github-token.ts` - `getGithubProvider`, `getValidGithubToken`, `connectGithub`, `disconnectGithub`, backed by the **existing** deploy-keys KV entry `DeployKeys.githubToken` (no new KV key), encrypted via `kv-crypto`.
-- **Enterprise interceptor** `src/github-interceptor.ts` - the `GitHubInterceptor` WorkerEntrypoint, wired via the interception registry (`github` entry, `src/container/container-interception.ts`).
-- **Container env** `src/container/container-env.ts` (`buildEnvVars`) and `entrypoint.sh` (clone-on-start); host `host/src/git-clone.ts` + `host/src/request-router.ts` (`/internal/git-clone`).
-- **Frontend** `web-ui/src/components/github/` (panel, repo list, ClonePicker) + `web-ui/src/api/github.ts`.
-- **Repository list UX**
+**Requirements:** [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)
 
-    `web-ui/src/components/github/RepoList.tsx` and `web-ui/src/styles/github-panel.css` render no-repos/search-empty states and present repos inside an anchoring split with Storage: GitHub is pinned to the top, Storage to the bottom; the shorter panel shrinks to its content while the taller absorbs the slack, meeting at 50/50 when both are full ([REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states)).
-- **Adaptive split / face switching**
+**Decisions:** [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens)
 
-    `web-ui/src/components/Dashboard.tsx` (`effectiveFace` + `decidePanelLayoutMode` in `web-ui/src/lib/panel-allocation.ts`) and `web-ui/src/components/github/GitHubPanel.tsx` run the GitHub+Storage split on desktop/tablet and swap to a single face with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short for both panels (the narrow check reads the viewport width, not the column's own width, which the layout caps small). GitHub leads — it is the default face on every enabled session — and Storage becomes the sole face only when GitHub is disabled ([REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching)); responsive allocation is specified by [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
+**Detailed documentation:** [API Reference](api-reference.md#github-integration), [Security](security.md#github-token-containment), [Architecture Internals](architecture-internals.md)
 
-On desktop/tablet the panel expands to 80vh (centered, via `.dashboard-panel:not(--expanded)` in `web-ui/src/styles/dashboard.css`) and the two faces stack as a JS-measured anchoring split: `measureLayout`/`measureNatural` in `Dashboard.tsx` measure each face's natural height (panel chrome + the scroller's `scrollHeight`, with the cap removed), re-run on a ResizeObserver/MutationObserver, and write it as an inline `max-height`; the faces are `flex: 1 1 0` capped at that measured height with `justify-content: space-between`, so GitHub anchors to the top and Storage to the bottom — a short panel sits at its content while the larger one absorbs the slack, both meeting at 50/50 when full.
+<a id="browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022-req-ide-024"></a>
+### Browser IDE
 
-`panel-allocation.ts` only decides split-vs-flip; the per-face allocation is the flex engine's, fed by those measured caps.
+**Responsibility:** Provide a session-isolated code-server workbench and the selected native Pi, official Claude, or empty agent inventory.
 
-    In single-panel (flip / mobile) mode the panel is content-sized and centered, and the active face sizes to its content up to one shared viewport cap (`max-height: 75vh` for both faces — mobile shows a single flip face at a time, so GitHub and Storage cap identically and flipping never resizes the panel; overflow scrolls inside `.github-repo-rows`/`.storage-drop-zone`), so a short panel — the connect card or a few repos — collapses instead of reserving the column ([REQ-GITHUB-012 AC3](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation)).
-- **Search disclosure**
+**Inputs:** Session route, fixed workspace, selected tab-one agent, editor requests, and bounded UI-state snapshot.
 
-    on every breakpoint `GitHubPanel` hides the repo search behind a magnify toggle in `ConnectedHeader` (left of Refresh) so the list keeps its full whole-row viewport; revealing it focuses the input synchronously in the tap/click handler (so the on-screen keyboard opens on touch), and closing it clears the filter. Touch additionally runs `scrollFieldAboveKeyboard` (`web-ui/src/lib/mobile.ts`) to scroll the input above the keyboard via `visualViewport`. There is no longer an always-on desktop search bar ([REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus)).
+**Outputs:** Editor UI, native agent context, file changes, diagnostics, and session-scoped process descendants.
 
-**Two credential transports** (the core architectural decision, [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens)):
+**State owned:** Live editor databases and agent processes inside the ephemeral container; a bounded credential-free UI snapshot is the only persisted IDE state.
 
-- **Enterprise (egress injection):**
+**Does not own:** Terminal Pi conversation, generic VS Code authentication, durable credentials, or workspace identity selection.
 
-    The container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`). `interceptedGithubHosts(env)` registers `github.com` + `api.github.com` + Copilot's remote GitHub MCP host `api.githubcopilot.com` (overridable via `GITHUB_HOST` / `GITHUB_API_HOST` / `GITHUB_COPILOT_MCP_HOST`) for outbound-HTTPS interception, **reusing the same AI-Gateway `interceptOutboundHttps` layer** as the LLM path.
+**Source:** `host/src/vscode-proxy.ts`, `openvscode/agent-sidebar/`, `openvscode/claude/`, `scripts/browser-ide-ui-state.py`, `entrypoint.sh`.
 
-    On each request the `GitHubInterceptor` looks up and decrypts the user's token (scoped solely by the wiring-time `props.bucket` binding), strips client auth, and stamps git Basic (`x-access-token:token`) for the web host, `Bearer` + `X-GitHub-Api-Version` for the API host, or `Bearer` (no API-version header) for Copilot's `api.githubcopilot.com/mcp` — without which Copilot CLI's built-in `github-mcp-server` rides the strict-egress catch-all to the Gateway unauthenticated and its handshake fails; it **fails closed** when no token is present.
+**Requirements:** [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol)
 
-    AI hosts continue to route to the LLM interceptor - one host→interceptor map, two WorkerEntrypoints, one responsibility each ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)). Wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing).
-- **Non-enterprise (container transport):** The real token flows to the container as `GH_TOKEN` via the existing deploy-keys→env path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)).
+**Decisions:** [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity)
 
-### Browser IDE native agents ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-013](../../sdd/spec/browser-ide.md#req-ide-013-account-backed-code-review-suppression), [REQ-IDE-014](../../sdd/spec/browser-ide.md#req-ide-014-active-editor-review-with-codeflare), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering), [REQ-IDE-017](../../sdd/spec/browser-ide.md#req-ide-017-unsupported-ide-inventory-runtime-metadata), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution), [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-024](../../sdd/spec/browser-ide.md#req-ide-024-codeflare-browser-ide-welcome))
+**Detailed documentation:** [Container](container.md#code-server-browser-ide), [Security](security.md#browser-ide-native-agents), [Architecture Internals](architecture-internals.md)
 
-**Responsibility:** Give the supported agent selected in terminal tab 1 a lazy editor-native conversation that remains separate from that terminal process.
-
-**Inputs:** The closed agent selection, native Chat request/history, canonical workspace editor state, and approved configuration.
-
-**Outputs:** A shared Codeflare welcome editor; fixed Pi, official Claude, or extension-free agent inventories; native editor context; unrestricted tool execution; and complete descendant cleanup.
-
-**Source:** `openvscode/agent-sidebar/`, `openvscode/claude/`, and `preseed/agents/pi/extensions/sidebar-approval.ts`. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::canonicalWorkspaceFilePath --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @impl: entrypoint.sh::_openvscode_supervise_loop -->
-
-code-server stays inside the session container behind the existing authenticated `/api/vscode/<sessionId>` proxy. The browser and Worker keep that clean session path; the host strips only its exact prefix before forwarding root-relative HTTP or WebSocket traffic with canonical host/protocol identity. Public `folder`, `workspace`, and `ew` selectors fail independently at the Worker and host boundaries. Only the private loopback root request receives the fixed `/home/user/workspace` folder, and redirect rewriting removes workspace selectors before the browser sees them.
-
-Code OSS reads the browser location or its server-provided workbench configuration, not the private request query. The host therefore projects the equivalent fixed `folderUri` into a successful root document and fails closed when the pinned configuration shape cannot be verified. Non-root traffic stays streaming. This constrains public workspace selection, not terminal, extension, or agent filesystem access. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
-
-A separate Codeflare-owned built-in extension opens the welcome editor for every selection and contributes no agent surface. It presents the Browser IDE as a complete traditional editor and an observability plane over the same workspace and isolated ephemeral container; its action routes only exact Pi and Claude selections to their native agent surfaces. The Pi inventory immediately activates Codeflare's owned provider, emits its initial provider-change event before first model use, and contains one owned default participant for panel and editor Inline Chat plus hidden-fallback and selectable local host-compatibility models. Every fixed inventory seeds Code OSS's supported web-profile visibility value to add only `chat.statusBarEntry` to the existing hidden-entry list, disables `chat.titleBar.signIn.enabled`, and hides the left-side Accounts control without patching code-server or removing authentication APIs. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
-
-Its visible name is **Codeflare**; stable private IDs retain `codeflare.pi`. The inventory marks generic setup complete so Code OSS's account-backed **Code Review** action is absent while **Review with Codeflare** remains. code-server's bundled GitHub Copilot extension is removed from the image. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot -->
-
-The Claude inventory contains Anthropic's exact official Open VSX extension. The unsupported inventory is empty in the packaged image and remains extension-free after initialization; code-server may add only a regular `extensions.json` registry file containing `[]`. No Codeflare relay, public process API, second container, Copilot login, or VS Code Authentication bridge is introduced. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory -->
-
-Two compatibility providers preserve the native participant's account-free entry contract against the pinned Code OSS host. A hidden non-selectable `copilot` fallback is panel-default only for the extension host's absent-request-model lookup. A distinct `codeflare` model stays outside Code OSS's Copilot entitlement and sign-in path; it is selectable and default for panel and editor Inline Chat and reports tool calling for the pinned editor filter. Both reject generation. Pi settings retain `~/.copilot/agents` as Code OSS's one personal custom-agent source while disabling duplicate discovery from `~/.claude/agents`; Pi's own subagent discovery remains independent.
-
-Live code-server data stays under `/tmp`. After a generation is fully reaped, a bounded exporter writes only theme values, string-valued `keyboard.layout`, Explorer expansion, and canonical in-workspace open-file state to `~/.codeflare/ide-ui-state.json`; the next session reconstructs a fresh database before managed settings are reapplied. Other User settings, raw databases, WAL/SHM files, workspace/global extension storage, SecretStorage, authentication, chat history, and logs never enter this snapshot. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
-
-Every panel or editor Pi request snapshots bounded active-document content, selection, open workspace files, diagnostics, explicit references, and native Chat history. **Review with Codeflare** attaches one workspace file selected in Explorer or the active editor and submits a review to the same native participant; outside-workspace resources are rejected. Canonical path checks reject outside-workspace and symbolic-link escapes.
-
-The first request lazily starts one IDE-owned `--mode rpc --no-session` child shared by panel and editor Chat. Requests execute FIFO because Pi stream events have no prompt ID. Normal completion retains the process; active cancellation, failure, unexpected exit, or deactivation boundedly reaps it before replacement, while queued cancellation skips only its request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
-
-Panel and editor intentionally share the child's in-memory transcript, separate from terminal Pi. Cold creation or replacement hydrates from the requesting surface's bounded visible history; warm turns send only current request context. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt -->
-
-Pi's `select` and `input` dialogs remain cancellable and bounded, unknown blocking requests fail closed, compatibility generation remains inert, and unrestricted direct effects carry no transactional Keep/Undo guarantee. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
-
-Official Claude is installed unchanged at image build from a version- and checksum-pinned `linux-x64` VSIX. External settings point its bundled CLI at an isolated allowlisted config projection, select unrestricted `bypassPermissions` mode, allow dangerous permission skipping, and disable code-server's unrelated native Chat/Copilot setup. The Accounts control is hidden while authentication APIs remain separate; no Codeflare-owned path requests, bridges, exports, persists, or syncs credentials. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
-
-Anthropic's documented loopback IDE MCP uses a fresh private token to supply active selection, native diffs, and diagnostics. The owner accepts that local MCP and proprietary-package boundary under [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration). Every agent kind additionally seeds ephemeral code-server User settings that disable workspace trust and ignore extension recommendations, so the workspace opens without a trust or recommended-extensions prompt ([REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent)). <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->
-
-Sidebar Pi registers no guarded tool replacements, and the Browser IDE host auto-approves any extension confirmation without opening an editor document or modal. Claude installs no managed ask rules or permission hook and runs every tool under `bypassPermissions`. <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildManagedSettings -->
-
-Browser IDE launch generations record PID, process group, start time, and a random token. Native Pi requests add a narrower process token, while official Claude descendants inherit the launch token. Active cancellation, backend failure, deactivation, editor restart, and session shutdown reap the applicable generation completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
+Requirement status and outstanding evidence remain authoritative in `sdd/spec/browser-ide.md`. This system map does not promote a Partial requirement by describing implemented behavior.
 
 ### Terminal Server (node-pty)
 
-**Responsibility:** Own the in-container PTY sessions, terminal WebSocket protocol, activity tracking, and private health/control endpoints.
+**Responsibility:** Own in-container PTYs, terminal WebSocket framing, host activity tracking, and private health/control endpoints.
 
-**Inputs:** Authenticated WebSocket and HTTP requests, terminal control frames, user input, and PTY output.
+**Inputs:** Authenticated HTTP/WebSocket traffic, terminal control frames, classified terminal input, Browser IDE client frames, and PTY output.
 
-**Outputs:** Raw terminal output and control frames, PTY writes, activity/health metrics, and internal sync-trigger responses.
+**Outputs:** Terminal bytes and control frames, PTY writes, shared activity/health state, and internal sync-control responses.
 
-**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/terminal-ws.ts`, and `host/src/request-router.ts`.
+**State owned:** Ephemeral PTY sessions, connected-client state, resize authority, and the shared last-input timestamp.
 
-The Node.js/TypeScript server runs inside the container on port 8080 for WebSocket, REST, health, and metrics traffic.
+**Does not own:** Persisted session status, idle policy decisions, durable workspace files, or public authorization.
 
-Sync handled entirely by `entrypoint.sh` (15-minute daemon, SIGUSR1-interruptible for manual triggers). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. The user-facing manual trigger surface is the Worker route `POST /api/sessions/sync`, which fans out per-session to each of the user's running containers; the per-container host endpoint it reaches is `POST /internal/bisync-trigger`, which reads `/tmp/sync-daemon.pid` and sends SIGUSR1 to the daemon. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) and [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui). Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
+**Source:** `host/src/server.ts`, `host/src/session.ts`, `host/src/activity-tracker.ts`, `host/src/terminal-ws.ts`, `host/src/request-router.ts`.
 
-**Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. `/health` and `/activity` are in the `AUTH_EXEMPT_PATHS` Set at `host/src/auth-check.ts` because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)` from inside the DO class - that path enters the container over the SDK's private TCP plumbing and never runs through the public `fetch()` override, so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
+**Requirements:** [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity), [REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery)
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Consumed exclusively by the Container DO's `collectMetrics()` poll. Active connections = WebSocket clients currently connected. `disconnectedForMs` tracks time since all clients disconnected (null while clients are connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input - determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). This is the authoritative signal for codeflare's "user has walked away" idle policy.
+**Decisions:** [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy), [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual)
 
-**Idle Detection (Single Source of Truth):** Idle hibernation is enforced exclusively by `collectMetrics()`, which polls `/activity` every 60 s and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`. When this exceeds `parseSleepAfterMs(idleTimeoutPref)`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')` directly. See [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) / [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection). A secondary per-PTY reaper in `host/src/server.ts` (`PTY_KEEPALIVE_MS`, default 240 min / 4h) acts as a safety net if `lastInputAt` tracking gets stuck. It is floor-clamped at the maximum `sleepAfter` so it cannot fire before the authoritative `collectMetrics` path. See [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy).
-
-The SDK's `sleepAfter` timer is intentionally disabled - it's pinned to `'24h'` so it never fires in normal operation. This is necessary because `@cloudflare/containers` v0.2.x refreshes the SDK timer on every WebSocket message in both directions, which would give "any traffic" semantics (containers running `tail -f` or `yes` would never sleep even after the user walks away). Codeflare needs "no user input" semantics, which only an in-container PTY tracker (the terminal server's `lastInputAt`) can provide.
-
-The `containerStartedAt` fallback is critical: if a user opens a terminal but never types, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start, so an unused terminal still stops after the configured timeout.
-
-`containsUserInput()` in `host/src/session.ts` uses a whitelist approach - only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops after `sleepAfter` + up to 60s (poll granularity); browser closed → same; user opens terminal but never types → container stops after `sleepAfter` from start time.
-
-**Timestamp taxonomy (four distinct timestamps, often confused):**
-
-| Field | Source / owner | Advances on | Used for |
-| --- | --- | --- | --- |
-| `lastInputAt` | terminal server `/activity` (`host/src/session.ts`) | PTY **keystrokes only** - not output, not WS traffic, not vault/SB activity, not autonomous-agent output | The idle reference for `collectMetrics`. A long agent run with no keystrokes looks "idle". |
-| `lastSeenInputAt` | Container DO in-memory cache of the last non-null `lastInputAt` | New keystroke observed by the poll | Surviving a poll where `/activity` momentarily returns `null`. |
-| `lastActiveAt` | KV session record (written by `updateKvStatus`) | Input-driven status writes + the sleep-timer path | Dashboard "last active" display; persisted across hibernation. |
-| `metrics.updatedAt` (`m.u` in list metadata) | `collectMetrics` heartbeat | **Wall-clock, every tick**, regardless of input | Metrics-staleness display **only**. **Not** a liveness signal - it freezes when the alarm loop is not running (hibernation). A heartbeat-age heuristic over this field previously caused false "stopped" kicks; removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Liveness comes from the authoritative KV `status`. |
-
-**WebSocket Wake-Loop Prevention:** Three layers prevent browser auto-reconnect from waking a hibernated container in an infinite stop/start cycle:
-1. **DO fetch gate** (`container/index.ts`): The `fetch()` override returns 503 for non-internal routes while the container is stopped.
-
-   The DO reads container state directly, avoiding KV, and does not call the SDK path that starts a stopped container.
-2. **Terminal route guard** (`routes/terminal.ts`): Rejects WebSocket upgrade requests with 503 when `session.status === 'stopped'` in KV. This is defense-in-depth - catches requests before they reach the DO.
-3. **Frontend disposal** (`stores/session.ts`): The session poller disposes terminal state on a running-to-stopped transition, ending that session's WebSocket retry loops.
-
-   A fresh connection starts only after the user explicitly restarts the session.
-
-**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, focus ownership, process-name, restore) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection. The host forwards PTY chunks without preserving application write boundaries, so the web UI reassembles DEC 2026 synchronized frames at ingest and hands each one to xterm as a single write — an agent full-redraw can never be painted partially by xterm's synchronized-output timeout ([REQ-TERM-021](../../sdd/spec/terminal.md#req-term-021-synchronized-output-frame-atomicity)).
-
-**Resize Authority:** A PTY can have multiple browser WebSocket clients, but only the foreground owner is allowed to apply resize frames. The first client owns resize by default; a focused terminal sends a `focus` control frame before its resize frame; a pane that loses focus before its WebSocket opens clears the queued focus claim.
-
-When the owner detaches, authority falls back to the remaining client. This prevents stale hidden clients from shrinking a shared PTY back to old dimensions. <!-- @impl: host/src/session.ts::claimResizeAuthority --> <!-- @impl: host/src/session.ts::resize --> <!-- @impl: host/src/session.ts::detach --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
-
-**PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
-
-**Native agent browser notifications ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)):** Pi's repository-owned preseed extension emits fixed OSC 777 text when `ask_user_question` needs attention and only at `agent_settled` for completion; it suppresses stale completion after cancellation or abort and registers nothing in RPC mode. Claude's managed `preferredNotifChannel=ghostty` uses its built-in task-complete and attention notifications.
-
-Xterm handles OSC 777 only for terminal tab 1 of sessions whose selected agent is Pi or Claude, derives the displayed agent title from that selection, rejects C0/C1 and Unicode-format controls in bounded inert payload text, and hands the result to the browser's existing service-worker notification API after the user grants permission from Settings. The same-origin service worker has no fetch/cache/push/sync behavior; it can focus only the existing client whose full URL matches the notification's recorded originating-session URL.
-
-There is no Worker/host route, event store, queue, retry, polling loop, wake path, or delivery after the live page stops processing terminal output. Pi RPC is explicitly excluded because its stdout is strict JSONL; Pi native Chat uses Code OSS's own response/confirmation OS notification settings under [REQ-IDE-018](../../sdd/spec/browser-ide.md#req-ide-018-native-pi-chat-browser-notifications). The implementation is present, while REQ-TERM-023 and REQ-IDE-018 remain Partial pending deployed desktop/mobile, permission, focus, lifetime, and native-panel verification.
-
-**Terminal emulator response stripping:** `stripTerminalResponses()` in `host/src/session.ts` strips terminal emulator responses (CPR, OSC 10/11/12, DA1) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools (e.g., `gh secret set` reads an OSC 11 response as the secret value).
-
-`containsUserInput()` then classifies the original data using a whitelist approach: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as user input for idle detection. Terminal protocol chatter (CSI/OSC/DCS/APC sequences, focus reports, mouse movement/release) does not count. The `Session.write()` method calls both: PTY receives the filtered data, and `activityTracker.recordInput()` is called only when `containsUserInput()` returns true.
+**Detailed documentation:** [Container](container.md), [API Reference](api-reference.md), [Architecture Internals](architecture-internals.md)
 
 ### Landing (Astro, prerendered)
 
-**Responsibility:** Produce and serve the public, mode-aware marketing experience as prerendered static assets under `/landing`.
+**Responsibility:** Build and serve the mode-aware public marketing and onboarding surfaces as static assets.
 
-**Inputs:** Astro content and components, shared design tokens, build-time product copy, and browser navigation/motion preferences.
+**Inputs:** Typed content, Astro components, design tokens, mode-aware Worker routing, and optional browser enhancement support.
 
-**Outputs:** Static landing HTML, CSS, scripts, metadata, and long-cacheable fingerprinted assets.
+**Outputs:** Prerendered HTML, fingerprinted assets, metadata, contact requests, and progressive visual enhancement.
 
-**Source:** `landing/` and the Worker static-assets binding in `src/index.ts`.
+**State owned:** No application state; the contact path persists only rate-limit counters and relays submission content without storing it.
 
-The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches content-hashed Astro `/_astro/` and Vite `/assets/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML and missing-asset SPA fallbacks keep their revalidating default.
+**Does not own:** Authentication sessions, application routing, contact delivery credentials, or runtime workspace state.
 
-The landing layout and SPA shell both declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)). Before body parsing, the landing's integrity-pinned design-ready gate adds a root loading class; the dark canvas remains visible while Astro's render-blocking stylesheet and the local Inter and JetBrains Mono faces resolve, then the complete final design appears in one frame. The class exists only when JavaScript executes, so no-JavaScript visitors retain the complete server-rendered page.
+**Source:** `landing/`, `src/lib/seo.ts`, Worker static-assets routing.
 
-The landing also opts every same-origin full-page navigation into a cross-document view transition (`@view-transition { navigation: auto }` in `landing/src/styles/global.css`), so the browser holds the current page during the document swap and Chromium-fork browsers (Vivaldi/Arc/Brave) never expose their gray navigation canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) AC3).
+**Requirements:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
-Directly under the primary hero, the landing renders a second hero band (`#inference-mesh`), a `<header>` that mirrors the primary hero rather than a `main > section`, positioning the mesh as one optional additional inference source Codeflare can pull from — reusing the idle machines a company already owns for private, low-cost inference — not its only or default inference path, since every hosted provider stays first-class as default or fallback.
+**Decisions:** [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns)
 
-The band is anchored as a sibling hero by a plain white `Inference Mesh` section-h2 (no coral flare, no scramble) under a right-aligned `~/inference` path-tag chiplet (the shared `.kicker`), both right-aligned on desktop to mirror the left proof terminal, and its call to action is the shared `.micro-cta` text link (`MicroCta.astro`) rather than a filled button.
+**Detailed documentation:** [Architecture Internals](architecture-internals.md), [API Reference](api-reference.md#public-landing), [Security](security.md)
 
-It reuses the landing's static Astro composition and the shared Terminal/Transcript proof chrome — a concrete `codeflare-mesh` inference call whose bottom command line runs the shared typed reel (`data-ft-loop`) — rather than a new route or a new animation. ([REQ-LANDING-005](../../sdd/spec/landing.md#req-landing-005-inference-mesh-family-hero))
-
-Immediately after the two-member Hero family, the `#execution` overview ([REQ-LANDING-010](../../sdd/spec/landing.md#req-landing-010-execution-overview-reel)) presents Hero-scale software-delivery and infrastructure terminals before the detailed proof sections. `ExecutionReel.astro` places two `ExecutionRun.astro` instances side by side on desktop/tablet and stacks them on mobile, using the shared `<Terminal>` and `<Transcript animate="feed">` components with sessions sourced from `site.ts::EXECUTION`.
-
-Each session shows `t.anderson@metacortex.ai` only in its opening request. The 20-row software run follows the real Codeflare Inference Mesh PR #1 from production clone and planning through SDD/TDD execution, review, integration deployment, private-path verification, merge, and `develop` realignment. Its exact approved PR #1 URL ([REQ-LANDING-015](../../sdd/spec/landing.md#req-landing-015-execution-reel-merged-pr-link)) is an external link whose inherited terminal styling removes conventional blue and underline treatment; keyboard focus reveals its semantic copy inside the terminal. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/styles/global.css::terminal-inline-link -->
-
-The 20-row infrastructure run traces CVE-2024-6387 from CMDB and parallel-SSH discovery through canary-first Ansible planning, one human execution approval, autonomous gated remediation of a 31-host fleet with AWS/Azure canaries, a 2,418-host rescan, and published SEC-4821 evidence. Agent progress continues without repeated approval only inside the approved rollback and stop gates. <!-- @impl: landing/src/content/site.ts::EXECUTION -->
-
-The progressive-motion contract ([REQ-LANDING-011](../../sdd/spec/landing.md#req-landing-011-execution-reel-progressive-motion)) has two phases. `proof.ts` restores context with authored `--i` indices, retaining all eight rows on desktop and the largest mobile/tablet prefix that leaves one fitted line for pending work. The `.terminal.is-live .t-line` treatment reveals that prefix top-down. During the three-second hold, the first queued line is staged empty beneath the context; its blinking caret sits at the exact text-start column, after the prompt for a command. That same row becomes the first typing row. Remaining context and authored events append in order with browser-controlled scrolling, the 420 ms phase, and the 58 ms cadence.
-
-During command typing, the row's shared coral prompt moves into both overlaid copies so it remains beside the live text and contributes the same wrapped geometry to the hidden reservation. The authored simulation runs once, retains every authored row in the log, and settles with a blinking cursor.
-
-Reduced motion ([REQ-LANDING-012](../../sdd/spec/landing.md#req-landing-012-execution-reel-reduced-motion-accessibility)) leaves each full resolved event viewport static. Capture readiness ([REQ-LANDING-013](../../sdd/spec/landing.md#req-landing-013-execution-reel-capture-readiness)) retains the stable `data-readme-reel="execution"` marker.
-
-Responsive stability ([REQ-LANDING-014](../../sdd/spec/landing.md#req-landing-014-execution-reel-responsive-layout-stability)) keeps the Hero-scale pair side by side at desktop/tablet widths and stacks it on mobile. With normal-motion enhancement, `feature-terminals.ts::reserveHeroFrame` measures every authored Hero command through the shared Terminal layout and fixes the Hero at the tallest result for the current width. At mobile and tablet widths, `proof.ts::syncExecutionFrames` samples that stable frame for both Execution terminals. Initial layout sets the value immediately; font readiness refreshes it only while no Execution frame is exposed, and an actual viewport-width change refreshes both reservations. Typing is not observed, so it cannot resize visible frames. Desktop retains the equal-height grid pair; no-JavaScript and reduced-motion rendering use intrinsic sizing and complete resolved viewports.
-
-Under the responsive stability contract ([REQ-LANDING-014](../../sdd/spec/landing.md#req-landing-014-execution-reel-responsive-layout-stability)), each synchronized log moves context that cannot fit beside the empty pending row into the typed queue before animation starts. The staged first row therefore follows visible history without skipping hidden pre-event context. Each live log is size-contained in a `minmax(0, 1fr)` track; the terminal body clips overflow and exposes no user scrolling, while the script advances history with the contiguous line rhythm used by the other landing terminals. The newest row remains bottom-aligned during typing and after viewport resizing.
-
-Owner-approved continuations fill browser-measured under-populated states; command-row continuations remain engineer instructions and outcome-row continuations carry evidence. All 40 approved rows stay exact. Long commands wrap inside each frame, while the completed active row—including its inline prompt—is reserved during typing so terminal and page geometry remain fixed. Initial fill, trailing space, and transition continuity require deployed manual checks after responsive changes on desktop, tablet, and mobile. REQ-LANDING-014 remains Partial pending those checks.
-
-After the `#platform` section, a dedicated `#ide` band ([REQ-LANDING-007](../../sdd/spec/landing.md#req-landing-007-browser-ide-continuity-band)) presents the per-session Browser IDE as the bridge from the traditional SDLC to agentic development: the full VS Code workbench built on the shared `<Terminal>` chrome (`CodeEditor.astro`, content from `IDE`). The body slot is a three-column workbench (an activity rail, an explorer file tree, and an editor whose CSS-counter-numbered code pane sits over an integrated terminal); the editor tab (plus unsaved-change dot) rides `bar`; the status bar rides `foot`.
-
-It fills the width on desktop and folds the rail and explorer away on narrow viewports, and the integrated terminal streams the agent's activity via the shared typed reel (`feature-terminals.ts`) in the page's one locked coral accent, never VS Code blue.
-
-The Worker rewrites unauthenticated `GET /` to `/landing/` in SaaS and onboarding modes; default mode keeps the `/app/` redirect, and a missing landing build falls back to the SPA via `not_found_handling`.
-
-In onboarding mode (`ONBOARDING_LANDING_PAGE` active, `SAAS_MODE` not active) the Worker also rewrites `GET /login` to the landing-built sign-in page at `/landing/login/` ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell)) so onboarding sign-in shares the landing tokens, fonts, and nav chrome while staying visually quiet: it preloads the shared fonts, uses a static flare motif, and omits the marketing page's WebGL/motion/proof hooks for a stable first paint; SaaS mode keeps the SPA `/login` provider chooser unchanged. Layered internally: design tokens (`landing/src/styles/tokens.css`) → global CSS → typed content (`landing/src/content/site.ts`) → markup components → pages.
-
-The hero terminal and all content render statically (no JS). Browser logic is enhancement-only and opted into by the marketing page rather than by every `BaseLayout` consumer: the unit-tested contact controller (`contact-controller.ts`) with a thin DOM adapter, presentational scroll-reveals, the hero top-line capability ticker (`hero-kicker.ts`, advancing the active word and measuring its width while the server markup already contains the full stack), and a reduced-motion-safe scramble on the single hero accent word (`scramble.ts`).
-
-The header CTA keeps a fixed in-flow box at every breakpoint with no reserved slot. The hover-decode chrome rides an out-of-flow shell that shrink-wraps the churn, so a wide frame grows the visible border symmetrically while sibling nav links never move ([REQ-LANDING-006](../../sdd/spec/landing.md#req-landing-006-enter-the-matrix-sign-in-cta)).
-
-A cursor- and scroll-reactive WebGL flare-fluid runs behind the whole page through `splash.ts` and the `splash-*` / `webgl-utils` set. Its fixed layer stays vivid behind the hero and is veiled to a legible wash below. Desktop animation pauses while hidden; coarse-pointer backgrounding or context loss permanently retires the canvas to the dark CSS fallback. The layout renders `html.flare-on` before first paint. Desktop pointers drive the cursor, while touch uses the active finger or page scroll; scroll sweeps pause while a finger is down. Reduced-motion and no-WebGL visitors get no canvas. See [REQ-LANDING-009](../../sdd/spec/landing.md#req-landing-009-decorative-flare-failure-fallback).
-
-`proof.ts` adds `.is-live` to each `[data-proof]` artifact once on scroll-in for a one-shot reveal. Markup ships the resolved final state, so proof artifacts remain legible without JavaScript. Explicit `[data-roll]` lists retain the shared row controller; Execution feeds add the bounded second phase after their ordered initial entrance. `agentfoot.ts` adds a calm hero-terminal statusline with a slow context-percent tick and occasional compaction beat; the server-rendered foot is the reduced-motion and no-JS fallback.
-
-`feature-terminals.ts` drives each `[data-ft-loop]` element with a `[data-ft-typed]` child. The feature grid and hero terminal command line type, hold, delete, and advance with staggered starts. The server-rendered first command and CSS caret are the reduced-motion and no-JS fallback. None of these enhancements gate content. The `#shift` section contains four `FeatureTerminals` tiles with a title, command lines, and caption foot.
-
-The spine-run-bound artifacts (the self-healing enforcement gate, the egress-inspection strip, the parallel review board, and the cost ledger) are keyed to one example run (the `SPINE` constant) sourced once in `site.ts` so their IDs cannot drift.
-
-The security boundary and the one egress call are folded into one merged terminal (`id="security"`, `.gate.boundary`): the boundary rows (each an actor, a `state` of `pass` or `deny` rendered as an `is-pass` / `is-deny` class, and descriptive text, with at least one approved path and one the architecture makes impossible) roll in, a left-aligned `.gate-echo` command echo issues the one outbound model call (`EGRESS.call`) above a thin in-terminal divider, the egress rows render beneath and animate (roll, via `data-roll`) like the boundary rows above, keeping the `is-redact` DLP amber beat, and a single in-chrome foot closes the receipt (the AI Gateway is named as the egress control).
-
-A legacy-rescue section (`id="legacy"`) sits between method and operations, its standard section head (terminal-path tag + h2 + lead) and narrative terminal paired as a `.split-band` (copy beside the terminal, single column on mobile and side by side from 820px) so the terminal fills its column instead of a dead right gutter, showing `/sdd init` reverse-engineering a legacy codebase into a spec-driven baseline and `/sdd clean` realigning a drifted spec.
-
-Every top-level section opens the same way (a terminal-path tag `~/<name>` via `SECTION_KICKERS` / `.kicker`, rendered mono and lowercase with a CSS `~/` accent prefix, then the h2 and lead at full width), so sections read as calm peers in document order, cued by that per-section tag (the structural replacement for the removed numbered spine and the earlier uppercase eyebrow; the five nav-pillar sections reuse their pillar word) and the alternating `--alt` section backgrounds rather than a counter, with the secondary bands (e2e, tenancy, runs-everywhere, trusted-by) folded into their parent section as subordinate `.substation` sub-content (a nested terminal-path tag like `~/platform/runs-everywhere` above an `--fs-subhead` sub-head) so nothing floats.
-
-The operations section (`id="operations"`) is a top-level peer placed directly before security and presents the "operate" surface of the Directed Execution Model as a governed infrastructure run in the security gate grammar (Zero-Trust-scoped reach, operator-approved plan, out-of-scope paths denied).
-
-In the context section (`id="context"`) the browser-isolation web fetch and the agent-steered e2e each render as a `.split-band` (copy beside the proof terminal, single column on mobile and side by side from 820px, so the narrow-content terminals fill their column), the e2e introduced by a `.substation` sub-head. The dogfood section (`id="dogfood"`) is a self-referential proof: it presents this landing page as REQ-LANDING-001 built via the SDD workflow (real `@impl`/`@test` anchors, Status: Implemented, an illustrative shipping PR), and its CTA is the page's only link to the public repository (`GITHUB_URL`) for source verification.
-
-A Sign in action in the nav links to the SPA login provider-chooser (`/login`, `APP_LINKS.signIn`); the footer is reduced to a single centered "Built with Codeflare" line (no logo, nav links, Sign in, or GitHub mark); `/app/` is not used because the SPA guard redirects an unauthenticated visitor back to the landing before the login UI renders.
-
-Discoverability documents (REQ-LANDING-003) are served by the Worker at the deployment root before the setup gate, mode-aware: in a public mode (SaaS or onboarding) `robots.txt` (built in `src/lib/seo.ts`) advertises the marketing surface and points at `sitemap.xml` + an `llms.txt` product summary at the canonical origin; a private (default/enterprise) deployment returns a disallow-all `robots.txt` and 404s the sitemap/llms. The landing also emits a schema.org JSON-LD graph (Organization + WebSite + a home-page SoftwareApplication) and the OG/Twitter card points at the brand image at `/og.png`. See `landing/README.md`.
+<a id="landing-composition-implementation"></a>
+<a id="page-composition"></a>
+<a id="content-model"></a>
+<a id="shared-sections"></a>
+<a id="shared-terminals"></a>
+<a id="proof-animation"></a>
+<a id="feature-reels"></a>
+<a id="reveal-motion"></a>
+<a id="scramble-motion"></a>
+<a id="orchestration-proof"></a>
+<a id="design-tokens"></a>
+<a id="navigation-and-trust"></a>
 
 ### Frontend (SolidJS + xterm.js)
 
-**Directory:** `web-ui/`
+**Responsibility:** Present dashboard, terminal, storage, settings, billing, provisioning, and session-control surfaces in the browser.
 
-Key shell and terminal files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `TerminalArea.tsx` (visible workspace panes), `TerminalGrid.tsx` (shared tiled pane grid), and `Layout.tsx` (dashboard/terminal orchestration and WebSocket lifecycle).
+**Inputs:** Worker APIs, session status, terminal WebSockets, browser viewport/focus, and bounded local UI state.
 
-Dashboard files: `SessionStatCard.tsx` (real-session card with three-color status and metrics), `StorageBrowser.tsx` (R2 browser toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, and `AdminActionButton.tsx` (full-width admin action whose tone uses `--color-action-*`).
+**Outputs:** User actions, visible terminal panes, dashboard state, and mode-appropriate product surfaces.
 
-Flow files: `PageFooter.tsx` (login, onboarding, and subscribe footer), `Dashboard.tsx` (new-session and icon-only MultiView-reopen actions), `SessionDropdown.tsx` (session and MultiView selection), `OnboardingLanding.tsx`, `OnboardingPage.tsx` (guided setup), `SubscribePage.tsx` (subscription flow), `UsagePage.tsx` (usage dashboard), and `LoginPage.tsx` (SaaS login).
+**State owned:** Browser-local presentation and virtual MultiView membership; authoritative backend state remains elsewhere.
 
-`Header.tsx` owns navigation, the user dropdown, and inline usage; `KittScanner.tsx` owns the scanner treatment.
+**Does not own:** Container lifecycle truth, durable session status, workspace files, or credential storage.
 
-Stores: `terminal-workspace.ts` (active workspace and visible pane ownership: dashboard, single session, or `MultiView #1`), `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `terminal-url-detection.ts` (URL detection signals for floating buttons), `terminal-layout.ts` (terminal layout state), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling - also updates storage stats from batch-status via `updateStatsFromBatch()`; mirrors `enterpriseMode` and `saasMode` from `/api/user` via `App.tsx`), `storage.ts` (R2 operations), `setup.ts`, `tiling.ts` (per-session tiled tab layout), `session-tabs.ts` (tab configuration).
+**Source:** `web-ui/src/`.
 
-**Accent theming:** `settings.ts` exposes `applyAccentColor(hex)`, which writes `--accent-hue` / `--accent-s` / `--accent-l` (HSL decomposition) plus `--color-accent-contrast` (the foreground for accent-filled controls, derived by a YIQ-brightness helper `accentContrast`: warm near-black `#160a06` on bright accents, near-white `#fafafa` on dark ones). The default accent is the brand coral `#ff5c3c` (`DEFAULT_ACCENT_HEX` in `AppearanceSection.tsx`, HSL default in `design-tokens.css`), so the app matches the landing / login / OG; `--color-accent-contrast` is the text color of the New Session button, the shared primary `Button`, and the accent controls in the header, settings, storage, file-preview, onboarding, and setup styles (it resolves to white for a dark accent, so it is inert there).
+**Requirements:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection)
 
-**Dashboard tips:** `TipsRotator.tsx` rotates usage tips filtered by device (mobile / desktop / general) and by mode: tips flagged `saasOnly` (e.g. Pro mode, metered usage) are hidden unless `sessionStore.saasMode` is set, so onboarding / enterprise / default deployments never advertise features they do not have.
+**Decisions:** [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual), [AD105](../decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)
 
-#### Visible Terminal Workspace and MultiView
+**Detailed documentation:** [Architecture Internals](architecture-internals.md), [Mobile](mobile.md)
 
-The frontend implements [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) by separating **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible workspace panes: Dashboard has zero panes, a real session has one active workspace pane plus any currently visible tiled tabs, and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those visible surfaces, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection.
+<a id="visible-terminal-workspace-and-multiview"></a>
 
-URL detection is focused-pane-owned under [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), so cleanup from a previously focused pane cannot clear the current pane's detected URL.
+### KV
 
-MultiView open, close, dashboard return, and session selection transitions are owned by `Layout.tsx`; leaf controls create/update the saved MultiView selection and delegate navigation to Layout. Terminal WebSocket connections carry owner tokens, so cleanup from a stale mount cannot close a newer WebSocket or input handler for the same `(sessionId, terminalId)`. This pane-ownership and virtual-MultiView model is recorded in [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual).
+**Responsibility:** Hold control-plane records for users, sessions, setup, configuration, status, usage, and rate limits.
 
-`MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is hidden on mobile while preserving saved membership. It appears in the session switcher as `Launch MultiView`; on Dashboard it never renders as a session card and is reopened through the icon-only action beside `+ New Session` when saved panes exist. It is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
+**Inputs:** Validated Worker and lifecycle writes.
 
-#### Dashboard WS Disconnect Flow
+**Outputs:** Authoritative control-plane reads and list metadata for dashboards and policy resolution.
 
-**Responsibility:** Coordinate dashboard disconnect grace, visible-only reconnect, and session connection status.
+**State owned:** Persistent control-plane records, including authoritative session status.
 
-**Inputs:** Workspace navigation, browser visibility, session KV state, and terminal connection state.
+**Does not own:** Container process state, workspace bytes, or immediate cross-isolate consistency.
 
-**Outputs:** Scheduled disconnects, scoped reconnects, and three-color session status.
+**Source:** Worker KV binding and key helpers under `src/lib/`.
 
-When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (user-configurable, default 30m for paying users, 15m for free tier). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then visibility-return reconnect receives the exact visible terminal keys: current workspace panes plus visible tiled tabs for the active single-session workspace.
+**Requirements:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit)
 
-**Tab Visibility Auto-Refresh:** `Layout.tsx` listens for `visibilitychange` events. When the tab returns from background (mobile browser tab switch, screen off/on), it auto-refreshes session statuses and storage listing. This prevents stale "Failed to fetch" errors that appear when background tabs have their network requests aborted by the browser. Storage refresh is silent (no loading spinner) to avoid UI flicker.
+**Decisions:** [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)
 
-**Session Status Architecture:** KV polling (every 5s via batch-status) is the source of truth for session status. The Container DO sends custom WS close code **4503** when `!this.ctx.container?.running`, giving the client an authoritative "container stopped" signal distinct from network errors (code 1006). On 4503, the client immediately sets the terminal to `'disconnected'` with "Session stopped" message and stops retrying. On 1006 (network error), the client retries indefinitely - KV polling will update the status when propagation completes. Guards only block KV polling during user-initiated stop (`session.status === 'stopping'`) and session initialization (`session.status === 'initializing'`). When KV polling transitions a session to 'stopped', it also disposes terminal connections and clears `activeSessionId`.
+**Detailed documentation:** [Container](container.md), [Configuration](configuration.md)
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant L as Layout.tsx
-    participant TS as TerminalStore
-    participant DO as ContainerDO
-    U->>L: Navigate to dashboard
-    L->>TS: scheduleDisconnect() (60s grace)
-    TS->>TS: Grace timer expires
-    TS->>DO: disconnectAll()<br/>(dashboard-disconnect)
-    DO->>DO: No WS clients, sleepAfter may expire
-    U->>L: Return to session
-    L->>TS: cancelScheduledDisconnect()
-    TS->>DO: reconnectDisconnectedTerminals()<br/>(visible keys only)
-    Note over TS: Status moves green -> yellow -> gray -> green
-```
+### R2
 
-**Source:** `Layout` passes visible terminal keys into `reconnectDisconnectedTerminals()`, which filters reconnects to that set. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+**Responsibility:** Hold the selected durable per-user files restored into and reconciled from session containers.
 
-#### Three-Color Session Status
+**Inputs:** Initial restore, periodic/manual/final bisync, storage API mutations, and seed reconciliation.
 
-`SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected -- container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user -- without it, status jumped from green directly to gray.
+**Outputs:** Durable user files and storage listings.
 
-**KV Optimization (1500-User Scale):** `putSessionWithMetadata()` writes compressed `SessionListMetadata` (~195 bytes) via `kv.put(key, value, { metadata })`. `batch-status` reads from `kv.list()` metadata instead of N individual `kv.get()` calls, reducing KV reads/sec from ~901K to ~300 at 1500 users. Timekeeper user-record cache (60s TTL, 100-entry cap) reduces KV reads/min from 1,500 to ~25.
+**State owned:** One persistent bucket namespace per user.
 
-**Auto-Reconnect:** Infinite retries (1s delay) for retryable close codes (1001, 1006, 1011, 1012, 1013). Only server-authoritative close code 4503 stops retrying. Reconnection replays buffer via xterm SerializeAddon.
+**Does not own:** Live POSIX semantics, process state, excluded caches, or sync coordination.
 
-**Nested Terminals:** Up to 6 terminal tabs per session. Compound key `sessionId:terminalId`; WebSocket URL `/api/terminal/{sessionId}-{terminalId}/ws`.
+**Source:** R2 binding, scoped S3 credentials, and `entrypoint.sh` sync lifecycle.
+
+**Requirements:** [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Decisions:** [AD3](../decisions/README.md#ad3-per-user-r2-buckets), [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery)
+
+**Detailed documentation:** [Storage & Sync](storage-and-sync.md)
+
+### Timekeeper
+
+**Responsibility:** Convert per-session runtime reports into bounded per-user usage accounting.
+
+**Inputs:** Monotonic usage reports from running session coordinators and tier context.
+
+**Outputs:** Usage deltas and quota/accounting records.
+
+**State owned:** Per-user usage coordination in a Durable Object.
+
+**Does not own:** Session lifecycle, billing checkout, or container metrics collection.
+
+**Source:** `src/timekeeper/` and subscription helpers.
+
+**Requirements:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402)
+
+**Decisions:** [AD37](../decisions/README.md#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015)
+
+**Detailed documentation:** [Billing](billing.md), [Container](container.md)
+
+<a id="design-rationale"></a>
+## Architectural Invariants
+
+| Invariant | Consequence | Current decision | Detailed owner |
+|---|---|---|---|
+| One container belongs to one backend session. | Browser tabs and virtual views cannot change session identity. | [AD1](../decisions/README.md#ad1-one-container-per-session) | [Container](container.md) |
+| One persistent R2 bucket belongs to one user. | Multiple sessions reconcile selected files through one durable namespace. | [AD3](../decisions/README.md#ad3-per-user-r2-buckets) | [Storage & Sync](storage-and-sync.md) |
+| KV status is the dashboard authority. | Exit paths write `stopped`; a demonstrably live container may repair a false stop only without a deliberate-shutdown marker. | [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
+| Idle means no classified terminal or Browser IDE input. | Autonomous output and server-to-client traffic do not keep a session alive. | [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | [Container](container.md) |
+| Only visible terminal panes own WebSockets and resize authority. | MultiView is browser-local and does not create backend sessions. | [AD82](../decisions/README.md#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | [Architecture Internals](architecture-internals.md) |
+| Final sync is awaited while the container is alive. | The signal trap is a backstop, not the durability guarantee. | [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) | [Storage & Sync](storage-and-sync.md) |
+| Ordinary sync recovery precedes baseline reconstruction. | Automatic `--resync` is bounded to exhausted recovery or absent listing state. | [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
+| Worker-held credentials never enter a container when an interceptor owns them. | Missing interceptor configuration fails closed rather than bypassing the boundary. | [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | [Security](security.md) |
+| Direct-internet strict egress passes through the customer's Gateway. | Own-account platform primitives remain explicitly scoped exceptions. | [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | [Security](security.md) |
+| Root sessions own mutation and delivery. | Review, CI, memory, and Vault child agents report or publish only within their bounded contracts. | [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | [Preseed](preseed.md), [Vault](vault.md) |
 
 <a id="bucket-creation-and-seeding"></a>
-**Bucket creation and seeding:** R2 buckets are auto-created on first access from `POST /api/container/start` and `GET /api/storage/browse`. Both paths read `sessionMode` via `resolveSessionMode(prefs, env)` — the stored preference except under `ENTERPRISE_MODE`, where it forces `'advanced'` regardless of what is stored — and pass it to `reconcileAgentConfigs()`. For a pre-existing enterprise bucket whose stored preference predates the flag, `POST /api/container/start` additionally runs a one-time upgrade reconcile at session start and overlays the Pro-mode stamp onto freshly read preferences; the initial dashboard load triggers the same upgrade through the release-upgrade UPDATING flow ([REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 and Constraints).
+<a id="three-color-session-status"></a>
+## State Ownership and Durability
 
-See [Architecture Internals](architecture-internals.md) for backend library reference, code structure index, and the CF-NNN code change index.
+When two observations disagree, the authority column decides which one wins. A process-local cache or browser display is never allowed to overrule its durable owner.
 
----
+| State | Scope | Authority | Durability | Writers | Readers | Recovery owner |
+|---|---|---|---|---|---|---|
+| User, setup, and configuration records | Deployment/user | Workers KV | Persistent, eventually consistent | Authenticated Worker routes | Worker policy and UI | Owning route/configuration lane |
+| Session status and list metadata | Session | Workers KV record | Persistent | Lifecycle routes and Container DO | Dashboard batch-status | Container lifecycle |
+| Container coordination and recovery evidence | Session | Container DO storage | Durable across DO hibernation/reconstruction | Container DO | Container DO | Container lifecycle |
+| Live process and port state | Session | Containers platform plus successful host probes | Ephemeral | Container runtime | Container DO | Container lifecycle |
+| Workspace and selected user files | User | R2 bucket | Persistent | Sync lifecycle and storage API | Session containers and storage UI | Storage & Sync |
+| Local workspace and agent runtime | Session | Container filesystem/processes | Ephemeral | User, agents, IDE, entrypoint | Same session | Restore from R2/Git or restart |
+| Browser IDE UI snapshot | User | `~/.codeflare/ide-ui-state.json` in selected sync | Bounded persistent | IDE exporter | IDE restore | Browser IDE runtime |
+| Live editor databases, credentials, chat, logs | Session | Ephemeral container paths | Ephemeral by contract | code-server and extensions | Same editor generation | Fresh launch, never R2 restore |
+| Virtual MultiView membership | Browser | Browser storage | Browser-local | Frontend | Frontend | Validate against live sessions |
+| Per-isolate caches | Worker isolate | Owning module plus TTL/reset | Ephemeral | Owning module | Same isolate | TTL or explicit reset |
+| Vault and cumulative graph content | User | R2-backed Vault plus published graph files | Persistent after exact-success publication | Root-owned extraction lifecycle | Vault and graph consumers | Vault extraction owner |
+
+Bucket creation is lazy and idempotent. Session start and storage browse ensure the user's bucket exists; preseed and mode reconciliation occur through their specialist owners. See [Storage & Sync](storage-and-sync.md), [Preseed](preseed.md), and [Container](container.md).
 
 ## Data Flow
 
 ### Session Creation to Terminal Connection
 
+#### Creation and start
+
 ```mermaid
 sequenceDiagram
     participant U as Browser
     participant W as Worker
-    participant KV as KV Store
+    participant KV as Workers KV
     participant DO as Container DO
-    participant C as Container
-    U->>W: POST /api/sessions
-    W->>KV: Store session metadata
-    U->>W: POST /api/container/start
-    W->>DO: Set bucket + start container
-    DO->>C: Restore workspace + start terminal server
-    U->>W: Poll startup-status
-    W-->>U: ready
-    U->>W: WebSocket /api/terminal/{id}/ws
-    W->>C: PTY + login shell
+    participant C as Container host
+    U->>W: Create session
+    W->>W: Validate identity, agent policy, and storage quota
+    W->>KV: Persist session record
+    U->>W: Start session
+    W->>W: Check migration, installed agent, session policy, and compute quota
+    W->>DO: Bind session, bucket, credentials, and preferences
+    W->>KV: Write persisted running status
+    W->>DO: Start container asynchronously
+    DO->>C: Restore workspace#59; start host and selected services
 ```
 
-### Startup Status Stages ([REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api))
+#### Terminal connection
 
-| Stage | Progress | Condition |
-|-------|----------|-----------|
-| stopped | 0% | Container state cannot be determined (DO `getState()` unavailable) |
-| starting | 10-20% | Container not yet running/healthy, or running with the health server not yet responding |
-| syncing | 30-45% | Health server up, syncStatus = pending/syncing |
-| verifying | 85% | Sync complete, terminal server not yet responding |
-| mounting | 90% | Terminal server up, PTY pre-warming in progress. WebSocket connects, terminal canvas hidden (`visibility: hidden`) |
-| ready | 100% | All checks passed. "Open" button appears. Click reveals terminal canvas with pre-buffered content |
-| error | 0% | Sync failed or other error |
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant W as Worker
+    participant DO as Container DO
+    participant C as Container host
+    U->>W: Poll startup status
+    W-->>U: Ready
+    U->>W: Upgrade terminal WebSocket
+    W->>DO: Session-scoped proxy
+    DO->>C: PTY stream
+```
 
-### Session Lifecycle State Machine ([REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit))
+**Authority:** An active authenticated user may create the record. Creation and start are distinct operations: creation does not consume a concurrent-running slot; start checks role/tier concurrency and compute quota, binds the Container DO, then writes KV `running` before asynchronous startup. Concurrent-session admission is explicitly best effort: the KV count and later status write are not atomic, so simultaneous starts may exceed the nominal per-user limit. Deployment `max_instances` is the separate hard platform capacity boundary. Successful host readiness owns service availability.
 
+Creation may reject enterprise agent policy or SaaS storage quota. Start may reject bucket migration, unavailable agent, the current session-count guard, or compute quota. An accepted asynchronous start that later fails rolls KV back to `stopped` rather than producing a persisted `error` state.
+
+**Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes. [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) owns operator diagnosis.
+
+**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
+
+<a id="startup-status-stages-req-session-015"></a>
+<a id="startup-status-stages-req-session-017"></a>
+### Startup Status Stages
+
+| Stage | Progress | Derived from |
+|---|---:|---|
+| stopped | 0% | `getState()` unavailable before a running workload is observed |
+| starting | 10–20% | Container state not running/healthy, or host health unavailable |
+| syncing | 30–45% | Host health available while initial sync is pending or active |
+| verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
+| mounting | 90% | Terminal sessions available while PTY pre-warm remains incomplete |
+| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand |
+| error | 0% | Startup-status handler or initial-sync failure |
+
+These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.
+
+<a id="session-lifecycle-state-machine-req-session-018"></a>
+### Session Lifecycle State Machine
+
+<!-- doc-allow-element: AD70 durable and presentation authority must remain visible together -->
 ```mermaid
 stateDiagram-v2
-    [*] --> stopped
-    stopped --> initializing : start
-    initializing --> running : ports ready
-    initializing --> error : error
-    running --> stopping : stop
-    stopping --> stopped : poll stopped
-    running --> running : 3 complete probe failures (DO reconstructs, container and PTY preserved)
-    running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
-    running --> stopped : onError then collectMetrics confirmation (unexpected exit)
+    state "Persisted KV" as Persisted
+    state Persisted {
+        [*] --> stopped
+        stopped --> running : start accepted before service readiness
+        running --> stopped : confirmed idle, exit, or shutdownRequested
+        running --> running : bounded DO reconstruction preserves workload
+        stopped --> running : live health and no shutdownRequested marker
+    }
+    state "Frontend presentation" as Frontend
+    state Frontend {
+        [*] --> initializing
+        initializing --> sessionView : startup-status ready
+        initializing --> error : startup failure
+        sessionView --> stopping : explicit stop or delete
+        stopping --> dashboard : batch status confirms stopped
+    }
 ```
 
-(`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` starts recovery or exit confirmation; `collectMetrics()` owns the eventual `running --> stopped` write.)
+Persisted storage has only `running` and `stopped`; `running` may precede terminal readiness. `initializing`, `sessionView`, `stopping`, `dashboard`, and `error` above are frontend presentation states. `collectMetrics()` confirms a not-running condition before writing `stopped`; a successful live health probe may re-assert `running` only when no durable `shutdownRequested` marker proves deliberate teardown. Transport reconstruction is bounded and preserves the running workload where possible.
 
-**Transport reconstruction (unreachable host or monitor network loss):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, or running final sync.
+| Event | Authoritative owner | Durable effect | Recovery pointer |
+|---|---|---|---|
+| Idle threshold | Container DO metrics loop | Write `stopped`, drain final sync, signal stop | [Container](container.md) |
+| User stop/delete | Lifecycle route and Container DO | Persist shutdown marker and `stopped`; delete may then remove record | [Container](container.md) |
+| Monitor transport loss | Durable recovery record | Preserve running status during bounded DO reconstruction | [Container recovery](container.md) |
+| Unexpected exit | Error hook plus confirmed metrics observation | Write `stopped` after confirmation | [Troubleshooting](troubleshooting.md) |
+| Restart with changed configuration | Lifecycle route | Teardown, repopulate, start, then re-assert running | [Container](container.md) |
 
-When the SDK monitor reports `Network connection lost`, `onError()` enters that same incident immediately because the SDK has already changed its private running state and the running-only probes cannot execute ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC7). Accelerated confirmation preserves usage and quota under [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota). If initial recovery scheduling fails, cleared partial evidence permits ordinary exit confirmation; evidence that cannot be cleared retains recovery ownership and triggers an attempt to re-arm the five-second cadence.
-
-A post-reset host response confirms recovery only after durable evidence is successfully cleared, then restores 60 s metrics. A failed clear retains the evidence and five-second, non-billable confirmation cadence. Continued failure permits one more reconstruction after three confirmations; three failures after the second attempt mark recovery exhausted and retain 60 s checks with normal usage accounting, without another reset.
-
-Reset, confirmation, success, and exhaustion logs correlate the DO and attempt identities, counts, elapsed time, container state, and classified route observations. An unreadable `shutdownRequested` marker suppresses both reconstruction and alarm re-arming ([REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-confirmed-and-bounded); [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable)). The SDK constructor's running-container path is expected to reattach its monitor; browser reconnection to the existing PTY remains a deployed smoke check, not an automated-contract claim.
-
-**Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). For ordinary errors, `onError()` opens the persisted not-running confirmation window and re-arms `collectMetrics()`. A monitor `Network connection lost` first receives the bounded coordinator-reconstruction opportunity above; if both attempts still report not-running, control returns to that same exit window. The `collectMetrics()` `!running` branch writes `stopped` only after the reading persists across the window. KV converges to `stopped` rather than dangling at `running`, without letting one transient platform reading kick a live user out. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
-
-**Stop (idle):** `collectMetrics()` poll -> `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)` -> `idleMs > parseSleepAfterMs(idleTimeoutPref)` -> write KV `status: 'stopped'` (with `lastActiveAt`) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule.
-
-**Fast container-stopped detection (frontend):** When the Container DO's "not running" guard returns close code `4503` (`WS_CONTAINER_STOPPED_CODE`), the terminal store stops retrying and marks the connection as disconnected. This is server-authoritative - the container is definitively not running. Non-4503 close codes (1006, 1001, 1011, etc.) trigger automatic reconnection with 1s delay.
-
-**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. The primary source of a stale KV "running" is now closed at the writer: unexpected exits enter recovery or confirmation, and `collectMetrics()` persists `stopped` once not-running is confirmed (rationale #5, [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)). This guard is defense-in-depth against a transient lag before that catch-all write, not the load-bearing fix it once was when KV could dangle at `running` indefinitely.
-
-Newly started sessions have a 3-minute startup guard (`session-polling.ts`) during which only `4503` close code can transition them to stopped. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
-
-**Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` persists the `shutdownRequested` marker, then writes KV `status: 'stopped'` itself (via `updateKvStatus`, while `_bucketName` is still set) -> clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so it makes no KV write of its own; the write above is what records the stop) ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4)
-
-**Delete:** Worker calls `container.destroy()` -> `destroy()` persists the marker, writes KV `status: 'stopped'`, then clears `SESSION_ID_KEY` + `bucketName` -> `super.destroy()` -> `onStop()` bails -> Worker then `KV.delete()` removes the record entirely, superseding the stopped write rather than resurrecting anything ([REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state))
-
-```mermaid
-flowchart TD
-    I1["Idle timeout"] --> I2["KV stopped + stop(SIGTERM)"]
-    I2 --> I3["onStop clears schedule"]
-    U1["User stop / delete"] --> U2["container.destroy()"]
-    U2 --> U3["identifiers cleared before onStop"]
-    R1["Both host routes fail 3 times"] --> R2["Persist attempt + ctx.abort"]
-    R2 --> R3{"Host responds after reset?"}
-    R3 -->|"Yes"| A["Clear attempt; 60s metrics"]
-    R3 -->|"No after max 2 resets"| E["Exhausted; 60s checks"]
-    X1["Unexpected exit"] --> X2["onError starts recovery or confirmation"]
-    X2 --> X3["collectMetrics writes stopped after confirmation"]
-    U3 -.-> K["prevents session resurrection"]
-    R2 -.-> P["container + KV running preserved"]
-    X3 -.-> B["KV status authoritative (AD70)"]
-```
-
-**Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
-
-**Restart (different bucket):** `setBucketName` succeeds -> `destroy()` (wipes DO storage) -> lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) -> `startAndWaitForPorts()`
-
-```mermaid
-flowchart TD
-    Start["setBucketName(newBucket)"] --> SameBucket{"Same bucket<br/>already set?"}
-
-    SameBucket -->|"Yes (409 path)"| Store409["Store sessionId +<br/>workspaceSyncEnabled +<br/>tabConfig + fastStartEnabled<br/>in DO storage"]
-    Store409 --> Start409["startAndWaitForPorts()"]
-    Start409 --> OnStart409["onStart() re-arms metrics"]
-
-    SameBucket -->|"No (new bucket)"| Destroy["destroy() wipes DO storage"]
-    Destroy --> Recall["Lifecycle route re-calls<br/>setBucketName()"]
-    Recall --> Repop["Re-populates sessionId +<br/>bucketName + R2 creds"]
-    Repop --> StartNew["startAndWaitForPorts()"]
-```
+**Requirements:** [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable)
 
 ### Metrics Data Flow
 
 ```mermaid
-flowchart TD
-    subgraph ContainerDO["Container DO"]
-        A["collectMetrics() every 60s"] --> B["/activity"]
-        B --> C["/health writes KV metrics"]
-        A -.-> D["missing IDs = no re-arm"]
-    end
-    subgraph Worker["Worker"]
-        E["GET batch-status"] --> F["KV status + metrics"]
-    end
-    subgraph Frontend["Frontend"]
-        G["refreshSessionStatuses() every 5s"] --> H["SessionStatCard"]
-    end
-    C --> E
-    F --> G
+flowchart LR
+    DO["Container DO collectMetrics"] --> A["Host /activity"]
+    DO --> H["Host /health"]
+    A --> KV["KV status and list metadata"]
+    H --> KV
+    KV --> W["Worker batch-status"]
+    W --> F["Dashboard session cards"]
 ```
 
-### Contact Relay Data Flow ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline))
+The host reports observations. The Container DO applies policy and writes the authoritative status/metrics record. The dashboard reads KV and never contacts the Durable Object merely to render status.
 
-The landing demo-request form relays to operators without persisting any submission content; the only KV write on the path is the rate-limiter counter, keeping the landing's "not stored" promise literally true.
+**Requirements:** [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard)
 
-```mermaid
-flowchart TD
-    A["Landing form<br/>(contact-controller.ts)"]
-    B["POST /public/contact<br/>(Worker public router)"]
-    F["KV rate-limiter<br/>(contact-submit, 5/min/IP)"]
-    C["Turnstile verify<br/>(challenges.cloudflare.com)"]
-    D["Resend relay<br/>(api.resend.com/emails)"]
-    E["Admin inboxes<br/>(reply-to: submitter)"]
-    A -->|JSON body + turnstileToken| B
-    B --> F
-    F -->|over limit| G["429"]
-    F -->|pass| C
-    C -->|fail| H["400 VALIDATION_ERROR"]
-    C -->|success| D
-    D -->|non-2xx| I["502 CONTACT_EMAIL_FAILED"]
-    D -->|HTML-escaped email| E
-```
-
-Both secrets (`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`) must be present and at least one admin recipient must exist, else the endpoint returns `503`. Every user-controlled field is HTML-escaped before rendering into the email body, and the reply-to address and the name interpolated into the subject are CR/LF-stripped to prevent header injection (the topic field is constrained by Zod enum validation). The same flow backs `POST /public/waitlist` (onboarding-only) with a single-email envelope.
-
-### Onboarding Access-Request Flow ([REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow))
-
-In onboarding mode the GitHub OAuth callback (`src/routes/github-auth.ts`) is mode-aware after it resolves the user's tier. An active-tier user is redirected to `/app/`.
-
-A non-approved user is recorded as an access request on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user emails are sent via Resend (`sendAccessRequestNotification` for the operator alert and `sendAccessRequestConfirmation` for the user receipt, both in `src/lib/email.ts`, each wrapping the shared `sendEmail` helper), and the user is redirected to `/login?status=requested` — the landing login page (`landing/src/scripts/login.ts`) reads `?status` / `?error` and reshapes itself into the "request submitted" confirmation. Email delivery is best-effort: a Resend failure or a missing `RESEND_API_KEY` does not block the redirect.
-
-This onboarding branch is skipped in SaaS mode (which keeps the `/app/subscribe` redirect for pending users) and in enterprise mode.
-
-### GitHub Clone Data Flow ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session))
-
-Two entry points clone a repo into a session, distinguished by whether the session already exists.
-
-- **New session (clone-on-start):** `POST /api/sessions` accepts `clone:{repo,ref}`, mapped via `container-env.ts` to `GIT_CLONE_REPO` / `GIT_CLONE_REF`. `entrypoint.sh` clones into `$USER_WORKSPACE/<repo-verbatim>` before agent start, skipping an existing directory.
-- **Running session:** `POST /api/github/clone` forwards to the authenticated container-host clone endpoint; [api-reference.md](./api-reference.md#github-integration) owns the status contract.
-
-The host endpoint is `/internal/git-clone`, authenticated through the `CONTAINER_AUTH_TOKEN` Worker-to-DO bearer injection. `resolveGitClone` validates `owner/name` plus ref and refuses a pre-existing folder ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)).
-
-Auth on the clone itself uses the per-mode credential path: egress injection in enterprise mode (the `GitHubInterceptor` stamps the user's token onto the outbound clone), or the container-local `GH_TOKEN` otherwise.
-
-### Enterprise LLM Routing
-
-Applies only when `ENTERPRISE_MODE=active`. The Container DO wires outbound-HTTPS interception before starting the container; from that point every HTTPS connection the container makes to the LLM provider host (`api.openai.com`) is transparently TLS-terminated by the `LlmInterceptor` WorkerEntrypoint and re-issued to the customer's AI Gateway REST API. The container never sees the gateway credentials.
+### Dashboard WS Disconnect Flow
 
 ```mermaid
 sequenceDiagram
-    participant C as Container (agent CLI)
-    participant I as LlmInterceptor (WorkerEntrypoint)
-    participant G as AI Gateway REST API
-    participant P as Backend (OpenAI / Bedrock / Workers AI / dynamic route)
-
-    Note over C: entrypoint.sh:<br/>- Trusts CF containers CA (system store)<br/>- Persists CA env (NODE_EXTRA_CA_CERTS,<br/>  REQUESTS_CA_BUNDLE) to .bashrc<br/>- Persists Copilot BYOK vars to .bashrc<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
-    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform<br/>placeholder Bearer stripped)
-    I->>G: POST api.cloudflare.com/.../ai/v1/<path><br/>Authorization: Bearer AIG_TOKEN<br/>cf-aig-gateway-id: <gateway>
-    G->>P: Routed by model id (gateway-side)
-    P-->>G: Response
-    G-->>I: Response
-    I-->>C: Response (transparent)
+    participant U as User
+    participant F as Frontend layout
+    participant T as Terminal store
+    participant C as Session container
+    U->>F: Navigate to dashboard
+    F->>T: Start bounded disconnect grace
+    T->>C: Close terminal sockets after grace
+    U->>F: Return to session
+    F->>T: Cancel pending disconnect
+    T->>C: Reconnect visible terminal keys only
 ```
 
-**CA trust:** The platform TLS-terminates each intercepted connection and presents a certificate signed by the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`). `entrypoint.sh` installs this CA into the system trust store and persists `NODE_EXTRA_CA_CERTS` / `REQUESTS_CA_BUNDLE` exports into `.bashrc` (sourced by the agent PTYs via `bash -l` → `.bash_profile` → `.bashrc`; a process-only export in the entrypoint would not reach them) so all agent runtimes (Node, Python) trust the intercepted connections without errors.
+Only visible panes reconnect. A server-authoritative stopped signal ends retries; a transient network close remains retryable. Exact timings, codes, and frontend ownership live in [Architecture Internals](architecture-internals.md), [API Reference](api-reference.md), and [Troubleshooting](troubleshooting.md).
 
-**Pre-start interception ordering ([REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)):** The Container DO calls `wireContainerInterception()` (the container-interception.ts registry, which invokes `ctx.container.interceptOutboundHttps`) inside `startAndWaitForPorts()` **before** the SDK's `container.start()` call. This ordering is load-bearing: the Cloudflare containers CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` is only mounted after `interceptOutboundHttps` is registered. If wired after boot (e.g. in `onStart`), `entrypoint.sh` finds no cert to install, and every intercepted TLS handshake to `api.openai.com` fails. When `ENTERPRISE_MODE` is unset the override performs no interception work and the container start path is byte-identical to the non-enterprise path. In enterprise mode the LLM host registration is mandatory even when Gateway configuration is absent: requests then receive the interceptor's bounded 503, while a registration exception aborts container startup rather than allowing direct provider bypass. Other interception transports remain independently best-effort.
+<a id="contact-relay-data-flow-req-landing-002"></a>
+### Contact Relay Data Flow
 
-**Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only, never through the container env. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. The interceptor uses two auth headers depending on transport: `Authorization: Bearer <AIG_TOKEN>` on the REST API (`api.cloudflare.com/.../ai/v1/*`, Workers AI scope) and `cf-aig-authorization: Bearer <AIG_TOKEN>` on the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, AI Gateway Run scope); `AIG_TOKEN` must carry both permissions or the missing transport is rejected with `error 10000`.
+```mermaid
+flowchart LR
+    Form["Landing contact form"] --> W["Public Worker route"]
+    W --> RL["KV rate limit"]
+    RL --> T["Turnstile verification"]
+    T --> R["Resend relay"]
+    R --> Inbox["Operator inbox"]
+```
 
-The placeholder credential (`codeflare-enterprise`) written by `entrypoint.sh` is what puts each agent CLI into API mode; the interceptor strips it before forwarding.
+Submission content is validated, escaped, and relayed without persistence; KV stores only rate-limit state. [API Reference](api-reference.md#public-landing) owns request and error contracts, and [Security](security.md) owns abuse and injection controls.
 
-**Backend selection** (native provider, Amazon Bedrock, Workers AI, or a dynamic route) is entirely gateway-side via each agent's configured model id; codeflare holds no provider keys (BYOK lives in the gateway). See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) for the interception mechanism and [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST API transport.
+**Requirements:** [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)
 
-**Streaming normalization ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3):** On streaming `/chat/completions` responses the interceptor pipes the SSE body through a transform that guarantees a terminal `finish_reason` chunk before `[DONE]`.
+<a id="onboarding-access-request-flow-req-auth-020"></a>
+<a id="onboarding-access-request-flow-req-auth-021"></a>
+### Onboarding Access-Request Flow
 
-AI Gateway dynamic routes can end a stream with `finish_reason: null` followed by `[DONE]`, omitting the terminal chunk; OpenAI-wire **Chat Completions** clients (Copilot) reject this as "Stream ended without finish_reason" and retry, multiplying token cost. (Both Copilot and Pi run on `chat/completions`, so this shim guards both; the `/responses` path is not used in the current configuration.)
+An authenticated onboarding user with no active tier is recorded as a pending access request, receives a confirmation redirect, and triggers best-effort operator/user email. SaaS keeps its subscription path; enterprise bypasses this flow. [Authentication](authentication.md) owns the complete branch and [Security](security.md#onboarding-access-request-oauth-gated) owns its boundary.
 
-The shim synthesizes the missing terminator (`tool_calls` when a tool-call delta was seen on the stream, otherwise `stop`), is idempotent (it never adds a second terminator when the upstream already sent a non-null `finish_reason`), reassembles SSE `data:` lines split across network chunk boundaries (a single `data:` line arriving across multiple TCP chunks), and is bypassed for non-streaming and `/responses` traffic.
+**Requirements:** [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow)
 
-The gateway's stored response log is normalized and shows `finish_reason: stop` even when the live wire omits it, so the repair is only observable on the wire. When `ENTERPRISE_MODE` is unset the interceptor is never wired and no normalization runs.
+<a id="github-clone-data-flow-req-github-004"></a>
+### GitHub Clone Data Flow
+
+A new session may carry a one-shot clone directive into container startup. A running session uses the authenticated host clone endpoint. Enterprise mode injects the user's GitHub token at the Worker egress boundary; other modes provide the existing container credential. [API Reference](api-reference.md#github-integration) owns outcomes and validation.
+
+**Requirements:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)
+
+### Enterprise LLM Routing
+
+```mermaid
+sequenceDiagram
+    participant C as Container agent
+    participant I as LlmInterceptor
+    participant G as Customer AI Gateway
+    participant P as Selected backend
+    C->>I: HTTPS to intercepted provider host with placeholder credential
+    I->>G: Worker-held auth, route, user, and configured-group metadata
+    G->>P: Gateway-selected backend
+    P-->>G: Response stream
+    G-->>I: Response
+    I-->>C: Transparent normalized response
+```
+
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. Missing mandatory routing fails closed. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)
 
 ### Strict Gateway Egress
-
-Applies only when `ENTERPRISE_MODE=active` **and** the optional Strict Gateway Egress toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). On container start the DO resolves `hasStrictGatewayEgress(env)`; when true it wires the catch-all `interceptOutboundHttps('*', EgressController)` (lower precedence than the per-host LLM/GitHub registrations) and passes `strict:true` into the `GitHubInterceptor` props only (the `LlmInterceptor` takes no strict prop — its AI Gateway upstream is platform-native and always egresses direct regardless of the toggle).
-
-From that point the container's **direct-internet** HTTP/HTTPS egress is forced through the Workers VPC `env.EGRESS` Fetcher binding and the customer's Cloudflare (Zero Trust) Gateway: GitHub hosts ride their identity-stamping `GitHubInterceptor` (now sending upstream via `env.EGRESS.fetch`), and every other direct-internet host rides the transparent `EgressController`.
-
-This deployment's own-account platform backends are exempt and egress **direct**: the `LlmInterceptor`'s AI Gateway upstream always egresses direct (it never swaps to `env.EGRESS`), and the `EgressController` short-circuits own-account R2 (`<accountId>.r2.cloudflarestorage.com` + vhost form, rclone bisync) and the own-account CF API / Browser Rendering path via `isAccountScopedDestination(url, accountId)` (`src/lib/controller-egress.ts`, account id from `ctx.props.accountId`) before the `env.EGRESS` guard — so they egress direct even when the binding is unbound. Any other account's R2/CF host rides the Gateway.
-
-Own-account R2 is **re-signed** with the worker-held R2 key at the boundary (the container holds only a non-secret placeholder R2 key — see [Security · R2 key containment](security.md#strict-gateway-egress-enterprise-mode)); WebSocket upgrades reaching the catch-all are proxied by **bridging a fresh `WebSocketPair`** to the upstream socket, not returned as-is ([AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props)). browser-run's `api.cloudflare.com` Browser Rendering (REST + CDP WS) is claimed ahead of the catch-all by the dedicated **`CloudflareBrowserInterceptor`** ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), which injects the real token worker-side; the container holds only the placeholder.
 
 ```mermaid
 sequenceDiagram
     participant C as Container
-    participant X as Interceptor
+    participant X as Host-specific or catch-all interceptor
     participant E as env.EGRESS
     participant G as Cloudflare Gateway
-    participant U as Upstream host
-    C->>X: HTTPS to any host
-    Note over X: strict on, literal-IP guard, fail closed if env.EGRESS is unbound
-    Note over X: own-account R2 + CF API egress direct, direct-internet rides Gateway
-    X->>E: env.EGRESS.fetch(request)
-    E->>G: cf1:network
-    G->>U: allowed by existing policy
-    U-->>X: response via Gateway
-    X-->>C: transparent or credential-injected response
+    participant U as Direct-internet host
+    C->>X: Outbound HTTPS or WebSocket
+    Note over X: own-account platform primitives use explicit direct exceptions
+    X->>E: Other direct-internet traffic
+    E->>G: Customer network boundary
+    G->>U: Policy-authorized upstream
+    U-->>C: Response through the same boundary
 ```
 
-**Fail-closed (the security point).** When strict is ON but `env.EGRESS` is unbound — e.g. a non-enterprise deploy, where the `[[vpc_networks]]` `EGRESS` binding (enterprise-only, injected by `deploy.yml` when `ENTERPRISE_MODE=active`) is absent — the `EgressController` (on direct-internet hosts, incl. any other account's Cloudflare host) and the `GitHubInterceptor` return `503 EGRESS_UNAVAILABLE` and never fall back to global `fetch`; this account's own-account destinations (R2 + account-scoped CF API / Browser Rendering) and the AI Gateway are exempt and still egress direct. The dormant state (toggle OFF + binding unbound) is therefore inert, which is what makes shipping the feature OFF safe.
+Host-specific interceptors remain responsible for credential stamping. The catch-all controller is transparent except for own-account R2 re-signing. Strict mode never falls back to unrestricted fetch when the required egress binding is absent.
 
-**Transparent vs identity-stamping.** On the transparent path the `EgressController` adds no identity, gateway URL, or token and preserves the caller's `authorization`/`cookie`/`set-cookie`. Its only effect is the mandatory Gateway hop for direct-internet hosts.
-
-The one exception is **own-account R2**: the controller strips the container's placeholder `Authorization` and re-signs the request with the worker-held R2 key (`createR2Client`/aws4fetch) so the real R2 key never enters the container (AD87). The per-host `GitHubInterceptor` keeps its existing credential injection and only swaps the destination of its single upstream `fetch`; the `LlmInterceptor` keeps its credential injection but always egresses direct to the AI Gateway (it never swaps — [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). Routing, header stamping, the LLM 404 compat fallback, and GitHub no-spoof scoping are byte-identical to the non-strict path.
-
-**Policy inheritance.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged; codeflare never creates or modifies them. The controller's literal-IP SSRF guard is defense-in-depth only and does not stop DNS rebinding — the Gateway policy is the authoritative egress control (see [Security](security.md#strict-gateway-egress-enterprise-mode)). When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the interceptor swap is inert, and the egress path is byte-identical to today.
+**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-024](../../sdd/spec/enterprise-mode.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing)
 
 ### Pi Memory and Vault Extraction Data Flow
-
-Pi keeps memory capture and user-curated Vault extraction as separate bounded background agents, but the root session owns both delivery lifecycles ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). A small active request-ID pointer supports reload discovery; its request-specific execution snapshot is written first and becomes immutable after the first exact public tool call.
-
-Memory snapshots carry the bounded transcript inline as their sole conversation input—there is no secondary `INPUT_FILE` or transcript path. They live in the home-backed cache so child Bash sees them; active legacy `/tmp` snapshots migrate before retry. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readActiveMemoryRequest -->
-
-Each launch shows a job/delivery summary and pretty-printed request payload whose items exactly match durable details metadata.
-
-Root-session JSONL correlates exact public calls and native notifications by tool-use ID. An unconsumed launch remains pending without duplicates; each failed call advances one reminder, and six failures emit structured GIVEUP state and re-arm guidance. No queue, receipt, lease, scheduler, or private spawn service exists. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
-
-For memory, the root snapshots only prompts after the last successful counter, bounded to 40 text turns of 4000 characters. The worker writes the note once, then `build-memory-graph.py` derives its semantic H1 document node, canonical concept nodes, and unique reference/concept edges.
-
-The shared merge normalizes final edges by source, target, relation, and source file after Graphify conversion. It copies those cumulative bytes to `graph.json`, preventing conversion duplicates or stale reduced output.
-
-Exact native success requires the note and request chunk after graph publication. The root then advances the counter with `max(current, frozenPromptCount)` and removes only matching state. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
-
-For Vault edits, prelaunch changes coalesce under one request ID, launched work stays frozen, and later edits become one follow-up. Pi reads supported text inputs once but treats PDFs as metadata-only bare documents because its runtime has no bounded PDF page reader; Claude separately owns vision/content concepts and sibling-wikilink citation. The staged content-hash manifest is promoted by same-directory rename only after exact success, post-commit chunk qualification, and hash validation; matching committed bytes recover rename-before-cleanup idempotently. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
-
-Generated agents and public calls both set medium reasoning; calls stop after four turns and expose only Bash. The normal path reads each immutable input once, writes `<CHUNK>.work`, and uses one required 300-second flock for cumulative merge plus `graphify global add --as user_vault`. Only successful publication exposes canonical `CHUNK`; failure leaves root high-water state unchanged. Noncritical visualization is best effort with a 15-second ceiling.
 
 ```mermaid
 sequenceDiagram
     participant R as Root Pi session
-    participant T as Session JSONL
     participant A as Extraction agent
-    participant G as Vault/global graph
-    R->>T: persist visible launch request
-    R->>A: public background subagent call
-    A->>G: work chunk, locked merge + publication
-    A->>G: expose post-commit chunk
-    A-->>T: native terminal notification
-    R->>T: correlate exact tool-use ID
-    R->>R: advance matching counter/manifest and clean request
+    participant G as Vault and global graph
+    R->>R: Persist immutable request snapshot
+    R->>A: Public bounded background launch
+    A->>G: Write work artifact, lock merge, publish graph
+    A-->>R: native terminal notification with correlated result
+    R->>R: Verify exact-success artifacts and advance matching state
 ```
+
+The root owns delivery and finalization. The child receives one immutable request, publishes under a bounded lock, and cannot advance root counters or manifests by self-report. [Vault](vault.md) owns capture and publication semantics; [Preseed](preseed.md) owns delivered runtime contracts.
+
+**Requirements:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
 ### Pi PR-Boundary Review Data Flow
 
-Pi review is session-scoped and independent of CI ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff)). The shared scope resolver produces one lane packet containing the normalized work set, exact ancestry-validated range, lane-owned files/hunks, and cross-lane changed inputs. Each changed input carries old/new hunk ranges; consumers call the shared intersection predicate before following an anchored symbol or named test, so path equality alone cannot fan out review scope. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects -->
+An authoritative open PR head produces independent report-only reviewer lanes. The root launches them, correlates exact native results, publishes one finding triage, acknowledges that reviewed head, and applies accepted fixes in a separate turn. Review never runs against unpublished local commits.
 
-Diff-scoped reviewers retain their complete enforcement families but use gather-then-reason evidence waves. Policy and packet inputs load once, deterministic checks and focused reads run in one batch, and concrete unresolved candidates share one additional evidence batch. The root may use context-mode when enabled, but in-process reviewers deliberately do not load that extension: they invoke the same packet CLI through the native Bash/Node transport, preserving the identical work set and evidence without per-child MCP bridges.
+**Requirements:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-Every scoped hunk and manifest row receives a disposition; whole-file reads require a hunk-backed candidate, and unchanged baseline debt is reserved for full-tree scope. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
-
-Pi and Claude treat successful executable `git` and `gh` commands as cheap candidates, then decide eligibility from the normal checkout's current branch. The branch must have an open `main`, `master`, or `develop` PR whose authoritative full head equals local `HEAD`; detached HEAD, nonstandard worktrees, permanently mismatched remote heads, and already acknowledged heads remain inert. Pi leaves a temporarily unavailable or stale candidate unevaluated and retries it at root agent-end, settled, or resumed-session recovery until authoritative state resolves. A synchronized closed or merged head never launches review. Each runtime emits one visibility notice only when that head lacks its acknowledgement checkpoint; a matching checkpoint stays silent, and neither closed path consumes the one-shot bypass.
-
-After merging a feature, switching to and synchronizing the merge-target branch naturally exposes that branch's changed PR head without merge-command parsing. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLOSED_NOTICE_FILE -->
-
-A valid acknowledgement yields the acknowledged-to-current range; otherwise the full PR is reviewed. Unmatched calls remain in flight until correlated successful native notification or public result retrieval, so queued or slow reviewers are not duplicated. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-
-Code, specification, and documentation lanes use the provider-neutral `medium` thinking profile without changing scope or enforcement policy ([REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile)). <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::thinking: medium -->
-
-Only the reminder head can be acknowledged. Normally, the first same-head launch plan retains the review window across later candidates in the same active session. After session resume, the first new authoritative candidate may re-emit that plan and restore its deferred Goal pause.
-
-Every required reviewer must then have either a correlated successful native notification or a successful public result retrieval, followed by the fixed triage table; `agent_end` reads the live session, writes the existing full-SHA acknowledgement, and queues one separate FIX follow-up, with `agent_settled` as the idempotent fallback. The explicit user bypass surfaces instead acknowledge that same freshly validated open-PR head immediately, preventing missing-review recovery for it without fabricating reviewer evidence. Both paths write a PR-number-specific checkpoint in the normal checkout's `.git` directory, preserving each PR's acknowledged head as its next incremental range base ([REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)).
-
-Same-session agent-end and settled recovery retry an unevaluated boundary before reload is needed. Reload still cannot fabricate completion, but resumed-session recovery may continue a successful boundary whose authoritative state had not resolved or whose live handler never emitted its initial plan. An already-correlated plan relaunches only after session resume and a new authoritative candidate; that recovery also restores deferred Goal-pause handling.
-
-A persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable lane/result execution state; develop-merge handling begins only after successful tool completion and authoritative GitHub confirmation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-
-See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), [REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads), and [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection).
+**Detailed documentation:** [Preseed](preseed.md)
 
 ### User-Invoked Review and SDD Ownership
 
-Claude and Pi `/review` reuse the existing six specialist agent types. Every launch prompt carries `review_mode=report-only`; that binding overrides the normal write mode of `refactor-cleaner` and `tdd-guide` and the output-file behavior of `deep-reviewer`. Specialist, deep-verification, cross-reference, architecture-filter, and Reality Filter agents return reports to the root. The root writes the review artifacts, performs optional external verification, records triage history, updates approved ADRs/issues, and applies only user-approved fixes.
+User-invoked `/review` specialists are report-only. The root owns triage and any approved mutation. `/sdd init` and `/sdd clean` are root mutation workflows that apply specification enforcement before documentation enforcement.
 
-No `/review` subagent writes source, tests, specifications, documentation, triage, or report files ([REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff), [REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage)). <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) -->
+**Requirements:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill)
 
-`/sdd init` and `/sdd clean` are deliberately different: they are root-session mutation workflows, never reviewer jobs. Initialization writes and commits its scaffold in the root. Cleanup invokes specification enforcement before documentation enforcement, applies mode-authorized changes, and in auto/unleashed mode pushes only to the current branch ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes)).
+**Detailed documentation:** [Preseed](preseed.md)
 
 ### Pi CI Monitoring Data Flow
 
-Pi CI monitoring has a separate execution lifecycle ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). The PR-boundary extension emits one launch plan with two structured waves: required reviewers first, then independent CI. The root issues every reviewer call, immediately invokes the plan's resolver with the affected repository cwd and explicit review launch state, and submits its returned request unchanged once through public `subagent`. CI launches last without waiting for review completion; no stdout means no action. Non-SDD repositories and default-mode sessions receive CI-only plans for eligible boundaries.
+CI monitoring launches independently after required reviewers are launched. It observes the exact PR head and reports a terminal result; it does not acknowledge review, mutate the branch, cancel runs, or chase a changed head.
 
-The dedicated `ci-monitor` timeout-bounds each GitHub command, verifies the authoritative PR head, and reports through Pi's native task notification. Review acknowledgement never waits for CI, and neither lifecycle recovers the other. The resolver carries canonical GitHub repository, PR number, head, and local repository path as one JSON identity. The successful public launch tool result writes the separate per-PR CI checkpoint immediately; settled recovery consults that durable checkpoint before requesting missing work, so a stale live transcript cannot create a follow-up loop. Failed or mismatched launches remain retryable, later sessions do not repeat CI for the unchanged head, and enabling review still launches its lanes.
+**Requirements:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)
 
-Reload may abort monitoring; only an explicit user request can relaunch that head, while a later extension-issued plan applies to a changed head. See [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+**Decisions:** [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD122](../decisions/README.md#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote)
 
----
+**Detailed documentation:** [CI/CD](ci-cd.md), [Preseed](preseed.md)
 
-## Module-Level Caches
+## Failure Domains and Recovery Ownership
 
-All module-level caches in the codebase. Workers isolates do not share memory, so each cache is per-isolate.
-
-| Module | Cache Variable | TTL | What It Caches | Reset Function |
+| Failure domain | Observable disagreement | Authority | Recovery owner | Degradation rule |
 |---|---|---|---|---|
-| `src/lib/access.ts` | `cachedAuthDomain`, `cachedAccessAud`, `cachedAccessAudList` | 5 min | CF Access auth domain and audience config | `resetAuthConfigCache()` |
-| `src/lib/subscription.ts` | `cachedTierConfig` | 60s | Tier configuration from `tiers:config` KV key | `resetTierConfigCache()` |
-| `src/lib/cors-cache.ts` | `cachedKvOrigins` | 5 min | CORS origins from `setup:custom_domain` + `setup:allowed_origins` | `resetCorsOriginsCache()` |
-| `src/lib/jwt.ts` | JWKS key cache | 30s freshness threshold | Cloudflare Access JWKS public keys (re-fetched on kid miss after 30s) | `resetJWKSCache()` |
-| `src/lib/stripe.ts` | `priceCache` | 1 hour | Stripe price amount/currency per price ID, including `currency_options` for multi-currency pricing | (none - TTL-only) |
-| `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none - persists for isolate lifetime) |
-| `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
-| `src/lib/circuit-breakers.ts` | per-container breakers | Isolate lifetime | Circuit breaker state per container ID | (none) |
-| `src/lib/session-jwt.ts` | `cachedKey` | Isolate lifetime | HMAC CryptoKey imported from `OAUTH_JWT_SECRET` | (none - re-imported if secret changes) |
-
-After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
-
----
-
-## Design Rationale
-
-Architectural principles and design rationale.
-
-1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
-2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
-3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
-4. **Single-source idle detection via `collectMetrics`**
-
-     The DO polls `/activity` inside the container every 60 s and explicitly calls `stop('SIGTERM')` when `idleMs > parseSleepAfterMs(idleTimeoutPref)`. The SDK's own `sleepAfter` timer is pinned to `'24h'` and plays no role in idle decisions (see AD/rationale #11). This replaced both the earlier heartbeat-based approach AND a short-lived input-change-detection design that leaned on the SDK timer - both were fragile when WebSocket reconnects reset the SDK's activity timer. One mechanism, one signal: has the user typed within the configured threshold? Container stops ~threshold + up to 60 s after the last keystroke.
-5. **Every container exit must write KV `status: 'stopped'` - KV is the single source of truth**
-
-     The persisted KV `status` is authoritative; the dashboard renders it verbatim with no read-side staleness reconciliation (the former `reconcileStaleStatus` heartbeat-age heuristic was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153), see rationale #17 / [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)).
-
-     For that to hold, every exit path must persist `stopped`, written through the shared `updateKvStatus()` helper: (a) graceful hibernation/idle-stop fires `onStop()`, which writes `stopped` and calls `deleteSchedules('collectMetrics')` to kill the alarm loop (otherwise zombie alarms fire on a dead container indefinitely);
-
-     (b) an **unexpected** exit (crash, deploy-roll, platform reap) fires `onError()` - **not** `onStop()` - which starts bounded recovery for transport loss or opens the persisted not-running confirmation window;
-
-     (c) `collectMetrics()` is the catch-all: after recovery is exhausted or ordinary exit confirmation matures, its `!ctx.container.running` branch writes `stopped`, then returns without re-arming. Without (b)/(c) an unexpected exit could dangle as `running` in KV forever.
-
-6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
-7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
-8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
-9. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
-10. **Downgrade verbose activity logs to debug** - Per-cycle activity check logs at `info` level generate log volume (every 60 s per container). Once the single-source `collectMetrics` idle enforcement is confirmed stable in production, downgrade to `debug`.
-11. **Stateless dashboard polling preserves hibernation**
-
-      Dashboard status endpoints must be pure KV reads with zero DO contact. Waking a DO resets the Container SDK's internal activity timer; even with the SDK timer pinned to 24 h (see [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) AC5), unnecessary DO wake-ups waste resources and can interfere with hibernation.
-
-      `@cloudflare/containers` v0.2.x also auto-refreshes on any WebSocket message, so the SDK timer sees "any traffic" semantics, not "no user input" semantics - this is the primary reason idle enforcement is delegated entirely to `collectMetrics()` rather than the SDK timer.
-12. **Polling interval vs push cadence** - The backend pushes metrics to KV every 60s (`collectMetrics`). The frontend polls at 5s for responsive session status updates (start/stop transitions). Metrics on the dashboard may be up to ~60s stale.
-13. **rclone version upgrades can break bisync**
-
-      The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands - the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism - it destroys bisync's deletion tracking (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
-14. **Never auto-`--resync` on bisync failure**
-
-      `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B. Use `--resilient` + `--recover` for self-healing: `--resilient` allows bisync to continue past non-critical errors, and `--recover` automatically reconstructs corrupted listing files without losing state. Manual `--resync` is still available via `establish_bisync_baseline()` on container startup (one-way restore runs first, so no data loss).
-15. **Never `docker system prune` in CI deploy workflows**
-
-      `docker system prune -af` in the deploy workflow nukes the Docker layer cache on self-hosted runners, causing every subsequent build to pull all layers from scratch. This triggers Docker Hub 429 rate limit errors when base images need re-downloading. Let Docker manage its own cache; only prune manually if disk space is critical.
-16. **Vanishing-file recovery before nuke**
-
-      When bisync fails with `lstat: no such file or directory`, the file was listed by rclone then deleted before the copy completed (race condition with agents writing/deleting transient files). The correct response is to parse the error, add the file to a session-scoped exclusion filter (`/tmp/rclone-recovery-filters.txt`), and retry - not escalate to `nuke_corrupted_r2_files`. Non-workspace files are auto-excluded; workspace files (user code) trigger a plain retry on the assumption the file reappeared. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations to prevent the race from occurring. See [Vanishing-file recovery](storage-and-sync.md#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
-17. **Exit-writes-`stopped` over read-side reconciliation**
-
-      KV `status` is the single source of truth: every container exit persists `stopped` (rationale #5), so the dashboard renders KV verbatim with no staleness heuristic. The former `reconcileStaleStatus` read-side guess inferred `stopped` from a stale `metrics.updatedAt` heartbeat and falsely kicked live-but-idle sessions whose alarm loop had legitimately paused; it was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Writing on exit is both correct (no dangling `running`) and simpler (no clock-skew tuning of a staleness threshold). See [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
-18. **Outbound-HTTPS interception over a Worker-side proxy for enterprise gateway routing**
-
-      `LlmInterceptor` wires into the platform's `interceptOutboundHttps` mechanism rather than a public `/llm-proxy` Worker route. Interception is platform-internal: the gateway URL and token never leave the Worker environment, the container communicates with the real provider host (intercepted transparently), no public route carries gateway credentials, and no CF Access policy can be tripped. See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing).
-19. **Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (Strict Gateway Egress)**
-
-      the optional, default-OFF Strict Gateway Egress toggle reuses the same `interceptOutboundHttps` mechanism to make the customer's Cloudflare Gateway a *mandatory* boundary for the container's **direct-internet** HTTP/HTTPS egress: a transparent `EgressController` catch-all plus a single-`fetch` swap to `env.EGRESS.fetch` in the `GitHubInterceptor`.
-
-      This deployment's own-account platform backends — own-account R2 (rclone bisync) and the account-scoped CF API / Browser Rendering path, plus the AI Gateway (the `LlmInterceptor` upstream, which always egresses direct) — are exempt via `isAccountScopedDestination(url, accountId)` and egress direct, since an egress firewall polices the workload's reach to the outside world, not codeflare's own storage/AI/browser backends for the deployment's own account (which carry codeflare-managed credentials to Cloudflare-owned hosts and have their own audit trail).
-
-      Any other account's R2/CF host rides the Gateway, closing the cross-account channel; own-account R2 is re-signed with the worker-held key so the container holds only a placeholder R2 key, and WebSocket upgrades are bridged via a fresh `WebSocketPair` (not returned as-is). It fails closed (503, no global-`fetch` fallback) rather than leaking direct-internet egress, so the dormant state (toggle OFF, or the enterprise-only VPC binding absent on a non-enterprise deploy) is inert. See [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), and [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props).
-
----
-
-## Landing Composition Implementation
-
-**Implements:** [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)
-
-### Page composition
-
-**Responsibility:** Orders the enterprise narrative and folds subordinate bands into their parent sections.
-
-**Inputs:** Typed section content
-
-**Outputs:** Static HTML section tree
-
-**Source:** `landing/src/pages/index.astro`
-
-### Content model
-
-**Responsibility:** Keeps proof identifiers, links, navigation, and copy in one typed source.
-
-**Inputs:** Authored landing data
-
-**Outputs:** Component-ready content
-
-**Source:** `landing/src/content/site.ts`
-
-### Shared sections
-
-**Responsibility:** Applies one structure to peer sections and subordinate substations.
-
-**Inputs:** Heading, lead, tag, slots
-
-**Outputs:** Responsive section markup
-
-**Source:** `landing/src/components/Section.astro`, `SectionHead.astro`
-
-### Shared terminals
-
-**Responsibility:** Applies one terminal frame, proof hook surface, and resting-state contract.
-
-**Inputs:** Transcript and status data
-
-**Outputs:** Server-rendered proof artifact
-
-**Source:** `landing/src/components/Terminal.astro`, `Transcript.astro`
-
-### Proof animation
-
-**Responsibility:** Rolls resolved proof rows only after the artifact becomes visible.
-
-**Inputs:** Server-rendered final rows
-
-**Outputs:** Optional animated sequence
-
-**Source:** `landing/src/scripts/proof.ts`
-
-### Feature reels
-
-**Responsibility:** Types, holds, deletes, loops, and optionally shuffles authored terminal beats.
-
-**Inputs:** Serialized beat arrays
-
-**Outputs:** Mutated command slot
-
-**Source:** `landing/src/scripts/feature-terminals.ts`
-
-### Reveal motion
-
-**Responsibility:** Arms below-fold entrances while leaving above-fold content visible immediately.
-
-**Inputs:** Intersection events
-
-**Outputs:** One-shot entrance state
-
-**Source:** `landing/src/scripts/reveal.ts`
-
-### Scramble motion
-
-**Responsibility:** Paints changing glyphs over a resting-width ghost so text never reflows.
-
-**Inputs:** Authored target words
-
-**Outputs:** Footprint-stable churn
-
-**Source:** `landing/src/scripts/scramble.ts`
-
-### Orchestration proof
-
-**Responsibility:** Advances per-agent activity and counters from the authored orchestration model.
-
-**Inputs:** Agent rows
-
-**Outputs:** Live proof feed
-
-**Source:** `landing/src/scripts/orch.ts`
-
-### Design tokens
-
-**Responsibility:** Centralizes type, spacing, color, terminal rhythm, breakpoints, and reduced-motion behavior.
-
-**Inputs:** Global design values
-
-**Outputs:** Shared responsive styling
-
-**Source:** `landing/src/styles/global.css`
-
-### Navigation and trust
-
-**Responsibility:** Renders the typed pillar links, sign-in route, social proof, FAQ, and footer controls.
-
-**Inputs:** Typed links and content
-
-**Outputs:** Accessible navigation and disclosures
-
-**Source:** `landing/src/components/Header.astro`, `landing/src/pages/index.astro`
-
-The server output is the complete resting state. Client scripts only enhance it, and reduced-motion users retain the same content and controls without animated transitions.
-
-## Specification Coverage
-
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Selected native Pi or official Claude IDE integration
-- [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility) - Pinned IDE inventory compatibility
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - IDE unrestricted tool execution
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent process lifecycle
-- [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome) - Account-free Browser IDE chrome
-- [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol) - Native Pi blocking UI protocol
-- [REQ-IDE-024](../../sdd/spec/browser-ide.md#req-ide-024-codeflare-browser-ide-welcome) - Shared Codeflare Browser IDE welcome
-- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway
-- [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + constant base-URLs)
-- [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (pre-start `interceptOutboundHttps`)
-- [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (shared `resolveRouteCatalog`, first-match by configured order)
-- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress toggle, catch-all wiring, fail-closed transport, and SSRF guard
-- [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes) - Per-route context windows for dynamic routes
-- [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport) - Strict Gateway Egress controller transport, own-account exemption, R2 re-signing, and WebSocket bridge
-- [REQ-ENTERPRISE-024](../../sdd/spec/enterprise-mode.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing) - Strict Gateway Egress host-specific interceptor routing
-- [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures) - Automatic WebSocket reconnection on transient failures
-- [REQ-TERM-005](../../sdd/spec/terminal.md#req-term-005-tab-1-auto-starts-the-configured-agent) - Tab 1 auto-starts the configured agent
-- [REQ-TERM-007](../../sdd/spec/terminal.md#req-term-007-tiling-layouts-2-split-3-split-4-grid) - Tiling layouts (2-split, 3-split, 4-grid)
-- [REQ-TERM-008](../../sdd/spec/terminal.md#req-term-008-write-batching-at-30fps) - Write batching at 30fps
-- [REQ-TERM-009](../../sdd/spec/terminal.md#req-term-009-process-name-detection-via-control-messages) - Process name detection via control messages
-- [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) - Visible terminal panes own WebSocket connections
-- [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace) - MultiView virtual session workspace
-- [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) - MultiView selection flow
-- [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) - Terminal scroll anchoring under scrollback trimming
-- [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving) - Mode-aware public landing serving
-- [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) - Demo-request contact pipeline (contact relay data flow)
-- [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) - Landing social-share and search metadata (discoverability documents, JSON-LD, OG card)
-- [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) - First-paint stability and immutable asset caching (dark color-scheme paint, `/_astro/` immutable cache)
-- [REQ-LANDING-009](../../sdd/spec/landing.md#req-landing-009-decorative-flare-failure-fallback) - Decorative flare failure fallback
-- [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) - Onboarding `/login` serving
-- [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) - Onboarding post-OAuth access-request flow
-- [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) - GitHub token capture and storage (provider seam, token store)
-- [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) - GitHub panel and repository listing (connect + repo list + clone panel)
-- [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials (reuses the interception layer)
-- [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session (clone data flow)
-- [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) - Disconnect and offboarding revocation (token erasure + GitHub revocation)
-- [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Non-enterprise `GH_TOKEN` container transport
-- [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
-- [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states) - GitHub repository list viewport and empty states
-- [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching) - Mobile GitHub and storage face switching
-- [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus) - Mobile search disclosure with autofocus
-- [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) - Responsive GitHub and storage panel allocation
-
----
-
+| Worker isolate/cache | Isolates temporarily read different cached configuration | KV plus bounded TTL/reset | [Architecture Internals](architecture-internals.md#module-level-caches) | Never treat isolate memory as durable authority |
+| Durable Object attachment | Host routes fail while platform may still report running | Correlated host probes and durable recovery record | [Container](container.md#auto-sleep-configurable-sleepafter) | Reconstruct the coordinator at most twice while preserving workload where possible |
+| Container process | KV says running but not-running persists | Confirmed container state | [Container](container.md#auto-sleep-configurable-sleepafter) | Write `stopped` only after the confirmation window |
+| Accepted asynchronous start | Start was accepted, then startup status returns to `stopped` | KV rollback plus Worker/container-start logs | [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) | Preserve `stopped`; inspect policy/platform capacity and retry after correction |
+| False persisted stop | Health proves live while KV says stopped | Live health plus absence of shutdown marker | [Container](container.md#auto-sleep-configurable-sleepafter) | Re-assert `running` within one metrics tick |
+| Final persistence drain | Stop requested while local changes may be newer | Awaited host final-sync result | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) | Stop remains bounded; outcome is audited |
+| R2 bisync | Listings or transfer remain unrecoverable | Sync daemon state and health report | [Storage & Sync](storage-and-sync.md#vanishing-file-recovery) | Repair vanished files first; bounded baseline rebuild last |
+| Enterprise credential boundary | Required token or binding unavailable | Worker-side interceptor configuration | [Security](security.md#api-token-containment) and [Configuration](configuration.md) | Fail closed; never expose or fall back to container credentials |
+| Browser IDE process | code-server or agent descendant exits or ignores TERM | Generation identity and bounded reap | [Container](container.md#code-server-browser-ide) and [Architecture Internals](architecture-internals.md#browser-ide-internals) | Reap matching generation before replacement |
+| Review or CI result | Result names a different head | Authoritative PR head | [Preseed](preseed.md) and [CI/CD](ci-cd.md) | Ignore stale result; never acknowledge replacement head |
+| Extraction publication | Child reports success without matching artifacts | Root artifact verification | [Vault](vault.md) and [Preseed](preseed.md) | Leave counters/manifests unchanged and redeliver within bound |
+
+## Observability and Operator Signals
+
+| Signal | Meaning / non-evidence | Observed at | Escalate when | Runbook |
+|---|---|---|---|---|
+| KV session `status` | Authoritative persisted running/stopped; not immediate host readiness | Dashboard `/api/sessions/batch-status` | `stopped` disagrees with successful live health | [False stopped](troubleshooting.md#session-shows-stopped-on-the-dashboard-but-container-is-actually-running) |
+| Startup stage | Derived startup boundary; not persisted lifecycle status | `/api/container/startup-status` | Rejected start, accepted start returning to `stopped`, `error`, or no progress | [Start rejection/rollback](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped), [Waiting for services](troubleshooting.md#container-stuck-at-waiting-for-services) |
+| `lastInputAt` | Latest classified terminal or Browser IDE input; not agent output or liveness | Internal host `/activity`, surfaced through idle decisions and lifecycle logs | A session idles despite recent user input | [Container idle policy](container.md#auto-sleep-configurable-sleepafter) |
+| Metrics `updatedAt` | Last metrics publication; not liveness while the alarm loop sleeps | Dashboard batch status | Older than one 60-second metrics cycle while KV remains `running` | [Dashboard metrics](troubleshooting.md#dashboard-metrics-look-stale-or-cpu-exceeds-100) |
+| Terminal connection state | Visible-pane connectivity; not persisted session state | Terminal UI and client WebSocket state | Reconnecting persists after visibility return | [Terminal reconnect](troubleshooting.md#terminal-stuck-on-connecting-after-a-mobile-app-switch) |
+| Sync health/status | Current persistence-cycle result; not proof of complete R2 contents | Startup-status `details`, `/tmp/sync-status.json`, `/tmp/sync.log` | `failed`, frozen, or final-sync audit is incomplete | [R2 Sync Issues](troubleshooting.md#r2-sync-issues) |
+| Recovery correlation logs | Attempt, route observation, outcome, and exhaustion; not user-requested shutdown | `wrangler tail`, keyed by `recoveryAttemptId` | Recovery exhausts or shutdown ownership is unreadable | [Transport recovery](troubleshooting.md#common-failure-modes) |
+| CI native notification | Terminal result for one exact PR head; not review completion | Root Pi terminal/session notification | Failure, timeout, malformed result, or head mismatch | [CI/CD](ci-cd.md) |
+
+<a id="module-level-caches"></a>
+## Capacity, Caching, and Performance Assumptions
+
+Worker module caches are per isolate. Different isolates may observe configuration changes at different times within each cache's TTL; reset hooks narrow that window but cannot create shared memory. Exact cache variables, TTLs, bounds, and reset functions live in [Architecture Internals](architecture-internals.md#module-level-caches).
+
+| Assumption | Bound or cadence | Operational consequence | Detailed owner |
+|---|---|---|---|
+| Dashboard status polling | 5 seconds | Status may lag one browser poll; rendering reads compact KV list metadata without one `KV.get` per session | [Architecture Internals](architecture-internals.md#module-level-caches) |
+| Metrics publication | Normally 60 seconds | Metrics may trail status; stale `updatedAt` alone is not a liveness verdict | [Container](container.md#auto-sleep-configurable-sleepafter) |
+| In-container metrics requests | 10 seconds each | A wedged route cannot hold the alarm forever; repeated full-route failure enters bounded recovery | [Container](container.md#auto-sleep-configurable-sleepafter) |
+| Coordinator reconstruction | At most two resets | Recovery preserves a possibly live workload, then fails closed into ordinary exit confirmation | [Troubleshooting](troubleshooting.md#common-failure-modes) |
+| Background R2 bisync | 15 minutes, plus manual triggers | Local files may lead R2 between reconciliations | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
+| Final persistence drain | 120-second sync budget; 135-second teardown cap | Stop stays bounded while awaiting durability before signalling the container | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
+| Background bisync baseline and PTY pre-warm | Run concurrently after the required initial restore; baseline sync is deprioritized on the default single-vCPU tier | Readiness waits for mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
+| Session create/start requests | 10 creates and 5 starts per minute per user | Creation records intent; start separately checks concurrency and compute-quota policy | [API Reference](api-reference.md#session-management), [Container](container.md) |
+| Concurrent-session limit | Non-SaaS, including current Enterprise runtime: role-based; SaaS: effective-tier-based | Best-effort start-time check; simultaneous starts may exceed the nominal limit. [Issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit | [Configuration](configuration.md#worker-environment), [Billing](billing.md), [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) |
+| Container resource profile | Low: 0.25 vCPU/1 GiB/4 GB; default or `saas`: 1 vCPU/3 GiB/6 GB; high: 2 vCPU/6 GiB/12 GB | One profile is selected per deployment | [Configuration](configuration.md#container-specs) |
+| Deployment container capacity | 10 instances by default; positive-integer `MAX_INSTANCES` override | This deployment-wide platform bound is distinct from the per-user policy guard | [Configuration](configuration.md#container-specs) |
+| Timekeeper user-record cache | 60 seconds; 100 entries per isolate | Quota decisions may briefly observe stale billing state | [Architecture Internals](architecture-internals.md#module-level-caches) |
+
+Container work runs on local disk. R2 is the durability boundary, not a FUSE filesystem. Capacity and sync performance therefore depend on bounded reconciliation, not remote latency for every file operation.
+
+## Security and Privacy Boundaries
+
+| Boundary | Guarantee | Failure behavior | Detailed owner |
+|---|---|---|---|
+| Public request to Worker | Identity and route policy are applied before protected work | Reject unauthenticated or unauthorized requests | [Authentication](authentication.md), [Security](security.md) |
+| Worker to Container DO | Session identity selects one coordinator | Reject invalid or cross-session routing | [Container](container.md) |
+| Container DO to host | Internal token authenticates mutable private endpoints | Missing token prevents the request | [Security](security.md) |
+| Container to AI Gateway | Gateway credential remains Worker-side | Mandatory enterprise path returns bounded error | [Security](security.md) |
+| Container to GitHub in enterprise | Real user token is injected at host-specific egress | Missing token fails closed | [Security](security.md#github-token-containment) |
+| Container to Cloudflare API/browser | User or enterprise token is refreshed/injected Worker-side where configured | Missing valid token fails closed | [Security](security.md#api-token-containment) |
+| Strict direct-internet egress | Traffic traverses the customer's Gateway | Missing required binding returns 503 without global-fetch fallback | [Security](security.md#strict-gateway-egress-enterprise-mode) |
+| Browser IDE state export | Only allowlisted credential-free UI state persists | Invalid, external, or symbolic-link resources are excluded | [Security](security.md#browser-ide-native-agents) |
+| R2 sync | Selected user files persist under scoped credentials | Sync failure is observable and bounded | [Storage & Sync](storage-and-sync.md) |
+| Extraction child | Child can publish only through request-scoped exact-success contract | Root state does not advance on missing/mismatched artifacts | [Vault](vault.md) |
+
+<a id="specification-coverage"></a>
+<a id="manual-verification-checklist"></a>
+## Decision and Requirement Map
+
+This table is navigational. Requirement status and acceptance criteria remain authoritative in `sdd/spec/`; this document does not promote a Partial requirement by describing implemented source.
+
+| Concern | Architecture section | Requirements | Decisions | Detailed owner |
+|---|---|---|---|---|
+| Session topology and authority | System at a Glance; Container DO; state matrix | [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) | [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
+| Persistence | R2; state matrix; lifecycle flow | [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) | [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
+| Browser IDE | Browser IDE component | [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) | [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | [Container](container.md), [Security](security.md) |
+| Enterprise routing | LLM and egress components/flows | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | [Security](security.md), [Configuration](configuration.md) |
+| GitHub | GitHub component/clone flow | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) | [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | [API Reference](api-reference.md), [Security](security.md) |
+| Landing | Landing component/contact flow | [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) | [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | [Architecture Internals](architecture-internals.md), [Security](security.md) |
+| Governed agents | Memory, review, and CI flows | [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) | [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | [Preseed](preseed.md), [Vault](vault.md), [CI/CD](ci-cd.md) |
+
+<a id="container-reference"></a>
+<a id="mobile-reference"></a>
+<a id="preseed-reference"></a>
+<a id="storage-and-sync-reference"></a>
+<a id="vault-reference"></a>
 ## Related Documentation
-- [Architecture Internals](architecture-internals.md) - Backend libraries, code structure, CF-NNN index
-- [API Reference](api-reference.md) - All API endpoints
-- [Authentication](authentication.md#authentication-modes) - Authentication modes and SaaS billing
-- [Security](security.md) - Security model and rate limiting
-- [Container](container.md) - Container image and startup
-- [Storage & Sync](storage-and-sync.md) - R2 storage and rclone bisync
-- [Configuration](configuration.md#worker-environment) - Environment variables
-- [Decisions](../decisions/README.md) - Architecture Decision Records
+
+- [Architecture Internals](architecture-internals.md) - Source modules, implementation composition, caches, and extension boundaries
+- [API Reference](api-reference.md) - HTTP and WebSocket contracts
+- [Authentication](authentication.md) - Identity modes and authorization flows
+- [Billing](billing.md) - Subscription, usage, and Timekeeper-facing behavior
+- [CI/CD](ci-cd.md) - Workflow and exact-head CI behavior
+- [Configuration](configuration.md) - Environment, KV settings, and operator-controlled toggles
+- [Container](container.md) - Container startup, lifecycle, host, terminal, and Browser IDE runtime
+- [Deployment](deployment.md) - Build, deployment, rollback, and private-operation links
+- [Mobile](mobile.md) - Mobile viewport, keyboard, terminal, and MultiView behavior
+- [Preseed](preseed.md) - Agent delivery, review, SDD, and runtime policy
+- [Security](security.md) - Threat boundaries, credentials, egress, and controls
+- [Storage & Sync](storage-and-sync.md) - R2 persistence, sync, recovery, and final drain
+- [Troubleshooting](troubleshooting.md) - Symptoms, diagnosis, and operator recovery
+- [Vault](vault.md) - Memory capture, Vault extraction, and graph publication
+- [Decisions](../decisions/README.md) - Alternatives, trade-offs, and consequences

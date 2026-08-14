@@ -180,6 +180,7 @@ Enforcement is **server-side** (`isDownloadsDisabled` in `src/lib/downloads-poli
 
 Default OFF and non-enterprise never read KV, so storage is byte-identical to today ([REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)).
 
+<a id="github-token-containment"></a>
 ## GitHub Token Handling
 
 The per-user GitHub token authorizes the agent to act with the user's full GitHub permissions (clone/push/PR/merge). Its handling reuses the same primitives as the policies above — encryption at rest and the enterprise egress-injection layer — so a prompt-injected agent or malicious dependency cannot exfiltrate a raw token.
@@ -246,7 +247,7 @@ The placeholder substitution pipes its sed script through stdin (`sed -i -f -`) 
 
 ## Graceful Shutdown
 
-`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism - no in-memory PID variable fallback), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. The bisync-initialized flag is touched on the timeout path as well (was previously missing, which caused shutdown to skip final bisync when initial sync timed out). This ensures no data loss on container stop.
+The authoritative durability boundary runs before the stop signal: the Container DO invokes the authenticated `/internal/final-sync` endpoint while the container is alive and waits within its bounded drain budget. `STOPSIGNAL SIGINT` and the `entrypoint.sh` SIGINT/SIGTERM trap remain a best-effort backstop for paths that bypass that orchestrated drain; the trap stops the sync daemon, attempts a final `rclone bisync` with the established safeguards, and then kills the terminal server. The platform's short post-signal grace is never relied on for sync completion. See [REQ-SESSION-011](../../sdd/spec/session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) and [Storage & Sync](storage-and-sync.md#conflict-resolution).
 
 ## Security Hardening (Pre-Launch Review)
 
@@ -314,7 +315,6 @@ Code OSS reads workspace selection from the browser location or its workbench co
 **Implements:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation), [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
 
 <a id="browser-ide-native-agents"></a>
-
 ### Browser IDE native agents ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-011](../../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-013](../../sdd/spec/browser-ide.md#req-ide-013-account-backed-code-review-suppression), [REQ-IDE-014](../../sdd/spec/browser-ide.md#req-ide-014-active-editor-review-with-codeflare), [REQ-IDE-017](../../sdd/spec/browser-ide.md#req-ide-017-unsupported-ide-inventory-runtime-metadata), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution), [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol))
 
 **Threat:** An unrestricted IDE agent can perform destructive or external actions, treat untrusted file text as authority, import terminal history, invoke an unrelated account provider, expose a local control channel, substitute a privileged extension package, or leave credential-bearing descendants running.

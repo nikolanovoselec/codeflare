@@ -30,7 +30,7 @@ When their public workflows or consumers change, update the private README in th
 
 | Audience | Start here |
 |----------|------------|
-| Operator | [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use [private operations](https://github.com/nikolanovoselec/codeflare-private) for non-default deployment |
+| Operator | [Architecture](lanes/architecture.md), [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use [private operations](https://github.com/nikolanovoselec/codeflare-private) for non-default deployment |
 | Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
 | Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
 
@@ -38,8 +38,8 @@ When their public workflows or consumers change, update the private README in th
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [Architecture](lanes/architecture.md) | System overview, components, data flow, design rationale | Developers |
-| [Architecture Internals](lanes/architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
+| [Architecture](lanes/architecture.md) | System map, component and state ownership, cross-component flows, failure boundaries | Operators, Developers |
+| [Architecture Internals](lanes/architecture-internals.md) | Source composition, runtime/client internals, caches, backend libraries, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
 | [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
 | [Billing & Subscription](lanes/billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |

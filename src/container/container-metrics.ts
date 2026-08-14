@@ -819,10 +819,11 @@ async function reconcileContainerTransport(
  * container/index.ts::onStart). Removing that heuristic is codeflare#153.
  *
  * TIMESTAMP TAXONOMY (four distinct clocks - do not conflate):
- *   lastInputAt        in-container /activity: wall-clock of the last PTY
- *                      KEYSTROKE (user input) only. Does NOT advance on terminal
- *                      OUTPUT, WebSocket traffic, vault/SilverBullet activity, or
- *                      an autonomously-working agent. The idle reference:
+ *   lastInputAt        in-container /activity: wall-clock of the latest
+ *                      classified PTY input or client-to-server Browser IDE
+ *                      frame. Does NOT advance on terminal output, server-to-client
+ *                      editor traffic, vault/SilverBullet activity, or an
+ *                      autonomously-working agent. The idle reference:
  *                      idleMs = Date.now() - (lastInputAt ?? containerStartedAt).
  *   lastSeenInputAt    MetricsState's cached copy of lastInputAt for this tick.
  *   lastActiveAt (KV)  mirrors lastInputAt (input-driven). Feeds the dashboard
@@ -902,12 +903,12 @@ export async function collectMetrics(
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
   // User-input-based idle detection. The SDK's sleepAfter timer is pinned to
-  // 24h and refreshes on every WebSocket message (in both directions) in
-  // @cloudflare/containers v0.2.x, so it would keep a container alive as
-  // long as any bytes flow — including background output from `tail -f` or
-  // `yes`. collectMetrics polls the in-container /activity endpoint for
-  // lastInputAt (PTY input only) and explicitly stops the container when
-  // idle exceeds the user-configured threshold.
+  // 24h and refreshes on every WebSocket message in both directions, so it
+  // would keep a container alive as long as any bytes flow — including
+  // background output from `tail -f` or `yes`. collectMetrics polls the
+  // in-container /activity endpoint for lastInputAt (classified PTY input or a
+  // client-to-server Browser IDE frame) and explicitly stops the container
+  // when idle exceeds the user-configured threshold.
   //
   // Re-read the idle-timeout pref from DO storage every tick. The class field
   // cache may be stale if (a) the DO instance was hibernated and re-loaded
@@ -955,7 +956,7 @@ export async function collectMetrics(
 
       // Explicit idle-stop: stop the container when idle exceeds the
       // user-configured threshold. Fall back to containerStartedAt when
-      // the user has never typed (lastInputAt null).
+      // no classified terminal or Browser IDE input has arrived (lastInputAt null).
       const referenceTime = activity.lastInputAt ?? state.containerStartedAt;
       const idleMs = Date.now() - referenceTime;
       if (idleMs > sleepMs) {

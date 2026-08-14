@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD14](#ad14-never-auto---resync-on-bisync-failure) by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery); [AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -24,7 +24,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Suffix-pattern CORS with credentials | Security |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | KV-based setup lock (non-atomic) | Security |
 | [AD13](#ad13-per-user-scoped-r2-tokens) | Per-user scoped R2 tokens | Security |
-| [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
+| [AD14](#ad14-never-auto---resync-on-bisync-failure) | _superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery)_ | (superseded) |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
 | [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) - `collectMetrics` atomicity_ | Architecture |
@@ -135,6 +135,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | The CI monitor observes and reports; it does not cancel runs or chase the remote | Architecture, Build / Container |
 | [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | The Claude fix directive owns delivery; Pi leaves it to standing rules | Architecture, Cost |
 | [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Bounded re-delivery replaces the memory-capture hard block | Architecture, Cost, Agents |
+| [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) | Bounded automatic resync after exhausted recovery | Storage |
 
 ---
 
@@ -235,6 +236,8 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 **Decision:** Last-writer-wins is acceptable for KV state; `collectMetrics` keeps activity, health, and KV updates inside a single `alarm()` callback for natural atomicity.
 
 Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccessedAt` is best-effort. KV doesn't support atomic read-modify-write. Durable Objects would add latency for negligible consistency gain in this use case.
+
+**Update (2026-08-14, explicit product decision):** concurrent-session admission remains best effort. A start counts KV list metadata before a later write marks its session `running`; simultaneous starts may both pass and exceed the nominal per-user limit until a session stops. This check discourages ordinary overuse but is not a lock or security boundary. Deployment `max_instances` remains the separate hard platform capacity. [Issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit, not atomic admission.
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
@@ -394,20 +397,13 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Category:** Storage
 
-**Status:** Accepted (date not recorded)
+**Status:** Superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) (2026-08-14)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** This decision recorded the deletion-safety reason to avoid routine baseline resets. It did not match the daemon's already-existing fallback path and was later contradicted explicitly by [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6.
 
-**Decision:** `--resilient` + `--recover` for self-healing instead.
+**Historical decision:** Prefer resilient/recover semantics over automatic baseline reset because `--resync` can resurrect a deletion that has not propagated. Startup baseline establishment remains safe after the one-way restore.
 
-`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions -- if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.
-
-**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.
-
-**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.
-
-
-**Consequences:** The original compact ADR did not record a separate consequences field.
+**Consequences:** The deletion-resurrection risk remains current. AD125 narrows the disagreement: ordinary recovery still avoids `--resync`, while bounded baseline re-establishment is accepted only after the tracked failure budget is exhausted or the required listing state is absent.
 
 ---
 
@@ -2152,7 +2148,7 @@ This intentionally overrides REQ-ENTERPRISE-004's original "does not expose the 
 
 **Catalog-driven routing + multi-group attribution amendment (2026-06-09):** Two changes supersede earlier mechanisms in this ADR. (1) **Route selection moves from the single `AIG_LANGUAGE_MODEL` Worker var to a Setup-configured catalog** ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)): the setup wizard persists an unlimited route list plus one optional default `route:reasoning` in KV (`setup:dynamic_routes`, `setup:default_route`), editable with no redeploy; `AIG_LANGUAGE_MODEL` and its `deploy.yml` plumbing are **removed**. The `LlmInterceptor` now maps the agent's slash-free handle to `dynamic/<route>` from the catalog (`loadRouteCatalog`), failing safe to the resolved default on an unknown handle — superseding both the route-pinning amendment's single-var stamp and the `AIG_LANGUAGE_MODEL` backend-selection consequence above.
 
-The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch). (2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns ALL matched Access groups and the interceptor stamps one `group_<sanitized>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured order with a warn).
+The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch). (2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns every match from the configured user-access list and the interceptor stamps one `group_<sanitized>_<hash>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured-list order with a warning). Unconfigured IdP memberships and separately configured admin-group memberships are excluded.
 
 Per-group KEYS — not a CSV value — because the AI Gateway log/route filter operators are equals/not-equals only (no `contains`), so each `group_*` key is independently equals-filterable to build per-group Dynamic-Route if/else conditions ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). `sanitizeGroupKey` lowercases + replaces non-alphanumerics + appends a djb2 hash suffix so distinct names never collide on a sanitized key.
 
@@ -2162,7 +2158,7 @@ The REST API at `api.cloudflare.com/.../ai/v1/*` still requires a Cloudflare API
 
 codeflare's caller is a machine-to-machine `WorkerEntrypoint` with no interactive browser/JWT flow. Non-interactive Access uses a service token (a client-id/secret pair), so it remains a static secret and adds no containment gain over the Worker-only secret model already established in [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing).
 
-codeflare runs many end-users behind one Worker credential. A single Access identity cannot carry per-user attribution; gateway spend limits split on `cf-aig-metadata`, so codeflare must keep stamping `{ user: <email>, group: <access-group> }`.
+codeflare runs many end-users behind one Worker credential. A single Access identity cannot carry per-user attribution; gateway spend limits split on Worker-stamped `cf-aig-metadata.user` and the bounded `group_<sanitized>_<hash>` tags, so the application must keep supplying that per-request attribution.
 
 codeflare's metadata is not honor-system. The Worker stamps it from a server-side DO prop and strips any container-supplied value, so the container cannot forge it.
 
@@ -3300,7 +3296,7 @@ The extension compiles its exact `node-pty` dependency for OpenVSCode's Node 22 
 
 **Category:** Architecture, Security, Supply Chain
 
-**Status:** Accepted (2026-07-23); amended 2026-07-24 for unrestricted IDE-agent tools, 2026-07-25 for universal workspace settings, by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, 2026-08-12 for native Pi editor Inline Chat, and 2026-08-13 for the distinct Codeflare provider, single custom-agent source, and persistent IDE-owned Pi conversation. Implements [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), and [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution); deployed integration pass@3 completes [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation).
+**Status:** Accepted (2026-07-23); amended 2026-07-24 for unrestricted IDE-agent tools, 2026-07-25 for universal workspace settings, by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, 2026-08-12 for native Pi editor Inline Chat, and 2026-08-13 for the distinct Codeflare provider, single custom-agent source, and persistent IDE-owned Pi conversation. Implements [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), and [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution); deployed integration run `30413127704` provides manual evidence for [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), whose active specification status remains authoritative.
 
 **Context:** The owned webview from AD113 could chat with Pi or render Claude's PTY, but it could not see the active editor, selected text, open files, diagnostics, or native references. Users had to copy file contents into a UI presented as an IDE agent. OpenVSCode 1.109.5 has a native Chat participant API for Pi, while Anthropic publishes its official Claude Code extension for VS Code forks through Open VSX. The owner explicitly accepts both the extension's all-rights-reserved licensing ambiguity for server-image inclusion and its authenticated loopback IDE MCP transport. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 
@@ -3576,3 +3572,17 @@ Pi meets the same requirement without a block. Its request is durable, `extracti
 **Consequences:** No hook can wedge a session on behalf of memory capture. A capture that fails is retried instead of being recorded as done: the old arming hook advanced the counter immediately, so a failed capture silently discarded its window forever, which was a data-loss bug independent of the deadlock. The agent definition drops its `model:` pin in favour of `CODEFLARE_MEMORY_MODEL`, and carries a six-turn budget, raised from four after a large window exhausted the smaller budget on every attempt — a deterministic failure that re-delivery cannot clear, so all six deliveries burned on one window; [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s fidelity reasoning still holds and is now expressed as a default rather than a hard pin. Pi's own four-turn extraction budget ([AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)) is unchanged.
 
 The cost is that a capture can be skipped six times and then dropped, where the block made it eventually mandatory. That is deliberate: an ignored capture costs one window of memory, and a wedged session costs the whole turn. Anyone tempted to reintroduce a blocking enforcement hook must first show it cannot refuse the spawn some other gate requires.
+
+### AD125: Bounded automatic resync after exhausted recovery
+
+**Category:** Storage
+
+**Status:** Accepted (2026-08-14); supersedes [AD14](#ad14-never-auto---resync-on-bisync-failure)
+
+**Context:** Steady-state bisync can lose the listing state required for another ordinary recovery attempt, or remain unrecoverable after its internal retries and vanished-file repair. Leaving the daemon in that state preserves deletion tracking in theory and stops persistence in practice. The runtime already resolved this by rebuilding the baseline after a bounded failure budget, and [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6 makes that observable behavior explicit. <!-- @impl: entrypoint.sh::start_sync_daemon -->
+
+**Decision:** Use resilient/recover semantics and vanished-file repair first. If three consecutive cycles remain unrecoverable after their internal retries, call `establish_bisync_baseline()` to rebuild the baseline. When exit code 7 coincides with missing prior listings, rebuild immediately because two more attempts cannot operate without that state. A failed rebuild remains visible and is retried only after another failed cycle; it does not terminate the daemon.
+
+**Alternatives rejected:** Never rebuilding automatically, because a session with absent or irrecoverable listings would keep running without persistence; rebuilding on the first ordinary failure, because that spends the deletion-safety trade-off before resilient recovery has had a chance to work; deleting suspected R2 objects, because corruption was not established and user data is not disposable recovery state.
+
+**Consequences:** Baseline reconstruction can resurrect a deletion that existed on only one side. The runtime accepts that bounded risk to restore a functioning persistence loop after ordinary recovery is exhausted. Logs and sync health expose the fallback and its outcome. Startup continues to establish a baseline after one-way restore, while healthy steady-state cycles never invoke `--resync`.

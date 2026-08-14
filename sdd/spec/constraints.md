@@ -176,7 +176,7 @@ Cloudflare Containers enforces disk (GB) <= 2 x memory (GiB) and >= 3 GiB memory
 - **No shared state between Worker isolates** -- Module-level caches (CORS, auth config, JWKS, tier config, circuit breakers) are per-isolate. Different isolates may see different values for up to the cache TTL.
 - **No application-level WebSocket pings** -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 - **No FUSE mounts** -- rclone bisync with local disk, not s3fs FUSE. Every file op is <1ms local, not ~340ms network.
-- **No auto-resync on bisync failure** -- `--resync` destroys deletion tracking. Self-healing uses `--resilient` + `--recover`. Manual resync only via `establish_bisync_baseline()` on startup (one-way restore first).
+- **Bounded resync only after ordinary recovery is exhausted** -- `--resync` can resurrect a pending deletion, so steady-state recovery first uses resilient/recover semantics and vanished-file repair. Baseline re-establishment is automatic only after three consecutive unrecoverable failures, or immediately when the missing prior listing makes ordinary retry impossible, as constrained by [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6.
 - **No cross-session access** -- Each container has its own PTY, its own R2 credentials (scoped to owner's bucket), and its own auth token. Sessions cannot communicate.
 - **Single port architecture** -- All container services (WebSocket, REST, health, metrics) on port 8080. Eliminates port conflict bugs.
 - **No Docker layer pruning in CI** -- `docker system prune -af` nukes the cache on self-hosted runners and triggers Docker Hub rate limits. Let Docker manage its own cache.

@@ -237,6 +237,8 @@ The re-arm is the alarm's last statement and the schedule is one-shot, so a cont
 
 If transport stays unreachable, three post-reset confirmations permit one final reconstruction. This budget also applies when a monitor-loss reconstruction still reads not-running, where no host probe can run. Three failures after the second attempt persist `exhausted`. A running container keeps 60 s checks and usage accounting; a not-running container returns to persisted exit confirmation and converges to stopped without another reset.
 
+The dashboard CPU metric is the one-minute host load average divided by the reported CPU count, not sampled CPU utilization. Runnable or uninterruptible work may therefore produce values above 100%; interpret the value as normalized load pressure and correlate it with memory, sync, responsiveness, and repeated samples. <!-- @impl: host/src/metrics.ts::getSystemMetrics -->
+
 Logs correlate reset, confirmation, success, and exhaustion with DO and attempt identities, counts, elapsed time, container state, and a bounded route failure category (`timeout`, `network-lost`, `connection-refused`, or `other`). A persisted `shutdownRequested` marker ends recovery; an unreadable marker suppresses reconstruction and alarm re-arming. The SDK constructor's running-container path is expected to reattach `container.monitor()`; browser reconnection to the existing PTY remains a deployed smoke check.
 
 The bound is on the poll rather than on the tick deliberately — four exits stop the loop on purpose (confirmed exit, idle stop, zombie DO, stop already issued), and a blanket re-arm would resurrect a zombie. Transport reconstruction is different: it preserves the workload and resets only the control object whose private container attachment stopped serving.
@@ -271,7 +273,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 - **Header toolbar** (`Header.tsx`): Clock icon next to the avatar. Click shows dropdown with countdown bucket + explanation text.
 - **Data source:**
 
-    `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the last PTY keystroke tracked by the terminal server). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
+    `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the latest classified terminal input or client-to-server Browser IDE frame tracked by the shared host activity tracker). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
 
 ---
 

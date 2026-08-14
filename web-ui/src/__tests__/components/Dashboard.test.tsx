@@ -932,7 +932,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Session Limit Tests ===
 
-  it('shows SessionLimitPopup instead of CreateSessionDialog when at limit', () => {
+  it('REQ-SUB-013 AC3 / REQ-SUB-019: shows limit feedback without opening the create dialog', () => {
     (sessionStore as any)._setTestLimit(true, 3);
     render(() => <Dashboard {...defaultProps} />);
 
