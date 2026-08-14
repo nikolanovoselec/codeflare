@@ -8,6 +8,7 @@ export interface WelcomeAction {
 
 export interface WelcomePresentation {
   readonly agentEnabled: boolean;
+  readonly agentKind: IdeAgentKind;
   readonly runtimeLabel: string;
   readonly continuityTitle: string;
   readonly continuityBody: string;
@@ -22,9 +23,10 @@ export function buildWelcomePresentation(kind: IdeAgentKind): WelcomePresentatio
   if (kind === 'pi') {
     return Object.freeze({
       agentEnabled: true,
-      runtimeLabel: 'PI / NATIVE CHAT',
-      continuityTitle: 'Native Pi continuity',
-      continuityBody: 'Codeflare Chat runs the same Codeflare Pi agent environment in this container: the same agents, tools, skills, and MCPs, with an IDE-owned conversation.',
+      agentKind: 'pi' as const,
+      runtimeLabel: 'PI / NATIVE',
+      continuityTitle: 'Pi, native to VS Code',
+      continuityBody: 'Use Codeflare Chat in the panel or editor Inline Chat. Both surfaces share one IDE-owned Pi conversation with the same tools, skills, subagents, MCP servers, and root-level container access as the main Codeflare environment.',
       action: Object.freeze({
         label: 'Open Codeflare Chat',
         command: 'workbench.action.chat.open',
@@ -37,11 +39,12 @@ export function buildWelcomePresentation(kind: IdeAgentKind): WelcomePresentatio
   if (kind === 'claude') {
     return Object.freeze({
       agentEnabled: true,
-      runtimeLabel: 'CLAUDE / OFFICIAL PANEL',
-      continuityTitle: 'Official Claude Code',
-      continuityBody: 'The official panel runs the same Codeflare-managed Claude agent environment in this container: its agents, tools, skills, plugins, and available MCPs.',
+      agentKind: 'claude' as const,
+      runtimeLabel: 'CLAUDE / OFFICIAL',
+      continuityTitle: 'Official Claude Code panel',
+      continuityBody: 'Use Anthropic’s official native VS Code experience, connected to the same Codeflare-managed Claude environment, workspace, tools, skills, plugins, and available MCP servers.',
       action: Object.freeze({
-        label: 'Open Codeflare Chat',
+        label: 'Open Claude Code',
         command: 'claude-vscode.sidebar.open',
         arguments: Object.freeze([]),
       }),
@@ -49,11 +52,12 @@ export function buildWelcomePresentation(kind: IdeAgentKind): WelcomePresentatio
   }
   return Object.freeze({
     agentEnabled: false,
+    agentKind: 'none' as const,
     runtimeLabel: 'EDITOR / STANDARD',
-    continuityTitle: 'Traditional editor mode',
-    continuityBody: 'This session type does not inject an agent into VS Code. Editing, terminals, source control, debugging, and extensions remain fully functional.',
+    continuityTitle: 'Full editor, no injected agent',
+    continuityBody: 'VS Code remains completely functional. Use the editor, terminal, source control, debugger, and extensions without an agent panel being added.',
     action: Object.freeze({
-      label: 'Explore workspace',
+      label: 'Explore Workspace',
       command: 'workbench.view.explorer',
       arguments: Object.freeze([]),
     }),
@@ -69,11 +73,12 @@ export function renderWelcomeHtml(
     throw new TypeError('Invalid webview CSP source');
   }
   if (!/^[a-zA-Z0-9_-]{8,128}$/.test(nonce)) throw new TypeError('Invalid webview nonce');
+  const agentKind = escapeHtml(presentation.agentKind);
   const runtimeLabel = escapeHtml(presentation.runtimeLabel);
   const continuityTitle = escapeHtml(presentation.continuityTitle);
   const continuityBody = escapeHtml(presentation.continuityBody);
   const actionLabel = escapeHtml(presentation.action.label);
-  const agentState = presentation.agentEnabled ? 'CONNECTED' : 'NOT ATTACHED';
+  const agentState = presentation.agentEnabled ? 'NATIVE AGENT' : 'EDITOR ONLY';
 
   return `<!doctype html>
 <html lang="en">
@@ -125,53 +130,67 @@ export function renderWelcomeHtml(
   }
   .hero {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr);
-    gap: clamp(40px, 7vw, 92px);
-    padding: clamp(52px, 8vh, 88px) 0 60px;
-    align-items: end;
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+    gap: clamp(36px, 6vw, 80px);
+    padding: clamp(56px, 9vh, 96px) 0 clamp(48px, 8vh, 76px);
+    align-items: stretch;
   }
-  .eyebrow {
-    margin: 0 0 18px;
-    color: var(--vscode-charts-orange, #d66a45);
-    font-family: var(--vscode-editor-font-family);
-    font-size: 12px;
-    font-weight: 650;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-  }
+  .hero-copy { align-self: center; }
   h1 {
-    max-width: 760px;
+    max-width: 780px;
     margin: 0;
     color: var(--vscode-editor-foreground);
-    font-size: clamp(38px, 6vw, 68px);
-    font-weight: 560;
-    letter-spacing: -.045em;
+    font-size: clamp(42px, 6vw, 72px);
+    font-weight: 580;
+    letter-spacing: -.04em;
     line-height: .98;
+    text-wrap: balance;
   }
+  h1 span { color: var(--vscode-descriptionForeground); }
   .lede {
-    max-width: 700px;
-    margin: 26px 0 0;
+    max-width: 68ch;
+    margin: 28px 0 0;
     color: var(--vscode-descriptionForeground);
     font-size: clamp(16px, 2vw, 19px);
-    line-height: 1.55;
+    line-height: 1.6;
   }
-  .action-block { border-left: 2px solid var(--vscode-charts-orange, #d66a45); padding-left: 22px; }
-  .action-label {
-    margin: 0 0 12px;
+  .active-plane {
+    position: relative;
+    display: flex;
+    min-height: 320px;
+    flex-direction: column;
+    justify-content: space-between;
+    border: 1px solid var(--vscode-panel-border);
+    padding: 30px;
+    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  }
+  .active-plane::before {
+    content: '';
+    position: absolute;
+    inset: -1px -1px auto;
+    height: 2px;
+    background: var(--vscode-charts-orange, #d66a45);
+  }
+  .active-meta {
+    margin: 0 0 42px;
     color: var(--vscode-descriptionForeground);
     font-family: var(--vscode-editor-font-family);
     font-size: 11px;
     letter-spacing: .1em;
     text-transform: uppercase;
   }
+  .active-plane h2 { margin: 0 0 12px; font-size: clamp(22px, 3vw, 30px); font-weight: 590; letter-spacing: -.025em; }
+  .active-body { max-width: 52ch; margin: 0; color: var(--vscode-descriptionForeground); font-size: 14px; line-height: 1.65; }
   .primary {
     display: inline-flex;
-    min-height: 40px;
+    min-height: 42px;
+    width: fit-content;
+    margin-top: 30px;
     align-items: center;
     gap: 10px;
     border: 1px solid var(--vscode-button-border, transparent);
     border-radius: 2px;
-    padding: 9px 14px;
+    padding: 10px 15px;
     color: var(--vscode-button-foreground);
     background: var(--vscode-button-background);
     cursor: pointer;
@@ -180,54 +199,25 @@ export function renderWelcomeHtml(
   .primary:hover { background: var(--vscode-button-hoverBackground); transform: translateY(-1px); }
   .primary:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 3px; }
   .primary svg { width: 16px; height: 16px; }
-  .plane {
+  .foundations {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     border-top: 1px solid var(--vscode-panel-border);
     border-bottom: 1px solid var(--vscode-panel-border);
   }
-  .flow {
-    display: grid;
-    grid-template-columns: 1fr 44px 1fr 44px 1fr;
-    align-items: center;
-    min-height: 112px;
-  }
-  .node { padding: 22px 18px; }
-  .node small {
+  .foundation { padding: 34px 30px 38px; }
+  .foundation + .foundation { border-left: 1px solid var(--vscode-panel-border); }
+  .foundation-label {
     display: block;
-    margin-bottom: 7px;
-    color: var(--vscode-descriptionForeground);
+    margin-bottom: 28px;
+    color: var(--vscode-charts-orange, #d66a45);
     font-family: var(--vscode-editor-font-family);
     font-size: 10px;
     letter-spacing: .1em;
+    text-transform: uppercase;
   }
-  .node strong { font-size: 15px; font-weight: 570; }
-  .connector { position: relative; height: 1px; background: var(--vscode-panel-border); }
-  .connector::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    top: -3px;
-    width: 6px;
-    height: 6px;
-    border-top: 1px solid var(--vscode-descriptionForeground);
-    border-right: 1px solid var(--vscode-descriptionForeground);
-    transform: rotate(45deg);
-  }
-  .details {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    border-bottom: 1px solid var(--vscode-panel-border);
-  }
-  .detail { min-height: 190px; padding: 30px 26px 34px; }
-  .detail + .detail { border-left: 1px solid var(--vscode-panel-border); }
-  .index {
-    display: block;
-    margin-bottom: 34px;
-    color: var(--vscode-charts-orange, #d66a45);
-    font-family: var(--vscode-editor-font-family);
-    font-size: 11px;
-  }
-  .detail h2 { margin: 0 0 10px; font-size: 16px; font-weight: 590; }
-  .detail p { margin: 0; color: var(--vscode-descriptionForeground); font-size: 13px; line-height: 1.55; }
+  .foundation h2 { margin: 0 0 10px; font-size: 18px; font-weight: 590; }
+  .foundation p { max-width: 58ch; margin: 0; color: var(--vscode-descriptionForeground); font-size: 13px; line-height: 1.6; }
   .footer {
     display: flex;
     justify-content: space-between;
@@ -242,14 +232,11 @@ export function renderWelcomeHtml(
   @media (max-width: 760px) {
     .shell { width: min(100% - 32px, 620px); padding-top: 36px; }
     .masthead { align-items: flex-start; flex-direction: column; gap: 10px; }
-    .hero { grid-template-columns: 1fr; align-items: start; padding-top: 44px; }
-    .flow { grid-template-columns: 1fr; padding: 14px 0; }
-    .connector { width: 1px; height: 24px; margin-left: 24px; }
-    .connector::after { right: -3px; top: auto; bottom: 0; transform: rotate(135deg); }
-    .details { grid-template-columns: 1fr; }
-    .detail { min-height: 0; }
-    .detail + .detail { border-left: 0; border-top: 1px solid var(--vscode-panel-border); }
-    .index { margin-bottom: 16px; }
+    .hero { grid-template-columns: 1fr; padding-top: 46px; }
+    .active-plane { min-height: 0; }
+    .foundations { grid-template-columns: 1fr; }
+    .foundation + .foundation { border-left: 0; border-top: 1px solid var(--vscode-panel-border); }
+    .foundation-label { margin-bottom: 18px; }
     .footer { flex-direction: column; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -259,7 +246,7 @@ export function renderWelcomeHtml(
 </style>
 </head>
 <body>
-<main class="shell">
+<main class="shell" data-agent-kind="${agentKind}">
   <header class="masthead">
     <div class="wordmark">
       <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v3H6v12h5v3H3V3Zm10 0h8v8h-3V6h-5V3Zm0 15h5v-5h3v8h-8v-3Z"/></svg>
@@ -269,45 +256,33 @@ export function renderWelcomeHtml(
   </header>
 
   <section class="hero">
-    <div>
-      <p class="eyebrow">Browser IDE / observability plane</p>
-      <h1>Code directly.<br>See the whole system.</h1>
-      <p class="lede">VS Code remains fully functional for traditional coding. Here, it also becomes the observability plane connecting direct edits with the agentic SDLC around them.</p>
+    <div class="hero-copy">
+      <h1>Full VS Code.<br><span>Native agent workflows.</span></h1>
+      <p class="lede">Every Codeflare session includes full VS Code, attached to the same isolated container, workspace, terminal, and toolchain as the main session. It is the direct editing and observability plane for the native agent workflow running beside it.</p>
     </div>
-    <div class="action-block">
-      <p class="action-label">Current plane · ${agentState}</p>
+    <aside class="active-plane" data-agent-experience="${agentKind}" aria-label="Selected session experience">
+      <div>
+        <p class="active-meta">${agentState} · ${runtimeLabel}</p>
+        <h2>${continuityTitle}</h2>
+        <p class="active-body">${continuityBody}</p>
+      </div>
       <button class="primary" id="primary" type="button">
         ${actionLabel}
         <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 7.25h7.2L7.4 4.4 8.8 3l5.2 5-5.2 5-1.4-1.4 2.8-2.85H3v-1.5Z"/></svg>
       </button>
-    </div>
+    </aside>
   </section>
 
-  <section class="plane" aria-label="Codeflare execution plane">
-    <div class="flow">
-      <div class="node"><small>01 / EDIT</small><strong>Traditional VS Code</strong></div>
-      <div class="connector" aria-hidden="true"></div>
-      <div class="node"><small>02 / OBSERVE</small><strong>Shared workspace state</strong></div>
-      <div class="connector" aria-hidden="true"></div>
-      <div class="node"><small>03 / EXECUTE</small><strong>Native agent surface</strong></div>
-    </div>
-  </section>
-
-  <section class="details">
-    <article class="detail">
-      <span class="index">01</span>
-      <h2>A complete editor</h2>
-      <p>Edit, navigate, debug, search, review source control, and use the integrated terminal exactly as you would in a traditional VS Code workspace.</p>
+  <section class="foundations" aria-label="Shared Codeflare foundations">
+    <article class="foundation" data-foundation="editor">
+      <span class="foundation-label">Universal editor</span>
+      <h2>Complete in every session</h2>
+      <p>Edit, navigate, debug, search, use Git, run terminals, and work with extensions through the full browser-based VS Code experience.</p>
     </article>
-    <article class="detail">
-      <span class="index">02</span>
-      <h2>One isolated runtime</h2>
-      <p>The Browser IDE and your main Codeflare session run in the same isolated, ephemeral container against the same workspace and toolchain.</p>
-    </article>
-    <article class="detail">
-      <span class="index">03</span>
-      <h2>${continuityTitle}</h2>
-      <p>${continuityBody}</p>
+    <article class="foundation" data-foundation="runtime">
+      <span class="foundation-label">Shared runtime</span>
+      <h2>One live workspace</h2>
+      <p>The editor, terminal, application, and selected agent operate against the same ephemeral filesystem and toolchain. Changes appear everywhere immediately.</p>
     </article>
   </section>
 

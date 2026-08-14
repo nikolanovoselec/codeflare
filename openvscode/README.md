@@ -18,7 +18,7 @@ The directory name is a retained private migration identifier. The selected IDE 
 
 An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty inventory. Classification never executes or rewrites the terminal command.
 
-Every inventory opens the separate owned Codeflare welcome editor. Its action opens Codeflare Chat for Pi, the official Claude panel for Claude, and Explorer when no IDE agent is supported; the welcome package contributes no agent/model surface.
+Every inventory opens the separate owned Codeflare welcome editor. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface.
 
 ## Package map
 

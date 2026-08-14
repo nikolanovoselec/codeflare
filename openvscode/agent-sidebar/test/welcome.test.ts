@@ -15,24 +15,27 @@ test('REQ-IDE-024 AC4: every inventory gets an honest fixed welcome action', () 
     arguments: [{ query: '@codeflare ', isPartialQuery: true }],
   });
   assert.equal(pi.agentEnabled, true);
-  assert.equal(pi.runtimeLabel, 'PI / NATIVE CHAT');
+  assert.equal(pi.agentKind, 'pi');
+  assert.equal(pi.runtimeLabel, 'PI / NATIVE');
 
   const claude = buildWelcomePresentation('claude');
   assert.deepEqual(claude.action, {
-    label: 'Open Codeflare Chat',
+    label: 'Open Claude Code',
     command: 'claude-vscode.sidebar.open',
     arguments: [],
   });
   assert.equal(claude.agentEnabled, true);
-  assert.equal(claude.runtimeLabel, 'CLAUDE / OFFICIAL PANEL');
+  assert.equal(claude.agentKind, 'claude');
+  assert.equal(claude.runtimeLabel, 'CLAUDE / OFFICIAL');
 
   const unsupported = buildWelcomePresentation('none');
   assert.deepEqual(unsupported.action, {
-    label: 'Explore workspace',
+    label: 'Explore Workspace',
     command: 'workbench.view.explorer',
     arguments: [],
   });
   assert.equal(unsupported.agentEnabled, false);
+  assert.equal(unsupported.agentKind, 'none');
   assert.equal(unsupported.runtimeLabel, 'EDITOR / STANDARD');
 });
 
@@ -44,19 +47,20 @@ test('REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent',
   }
 });
 
-test('REQ-IDE-024 AC2+AC5: welcome HTML explains the editor plane without external content', () => {
-  const html = renderWelcomeHtml(
-    buildWelcomePresentation('pi'),
-    'vscode-webview://codeflare',
-    'fixed-nonce',
-  );
+test('REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content', () => {
+  for (const kind of ['pi', 'claude', 'none'] as const) {
+    const html = renderWelcomeHtml(
+      buildWelcomePresentation(kind),
+      'vscode-webview://codeflare',
+      'fixed-nonce',
+    );
 
-  assert.match(html, /traditional coding/i);
-  assert.match(html, /observability plane/i);
-  assert.match(html, /same isolated, ephemeral container/i);
-  assert.match(html, /agents, tools, skills, and MCPs/i);
-  assert.match(html, /Open Codeflare Chat/);
-  assert.match(html, /default-src 'none'; style-src 'nonce-fixed-nonce'; script-src 'nonce-fixed-nonce'/);
-  assert.match(html, /<style nonce="fixed-nonce">/);
-  assert.doesNotMatch(html, /https?:\/\//i);
+    assert.match(html, new RegExp(`data-agent-kind="${kind}"`));
+    assert.equal(html.match(/data-foundation=/g)?.length, 2);
+    assert.match(html, new RegExp(`data-agent-experience="${kind}"`));
+    assert.equal(html.match(/<button /g)?.length, 1);
+    assert.match(html, /default-src 'none'; style-src 'nonce-fixed-nonce'; script-src 'nonce-fixed-nonce'/);
+    assert.match(html, /<style nonce="fixed-nonce">/);
+    assert.doesNotMatch(html, /https?:\/\//i);
+  }
 });
