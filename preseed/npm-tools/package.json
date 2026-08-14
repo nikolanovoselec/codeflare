@@ -2,7 +2,7 @@
   "name": "codeflare-image-npm-tools",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.223",
+    "@anthropic-ai/claude-code": "2.1.224",
     "@earendil-works/pi-coding-agent": "0.84.0",
     "@github/copilot": "1.0.78",
     "@openai/codex": "0.146.1",
