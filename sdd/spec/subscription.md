@@ -384,21 +384,23 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-013: Concurrent Session Limits
 
-**Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
+**Intent:** Each tier exposes a maximum used by a best-effort start-time admission check to control resource consumption.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The tier-configuration lookup exposes the maximum-concurrent-sessions value for any tier. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
-2. Session creation is rejected when the count of running plus initializing sessions, excluding the session currently being started, has reached the configured maximum. Both compressed list metadata and legacy full records are counted. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (DEEP-18-005: running and initializing sessions consume capacity) -->
+2. A start request is rejected when its observed count of running plus initializing sessions, excluding the session currently being started, has reached the configured maximum. Both compressed list metadata and legacy full records are counted. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (DEEP-18-005: running and initializing sessions consume capacity) -->
 3. The frontend prevents starting a new session once the session limit is reached: at the limit the start-session control does not open the create dialog, and the limit is surfaced to the user via the session-limit popup ([REQ-SUB-019](#req-sub-019-session-limit-popup-in-frontend)). <!-- @impl: web-ui/src/stores/session.ts::isAtSessionLimit --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
-4. The session-status batch endpoint returns the tier maximum so the frontend can enforce limits client-side without a separate fetch. <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) --> <!-- @manual -->
+4. The session-status batch endpoint returns the tier maximum so the frontend can apply the same best-effort limit client-side without a separate fetch. <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) --> <!-- @manual -->
+5. The check is not an atomic reservation: simultaneous starts may both observe available capacity and exceed the nominal limit.
 
 **Constraints:**
 
 - The session-limit check uses the effective tier (after billing-status downgrades), not the stored tier.
 - Stress-test mode bypasses session limits.
+- Best-effort concurrency semantics follow [REQ-SESSION-007](session-lifecycle.md#req-session-007-running-session-count-limited-per-tier).
 
 **Priority:** P0
 

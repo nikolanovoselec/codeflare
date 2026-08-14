@@ -205,7 +205,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-007: Running session count limited per tier
 
-**Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
+**Intent:** Each start request is checked against the configured concurrent-session limit to discourage resource overuse and preserve plan differentiation without treating eventually consistent KV as an atomic reservation.
 
 **Applies To:** User
 
@@ -216,13 +216,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 4. Outside SaaS mode, role-based defaults apply (regular users default 3, admins default 10), configurable per deployment. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @manual -->
 5. Stress-test deployment mode bypasses session and quota limits. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
-6. Concurrent start requests are serialized or atomically reserve capacity so successful starts cannot exceed the applicable cap.
+6. Enforcement is best effort: the KV list/count and later `running` write are not atomic, so simultaneous starts may both pass and exceed the nominal limit until a session stops.
 
 **Constraints:**
 
 - Tier limits are configurable per deployment via the admin Subscription Management panel.
-- The session-cap lookup respects an explicit zero value (a zero cap blocks all starts, not a fallthrough to default).
-- The current KV list/count and later `running` write are not atomic; AC6 remains incomplete until start capacity is serialized or reserved atomically.
+- The session-cap lookup respects an explicit zero value (a zero cap blocks starts observed after that value, not a fallthrough to default).
+- Best-effort enforcement is an explicit product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity). Atomic reservation is out of scope; [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) separately tracks a role-independent Enterprise limit.
 
 **Priority:** P1
 
@@ -230,7 +230,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test ([container-lifecycle-helpers](../../src/__tests__/routes/container-lifecycle-helpers.test.ts))
 
-**Status:** Partial — AC6 requires atomic or serialized start-capacity enforcement.
+**Status:** Implemented
 
 ---
 
