@@ -339,6 +339,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-011-review-with-pi-explorer-action"></a>
 ### REQ-IDE-011: File review with Codeflare
 
 **Intent:** A Pi user can send one Explorer workspace file to Codeflare for review without entering a separate account-backed workflow.
@@ -396,6 +397,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-013-account-free-native-pi-chat"></a>
 ### REQ-IDE-013: Account-backed Code Review suppression
 
 **Intent:** A Pi user sees the account-free Codeflare review path without Code OSS's unrelated account-backed Code Review action.
@@ -422,6 +424,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-014-editor-context-native-chat-review"></a>
+<a id="req-ide-014-review-with-pi-editor-context-action"></a>
 ### REQ-IDE-014: Active-editor review with Codeflare
 
 **Intent:** A Pi user can send the active workspace file to Codeflare from the editor context menu.

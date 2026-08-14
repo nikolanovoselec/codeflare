@@ -413,6 +413,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
+<a id="req-stor-015-user-triggered-multi-session-sync"></a>
 ### REQ-STOR-015: Explicit Sync Trigger from UI
 
 **Intent:** Because the periodic bisync cadence is 15 minutes ([REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.

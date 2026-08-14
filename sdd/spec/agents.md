@@ -345,6 +345,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-119-bounded-settled-review-follow-ups"></a>
 ### REQ-AGENT-119: Settled review follow-up accounting
 
 **Intent:** Missing PR-boundary launch recovery must be bounded independently for each PR head in a normal checkout.
@@ -369,6 +370,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-120-claude-protected-base-review-boundaries"></a>
 ### REQ-AGENT-120: Claude review enforcement lifecycle
 
 **Intent:** Claude must complete an eligible review through bounded enforcement, tool-free triage, exact-head acknowledgement, and a separate FIX handoff.

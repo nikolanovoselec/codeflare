@@ -38,6 +38,7 @@ All `/app`, `/api`, `/setup` surfaces protected by JWT verification (CF Access R
 `CLOUDFLARE_API_TOKEN` never enters containers; containers receive per-user scoped R2 tokens only.
 **Applies To:** System (container provisioning)
 
+<a id="con-sec-003-credentials-encrypted-at-rest-when-encryption_key-configured"></a>
 ### CON-SEC-003: Credentials encrypted at rest when ENCRYPTION_KEY configured
 Optional AES-256-GCM for KV credentials (per-value random IVs, AAD binding to key name); R2 SSE-C for workspace files.
 **Applies To:** System (storage layer)

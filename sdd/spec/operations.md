@@ -523,6 +523,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-020-agent-toolchain-shadow-pin-freshness"></a>
 ### REQ-OPS-020: Shadow-pin version bump automation
 
 **Intent:** Every release pin outside a package manifest has one explicit weekly update owner and a fail-closed verification path.
@@ -575,6 +576,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-033-generated-seed-and-prewarm-lock-integrity"></a>
 ### REQ-OPS-033: Lock-Backed NPM Bump Coherence
 
 **Intent:** Automated npm release bumps must reject stale inputs and move each exact manifest pin with its owning committed lock.

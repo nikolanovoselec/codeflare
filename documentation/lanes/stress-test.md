@@ -37,12 +37,12 @@ Go to **Actions > Stress Test > Run workflow** and select one compatible suite. 
 
 To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments > integration > Environment variables**:
 
-| Value | Effect | Real-user equivalent |
-|-------|--------|---------------------|
-| `0` or unset | Baseline VU counts, normal think times, standard thresholds | ~50 users |
-| `50` | 5-17x baseline VUs, unchanged per-VU think times, loosened thresholds | ~1 000 users |
-| `200` | 20-67x baseline VUs, unchanged per-VU think times, loosened thresholds | ~4 000 users |
-| `1000` | 100-333x baseline VUs, unchanged per-VU think times, loosened thresholds | ~20 000 users |
+| Value | Effect |
+|-------|--------|
+| `0` or unset | Baseline VU counts, normal think times, standard thresholds |
+| `50` | 5-17x baseline VUs, unchanged per-VU think times, loosened thresholds |
+| `200` | 20-67x baseline VUs, unchanged per-VU think times, loosened thresholds |
+| `1000` | 100-333x baseline VUs, unchanged per-VU think times, loosened thresholds |
 
 ## Test Suites
 
@@ -164,23 +164,18 @@ This produces uniformly distributed delays between `min` and `max` seconds, simu
 
 **Per-user behavior stays constant regardless of VU count.** Scaling `STRESS_TEST_CONCURRENCY` adds more virtual users running the same realistic interaction pattern. A single VU's think times, request sequences, and file sizes don't change - only the number of concurrent users increases.
 
-## VU-to-Real-User Mapping
+<a id="vu-to-real-user-mapping"></a>
+## Load Interpretation Limits
 
-**50 VUs with realistic think times approximate 1 000-5 000 real concurrent users.**
+Virtual-user counts are workload inputs, not supported-user or capacity guarantees. The suites have different operations and think times, so Codeflare does not convert one VU into a number of real users. Interpret a run from its observed request rate, latency distribution, error rate, target resource profile, and exact suite revision.
 
-The math: with think times of 4-15s between actions, each VU's effective request rate is ~0.1-0.2 req/s - matching real human behavior (load dashboard, read output, think, act). The multiplier comes from VUs hitting all endpoint types on every iteration while real users only touch 1-2 endpoints per interaction.
+| Suite | Think time per cycle | Requests per cycle | Approximate scripted request rate per VU |
+|-------|---------------------|-------------------|------------------------------------------|
+| API throughput | 4-6s (dashboard poll) | 4-6 | ~1.0 req/s |
+| Session lifecycle | 20-60s (create→delete) | 4 | ~0.1 req/s |
+| Storage operations | 13-33s (upload→delete) | 4 | ~0.2 req/s |
 
-Each k6 virtual user generates more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations - roughly 1 request every 5-10 seconds during active use.
-
-k6 VUs use realistic think times (4-15s between actions) but hit all endpoint types on every iteration. Real users only interact with 1-2 endpoints per session.
-
-| Suite | Think time per cycle | Requests per cycle | Effective req/s per VU | Multiplier vs real user |
-|-------|---------------------|-------------------|----------------------|------------------------|
-| API throughput | 4-6s (dashboard poll) | 4-6 | ~1.0 | ~5-10x |
-| Session lifecycle | 20-60s (create→delete) | 4 | ~0.1 | ~1-2x |
-| Storage operations | 13-33s (upload→delete) | 4 | ~0.2 | ~2-3x |
-
-**Rule of thumb: 1 VU ≈ 20-100 real users** (varies by suite). At `STRESS_TEST_CONCURRENCY=50`, the three suites running in parallel simulate load equivalent to roughly 1 000-5 000 concurrent Codeflare users.
+A dated run is evidence only for its tested commit, target class, configuration, and workload. It must not be presented as current production capacity without a representative traffic model and a separately reviewed capacity methodology.
 
 ## Concurrency Scaling
 
@@ -230,24 +225,7 @@ Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-li
 |----------|-------|-------|---------|---------------|
 | `STRESS_TEST_MODE` | Integration worker only | `"active"` | Disables all rate limits | Yes - any other value (e.g., `"true"`, `"enabled"`) keeps limits enforced |
 
-Set via one of:
-```bash
-# Option 1: Set as environment variable (one-time, this session)
-wrangler secret put STRESS_TEST_MODE
-# Paste: active
-
-# Option 2: Set via command line at deploy time
-wrangler deploy --var STRESS_TEST_MODE=active
-
-# Option 3: Set in wrangler.toml
-[env.integration]
-vars = { STRESS_TEST_MODE = "active" }
-```
-
-After setting, re-deploy the worker for the variable to take effect:
-```bash
-wrangler deploy --env integration
-```
+The Stress Test workflow never mutates this value or deploys its target. Prepare the integration target through the reviewed [Deployment](deployment.md#standard-deployment) owner and its environment-specific operations configuration, then select a suite compatible with the deployed mode. Do not run local Wrangler mutation commands from this guide.
 
 ### GitHub variables (integration environment)
 
@@ -322,7 +300,7 @@ All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#
 | `errors` | 3.44% (10/290) | - | - | PASS (<15%) |
 | `checks` | 98.76% (1 116/1 130) | - | - | - |
 
-At 50 VUs with realistic think times, this represents approximately **1 000-5 000 concurrent real users** worth of load.
+At 50 VUs, these are scripted workload rates for that historical run, not a supported-user or production-capacity estimate.
 
 ### Files
 

@@ -372,16 +372,9 @@ All operations are fail-safe: a missing global (SSR, fresh tab) or malformed `-i
 
 ## Shutdown Bisync Reliability (REQ-VAULT-006)
 
-The vault's persistence guarantee depends on the final bisync running to completion on session shutdown. Pre-vault, this was a known weak point: the shutdown handler had no timeout on the bisync call, and the DO destroy() SIGKILLed at 25s. A vault edit made in the last seconds before shutdown would be silently truncated if the bisync ran long, leaving R2 in a partial state. The next session loaded that partial state and looked stale, forcing a manual session delete.
+Vault durability depends on the lifecycle-owned final persistence drain documented in [Storage & Sync](storage-and-sync.md#manual-sync-triggers-req-stor-015). `Container.destroy()` is the authority: it requests the audited host drain with a 120-second sync budget, permits the host a 125-second internal boundary, and keeps teardown within the 135-second ceiling from [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync). The `entrypoint.sh` signal trap is only a best-effort backstop, not the primary shutdown path. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS -->
 
-Two paired fixes bundled with the vault PR:
-
-- `shutdown_handler` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s. Vault-monitor and SilverBullet supervisor PIDs are also terminated.
-- `Container.destroy()` in `src/container/container-lifecycle.ts` uses `timeoutMs = 135_000`: 120s for bisync plus a 15s buffer.
-
-The shutdown watchdog was raised from 60s in [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) because the 15-minute cadence from [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) lets a single bisync accumulate up to 15 minutes of writes. `onStop()` logs `shutdownElapsedMs`, and a `logger.warn` fires at 110 s elapsed so sessions approaching the budget surface in logs; repeated warnings are the trigger to retune the budget.
-
-If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognisable string for operators triaging stale-session reports.
+A failed or timed-out drain leaves recent Vault edits at risk because local disk is ephemeral. Operators should correlate the final-sync audit result and `shutdownElapsedMs`, then use [Storage & Sync failure recovery](storage-and-sync.md#troubleshooting) rather than treating SilverBullet readiness as persistence evidence.
 
 ## Preseed Integration (REQ-VAULT-007)
 

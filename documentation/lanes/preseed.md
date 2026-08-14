@@ -1007,10 +1007,7 @@ The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo
 
 ### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
-Pi has no MCP client, so Codeflare exposes `graphify_query`, `graphify_path`,
-and `graphify_explain` through `graphify-native.ts`. The extension shells the
-same upstream `graphify` CLI used by Claude's MCP server and passes the resolved
-`--graph` path explicitly.
+Graphify deliberately uses first-party native Pi tools rather than routing through Pi's separately installed MCP adapter. Codeflare exposes `graphify_query`, `graphify_path`, and `graphify_explain` through `graphify-native.ts`; the extension shells the same upstream `graphify` CLI used by Claude's MCP server and passes the resolved `--graph` path explicitly.
 
 Graph resolution is local-first: the cwd repo's `graphify-out/graph.json` wins,
 then the active-repo sentinel's graph, then `~/.graphify/global-graph.json`.

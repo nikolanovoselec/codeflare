@@ -23,9 +23,11 @@ Default deployment execution, verification, rollback, development references, an
 
 ## Standard Deployment
 
-**When:** Deploy the reviewed `main` tree to production after every required exact-head check is green. A protected-branch push reaches `.github/workflows/deploy.yml` through the successful `PR Checks` workflow. Manual integration dispatches may use another branch, but the workflow rejects a manual `production` target unless the ref is `main`.
+**When:** Normal production promotion starts automatically after the reviewed `main` commit's required `PR Checks` workflow succeeds. Use a manual **production** dispatch only for an initial deployment or an intentional retry/recovery from `main`; manual integration dispatches may use another branch, but the workflow rejects a manual production target unless the ref is `main`.
 
-**Action:** Confirm the intended commit is `origin/main`, then run the GitHub `Deploy` workflow with target **production** rather than running Wrangler locally; the manual target defaults to integration. The workflow verifies the source tree, builds and scans the container image, publishes its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
+**Prerequisites:** Confirm the intended commit is `origin/main`, every required exact-head check is green, and the production environment owns the expected public configuration. For a manual retry, confirm the failed automatic run did not already promote the same tree.
+
+**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds and scans the container image, publishes its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
 **Verify:** Retain the successful run URL and deployed commit, then verify the deployed origin explicitly:
 

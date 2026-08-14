@@ -690,6 +690,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ---
 
+<a id="ad32-encryption_key-is-optional"></a>
 ### AD32: ENCRYPTION_KEY is optional
 
 **Category:** Security
@@ -3331,6 +3332,7 @@ The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY 
 
 ---
 
+<a id="ad115-review-lanes-run-as-headless-claude--p-subprocesses"></a>
 ### AD115: Claude PR-boundary review lanes run as headless `claude -p` subprocesses
 
 **Category:** Architecture, Cost

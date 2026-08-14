@@ -315,6 +315,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-010-preseed-migration"></a>
 ### REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
 
 **Intent:** A defined set of vault files are codeflare-authoritative: SilverBullet widgets, wikilink handlers, theming, and the graph build all depend on their contents being current at boot. User edits to these files are intentionally not preserved, and stale build artefacts that mislead the user must be cleared on every boot.
@@ -405,6 +406,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-013-html-base-path-rewriting"></a>
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
 **Intent:** SilverBullet served under the per-session vault proxy must resolve every relative asset through that proxy rather than the Worker root. The companion native-service-worker contract is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
@@ -432,6 +434,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-014-global-graph-repository-set-matches-the-active-vault-repository"></a>
 ### REQ-VAULT-014: Graphify active-repo invariant and lock serialisation
 
 **Intent:** Concurrent agent flows must not corrupt the global graph, and the global graph must never accumulate stale per-repo entries when the user switches between repos. This REQ specifies the single-active-repo invariant and the cross-writer lock serialisation that keep the global graph well-formed under contention.
@@ -789,6 +792,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-026-vault-extraction-delta-survives-container-replacement"></a>
 ### REQ-VAULT-026: Vault-extract change detection survives container restart (content-hash manifest)
 
 **Intent:** A returning session extracts only vault files whose content changed, regardless of modification times rewritten during R2 restore.
@@ -823,6 +827,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
+<a id="req-vault-027-pi-vault-extraction-has-a-bounded-lifecycle"></a>
 ### REQ-VAULT-027: Pi vault extraction delivery is visible and transactional
 
 **Intent:** Pi must deliver user-curated Vault changes through visible, reload-safe background work without advancing the committed extraction high-water mark until the exact request succeeds.

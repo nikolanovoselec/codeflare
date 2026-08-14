@@ -39,6 +39,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+<a id="req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode"></a>
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
 **Intent:** A deploy-time `ENTERPRISE_MODE` flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
@@ -201,6 +202,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+<a id="req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var"></a>
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.

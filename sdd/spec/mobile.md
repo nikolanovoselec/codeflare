@@ -344,6 +344,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<a id="req-mob-018-decorative-webgl-retirement-on-mobile-background-and-context-loss"></a>
 ### REQ-MOB-018: Decorative WebGL canvas retirement
 
 **Intent:** The app's decorative WebGL canvas retires when mobile backgrounding or graphics-context loss makes continued rendering unreliable, preserving a stable dark application surface.
