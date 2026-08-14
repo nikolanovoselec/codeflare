@@ -87,6 +87,8 @@ cd landing && npm test
 cd openvscode/agent-sidebar && npm test
 ```
 
+<a id="rate-limit-tests"></a>
+<a id="subscription-and-usage-tests"></a>
 ### Verification by change
 
 | Change | Minimum affected verification | Canonical detail |

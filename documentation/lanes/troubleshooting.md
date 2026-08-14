@@ -464,6 +464,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | Enterprise Mode: Strict Gateway Egress ON and container logs show `[entrypoint] WARNING: R2_ACCESS_KEY_ID contains unexpected characters (expected hex)` (and the same for `R2_SECRET_ACCESS_KEY`) | Expected under strict egress: the container holds only the non-secret placeholder R2 key (`codeflare-enterprise`, not hex), so entrypoint.sh's hex-format heuristic warns ([REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport) AC4, [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props)) | Not a bug — rclone signs with the placeholder and the `EgressController` re-signs own-account R2 with the worker-held key at the boundary, discarding the placeholder signature. Only strict egress warns; non-enterprise / strict-off carries the real hex key. |
 
 
+<a id="notes-on-common-failure-modes"></a>
 ## Detailed Recovery Notes
 
 These notes hold details moved out of long table cells above; the table keeps the symptom/cause/fix scanable.

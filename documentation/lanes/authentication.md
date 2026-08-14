@@ -57,10 +57,46 @@ Session-OIDC includes the configured SaaS or onboarding flows. SaaS mode alone d
 The Worker creates a signed OAuth state carrying a nonce and bounded return target, redirects to GitHub, validates the callback state, exchanges the code, and accepts only a verified primary email. Callback-local provider credentials are used only for that flow and are not returned to the browser. Successful authentication issues `codeflare_session` with `HttpOnly`, `Secure`, and `SameSite=Lax`; the session has a one-hour lifetime and is refreshed when less than fifteen minutes remain. <!-- @impl: src/routes/github-auth.ts -->
 
 State validation and nonce/single-use behavior prevent callback replay and open redirects. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
+<!-- @impl: src/routes/github-auth.ts::app -->
+
+```mermaid
+flowchart TD
+    A[Request] --> B[Edge routing]
+    B --> C[CORS]
+    C --> D[Auth Middleware]
+    D --> E["getUserFromRequest()"]
+    E --> F{Service token?}
+    F -->|Yes| G[Return admin user]
+    F -->|No| H{SaaS or Onboarding + OIDC?}
+    H -->|Yes| I[Verify codeflare_session cookie]
+    H -->|No| J[Verify CF Access JWT]
+    I --> K[Normalize email]
+    J --> K
+    K --> L[Resolve user from KV]
+    L --> M[Route Handler]
+```
 
 ### Cloudflare Access Flow
 
 The Worker verifies Access JWTs against the configured issuer/JWKS and derives the principal from verified claims. Setup may create the Access application, groups, and policies in applicable modes; exact provisioning belongs to [Configuration](configuration.md) and the setup implementation.
+<!-- @impl: src/index.ts::app -->
+
+```mermaid
+flowchart TD
+    A["Visitor"] --> B["CF Access OAuth"]
+    B --> C["Access JWT"]
+    C --> D["Worker verifies JWT"]
+    D --> E{"User in KV?"}
+    E -->|no| F["JIT pending tier"]
+    E -->|yes| G["Load tier"]
+    F --> H["requireActiveUser"]
+    G --> H
+    H -->|pending| I["/app/subscribe"]
+    H -->|active| J["IDE access"]
+    H -->|blocked| K["blocked"]
+    I --> L["POST /api/auth/subscribe"]
+    L --> J
+```
 
 ### Session issuance and refresh
 
@@ -157,11 +193,22 @@ Exhaustive requirement status remains in the active SDD domains. This map identi
 | Concern | Requirements / decisions | Implementation | Behavioral evidence |
 |---|---|---|---|
 | Mode selection and credential order | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) | `src/lib/access.ts::authenticateRequest` | `src/__tests__/lib/access*.test.ts` |
-| GitHub OAuth and verified email | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-github-oidc-mode-when-oauth-client-id-configured) | `src/routes/github-auth.ts` | `src/__tests__/routes/github-auth*.test.ts` |
+| GitHub OAuth and verified email | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) | `src/routes/github-auth.ts` | `src/__tests__/routes/github-auth*.test.ts` |
 | Logout and expiry recovery | [REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) | `src/routes/auth-redirects.ts`, `web-ui/src/api/fetch-helper.ts`, `web-ui/src/App.tsx` | auth redirect and restored-session suites |
 | Service automation residual | [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation), [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | `src/lib/access.ts::validateServiceAuthHeader` | access/service-auth suites; issue #130 records missing guards |
 | Admin authorization | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) | `src/lib/access.ts::requireAdmin` | Enterprise access-group suites |
 
+<a id="access-session-expiry-and-restored-pages-req-auth-022"></a>
+<a id="admin-authorization-admin-by-email-and-admin-by-group"></a>
+<a id="auth-flow"></a>
+<a id="cf-access-flow"></a>
+<a id="cf-access-resources"></a>
+<a id="connect-cloudflare-per-user-oauth-non-enterprise"></a>
+<a id="connect-github-link-mode"></a>
+<a id="deployment-modes"></a>
+<a id="direct-github-oauth-flow-req-auth-002-req-auth-021"></a>
+<a id="per-user-bucket-naming-req-stor-001"></a>
+<a id="welcome-delivery-consistency-req-auth-012"></a>
 <a id="specification-coverage"></a>
 ## Related Documentation
 

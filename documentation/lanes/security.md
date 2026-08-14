@@ -167,7 +167,7 @@ Native Pi and Claude IDE agents run with owner-approved broad container capabili
 
 Rate limiters use authenticated user/session identity where available, bounded in-memory fallback where defined, and route-specific responses/headers. WebSocket connection limits exclude retryable stopped-container outcomes from budget consumption. Exact values belong to the [API Reference](api-reference.md).
 
-General resource-protection limiters may degrade open on KV failure to preserve availability; security-sensitive limiters selected under [AD66](../decisions/README.md#ad66-fail-closed-rate-limiting-for-security-sensitive-endpoints) fail closed. Every new limiter must explicitly choose and test its failure posture rather than inherit one silently.
+General resource-protection limiters may degrade open on KV failure to preserve availability; security-sensitive limiters selected under [AD66](../decisions/README.md#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) fail closed. Every new limiter must explicitly choose and test its failure posture rather than inherit one silently.
 
 <a id="websocket-rate-limit-req-sec-007"></a>
 ### WebSocket boundary
@@ -226,13 +226,77 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 |---|---|---|---|
 | Authentication and authorization | [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests), Authentication SDD | `src/lib/access.ts`, auth middleware | access/auth route suites |
 | Credential containment | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), Enterprise/Agent requirements | container env and interception registry | containment/interceptor suites |
-| Container bearer | [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation) | host auth check and proxies | host HTTP/WS auth suites |
+| Container bearer | [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle), [REQ-SEC-022](../../sdd/spec/security.md#req-sec-022-container-proxy-bearer-validation) | host auth check and proxies | host HTTP/WS auth suites |
 | Encryption | [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), AD32/AD91 | KV crypto, R2 SSE, migration engine | crypto/migration suites |
 | Headers/input/body | [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) | Worker header/input boundaries | header/validation/fuzz suites |
 | Rate limits | [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy), AD66 | rate-limit middleware/routes | limiter and stress-bypass suites |
-| Supply chain | [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanning), Operations SDD | workflows and exact exception validator | host/workflow contracts, CI receipts |
+| Supply chain | [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), Operations SDD | workflows and exact exception validator | host/workflow contracts, CI receipts |
 | Browser IDE residual boundary | Browser IDE SDD, AD114 | package/proxy/config preparation | Browser IDE package/image suites; Partial/manual states remain in SDD |
 
+<!-- Preserved source-evidence anchors for the controls summarized above. -->
+<!-- @impl: .github/workflows/sign-release.yml::sign -->
+<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.132.0" -->
+<!-- @impl: Dockerfile::JS_YAML_SHA512 -->
+<!-- @impl: entrypoint.sh::_openvscode_launch_once -->
+<!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->
+<!-- @impl: host/src/request-router.ts::createRequestHandler -->
+<!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher -->
+<!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
+<!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamPath -->
+<!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER -->
+<!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER -->
+<!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
+<!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension -->
+<!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
+<!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt -->
+<!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost -->
+<!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::canonicalWorkspaceFilePath -->
+<!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput -->
+<!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration -->
+<!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
+<!-- @impl: openvscode/claude/managed-settings.mjs::buildManagedSettings -->
+<!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings -->
+<!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings -->
+<!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareOfficialClaudeIde -->
+<!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig -->
+<!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
+<!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval -->
+<!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
+<!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
+<!-- @impl: scripts/browser-ide-ui-state.py::capture -->
+<!-- @impl: scripts/ci/sign-release.sh::validate_release_source -->
+<!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main -->
+<!-- @impl: scripts/ci/validate-trivy-result.mjs::REVIEWED_FINDINGS -->
+<!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
+<!-- @impl: src/index.ts::withSecurityHeaders -->
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+<!-- @impl: src/lib/kv-crypto.ts::getOrImportKey -->
+<!-- @impl: src/routes/github-auth.ts::Set-Cookie = HttpOnly; Secure; SameSite=Lax -->
+<!-- @impl: src/routes/vault/index.ts::handleVaultRequest -->
+<!-- @impl: src/routes/vscode.ts::handleVscodeRequest -->
+<!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects p7zip RCE findings without a reviewed exception) -->
+<!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects retired Pi findings after the runtime upgrade) -->
+
+<a id="adding-a-new-rate-limiter"></a>
+<a id="admin-elevation-via-access-group-enterprise"></a>
+<a id="browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-009-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022"></a>
+<a id="browser-ide-rate-limit-req-ide-001--req-sec-007"></a>
+<a id="browser-ide-response-headers"></a>
+<a id="container-image-scanning"></a>
+<a id="content-disposition-hardening"></a>
+<a id="github-token-containment"></a>
+<a id="input-validation-atob"></a>
+<a id="key-generation-and-setup"></a>
+<a id="kv-encryption-aes-256-gcm-via-web-crypto-api"></a>
+<a id="native-agent-browser-notifications-req-term-023-req-term-024"></a>
+<a id="path-traversal-prevention-req-sec-010"></a>
+<a id="protected-r2-paths"></a>
+<a id="r2-sse-c-encryption"></a>
+<a id="session-limits-req-sub-013"></a>
+<a id="transparent-kv-migration-req-sec-006"></a>
+<a id="vault-editor-rate-limit-req-vault-005--req-sec-007"></a>
+<a id="what-gets-encrypted"></a>
 <a id="specification-coverage"></a>
 ## Related Documentation
 

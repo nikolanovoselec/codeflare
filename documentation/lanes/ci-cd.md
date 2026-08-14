@@ -130,6 +130,7 @@ A default deployment requires only these repository secrets:
 
 Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate that operational matrix.
 
+<a id="deploy-workflow-detail"></a>
 ## Deployment Pipeline Contract
 
 **Workflow permissions:** top-level is `contents: read` in [PR Checks](../../.github/workflows/test.yml) and [Deploy](../../.github/workflows/deploy.yml). PR Checks never build container images and receive no package-cache permission. Deployment's `container` job receives `packages: write` to import and publish the GHCR BuildKit cache, plus `id-token: write` and `attestations: write`; only fresh-image runs invoke provenance attestation. Login failure disables cache use, and export errors do not fail the image build. <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/container-image.yml::image -->
@@ -172,6 +173,7 @@ The run title (`run-name`) resolves and displays the deploy target (production /
 
 Application test suites are not re-run in deployment—the exact SHA already passed PR Checks. Deployment separately owns packaged-image smoke because it is the only workflow that builds the image. That smoke executes every deploy-selected agent launcher's version command inside the built image with a ten-second timeout; missing, crashing, non-zero, or timed-out launchers fail the image job.
 
+<a id="test-workflow-detail"></a>
 ## Pull Request Verification
 
 Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
