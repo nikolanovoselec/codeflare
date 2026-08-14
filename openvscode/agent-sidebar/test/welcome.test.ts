@@ -7,7 +7,7 @@ import {
   renderWelcomeHtml,
 } from '../src/welcome.ts';
 
-test('REQ-IDE-024 AC4: every inventory gets an honest fixed welcome action', () => {
+test('REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action', () => {
   const pi = buildWelcomePresentation('pi');
   assert.deepEqual(pi.action, {
     label: 'Open Codeflare Chat',
@@ -68,6 +68,7 @@ test('REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations
     assert.match(html, /<h1>Full VS Code\.<br><span>Native agent workflows\.<\/span><\/h1>/);
     assert.match(html, /same isolated container/i);
     assert.match(html, /observability plane/i);
+    assert.match(html, /same ephemeral filesystem/i);
     assert.match(html, /default-src 'none'; style-src 'nonce-fixed-nonce'; script-src 'nonce-fixed-nonce'/);
     assert.match(html, /<style nonce="fixed-nonce">/);
     assert.doesNotMatch(html, /https?:\/\//i);
