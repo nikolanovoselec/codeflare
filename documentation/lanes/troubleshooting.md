@@ -9,13 +9,14 @@ Diagnostic commands, common failure modes, and resolution steps.
 ## Contents
 
 - [Start Here](#start-here)
-- [Browser IDE](#browser-ide)
-- [Container Image and Startup Compatibility](#container-image-and-startup-compatibility)
-- [Authentication and Setup](#authentication-and-setup)
-- [Terminal and Mobile](#terminal-and-mobile)
-- [Session and Container Lifecycle](#session-and-container-lifecycle)
-- [Storage and Vault](#storage-and-vault)
-- [Agent Runtime, Review, and CI](#agent-runtime-review-and-ci)
+- [Troubleshooting Recipes](#troubleshooting-recipes)
+  - [Browser IDE](#browser-ide)
+  - [Container Image and Startup Compatibility](#container-image-and-startup-compatibility)
+  - [Authentication and Setup](#authentication-and-setup)
+  - [Terminal and Mobile](#terminal-and-mobile)
+  - [Session and Container Lifecycle](#session-and-container-lifecycle)
+  - [Storage and Vault](#storage-and-vault)
+  - [Agent Runtime, Review, and CI](#agent-runtime-review-and-ci)
 - [Failure Index](#failure-index)
 - [Detailed Recovery Notes](#detailed-recovery-notes)
 - [GitHub Integration](#github-integration)
@@ -37,7 +38,10 @@ Diagnostic commands, common failure modes, and resolution steps.
 Every recipe inherits this record contract unless it overrides a field: **Symptom** is the heading/first paragraph; **Diagnose** uses the named boundary and correlated evidence; **Cause** and **Fix** are explicit; **Verify** repeats the exact failing path and confirms the stated expected result; **Escalate** attaches identifiers/logs when the verified fix fails. State-changing or destructive fixes must state their special rollback before execution.
 
 <a id="common-issues"></a>
-## Browser IDE
+## Troubleshooting Recipes
+
+<a id="browser-ide"></a>
+**Browser IDE**
 
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
@@ -105,7 +109,8 @@ The bottom-right provider **Sign In** control is `chat.statusBarEntry`, not the 
 
 See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
-## Container Image and Startup Compatibility
+<a id="container-image-and-startup-compatibility"></a>
+**Container Image and Startup Compatibility**
 
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
@@ -117,7 +122,8 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 
 **Fix:** Correct the failing entrypoint command and redeploy the enterprise image. Keep enterprise-block `jq` calls either guarded (`if jq …; then … else warn; fi`) or free of reserved-keyword `--arg` names; `entrypoint-enterprise-pi-models.test.js` now runs the real models.json build and forbids reserved-keyword jq args.
 
-## Authentication and Setup
+<a id="authentication-and-setup"></a>
+**Authentication and Setup**
 
 ### New User Has Preseed Configs but No "Docs & Examples"
 
@@ -216,7 +222,8 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production and integration deployments.
 
-## Terminal and Mobile
+<a id="terminal-and-mobile"></a>
+**Terminal and Mobile**
 
 ### SPA Shows a Blank/White Page on Return from Background (Mobile App-Switch)
 
@@ -280,7 +287,8 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 **Verify:** With permission granted and the terminal unfocused, a settled Pi turn or completed Claude task in terminal tab 1 produces one notification titled with the agent and session name. `useTerminal.test.ts` covers the late-store registration, `agent-notifications.test.ts` covers the activated-worker path, and `entrypoint-governed-sync.test.js` covers the bake backfill.
 
-## Session and Container Lifecycle
+<a id="session-and-container-lifecycle"></a>
+**Session and Container Lifecycle**
 
 ### Container start is rejected or returns to stopped
 
@@ -324,7 +332,8 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 **Fix:** For a normally-progressing migration, wait — it advances on each dashboard poll and clears automatically. For a genuinely stalled one, inspect `lastError`: an oversized/un-migratable object is recorded and skipped, and key rotation halts-with-error by design (see [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)).
 
-## Storage and Vault
+<a id="storage-and-vault"></a>
+**Storage and Vault**
 
 ### R2 Sync Issues
 
@@ -350,7 +359,8 @@ It then empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (usi
 
 If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode:** only admin-role users removed from the admin list are cleaned up - JIT-provisioned regular users are preserved. Each user's KV entry is checked for `role: 'admin'` before qualifying for removal.
 
-## Agent Runtime, Review, and CI
+<a id="agent-runtime-review-and-ci"></a>
+**Agent Runtime, Review, and CI**
 
 ### Chrome in CI (Ubuntu 22.04)
 
