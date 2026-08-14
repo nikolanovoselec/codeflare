@@ -195,11 +195,7 @@ Workers Static Assets normally serves browser assets with `Cache-Control: public
 
 ### Service Automation Auth
 
-Service automation (the k6 stress workflow, CLI probes) authenticates via `X-Service-Auth` header in all modes. The secret comes from:
-- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret
-- **Direct GitHub OAuth mode:** `OAUTH_E2E_TEST_SECRET` environment secret
-
-Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled. Current source checks this header before user authentication and returns an admin identity whenever the configured secret matches; it does not yet enforce the stress-mode, SaaS-mode, or hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted). That hardening remains unimplemented and tracked by issue #130. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
+Service automation (the k6 stress workflow, CLI probes) authenticates via the `X-Service-Auth` header when the optional Worker `SERVICE_AUTH_SECRET` is configured; otherwise this path is disabled. Environment-specific source-secret mapping and GitHub Environment placement belong to [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Current source checks this header before user authentication and returns an admin identity whenever the configured secret matches; it does not yet enforce the stress-mode, SaaS-mode, or hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted). That hardening remains unimplemented and tracked by issue #130. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 ### Auth Flow
 

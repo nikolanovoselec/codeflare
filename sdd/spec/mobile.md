@@ -155,7 +155,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 
 - Post-write handling cannot override xterm's native anchor, including when it reaches zero.
-- Frontend xterm scrollback is limited to 5000 lines; the host headless renderer retains 1000 lines, and agent-side virtual scrolling is disabled. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (scrollback: 5000) -->
+- Frontend xterm scrollback is limited to 5000 lines, and agent-side virtual scrolling is disabled. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (scrollback: 5000) -->
+- The host headless renderer retains 1000 lines. <!-- @impl: host/src/session.ts::Session -->
 - Output deferral and its held-output cap are specified in [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC3.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 

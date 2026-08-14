@@ -950,7 +950,7 @@ The npm package is installed and patched at image-build time in both the global 
 
 Claude's three PR reviewer definitions are Bash-only report lanes with embedded policies and no write surface. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
 
-Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
+Reasoning effort is pinned to `medium` for all three Claude reviewer lanes, and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is

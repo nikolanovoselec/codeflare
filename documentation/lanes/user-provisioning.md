@@ -92,7 +92,7 @@ Session mode access requires both tier support AND an active Pro mode subscripti
 
 The effective tier's `sessionModes`, paid `subscribedMode`, stored preference, billing downgrade, and Enterprise override all participate in authorization. [Billing](billing.md) owns that policy; this lane owns only the initial provisioning handoff.
 
-**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user to a tier that supports advanced mode, the backend sets `sessionMode: 'advanced'` in user preferences if needed. <!-- @impl: src/routes/users.ts -->
+**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user to the `advanced`, `max`, or `unlimited` tier, the backend sets `sessionMode: 'advanced'` in user preferences if needed. <!-- @impl: src/routes/users.ts -->
 
 ---
 

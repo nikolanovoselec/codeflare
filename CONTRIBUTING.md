@@ -14,10 +14,13 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
    git clone https://github.com/<your-username>/codeflare.git
    cd codeflare
    ```
-3. **Install dependencies** (both backend and frontend):
+3. **Install dependencies** for each package you will change or verify:
    ```bash
    npm install
-   cd web-ui && npm install && cd ..
+   (cd web-ui && npm install)
+   (cd host && npm install)
+   (cd landing && npm install)
+   (cd openvscode/agent-sidebar && npm install)
    ```
 
 ## Project Structure
@@ -61,7 +64,7 @@ cd host && npm test
 # Landing behavior (Vitest)
 cd landing && npm test
 
-# Browser IDE extension behavior (Node.js test runner)
+# Browser IDE extension behavior (Vitest)
 cd openvscode/agent-sidebar && npm test
 ```
 

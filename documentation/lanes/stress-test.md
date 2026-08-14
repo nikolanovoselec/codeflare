@@ -77,7 +77,6 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 **Rate limits hit by this suite:**
 - Session create: 10/min → max ~1.6 VUs without bypass
 - Session delete: 10/min → max ~1.6 VUs without bypass
-- Session stop: 10/min → max ~1.6 VUs without bypass
 
 **Thresholds:**
 
@@ -87,7 +86,7 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 | `session_delete_duration` p95 | <3s |
 | `errors` | <15% |
 
-**Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get/stop, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
+**Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
 
 ### Storage Operations (`storage-operations.js`)
 
@@ -148,7 +147,6 @@ The suite does not exercise the stop endpoint. With 3 base VUs and each cycle ta
 The test validates that:
 - Sessions are created successfully (201)
 - Sessions can be fetched (200)
-- Sessions can be stopped (204)
 - Sessions can be deleted (204)
 - Error rates remain <15% throughout
 
@@ -275,14 +273,15 @@ stress-test.yml (workflow_dispatch)
   |
   +-- setup (verify target health + auth)
   |     |
-  +--+--+-- api-throughput      (parallel)
-  |  |  +-- session-lifecycle   (parallel)
-  |  |  +-- storage-operations  (parallel)
-  |  |
-  +--+--+-- summary (aggregate results, check thresholds)
+  |     +-- api-throughput         (selected or all)
+  |     +-- session-lifecycle      (selected or all)
+  |     +-- storage-operations     (selected or all)
+  |     +-- rate-limit-validation  (selected or all; opposite mode prerequisite)
+  |
+  +-- summary (aggregate selected results, check thresholds)
 ```
 
-All 3 test jobs run in parallel after setup. The summary job downloads all result artifacts and fails the workflow if any k6 threshold was breached.
+Selected test jobs run in parallel after setup. The summary job downloads their result artifacts and fails the workflow if any k6 threshold was breached. As noted above, the current `all` selection includes jobs with opposite `STRESS_TEST_MODE` prerequisites and is not usable against one unchanged target.
 
 Results are uploaded as artifacts (retained 30 days).
 

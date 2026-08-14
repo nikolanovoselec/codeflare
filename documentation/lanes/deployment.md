@@ -23,11 +23,18 @@ Default deployment execution, verification, rollback, development references, an
 
 ## Standard Deployment
 
-**When:** Deploy the reviewed `main` tree after every required exact-head check is green. A protected-branch push reaches `.github/workflows/deploy.yml` through the successful `PR Checks` workflow; manual dispatch is permitted only from the repository default branch.
+**When:** Deploy the reviewed `main` tree to production after every required exact-head check is green. A protected-branch push reaches `.github/workflows/deploy.yml` through the successful `PR Checks` workflow. Manual integration dispatches may use another branch, but the workflow rejects a manual `production` target unless the ref is `main`.
 
-**Action:** Confirm the intended commit is `origin/main`, then use the GitHub `Deploy` workflow rather than running Wrangler locally. The workflow verifies the tree, builds and scans the container image, publishes its digest, deploys the Worker and binding, and performs its post-deploy contract checks. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
+**Action:** Confirm the intended commit is `origin/main`, then run the GitHub `Deploy` workflow with target **production** rather than running Wrangler locally; the manual target defaults to integration. The workflow verifies the source tree, builds and scans the container image, publishes its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
-**Verify:** Retain the successful run URL and deployed commit, confirm public provider discovery returns an array, then exercise the changed user path. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
+**Verify:** Retain the successful run URL and deployed commit, then verify the deployed origin explicitly:
+
+```sh
+CODEFLARE_URL=https://<production-host>
+curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "array"'
+```
+
+Exercise the changed user path after provider discovery returns the expected `{ providers: [...] }` envelope. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
 
@@ -51,14 +58,15 @@ The enterprise-only binding procedure, Gateway policy preparation, verification 
 
 **Prerequisites:** Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. In the incident record, capture the failed user-flow step and its expected result before rollback.
 
-**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Then list successful production workflow runs and Worker deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). The Worker is named `codeflare` (`wrangler.toml`), and `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
+**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Resolve `WORKER_NAME` from the successful Deploy run or production configuration (`CLOUDFLARE_WORKER_NAME`, default `codeflare`). Then list successful production workflow runs and that Worker's deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
 
 ```sh
-npx wrangler deployments status
+WORKER_NAME="${CLOUDFLARE_WORKER_NAME:-codeflare}"
+npx wrangler deployments status --name "$WORKER_NAME"
 gh run list --workflow deploy.yml --branch main --status success --limit 10
-npx wrangler deployments list
-npx wrangler versions view <CANDIDATE_VERSION_ID>
-npx wrangler rollback <CANDIDATE_VERSION_ID>
+npx wrangler deployments list --name "$WORKER_NAME"
+npx wrangler versions view <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
+npx wrangler rollback <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 ```
 
 Cloudflare immediately creates a deployment that sends 100% of traffic to the selected version, as defined by its [rollback behavior](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
@@ -66,8 +74,8 @@ Cloudflare immediately creates a deployment that sends 100% of traffic to the se
 **Verifies:** Confirm the active deployment, public health, and provider discovery:
 
 ```sh
-npx wrangler deployments status
-curl -fsS https://codeflare.ch/public/auth/providers | jq -e '.providers | type == "array"'
+npx wrangler deployments status --name "$WORKER_NAME"
+curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "array"'
 ```
 
 The status output names only the selected version at 100% traffic and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.

@@ -44,8 +44,8 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 |---|---|
 | Worker `/api/*` and `/public/*` | Public edge API. Each table below states whether the route is unauthenticated, cookie-authenticated, or service-authenticated. |
 | Worker `/api/container/*` | Authenticated edge proxy into the caller's session container; these are not direct host URLs. |
-| Host `/health`, `/metrics`, `/activity`, `/terminal`, `/vscode/*` | Private container-server routes reached through the Durable Object or Worker proxy. Runtime mechanics belong to [Container](container.md). |
-| Browser IDE `/api/browser-ide/*` | Authenticated Worker routes plus private container forwarding; IDE process and proxy mechanics belong to [Architecture Internals](architecture-internals.md#browser-ide-internals). |
+| Host `/health`, `/activity`, `/terminal` | Private container-server routes reached through the Durable Object or Worker proxy. Host metrics are fields in `/health`, not a separate `/metrics` route. Runtime mechanics belong to [Container](container.md). |
+| Worker and host `/api/vscode/:sessionId/*` | Authenticated Worker route with private forwarding to the same host path; IDE process and proxy mechanics belong to [Architecture Internals](architecture-internals.md#browser-ide-internals). |
 
 Route paths in this reference are externally callable only where their row says so; a private host path is not an alternate public endpoint.
 
@@ -709,7 +709,7 @@ Responses:
 |---|---|---|---|---|
 | GET | `/api/health` | Public | Worker | `{ "status": "ok", "timestamp": "..." }` <!-- @impl: src/index.ts::app --> |
 | GET | `/api/container/health` | Session cookie | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
-| GET | private host `/health` | Container bearer exemption during bootstrap | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
+| GET | private host `/health` | Bearer-exempt on the private SDK container path | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
 
 There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation. The private host body includes `initFlagObserved` and `prewarmReady`; see [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 
