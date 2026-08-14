@@ -140,7 +140,7 @@ Blocked and pending outcomes are explicit authorization failures. Effective enti
 
 ### Admin authorization
 
-A durable `role: 'admin'` record grants administration. Enterprise may additionally elevate a request through the configured Access admin group. That check runs only on admin-gated routes, short-circuits for a durable admin, and fails closed on a missing token, invalid Access domain, non-membership, or provider error. Elevation is request-local and writes no admin role, so group removal applies on the next request. <!-- @impl: src/lib/access.ts::requireAdmin -->
+A durable `role: 'admin'` record grants administration. Enterprise may additionally elevate a request through the configured Access admin group. That check runs only on admin-gated routes, short-circuits for a durable admin, and fails closed on a missing token, invalid Access domain, non-membership, or provider error. Elevation is request-local and writes no admin role, so group removal applies on the next request. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 ## Mode-aware Routing
 
@@ -196,7 +196,7 @@ Exhaustive requirement status remains in the active SDD domains. This map identi
 | GitHub OAuth and verified email | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) | `src/routes/github-auth.ts` | `src/__tests__/routes/github-auth*.test.ts` |
 | Logout and expiry recovery | [REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) | `src/routes/auth-redirects.ts`, `web-ui/src/api/fetch-helper.ts`, `web-ui/src/App.tsx` | auth redirect and restored-session suites |
 | Service automation residual | [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation), [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | `src/lib/access.ts::validateServiceAuthHeader` | access/service-auth suites; issue #130 records missing guards |
-| Admin authorization | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) | `src/lib/access.ts::requireAdmin` | Enterprise access-group suites |
+| Admin authorization | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) | `src/middleware/auth.ts::requireAdmin` | Enterprise access-group suites |
 
 <a id="access-session-expiry-and-restored-pages-req-auth-022"></a>
 <a id="admin-authorization-admin-by-email-and-admin-by-group"></a>

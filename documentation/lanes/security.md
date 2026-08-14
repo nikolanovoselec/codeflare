@@ -50,7 +50,7 @@ All protected application/API/setup surfaces use the configured Access or Worker
 
 ### Administrative elevation
 
-Durable admin role is authoritative outside request-local Enterprise elevation. The optional Enterprise admin-group lookup executes only for admin-gated routes and fails closed on missing/invalid Access evidence, unsafe Access domain, non-membership, or fetch error. Elevation writes no durable role and is revoked on the next request after group removal. <!-- @impl: src/lib/access.ts::requireAdmin -->
+Durable admin role is authoritative outside request-local Enterprise elevation. The optional Enterprise admin-group lookup executes only for admin-gated routes and fails closed on missing/invalid Access evidence, unsafe Access domain, non-membership, or fetch error. Elevation writes no durable role and is revoked on the next request after group removal. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 ### Service-auth residual risk
 

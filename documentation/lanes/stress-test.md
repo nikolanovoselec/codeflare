@@ -37,7 +37,7 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 
 **Action:** In **Actions → Stress Test → Run workflow**, select `api-throughput`, `session-lifecycle`, or `storage-operations`. Set `STRESS_TEST_CONCURRENCY` only when the run intentionally changes VU counts.
 
-**Verifies:** Setup accepts one HTTPS origin and service identity; the selected k6 thresholds pass; result artifacts identify the run. Interpret only measured request/latency/error data.
+**Verifies:** Setup accepts one HTTP or HTTPS origin, normalizes it to HTTPS, and accepts the service identity; the selected k6 thresholds pass; result artifacts identify the run. Interpret only measured request/latency/error data.
 
 **Cleanup / abort:** Session/storage suites clean up their created records/files. Abort when the target, mode, resource profile, or service identity differs from the recorded precondition; do not repair or redeploy from this workflow.
 

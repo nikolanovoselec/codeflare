@@ -59,7 +59,7 @@ npm run build
 - `npm test` runs behavioral component, composition, metadata, and browser-script tests.
 - `npm run build` must produce the `/landing` output after the frontend build order described above.
 
-Tests assert rendered structure and behavior rather than copy strings. Protected deployment claims remain manual/browser evidence owned by [CI/CD](../documentation/lanes/ci-cd.md), not package-source regexes.
+Tests assert rendered structure, behavior, and focused content passthrough rather than treating broad marketing copy as the contract. Protected deployment claims remain manual/browser evidence owned by [CI/CD](../documentation/lanes/ci-cd.md), not package-source regexes.
 
 ## Canonical references
 
