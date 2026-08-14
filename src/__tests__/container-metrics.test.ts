@@ -900,6 +900,21 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         totalFailureCount: 9,
         status: 'exhausted',
       });
+      testState.storedUserEmail = 'quota@example.com';
+      containerInstance = createContainerInstance();
+      const timekeeperStub = {
+        fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
+      };
+      const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+      await vi.waitFor(
+        () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
       testState.tcpFetchShouldFail = true;
       testState.stopFailuresRemaining = 1;
       testState.scheduleCalls = [];
@@ -907,15 +922,58 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'terminal-stop-pending' });
       expect(testState.stopCalls).toBe(1);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
 
+      // A recovered probe path must not resurrect KV or cancel terminal stop
+      // ownership after the first stop request already failed.
+      testState.tcpFetchShouldFail = false;
       await containerInstance.collectMetrics();
 
+      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
       expect(testState.stopCalls).toBe(2);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
+    });
+
+    it('REQ-SESSION-022 AC7: keeps terminal stop ownership observable when retry scheduling fails', async () => {
+      const sessionKey = 'session:test-bucket:testsession123456';
+      mockKV._set(sessionKey, {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'recovery-terminal-schedule-failure',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.tcpFetchShouldFail = true;
+      testState.stopFailuresRemaining = 1;
+      testState.scheduleFailuresRemaining = 1;
+
+      await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+
+      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'terminal-stop-pending' });
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'collectMetrics: failed to schedule terminal convergence retry',
+        undefined,
+        expect.objectContaining({ error: 'schedule failed' }),
+      );
     });
 
     it('REQ-SESSION-022 AC1: a responding probe clears exhausted recovery without stopping the session', async () => {

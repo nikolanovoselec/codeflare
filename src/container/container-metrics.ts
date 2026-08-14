@@ -317,13 +317,14 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
  * two attempts. If both probes still fail on the next tick, converge the stale
  * running record to stopped instead of monitoring and billing it forever. The
  * Containers SDK constructor has a running-container reattachment path;
- * reconnecting through it remains a
- * deployed smoke check rather than a unit-tested contract.
+ * reconnecting through it remains a deployed smoke check rather than a
+ * unit-tested contract.
  */
 type TransportReconciliation = {
   nextDelaySec: number;
   recordUsage: boolean;
   terminalUnavailable?: true;
+  recovery?: TransportRecoveryRecord;
 };
 
 type ProbeFailureCategory = 'timeout' | 'network-lost' | 'connection-refused' | 'other';
@@ -348,7 +349,7 @@ type TransportRecoveryRecord = {
   attemptCount: number;
   postResetFailureCount: number;
   totalFailureCount: number;
-  status: 'resetting' | 'exhausted';
+  status: 'resetting' | 'exhausted' | 'terminal-status-pending' | 'terminal-stop-pending';
 };
 
 function isTransportRecoveryRecord(value: unknown): value is TransportRecoveryRecord {
@@ -380,7 +381,9 @@ function isTransportRecoveryRecord(value: unknown): value is TransportRecoveryRe
   if (record.status === 'resetting') {
     return postResetFailureCount < TRANSPORT_FAILURE_ABORT_THRESHOLD;
   }
-  return record.status === 'exhausted'
+  return (record.status === 'exhausted'
+      || record.status === 'terminal-status-pending'
+      || record.status === 'terminal-stop-pending')
     && attemptCount === TRANSPORT_RECOVERY_MAX_ATTEMPTS
     && postResetFailureCount === TRANSPORT_FAILURE_ABORT_THRESHOLD;
 }
@@ -421,6 +424,69 @@ async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<voi
     TRANSPORT_FAILURE_STREAK_KEY,
     TRANSPORT_RECOVERY_KEY,
   ]);
+}
+
+async function scheduleTerminalConvergenceRetry(
+  ctx: DurableObjectState,
+  callbacks: MetricsCallbacks,
+): Promise<void> {
+  try {
+    await callbacks.schedule(60, 'collectMetrics');
+  } catch (err) {
+    logger.error('collectMetrics: failed to schedule terminal convergence retry', undefined, {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+async function continueTerminalConvergence(
+  state: MetricsState,
+  ctx: DurableObjectState,
+  env: Env,
+  callbacks: MetricsCallbacks,
+  recovery: TransportRecoveryRecord,
+): Promise<void> {
+  let ownedRecovery = recovery;
+  if (ownedRecovery.status === 'terminal-status-pending') {
+    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+    if (stoppedUpdate === 'failed') {
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
+      return;
+    }
+    ownedRecovery = { ...ownedRecovery, status: 'terminal-stop-pending' };
+    try {
+      await persistTransportRecovery(ctx, ownedRecovery);
+    } catch (err) {
+      logger.error('collectMetrics: failed to persist terminal stop ownership', undefined, {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
+      return;
+    }
+  }
+
+  try {
+    await callbacks.stop('SIGTERM');
+  } catch (err) {
+    logger.warn('collectMetrics: terminal container stop failed; retaining recovery for retry', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await scheduleTerminalConvergenceRetry(ctx, callbacks);
+    return;
+  }
+
+  try {
+    await clearTransportRecoveryState(ctx);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to clear exhausted recovery after terminal stop', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function monitorNetworkLossProbes(): TransportProbeObservations {
@@ -554,7 +620,7 @@ async function reconcileActiveTransportRecovery(
     // durable evidence that the recorded session is unavailable. The SDK can
     // leave container.running stuck true on this path, so waiting for the
     // not-running branch would leave KV and usage falsely running forever.
-    return { nextDelaySec: 0, recordUsage: false, terminalUnavailable: true };
+    return { nextDelaySec: 0, recordUsage: false, terminalUnavailable: true, recovery };
   }
 
   const nextPostResetFailures = recovery.postResetFailureCount + 1;
@@ -848,6 +914,26 @@ export async function collectMetrics(
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {
+  // Terminal convergence is a durable lifecycle phase, not transport recovery.
+  // Handle it before probes, KV self-healing, or usage accounting so a later
+  // host response cannot resurrect a session whose terminal stop already began.
+  let storedRecovery: unknown;
+  try {
+    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read terminal recovery ownership', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  if (isTransportRecoveryRecord(storedRecovery)
+      && (storedRecovery.status === 'terminal-status-pending'
+        || storedRecovery.status === 'terminal-stop-pending')) {
+    await continueTerminalConvergence(state, ctx, env, callbacks, storedRecovery);
+    return;
+  }
+
   // Container reads as not-running. This is EITHER a genuine exit (crash,
   // deploy-roll, platform idle-reap) that the SDK never surfaced as onError,
   // OR a transient false reading: `ctx.container.running` momentarily reports
@@ -1100,38 +1186,26 @@ export async function collectMetrics(
     return;
   }
   if (transportReconciliation.terminalUnavailable) {
-    logger.error('collectMetrics: exhausted transport remains unreachable, marking session stopped', undefined, {
+    logger.error('collectMetrics: exhausted transport remains unreachable, beginning terminal convergence', undefined, {
       durableObjectId: ctx.id.toString(),
       containerRunning: ctx.container?.running ?? false,
       probes: { activity: activityProbe, health: healthProbe },
     });
-    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
-    if (stoppedUpdate === 'failed') {
-      // Preserve the exhausted record as retry ownership. This retry is
-      // terminal convergence, not a billable metrics tick.
-      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
-      return;
-    }
+    const terminalRecovery: TransportRecoveryRecord = {
+      ...transportReconciliation.recovery!,
+      status: 'terminal-status-pending',
+    };
     try {
-      await callbacks.stop('SIGTERM');
+      await persistTransportRecovery(ctx, terminalRecovery);
     } catch (err) {
-      // KV already says stopped, but recovery still owns the possibly allocated
-      // container until the platform accepts the stop request.
-      logger.warn('collectMetrics: terminal container stop failed; retaining recovery for retry', {
+      logger.error('collectMetrics: failed to persist terminal status ownership', undefined, {
         durableObjectId: ctx.id.toString(),
         error: err instanceof Error ? err.message : String(err),
       });
-      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
       return;
     }
-    try {
-      await clearTransportRecoveryState(ctx);
-    } catch (err) {
-      logger.warn('collectMetrics: failed to clear exhausted recovery after terminal stop', {
-        durableObjectId: ctx.id.toString(),
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
     return;
   }
 
