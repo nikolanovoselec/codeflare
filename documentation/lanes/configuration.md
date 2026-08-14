@@ -97,6 +97,8 @@ Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_A
 
 Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
 
+The `workers.dev` URL is only the initial setup surface. After setup configures the custom domain, operators route normal traffic through that domain and its configured authentication. In Cloudflare Access mode, gate the `workers.dev` URL behind one-click Access in the Cloudflare dashboard so it cannot remain an unprotected alternate entry ([REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7).
+
 `R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
 
 ### Container Specs

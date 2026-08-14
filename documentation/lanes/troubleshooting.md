@@ -269,6 +269,14 @@ The loading screen waits for both R2 sync and PTY pre-warm to complete before si
 
 **Loading screen hangs after port binds:** PTY pre-warm is gated on `/tmp/codeflare-init-complete`. If sync never finishes, the flag is never written and pre-warm waits up to 130s (`PREWARM_INIT_WAIT_MS`) before proceeding anyway. Common causes: missing R2 credentials, bucket does not exist, network timeout. Check `/tmp/sync.log` for errors.
 
+### Dashboard metrics look stale or CPU exceeds 100%
+
+**Symptom:** A running session's `metrics.updatedAt` is older than the normal 60-second publication cycle, or dashboard CPU is above 100%.
+
+**Cause:** `updatedAt` advances only while the Container DO metrics alarm completes, so it can freeze during hibernation or a wedged alarm path and is not itself a liveness signal. CPU is normalized one-minute load average (`loadavg[0] / cpu count`), not sampled utilization; queued or uninterruptible work can validly exceed 100%.
+
+**Fix:** Treat KV `status` as persisted authority. If it remains `running` while metrics are stale, query `/api/container/startup-status`, inspect `/activity` and `/health` through correlated Worker logs, and use `wrangler tail` to find timeout or `recoveryAttemptId` evidence. Treat CPU above 100% as pressure only when it remains elevated across samples and coincides with slow terminal/IDE responses, sync contention, or memory pressure; then identify the active build, agent, or sync workload before changing the resource tier.
+
 ### New Session Button Stuck on "Migrating" (Governed Mode)
 
 **Symptom:** After toggling Governed Mode, the New Session button is disabled and labelled "Migrating" (now "Migrating N%"). In older builds it stayed that way for minutes even after the re-encryption had finished, clearing only on a manual page reload.

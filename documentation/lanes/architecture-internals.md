@@ -134,11 +134,13 @@ The browser panel shares a column with Storage. Desktop/tablet use a measured to
 
 ### Browser IDE internals
 
-The Browser IDE runs pinned code-server inside the selected session container and reaches it only through the authenticated session proxy. The Worker and host reject public workspace selectors independently. The host injects the fixed canonical `/home/user/workspace` projection only into the private root workbench response and fails closed when the pinned workbench shape cannot be verified. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
+The Browser IDE runs pinned code-server inside the selected session container and reaches it only through the authenticated session proxy. The Worker and host reject public workspace selectors independently. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> The host injects the fixed canonical `/home/user/workspace` projection only into the private root workbench response and fails closed when the pinned workbench shape cannot be verified. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
 
 A Codeflare-owned welcome extension exists in every inventory and contributes no agent, provider, or external-content surface ([REQ-IDE-024](../../sdd/spec/browser-ide.md#req-ide-024-codeflare-browser-ide-welcome)). Pi receives the owned native participant and compatibility providers; Claude receives the exact checksum-pinned official package; unsupported agents receive an empty inventory. code-server's bundled Copilot extension is removed from the image so the account-backed setup does not compete with Codeflare. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot -->
 
-Panel and editor Inline Chat share one IDE-owned Pi RPC process and one in-memory conversation, separate from terminal Pi. Requests execute FIFO because stream events carry no prompt ID. Cold creation or replacement receives bounded visible history from the requesting surface; warm turns send only current request/editor context. Normal completion retains the backend. Active cancellation, protocol/input/spawn failure, unexpected exit, deactivation, or editor restart retires and boundedly reaps it before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend -->
+Panel and editor Inline Chat share one IDE-owned Pi RPC process and one in-memory conversation, separate from terminal Pi. `NativePiRuntime` reserves requests FIFO because stream events carry no prompt ID, retains a reusable backend after normal completion, and retires it after cancellation or failure before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
+
+Cold creation or replacement receives bounded visible history from the requesting surface; warm turns send only current request/editor context. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> `PiRpcBackend` owns strict JSONL process transport, streaming events, blocking UI requests, turn settlement, abort, and process stop. Spawn/protocol/input failure or unexpected exit makes that backend non-reusable. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend -->
 
 Pi receives bounded active-document content, selection, open workspace files, diagnostics, and explicit references. Canonical path checks reject external and symbolic-link escapes. `select` and `input` blocking requests are bounded and cancellable; malformed or unsupported requests fail closed. Pi remains otherwise unrestricted, so direct effects are not transactional editor text edits.
 
@@ -158,7 +160,7 @@ A PTY may have several clients, but one foreground owner applies resize. The fir
 
 MultiView is a browser-local virtual workspace. It validates members against live sessions, allows two to four desktop members and exactly two tablet members, remains hidden on mobile, and is never sent to lifecycle, quota, storage, metrics, or terminal-route APIs. Focused-pane ownership prevents cleanup from an old pane clearing the current pane's detected URL.
 
-On dashboard navigation, Layout starts the bounded disconnect grace. Returning cancels it and reconnects only exact visible terminal keys. Connection generations prevent stale cleanup from closing newer sockets. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+On dashboard navigation, Layout starts a 60-second disconnect grace. Returning before expiry cancels it and reconnects only exact visible terminal keys. When a backgrounded tab becomes visible, Layout also refreshes session status and Storage silently so aborted requests do not leave stale UI. Connection generations prevent stale cleanup from closing newer sockets. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
 
 Session cards combine authoritative KV status with visible connection state: running and connected is green, running and disconnected is yellow, stopped is gray. A server-authoritative stopped close ends retries; transient transport closes remain retryable until persisted status converges.
 
@@ -206,17 +208,20 @@ Workers isolates do not share memory. Each cache is an optimization with an expl
 
 | Module | Cache | Lifetime / TTL | Reset |
 |---|---|---|---|
-| `src/lib/access.ts` | Auth domain and audience | 5 minutes | `resetAuthConfigCache()` |
+| `src/lib/access.ts` | Auth domain and audience | 5 minutes when configured; 30 seconds for null/pre-setup state | `resetAuthConfigCache()` |
 | `src/lib/subscription.ts` | Tier configuration | 60 seconds | `resetTierConfigCache()` |
 | `src/lib/cors-cache.ts` | Dynamic origins | 5 minutes | `resetCorsOriginsCache()` |
-| `src/lib/jwt.ts` | Access JWKS | 30-second freshness threshold | `resetJWKSCache()` |
+| `src/lib/jwt.ts` | Access JWKS | 1 hour; a key-ID miss may refresh after 30 seconds | `resetJWKSCache()` |
 | `src/lib/stripe.ts` | Price and currency options | 1 hour | TTL only |
 | `src/lib/kv-crypto.ts` | Imported AES key | Isolate lifetime | New isolate or changed secret |
 | `src/lib/rate-limit-core.ts` | Consecutive KV failures | Isolate lifetime | New isolate |
-| `src/lib/circuit-breakers.ts` | Per-container breaker state | Isolate lifetime | New isolate |
+| `src/lib/circuit-breakers.ts` | Per-container breaker state | 5 idle minutes; 10,000-entry LRU cap per map | `resetContainerBreakersForReset()` during setup reset |
 | `src/lib/session-jwt.ts` | Imported HMAC key | Isolate lifetime | Re-import when secret changes |
+| `src/timekeeper/index.ts` | User records used for quota decisions | 60 seconds; 100 entries | `resetUserRecordCache()` |
 
 After an admin changes configuration, different isolates may enforce old and new values within the listed window. This is the accepted KV-read trade-off; it is not strong-consistency state.
+
+The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. The current contracts are the zero-`KV.get` batch-status fast path, the KV metadata size limit, and the Timekeeper TTL/entry bound above.
 
 ---
 

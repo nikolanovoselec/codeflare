@@ -112,7 +112,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Source:** `src/container/` and `src/routes/container/`.
 
-**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
+**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction)
 
 **Decisions:** [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)
 
@@ -350,7 +350,7 @@ The listed Browser IDE requirements remain Partial where their active ACs retain
 
 **Source:** `src/timekeeper/` and subscription helpers.
 
-**Requirements:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-monthly-quota-enforcement)
+**Requirements:** [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402)
 
 **Decisions:** [AD37](../decisions/README.md#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015)
 
@@ -406,8 +406,9 @@ sequenceDiagram
     participant DO as Container DO
     participant C as Container host
     U->>W: Create session
-    W->>KV: Persist running-session contract
+    W->>KV: Persist session record
     U->>W: Start session
+    W->>KV: Write persisted running status
     W->>DO: Bind session and bucket; start container
     DO->>C: Restore workspace; start host and selected services
     U->>W: Poll startup status
@@ -421,20 +422,22 @@ sequenceDiagram
 
 **Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes.
 
-**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
+**Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
 
 <a id="startup-status-stages-req-session-017"></a>
 ### Startup Status Stages
 
-| Stage | Meaning | Authority |
-|---|---|---|
-| stopped | No running workload has been confirmed | Persisted status and container state |
-| starting | Container is not yet healthy | Container DO |
-| syncing | Host is available and initial persistence reconciliation is active | Host health |
-| verifying | Sync completed and terminal readiness is pending | Host readiness |
-| mounting | Terminal exists and the client is preparing its first visible frame | Host plus frontend |
-| ready | Required services are available | Startup-status contract |
-| error | Frontend-only failure presentation | Frontend; never persisted |
+| Stage | Progress | Derived from |
+|---|---:|---|
+| stopped | 0% | `getState()` unavailable before a running workload is observed |
+| starting | 10–20% | Container state not running/healthy, or host health unavailable |
+| syncing | 30–45% | Host health available while initial sync is pending or active |
+| verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
+| mounting | 90% | Terminal sessions available while PTY pre-warm remains incomplete |
+| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand |
+| error | 0% | Startup-status handler or initial-sync failure |
+
+These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.
 
 <a id="session-lifecycle-state-machine-req-session-018"></a>
 ### Session Lifecycle State Machine
@@ -558,7 +561,7 @@ sequenceDiagram
     participant G as Cloudflare Gateway
     participant U as Direct-internet host
     C->>X: Outbound HTTPS or WebSocket
-    Note over X: Own-account platform primitives use explicit direct exceptions
+    Note over X: own-account platform primitives use explicit direct exceptions
     X->>E: Other direct-internet traffic
     E->>G: Customer network boundary
     G->>U: Policy-authorized upstream
@@ -617,36 +620,45 @@ CI monitoring launches independently after required reviewers are launched. It o
 
 | Failure domain | Observable disagreement | Authority | Recovery owner | Degradation rule |
 |---|---|---|---|---|
-| Worker isolate/cache | Isolates temporarily read different cached configuration | KV plus bounded TTL/reset | Owning module/configuration route | Never treat isolate memory as durable authority |
-| Durable Object attachment | Host routes fail while platform may still report running | Correlated host probes and durable recovery record | Container lifecycle | Reconstruct the coordinator at most twice while preserving workload where possible |
-| Container process | KV says running but not-running persists | Confirmed container state | Container lifecycle | Write `stopped` only after the confirmation window |
-| False persisted stop | Health proves live while KV says stopped | Live health plus absence of shutdown marker | Container metrics | Re-assert `running` within one metrics tick |
-| Final persistence drain | Stop requested while local changes may be newer | Awaited host final-sync result | Container lifecycle and Storage & Sync | Stop remains bounded; outcome is audited |
-| R2 bisync | Listings or transfer remain unrecoverable | Sync daemon state and health report | Storage & Sync | Repair vanished files first; bounded baseline rebuild last |
-| Enterprise credential boundary | Required token or binding unavailable | Worker-side interceptor configuration | Security/configuration owner | Fail closed; never expose or fall back to container credentials |
-| Browser IDE process | code-server or agent descendant exits or ignores TERM | Generation identity and bounded reap | Container/IDE runtime | Reap matching generation before replacement |
-| Review or CI result | Result names a different head | Authoritative PR head | Root review/CI lifecycle | Ignore stale result; never acknowledge replacement head |
-| Extraction publication | Child reports success without matching artifacts | Root artifact verification | Root extraction lifecycle | Leave counters/manifests unchanged and redeliver within bound |
+| Worker isolate/cache | Isolates temporarily read different cached configuration | KV plus bounded TTL/reset | [Architecture Internals](architecture-internals.md#module-level-caches) | Never treat isolate memory as durable authority |
+| Durable Object attachment | Host routes fail while platform may still report running | Correlated host probes and durable recovery record | [Container](container.md#auto-sleep-configurable-sleepafter) | Reconstruct the coordinator at most twice while preserving workload where possible |
+| Container process | KV says running but not-running persists | Confirmed container state | [Container](container.md#auto-sleep-configurable-sleepafter) | Write `stopped` only after the confirmation window |
+| False persisted stop | Health proves live while KV says stopped | Live health plus absence of shutdown marker | [Container](container.md#auto-sleep-configurable-sleepafter) | Re-assert `running` within one metrics tick |
+| Final persistence drain | Stop requested while local changes may be newer | Awaited host final-sync result | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) | Stop remains bounded; outcome is audited |
+| R2 bisync | Listings or transfer remain unrecoverable | Sync daemon state and health report | [Storage & Sync](storage-and-sync.md#vanishing-file-recovery) | Repair vanished files first; bounded baseline rebuild last |
+| Enterprise credential boundary | Required token or binding unavailable | Worker-side interceptor configuration | [Security](security.md#api-token-containment) and [Configuration](configuration.md) | Fail closed; never expose or fall back to container credentials |
+| Browser IDE process | code-server or agent descendant exits or ignores TERM | Generation identity and bounded reap | [Container](container.md#code-server-browser-ide) and [Architecture Internals](architecture-internals.md#browser-ide-internals) | Reap matching generation before replacement |
+| Review or CI result | Result names a different head | Authoritative PR head | [Preseed](preseed.md) and [CI/CD](ci-cd.md) | Ignore stale result; never acknowledge replacement head |
+| Extraction publication | Child reports success without matching artifacts | Root artifact verification | [Vault](vault.md) and [Preseed](preseed.md) | Leave counters/manifests unchanged and redeliver within bound |
 
 ## Observability and Operator Signals
 
-| Signal | Produced by | Meaning | Not evidence of | Operator destination |
+| Signal | Meaning / non-evidence | Observed at | Escalate when | Runbook |
 |---|---|---|---|---|
-| KV session `status` | Lifecycle writers | Authoritative persisted running/stopped state | Immediate host readiness | [Container](container.md) |
-| Startup stage | Container/host readiness chain | Current startup boundary | Long-term status | [Container](container.md) |
-| `lastInputAt` | Shared host activity tracker | Latest classified terminal or Browser IDE input | Agent output or process liveness | [Container](container.md) |
-| Metrics `updatedAt` | `collectMetrics` tick | Last metrics publication | Container liveness while alarms sleep | [Troubleshooting](troubleshooting.md) |
-| Terminal connection state | Frontend terminal store | Visible-pane connectivity | Persisted session state | [Architecture Internals](architecture-internals.md) |
-| Sync health/status | Host sync status | Current persistence cycle outcome | Complete R2 contents without reconciliation | [Storage & Sync](storage-and-sync.md) |
-| Recovery correlation logs | Container lifecycle | Attempt, route observation, outcome, and exhaustion | User-requested shutdown | [Troubleshooting](troubleshooting.md) |
-| CI native notification | CI monitor | Terminal result for one exact PR head | Review completion | [CI/CD](ci-cd.md) |
+| KV session `status` | Authoritative persisted running/stopped; not immediate host readiness | Dashboard `/api/sessions/batch-status` | `stopped` disagrees with successful live health | [False stopped](troubleshooting.md#session-shows-stopped-on-the-dashboard-but-container-is-actually-running) |
+| Startup stage | Derived startup boundary; not persisted lifecycle status | `/api/container/startup-status` | `error`, or no progress while startup should be active | [Waiting for services](troubleshooting.md#container-stuck-at-waiting-for-services) |
+| `lastInputAt` | Latest classified terminal or Browser IDE input; not agent output or liveness | Internal host `/activity`, surfaced through idle decisions and lifecycle logs | A session idles despite recent user input | [Container idle policy](container.md#auto-sleep-configurable-sleepafter) |
+| Metrics `updatedAt` | Last metrics publication; not liveness while the alarm loop sleeps | Dashboard batch status | Older than one 60-second metrics cycle while KV remains `running` | [Dashboard metrics](troubleshooting.md#dashboard-metrics-look-stale-or-cpu-exceeds-100) |
+| Terminal connection state | Visible-pane connectivity; not persisted session state | Terminal UI and client WebSocket state | Reconnecting persists after visibility return | [Terminal reconnect](troubleshooting.md#terminal-stuck-on-connecting-after-a-mobile-app-switch) |
+| Sync health/status | Current persistence-cycle result; not proof of complete R2 contents | Startup-status `details`, `/tmp/sync-status.json`, `/tmp/sync.log` | `failed`, frozen, or final-sync audit is incomplete | [R2 Sync Issues](troubleshooting.md#r2-sync-issues) |
+| Recovery correlation logs | Attempt, route observation, outcome, and exhaustion; not user-requested shutdown | `wrangler tail`, keyed by `recoveryAttemptId` | Recovery exhausts or shutdown ownership is unreadable | [Transport recovery](troubleshooting.md#common-failure-modes) |
+| CI native notification | Terminal result for one exact PR head; not review completion | Root Pi terminal/session notification | Failure, timeout, malformed result, or head mismatch | [CI/CD](ci-cd.md) |
 
 <a id="module-level-caches"></a>
 ## Capacity, Caching, and Performance Assumptions
 
-Worker module caches are per isolate. Different isolates may observe configuration changes at different times within each cache's TTL; reset hooks narrow that window but cannot create shared memory. Exact cache variables, TTLs, and reset functions live in [Architecture Internals](architecture-internals.md#module-level-caches).
+Worker module caches are per isolate. Different isolates may observe configuration changes at different times within each cache's TTL; reset hooks narrow that window but cannot create shared memory. Exact cache variables, TTLs, bounds, and reset functions live in [Architecture Internals](architecture-internals.md#module-level-caches).
 
-The dashboard reads list metadata rather than contacting every session coordinator. Metrics publication is intentionally slower than status polling, so metric values may lag a status transition. A stale metrics timestamp is a display signal, not a liveness verdict.
+| Assumption | Bound or cadence | Operational consequence | Detailed owner |
+|---|---|---|---|
+| Dashboard status polling | 5 seconds | Status may lag one browser poll; rendering reads compact KV list metadata without one `KV.get` per session | [Architecture Internals](architecture-internals.md#module-level-caches) |
+| Metrics publication | Normally 60 seconds | Metrics may trail status; stale `updatedAt` alone is not a liveness verdict | [Container](container.md#auto-sleep-configurable-sleepafter) |
+| In-container metrics requests | 10 seconds each | A wedged route cannot hold the alarm forever; repeated full-route failure enters bounded recovery | [Container](container.md#auto-sleep-configurable-sleepafter) |
+| Coordinator reconstruction | At most two resets | Recovery preserves a possibly live workload, then fails closed into ordinary exit confirmation | [Troubleshooting](troubleshooting.md#common-failure-modes) |
+| Background R2 bisync | 15 minutes, plus manual triggers | Local files may lead R2 between reconciliations | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
+| Final persistence drain | 120-second sync budget; 135-second teardown cap | Stop stays bounded while awaiting durability before signalling the container | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
+| Initial restore and PTY pre-warm | Run concurrently; sync is deprioritized on the default single-vCPU tier | Readiness waits for required mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
+| Timekeeper user-record cache | 60 seconds; 100 entries per isolate | Quota decisions may briefly observe stale billing state | [Architecture Internals](architecture-internals.md#module-level-caches) |
 
 Container work runs on local disk. R2 is the durability boundary, not a FUSE filesystem. Capacity and sync performance therefore depend on bounded reconciliation, not remote latency for every file operation.
 
@@ -673,7 +685,7 @@ This table is navigational. Requirement status and acceptance criteria remain au
 
 | Concern | Architecture section | Requirements | Decisions | Detailed owner |
 |---|---|---|---|---|
-| Session topology and authority | System at a Glance; Container DO; state matrix | [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) | [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
+| Session topology and authority | System at a Glance; Container DO; state matrix | [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) | [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
 | Persistence | R2; state matrix; lifecycle flow | [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) | [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
 | Browser IDE | Browser IDE component | [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) | [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | [Container](container.md), [Security](security.md) |
 | Enterprise routing | LLM and egress components/flows | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | [Security](security.md), [Configuration](configuration.md) |

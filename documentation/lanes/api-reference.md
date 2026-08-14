@@ -79,6 +79,22 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 | GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
 
+`GET /api/container/startup-status` returns a derived `stage`, numeric `progress`, human-readable `message`, and `details`. Its observable progress contract is:
+
+| Stage | Progress | Condition |
+|---|---:|---|
+| `stopped` | 0 | Container state is unavailable |
+| `starting` | 10 | Platform state is not `running` or `healthy` |
+| `starting` | 20 | Platform state is up but host health is unavailable |
+| `syncing` | 30 | Initial sync is pending |
+| `syncing` | 45 | Initial sync is active |
+| `verifying` | 85 | Initial sync completed but terminal sessions are unavailable |
+| `mounting` | 90 | Terminal sessions are available but PTY pre-warm is incomplete |
+| `ready` | 100 | Terminal sessions and pre-warm are ready |
+| `error` | 0 | Initial sync failed or the startup-status handler failed |
+
+These are endpoint observations, not persisted lifecycle states. `details` identifies container, sync, host, terminal, and metric observations when available.
+
 ## Terminal
 
 | Method | Path | Auth | Implements | Description |
