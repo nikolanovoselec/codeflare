@@ -489,7 +489,7 @@ describe('Container Lifecycle Routes', () => {
       expect([first?.status, second?.status]).toEqual(['running', 'running']);
     });
 
-    it('REQ-ENTERPRISE-001 AC3: enterprise currently applies the non-SaaS stored-user role limit', async () => {
+    it('REQ-ENTERPRISE-001 AC8: enterprise currently applies the non-SaaS stored-user role limit', async () => {
       const app = createTestApp({
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
@@ -633,7 +633,7 @@ describe('Container Lifecycle Routes', () => {
       expect(res.status).toBe(200);
     });
 
-    it('REQ-ENTERPRISE-001 AC3: enterprise stored admin gets the role-based admin limit', async () => {
+    it('REQ-ENTERPRISE-001 AC8: enterprise stored admin gets the role-based admin limit', async () => {
       const app = createTestApp({
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,

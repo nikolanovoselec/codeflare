@@ -64,7 +64,7 @@ describe('REQ-ENTERPRISE-001 AC1: getEffectiveTier enterprise override', () => {
     expect(getEffectiveTier('blocked', 'blocked', undefined, undefined, enterpriseEnv)).toBe('unlimited');
   });
 
-  it("returns 'unlimited' even when billing is canceled (override precedes billing logic)", () => {
+  it("REQ-ENTERPRISE-001 AC3: disables billing-status downgrade under enterprise", () => {
     // A canceled paid user normally downgrades to 'free'; enterprise wins first.
     expect(getEffectiveTier('standard', undefined, 'canceled', undefined, enterpriseEnv)).toBe('unlimited');
   });

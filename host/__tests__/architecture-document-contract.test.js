@@ -131,10 +131,7 @@ function visibleHeadingText(source) {
   } while (value !== previous);
   return value
     .replace(/<[^>]+>/g, '')
-    .replace(/[`*_\\]/g, '')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
+    .replace(/[`*_\\]/g, '');
 }
 
 function githubSlug(source, seen) {
@@ -283,13 +280,13 @@ describe('Architecture documentation contract', () => {
     }
   });
 
-  it('retains the load-bearing cross-component diagram semantics', () => {
+  it('retains the required cross-component diagram evidence', () => {
     const blocks = mermaidBlocks(markdown);
-    assert.ok(hasBlock(blocks, ['Browser', 'Worker', 'Container', 'R2']), 'missing system context flow');
-    assert.ok(hasBlock(blocks, ['Browser', 'KV', 'Container DO', 'WebSocket']), 'missing session start flow');
-    assert.ok(hasBlock(blocks, ['stopped', 'initializing', 'running', 'shutdownRequested']), 'missing lifecycle authority flow');
-    assert.ok(hasBlock(blocks, ['Container', 'LlmInterceptor', 'AI Gateway']), 'missing enterprise LLM boundary');
-    assert.ok(hasBlock(blocks, ['env.EGRESS', 'Cloudflare Gateway', 'own-account']), 'missing strict egress boundary');
-    assert.ok(hasBlock(blocks, ['Root Pi session', 'Extraction agent', 'graph', 'native terminal notification']), 'missing extraction ownership flow');
+    assert.ok(hasBlock(blocks, ['Browser', 'Worker', 'Container', 'R2']), 'missing system context diagram evidence');
+    assert.ok(hasBlock(blocks, ['Browser', 'KV', 'Container DO', 'WebSocket']), 'missing session start diagram evidence');
+    assert.ok(hasBlock(blocks, ['stopped', 'initializing', 'running', 'shutdownRequested']), 'missing lifecycle authority diagram evidence');
+    assert.ok(hasBlock(blocks, ['Container', 'LlmInterceptor', 'AI Gateway']), 'missing enterprise LLM boundary diagram evidence');
+    assert.ok(hasBlock(blocks, ['env.EGRESS', 'Cloudflare Gateway', 'own-account']), 'missing strict egress boundary diagram evidence');
+    assert.ok(hasBlock(blocks, ['Root Pi session', 'Extraction agent', 'graph', 'native terminal notification']), 'missing extraction ownership diagram evidence');
   });
 });
