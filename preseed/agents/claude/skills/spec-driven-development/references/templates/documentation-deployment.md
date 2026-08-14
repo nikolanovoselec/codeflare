@@ -54,7 +54,7 @@ Keep local development commands separate from production runbooks.
 
 | Procedure | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| Standard deployment | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{WORKFLOW_PATH}` | {DEPLOY_EVIDENCE} |
+| Standard deployment | {REQUIREMENT_LINK} | `{WORKFLOW_PATH}` | {DEPLOY_EVIDENCE} |
 
 ## Related Documentation
 

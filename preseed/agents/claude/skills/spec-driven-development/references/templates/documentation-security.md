@@ -39,7 +39,7 @@ Explain controls by security concern. Link implementation and behavioral evidenc
 
 | Control family | Requirements / decisions | Implementation | Evidence |
 |---|---|---|---|
-| {CONTROL_FAMILY} | [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONTROL_FAMILY} | {REQUIREMENT_LINK} | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 

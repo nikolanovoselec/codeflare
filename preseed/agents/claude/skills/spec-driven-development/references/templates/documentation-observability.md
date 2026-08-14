@@ -39,7 +39,7 @@ Document collection failures and whether product behavior continues, degrades, o
 
 | Observability concern | Requirements | Source owner | Behavioral evidence |
 |---|---|---|---|
-| {CONCERN} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONCERN} | {REQUIREMENT_LINK} | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 

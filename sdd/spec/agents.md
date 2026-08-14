@@ -3699,33 +3699,57 @@ None.
 
 ---
 
-### REQ-AGENT-139: Shared Optimized Documentation Lane Output
+### REQ-AGENT-139: Optimized Documentation Lane Rendering and Delivery
 
-**Intent:** New, imported, and cleaned SDD projects must receive the same concise documentation lane structures without replacing the existing initialization, cleanup, or review workflows.
+**Intent:** Greenfield and imported SDD projects must receive the same concise documentation lanes through the existing initialization and seed-delivery workflows.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The bundled templates cover Architecture, API, Configuration, Deployment, Security, Observability, Troubleshooting, and the shared envelope for optional indexed project lanes. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-architecture.md::System Components --> <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Templates location --> <!-- @test: host/__tests__/documentation-template-contract.test.js (optimized SDD documentation templates) -->
-2. Greenfield and Import Mode pass their evidence-selected canonical and project lanes through one renderer that emits only those lane files and matching index rows. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders the same selected lane set for greenfield and import mode) -->
-3. `/sdd clean` normalizes recognized documentation collections toward the bundled templates only when every load-bearing clause, link, diagram, compatibility fragment, requirement, decision, and source anchor is preserved. <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::What gets cleaned --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Pass 6 — Collection rendering consistency --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (optimized documentation lane shapes) -->
-4. Shape enforcement validates positively recognized lane records, accepts documented legacy aliases, exempts unrelated headings and tables, and carries no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (optimized documentation lane shapes) -->
+1. The bundled templates cover Architecture, API, Configuration, Deployment, Security, Observability, Troubleshooting, and the shared envelope for optional indexed project lanes. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-architecture.md::System Components --> <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Templates location --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
+2. Greenfield and Import Mode pass their evidence-selected lanes through one renderer. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
+3. Rendering emits only selected lane files and matching index rows. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (emits only selected lane rows) -->
+4. Rendering uses fresh staging, removes partial output after failure, and preserves the live documentation tree until checked promotion. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
 5. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-139 AC5: optimized documentation templates reach Claude and Pi seeds) -->
 
-**Constraints:**
-
-- Existing `/sdd init` discovery, Import Mode triage, `/sdd clean` modes, layout migration, and review ownership remain unchanged.
-- Canonical lanes emit only when source evidence justifies them; Architecture and the ADR ledger remain universal.
-- Project lanes stay first-level, explicitly indexed, source-backed, and organized by a concern no canonical lane owns.
-- No project schema engine, suppression baseline, or replacement migration subsystem is introduced.
+**Constraints:** Existing discovery, Import Mode triage, and review ownership remain unchanged. Architecture and the ADR ledger remain universal; other lanes require source evidence. Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership. No project schema engine or replacement migration subsystem is introduced.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement)
+**Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render)
 
-**Verification:** Automated test ([documentation template contract tests](../../host/__tests__/documentation-template-contract.test.js), [documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js), [generated seed parity tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
+**Verification:** Automated test ([documentation template contract tests](../../host/__tests__/documentation-template-contract.test.js), [generated seed parity tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-140: Lossless Documentation Lane Cleanup and Enforcement
+
+**Intent:** Existing SDD projects must converge toward the optimized lane structures without hiding genuine defects or losing project knowledge.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/sdd clean` normalizes a recognized collection only when every load-bearing clause, link, diagram, compatibility fragment, requirement, decision, and source anchor is preserved. <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::What gets cleaned --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Pass 6 — Collection rendering consistency --> <!-- @manual: On a disposable advanced-mode fixture, run `/sdd clean --scope=all` over a mixed-shape collection containing each protected artifact and confirm the normalized output preserves all of them byte-for-byte or defers unchanged. -->
+2. Shape enforcement validates positively recognized lane records. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (optimized documentation lane shapes) -->
+3. Shape enforcement accepts documented legacy field aliases. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts Description as a legacy configuration Purpose alias) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts legacy deployment field aliases without making them canonical) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts legacy API sections and validates detailed standard-method sections) -->
+4. Shape enforcement exempts unrelated headings and tables. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (does not confuse unrelated tables with governed collections) -->
+5. The reusable checker contains no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts the current indexed Codeflare lane corpus without product inventory names) -->
+6. Indexed first-level project lanes retain the shared ownership, navigation, evidence-map, and related-document envelope. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanProjectLane --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (checks the shared envelope of first-level project lanes) -->
+
+**Constraints:** Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged. Ambiguous or conflicting content is reported and left intact. No suppression baseline or separate migration subsystem is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement), [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Partial
+
+**Notes:** Live validation of lossless collection normalization is pending; see the [Preseed SDD Bootstrap Contract](../../documentation/lanes/preseed.md#sdd-bootstrap-contract).
 
 ---

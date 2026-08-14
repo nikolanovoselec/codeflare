@@ -52,7 +52,7 @@ Use one dossier per long-lived component or authority boundary. Do not create an
 
 **Source:** `{PATH}::{SYMBOL}`
 
-**Requirements:** [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001)
+**Requirements:** {REQUIREMENT_LINK}
 
 **Detailed documentation:** {DETAILED_DOCUMENTATION}
 
@@ -102,7 +102,7 @@ Summarize trust boundaries and failure posture. Link detailed controls and resid
 
 | Concern | Architecture section | Requirements | Decisions | Detailed owner |
 |---|---|---|---|---|
-| {CONCERN} | {SECTION_LINK} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | [AD1](../decisions/README.md#ad1-example) | {DETAILED_OWNER} |
+| {CONCERN} | {SECTION_LINK} | {REQUIREMENT_LINK} | {DECISION_LINK} | {DETAILED_OWNER} |
 
 ## Related Documentation
 

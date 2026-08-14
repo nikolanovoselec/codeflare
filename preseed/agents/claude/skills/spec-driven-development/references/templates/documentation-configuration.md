@@ -26,7 +26,7 @@
 
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |---|---|---|---|---|---|
-| `{VARIABLE}` | {PURPOSE} | `{DEFAULT}` | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
+| `{VARIABLE}` | {PURPOSE} | `{DEFAULT}` | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | {REQUIREMENT_LINK} |
 
 ## Secrets
 
@@ -36,7 +36,7 @@ Document secret names, consumers, rotation boundaries, and fail-closed behavior.
 
 | Binding | Purpose | Required | Consumed by | Implements |
 |---|---|---|---|---|
-| `{BINDING}` | {PURPOSE} | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
+| `{BINDING}` | {PURPOSE} | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | {REQUIREMENT_LINK} |
 
 ## Configuration Files
 
@@ -48,7 +48,7 @@ Document secret names, consumers, rotation boundaries, and fail-closed behavior.
 
 | Configuration concern | Source owner | Requirements | Specialist owner |
 |---|---|---|---|
-| {CONCERN} | `{PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {SPECIALIST_OWNER} |
+| {CONCERN} | `{PATH}` | {REQUIREMENT_LINK} | {SPECIALIST_OWNER} |
 
 ## Related Documentation
 

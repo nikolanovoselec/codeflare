@@ -29,11 +29,11 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 | ID | Decision | Category | Date |
 |----|----------|----------|------|
-| AD1 | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
+| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
 
 ---
 
-### AD1: {DECISION_TITLE}
+### {DECISION_ID}: {DECISION_TITLE}
 
 **Status:** Accepted (YYYY-MM-DD)
 
@@ -47,6 +47,6 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 **Consequences:** {CONSEQUENCES}
 
-**Related requirements:** [REQ-X-N](../../sdd/spec/{DOMAIN}.md#req-x-n)
+**Related requirements:** {REQUIREMENT_LINK}
 
 ---

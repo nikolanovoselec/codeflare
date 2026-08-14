@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkDocuments } from '../../preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs';
 import { renderDocumentationTemplates } from '../../preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -22,100 +24,112 @@ const TEMPLATES = join(
   'preseed/agents/claude/skills/spec-driven-development/references/templates',
 );
 
-function template(name) {
-  return readFileSync(join(TEMPLATES, name), 'utf8');
-}
+const ALL_STANDARD_LANES = [
+  'api-reference',
+  'configuration',
+  'deployment',
+  'security',
+  'observability',
+  'troubleshooting',
+  'api-reference-admin',
+];
 
-function tableHeaders(markdown) {
-  return [...markdown.matchAll(/^\|([^\n]+)\|\n\|(?:[-:]+\|)+$/gm)].map((match) =>
-    match[1].split('|').map((cell) => cell.trim()),
-  );
-}
-
-// REQ-AGENT-139 AC1-AC3
+// REQ-AGENT-139 AC1-AC4
 describe('optimized SDD documentation templates', () => {
-  it('bundles every canonical and project-lane template used by /sdd init', () => {
-    const expected = [
-      'documentation-architecture.md',
-      'documentation-api-reference.md',
-      'documentation-configuration.md',
-      'documentation-deployment.md',
-      'documentation-security.md',
-      'documentation-observability.md',
-      'documentation-troubleshooting.md',
-      'documentation-project-lane.md',
-    ];
-    assert.deepEqual(expected.filter((name) => !existsSync(join(TEMPLATES, name))), []);
-  });
-
-  it('keeps architecture operational without an exhaustive source-file inventory', () => {
-    const content = template('documentation-architecture.md');
-    assert.doesNotMatch(content, /^## Source Modules$/m);
-    assert.doesNotMatch(content, /exhaustive listing of every source file/i);
-    for (const heading of [
-      'Purpose, Audience, and Ownership',
-      'System Components',
-      'State Ownership and Durability',
-      'Data Flow',
-      'Failure Domains and Recovery Ownership',
-      'Decision and Requirement Map',
-    ]) {
-      assert.match(content, new RegExp(`^## ${heading}$`, 'm'));
-    }
-  });
-
-  it('uses compact grouped registers for API and configuration lanes', () => {
-    const apiHeaders = tableHeaders(template('documentation-api-reference.md'));
-    assert.ok(apiHeaders.some((headers) =>
-      ['Method', 'Path', 'Auth', 'Implements', 'Description'].every((field) => headers.includes(field)),
-    ));
-
-    const configurationHeaders = tableHeaders(template('documentation-configuration.md'));
-    assert.ok(configurationHeaders.some((headers) =>
-      ['Variable', 'Purpose', 'Default', 'Required', 'Consumed by', 'Implements']
-        .every((field) => headers.includes(field)),
-    ));
-  });
-
-  it('renders the same selected lane set for greenfield and import mode', async () => {
+  it('renders every canonical lane and a project lane consistently in both init modes', async () => {
     for (const mode of ['greenfield', 'import']) {
       const root = mkdtempSync(join(tmpdir(), `sdd-doc-${mode}-`));
+      const outputDir = join(root, 'documentation');
       try {
         const result = await renderDocumentationTemplates({
           mode,
           templatesDir: TEMPLATES,
-          outputDir: join(root, 'documentation'),
+          outputDir,
           projectName: 'Example Project',
-          lanes: ['architecture', 'security', 'api-reference-admin'],
+          lanes: ALL_STANDARD_LANES,
           projectLanes: [{ slug: 'payments', title: 'Payments' }],
         });
         assert.deepEqual(result.lanes, [
           'lanes/architecture.md',
+          'lanes/api-reference.md',
+          'lanes/configuration.md',
+          'lanes/deployment.md',
           'lanes/security.md',
+          'lanes/observability.md',
+          'lanes/troubleshooting.md',
           'lanes/api-reference-admin.md',
           'lanes/payments.md',
         ]);
-        assert.deepEqual(readdirSync(join(root, 'documentation', 'lanes')).sort(), [
-          'api-reference-admin.md', 'architecture.md', 'payments.md', 'security.md',
+        assert.deepEqual(readdirSync(join(outputDir, 'lanes')).sort(), [
+          'api-reference-admin.md',
+          'api-reference.md',
+          'architecture.md',
+          'configuration.md',
+          'deployment.md',
+          'observability.md',
+          'payments.md',
+          'security.md',
+          'troubleshooting.md',
         ]);
-        const index = readFileSync(join(root, 'documentation', 'README.md'), 'utf8');
-        assert.doesNotMatch(index, /\{LANE_INDEX_ROWS\}/);
-        assert.match(index, /\[Architecture\]\(lanes\/architecture\.md\)/);
-        assert.match(index, /\[Security\]\(lanes\/security\.md\)/);
-        assert.match(index, /\[Admin API Reference\]\(lanes\/api-reference-admin\.md\)/);
-        assert.match(index, /\[Payments\]\(lanes\/payments\.md\)/);
-        assert.doesNotMatch(index, /lanes\/api-reference\.md\)/);
-        assert.equal(existsSync(join(root, 'documentation', 'decisions', 'README.md')), true);
 
-        const architecture = readFileSync(join(root, 'documentation', 'lanes', 'architecture.md'), 'utf8');
-        const payments = readFileSync(join(root, 'documentation', 'lanes', 'payments.md'), 'utf8');
+        const lanePaths = result.lanes.map((relativePath) => join(outputDir, relativePath));
+        assert.deepEqual(await checkDocuments(lanePaths), { ok: true, findings: [] });
+
+        const index = readFileSync(join(outputDir, 'README.md'), 'utf8');
+        for (const relativePath of result.lanes) assert.match(index, new RegExp(relativePath.replace('.', '\\.')));
+        assert.doesNotMatch(index, /\{LANE_INDEX_ROWS\}/);
+        assert.equal(existsSync(join(outputDir, 'decisions', 'README.md')), true);
+
+        const architecture = readFileSync(join(outputDir, 'lanes', 'architecture.md'), 'utf8');
+        const payments = readFileSync(join(outputDir, 'lanes', 'payments.md'), 'utf8');
         assert.match(architecture, /^# Example Project Architecture$/m);
-        assert.doesNotMatch(architecture, /\{PROJECT_NAME\}/);
+        assert.doesNotMatch(architecture, /^## Source Modules$/m);
         assert.match(payments, /^# Payments$/m);
+        assert.doesNotMatch(architecture, /\{PROJECT_NAME\}/);
         assert.doesNotMatch(payments, /\{PROJECT_LANE_TITLE\}/);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
+    }
+  });
+
+  it('emits only selected lane rows', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdd-doc-selected-'));
+    const outputDir = join(root, 'documentation');
+    try {
+      await renderDocumentationTemplates({
+        mode: 'greenfield',
+        templatesDir: TEMPLATES,
+        outputDir,
+        projectName: 'Example Project',
+        lanes: ['security'],
+      });
+      assert.deepEqual(readdirSync(join(outputDir, 'lanes')).sort(), ['architecture.md', 'security.md']);
+      const index = readFileSync(join(outputDir, 'README.md'), 'utf8');
+      assert.match(index, /lanes\/architecture\.md/);
+      assert.match(index, /lanes\/security\.md/);
+      assert.doesNotMatch(index, /lanes\/api-reference\.md/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('escapes a user-derived project name before Markdown rendering', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdd-doc-name-'));
+    const outputDir = join(root, 'documentation');
+    try {
+      await renderDocumentationTemplates({
+        mode: 'greenfield',
+        templatesDir: TEMPLATES,
+        outputDir,
+        projectName: 'Example <!-- hidden --> [internal] | docs',
+        lanes: ['architecture'],
+      });
+      const architecture = readFileSync(join(outputDir, 'lanes', 'architecture.md'), 'utf8');
+      assert.doesNotMatch(architecture, /<!-- hidden -->/);
+      assert.match(architecture, /&lt;!-- hidden --&gt; &#91;internal&#93; &#124; docs/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -176,18 +190,28 @@ describe('optimized SDD documentation templates', () => {
     }
   });
 
-  it('uses one uppercase underscore placeholder grammar', () => {
-    const names = readdirSync(TEMPLATES).filter((name) => name.startsWith('documentation-'));
-    for (const name of names) {
-      const tokens = [...template(name).matchAll(/\{([^}\n]+)\}/g)].map((match) => match[1]);
-      for (const token of tokens) assert.match(token, /^[A-Z][A-Z0-9_]*$/, `${name}: ${token}`);
-    }
-  });
+  it('rejects malformed placeholders and hard-coded exemplar IDs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdd-doc-template-validation-'));
+    const templatesDir = join(root, 'templates');
+    cpSync(TEMPLATES, templatesDir, { recursive: true });
+    const architectureTemplate = join(templatesDir, 'documentation-architecture.md');
+    const base = readFileSync(architectureTemplate, 'utf8');
+    try {
+      writeFileSync(architectureTemplate, `${base}\n{bad placeholder}\n`);
+      await assert.rejects(renderDocumentationTemplates({
+        mode: 'greenfield', templatesDir, outputDir: join(root, 'bad-placeholder'),
+        projectName: 'Example Project', lanes: ['architecture'],
+      }), /Invalid placeholder/);
+      assert.equal(existsSync(join(root, 'bad-placeholder')), false);
 
-  it('contains no deprecated numeric file-budget directives', () => {
-    const names = readdirSync(TEMPLATES).filter((name) => name.startsWith('documentation-'));
-    for (const name of names) {
-      assert.doesNotMatch(template(name), /(?:budget|limit):?\s*(?:≤|<=)\s*\d+\s*lines?/i, name);
+      writeFileSync(architectureTemplate, `${base}\nREQ-FAKE-001\n`);
+      await assert.rejects(renderDocumentationTemplates({
+        mode: 'greenfield', templatesDir, outputDir: join(root, 'bad-id'),
+        projectName: 'Example Project', lanes: ['architecture'],
+      }), /Hard-coded exemplar ID/);
+      assert.equal(existsSync(join(root, 'bad-id')), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

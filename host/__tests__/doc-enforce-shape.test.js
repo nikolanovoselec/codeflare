@@ -278,7 +278,7 @@ describe('doc-enforce shape item traversal', () => {
 
 });
 
-// REQ-AGENT-139 AC2-AC4
+// REQ-AGENT-140 AC2-AC6
 describe('optimized documentation lane shapes', () => {
   const tableProfiles = [
     {
@@ -385,14 +385,16 @@ describe('optimized documentation lane shapes', () => {
   it('accepts legacy API sections and validates detailed standard-method sections', () => {
     const legacy = [
       '# API', '', '## Items', '', '### GET `/items`', '',
-      '**Authentication:** Session cookie', '',
-      '**Response:** `200` item list', '',
       '**Implements:** REQ-API-001', '',
-      '**Source:** `src/items.ts`',
+      '**Authentication:** Session cookie', '',
+      '**Request:** No request body.', '',
+      '**Response 200:** Item list.', '',
+      '**Error responses:** `401` when unauthenticated.', '',
+      '**Implementation:** `src/items.ts`',
     ].join('\n');
     assert.equal(runFixture({ 'api-reference.md': legacy }).status, 0);
     const malformedLegacy = runFixture({
-      'api-reference.md': legacy.replace('**Response:** `200` item list\n\n', ''),
+      'api-reference.md': legacy.replace('**Response 200:** Item list.\n\n', ''),
     });
     assert.equal(malformedLegacy.status, 1, malformedLegacy.stdout);
     assert.deepEqual(JSON.parse(malformedLegacy.stdout).findings[0].missing, ['Response']);
@@ -411,6 +413,16 @@ describe('optimized documentation lane shapes', () => {
     });
     assert.equal(malformed.status, 1, malformed.stdout);
     assert.deepEqual(JSON.parse(malformed.stdout).findings[0].missing, ['Errors']);
+
+    const sparse = [
+      '# API', '', '## Items', '', '### OPTIONS `/items`', '',
+      '**Response:** `204`.', '',
+      '**Source:** `src/items.ts`', '',
+      '**Implements:** REQ-API-001',
+    ].join('\n');
+    const sparseResult = runFixture({ 'api-reference.md': sparse });
+    assert.equal(sparseResult.status, 1, sparseResult.stdout);
+    assert.deepEqual(JSON.parse(sparseResult.stdout).findings[0].missing, ['Request', 'Errors']);
   });
 
   it('ignores fenced collection tables and still reports a later live table', () => {

@@ -26,7 +26,7 @@ Group endpoints by resource family. Add detailed contracts only when request, re
 
 | Method | Path | Auth | Implements | Description |
 |---|---|---|---|---|
-| `{METHOD}` | `{PATH}` | {AUTH_BOUNDARY} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {OBSERVABLE_BEHAVIOR} |
+| `{METHOD}` | `{PATH}` | {AUTH_BOUNDARY} | {REQUIREMENT_LINK} | {OBSERVABLE_BEHAVIOR} |
 
 ## Detailed Contracts
 
@@ -40,13 +40,13 @@ Group endpoints by resource family. Add detailed contracts only when request, re
 
 **Source:** `{SOURCE_PATH}::{SYMBOL}`
 
-**Implements:** [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001)
+**Implements:** {REQUIREMENT_LINK}
 
 ## Requirement and Source Map
 
 | Resource family | Source owner | Requirements | Behavioral evidence |
 |---|---|---|---|
-| {RESOURCE_FAMILY} | `{SOURCE_PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{TEST_PATH}` |
+| {RESOURCE_FAMILY} | `{SOURCE_PATH}` | {REQUIREMENT_LINK} | `{TEST_PATH}` |
 
 ## Related Documentation
 

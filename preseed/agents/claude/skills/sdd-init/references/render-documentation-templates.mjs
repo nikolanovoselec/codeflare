@@ -58,8 +58,34 @@ function laneDefinition(id) {
   return null;
 }
 
+function validateTemplate(content, name) {
+  for (const match of content.matchAll(/\{([^}\n]+)\}/g)) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(match[1])) {
+      throw new Error(`Invalid placeholder in ${name}: {${match[1]}}`);
+    }
+  }
+  const exemplar = content.match(/\b(?:REQ-[A-Z]+-\d+|AD\d+)\b/);
+  if (exemplar) throw new Error(`Hard-coded exemplar ID in ${name}: ${exemplar[0]}`);
+}
+
+function escapeMarkdownText(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('[', '&#91;')
+    .replaceAll(']', '&#93;')
+    .replaceAll('|', '&#124;');
+}
+
 function render(content, values) {
   return content.replace(/\{([A-Z][A-Z0-9_]*)\}/g, (token, key) => values[key] ?? token);
+}
+
+async function readTemplate(templatesDir, name) {
+  const content = await readFile(path.join(templatesDir, name), 'utf8');
+  validateTemplate(content, name);
+  return content;
 }
 
 function validateProjectLane(lane) {
@@ -123,13 +149,13 @@ export async function renderDocumentationTemplates({
     const rows = [];
     for (const id of selected) {
       const definition = laneDefinition(id);
-      const source = await readFile(path.join(templatesDir, definition.template), 'utf8');
-      const rendered = render(source, { PROJECT_NAME: projectName });
+      const source = await readTemplate(templatesDir, definition.template);
+      const rendered = render(source, { PROJECT_NAME: escapeMarkdownText(projectName) });
       await writeFile(path.join(outputDir, 'lanes', `${id}.md`), rendered);
       rows.push(`| [${definition.title}](lanes/${id}.md) | ${definition.summary} |`);
     }
 
-    const projectTemplate = await readFile(path.join(templatesDir, 'documentation-project-lane.md'), 'utf8');
+    const projectTemplate = await readTemplate(templatesDir, 'documentation-project-lane.md');
     for (const lane of projectLanes) {
       const rendered = render(projectTemplate, {
         PROJECT_NAME: projectName,
@@ -139,17 +165,17 @@ export async function renderDocumentationTemplates({
       rows.push(`| [${lane.title}](lanes/${lane.slug}.md) | Project-specific ${lane.title.toLowerCase()} contracts and evidence |`);
     }
 
-    const indexTemplate = await readFile(path.join(templatesDir, 'documentation-readme.md'), 'utf8');
+    const indexTemplate = await readTemplate(templatesDir, 'documentation-readme.md');
     const index = render(indexTemplate, {
-      PROJECT_NAME: projectName,
+      PROJECT_NAME: escapeMarkdownText(projectName),
       LANE_INDEX_ROWS: rows.join('\n'),
     });
     await writeFile(path.join(outputDir, 'README.md'), index);
 
-    const decisionsTemplate = await readFile(path.join(templatesDir, 'documentation-decisions-readme.md'), 'utf8');
+    const decisionsTemplate = await readTemplate(templatesDir, 'documentation-decisions-readme.md');
     await writeFile(
       path.join(outputDir, 'decisions', 'README.md'),
-      render(decisionsTemplate, { PROJECT_NAME: projectName }),
+      render(decisionsTemplate, { PROJECT_NAME: escapeMarkdownText(projectName) }),
     );
 
     return {

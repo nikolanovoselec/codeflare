@@ -50,7 +50,7 @@ Nested and flat layouts remain readable. Grouped tables and per-item records rem
 
 Accepted migration aliases:
 
-- API: `Authentication` for `Auth` in legacy per-endpoint records.
+- API: `Authentication` for `Auth`, `Response 200` for `Response`, `Error responses` for `Errors`, and `Implementation` for `Source` in legacy per-endpoint records.
 - Configuration: `Description` may carry legacy `Purpose` content during migration.
 - Deployment: `Command` for `Action`; `Verifies` for `Verify`.
 - Architecture areas: `Components` and `System Components`.

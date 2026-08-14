@@ -30,7 +30,7 @@ Identify observable failures, authoritative state, recovery ownership, and the c
 
 | Concern | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| {CONCERN} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONCERN} | {REQUIREMENT_LINK} | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 

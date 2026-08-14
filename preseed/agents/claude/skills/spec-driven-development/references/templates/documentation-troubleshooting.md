@@ -49,7 +49,7 @@ Keep reusable read-only commands here. Link destructive actions to Deployment ru
 
 | Recipe family | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| {RECIPE_FAMILY} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {RECIPE_FAMILY} | {REQUIREMENT_LINK} | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 

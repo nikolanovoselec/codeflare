@@ -339,15 +339,24 @@ function scanSections(lines, kind, file, findings) {
 
     if (kind === 'api') {
       const endpoint = section.title.match(/^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE|CONNECT)\s+[`]?([^\s`]+)/i);
-      const hasDetailedShape = ['Request', 'Errors'].some((field) => labels.has(field));
-      const hasLegacyShape = ['Authentication', 'Auth'].some((field) => labels.has(field));
-      if (!endpoint || (!hasDetailedShape && !hasLegacyShape)) continue;
-      const required = hasDetailedShape
-        ? ['Request', 'Response', 'Errors', 'Source', 'Implements']
-        : ['Authentication', 'Response', 'Implements'];
-      const missing = required.filter((field) => field === 'Authentication'
-        ? !labels.has('Authentication') && !labels.has('Auth')
-        : !labels.has(field));
+      const aliases = {
+        Authentication: ['Authentication', 'Auth'],
+        Request: ['Request'],
+        Response: ['Response', 'Response 200'],
+        Errors: ['Errors', 'Error responses'],
+        Source: ['Source', 'Implementation'],
+        Implements: ['Implements'],
+      };
+      const present = (field) => aliases[field].some((alias) => labels.has(alias));
+      const recognized = Object.keys(aliases).some((field) => present(field));
+      if (!endpoint || !recognized) continue;
+
+      const legacy = ['Authentication', 'Auth', 'Response 200', 'Error responses', 'Implementation']
+        .some((field) => labels.has(field));
+      const required = legacy
+        ? ['Authentication', 'Response', 'Implements']
+        : ['Request', 'Response', 'Errors', 'Source', 'Implements'];
+      const missing = required.filter((field) => !present(field));
       if (missing.length > 0) {
         findings.push({
           rule: 'template-field-missing', file, line: section.line,
@@ -389,7 +398,7 @@ function scanDeploymentSections(lines, file, findings) {
 
   for (let index = 0; index < starts.length; index += 1) {
     const section = starts[index];
-    const end = starts[index + 1]?.line - 1 ?? lines.length;
+    const end = starts[index + 1] ? starts[index + 1].line - 1 : lines.length;
     const body = lines.slice(section.start, end).join('\n');
     const labels = new Set(
       [...body.matchAll(/^\*\*([^*:\n]+):\*\*/gm)].map((match) => plain(match[1])),
