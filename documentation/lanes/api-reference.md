@@ -705,11 +705,11 @@ Responses:
 
 ## Health
 
-| Method | Path | Auth | Owner | Contract |
-|---|---|---|---|---|
-| GET | `/api/health` | Public | Worker | `{ "status": "ok", "timestamp": "..." }` <!-- @impl: src/index.ts::app --> |
-| GET | `/api/container/health` | Session cookie | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
-| GET | private host `/health` | Bearer-exempt on the private SDK container path | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
+| Method | Path | Auth | Implements | Owner | Contract |
+|---|---|---|---|---|---|
+| GET | `/api/health` | Public | — | Worker | `{ "status": "ok", "timestamp": "..." }` <!-- @impl: src/index.ts::app --> |
+| GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
+| GET | private host `/health` | Bearer-exempt on the private SDK container path | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
 
 There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation. The private host body includes `initFlagObserved` and `prewarmReady`; see [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 

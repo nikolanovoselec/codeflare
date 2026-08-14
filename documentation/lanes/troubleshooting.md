@@ -456,7 +456,6 @@ Normal during the ~10s cold-start window. The client's retry backoff will reconn
 
 A container that actively **rejects** the WebSocket forward — rather than hanging — now maps onto this same retryable 1013 instead of falling through to the route's generic 500 ([REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it)). Any handshake answered by something other than a 101 reaches the browser as 1006, which is retryable but never opens a socket, so the client's reconnect backoff stayed pinned at its 500 ms base and retried roughly once a second indefinitely. Returning a real 101 whose socket closes 1013 is what lets that backoff actually advance.
 
-<a id="session-shows-stopped-on-the-dashboard-but-container-is-actually-running"></a>
 <a id="session-shows-stopped-on-the-dashboard-but-container-is-actually-runni"></a>
 #### Session shows `stopped` on the dashboard but container is actually running
 
