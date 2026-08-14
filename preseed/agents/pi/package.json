@@ -12,7 +12,7 @@
     "@narumitw/pi-usage": "0.50.0",
     "context-mode": "1.0.169",
     "pi-evaluate": "0.1.5",
-    "pi-mcp-adapter": "2.20.1",
+    "pi-mcp-adapter": "2.21.0",
     "pi-web-access": "0.18.0"
   },
   "devDependencies": {
