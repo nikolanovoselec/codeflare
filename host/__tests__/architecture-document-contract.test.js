@@ -223,13 +223,28 @@ function localMarkdownLinks(path) {
 function mermaidBlocks(markdown) {
   const blocks = [];
   const lines = markdown.split('\n');
-  let section = '';
+  let h2 = '';
+  let h3 = '';
+  let h4 = '';
   for (let index = 0; index < lines.length; index++) {
-    const heading = /^###\s+(.+?)\s*$/.exec(lines[index]);
-    if (heading) section = visibleHeadingText(heading[1]);
+    const heading = /^(#{2,4})\s+(.+?)\s*$/.exec(lines[index]);
+    if (heading) {
+      const title = visibleHeadingText(heading[2]);
+      if (heading[1].length === 2) {
+        h2 = title;
+        h3 = '';
+        h4 = '';
+      } else if (heading[1].length === 3) {
+        h3 = title;
+        h4 = '';
+      } else {
+        h4 = title;
+      }
+    }
     if (lines[index].trim() !== '```mermaid') continue;
     const source = [];
     for (index += 1; index < lines.length && lines[index].trim() !== '```'; index++) source.push(lines[index]);
+    const section = h4 ? `${h3} / ${h4}` : h3 || h2;
     blocks.push({ section, source: source.join('\n') });
   }
   return blocks;
@@ -325,7 +340,8 @@ describe('Architecture documentation contract', () => {
       }
 
       assertSectionRelationships(parsed, 'System at a Glance', ['B->W', 'W->DO1', 'DO1->C1', 'C1->R2']);
-      assertSectionRelationships(parsed, 'Session Creation to Terminal Connection', ['U->W', 'W->KV', 'W->DO', 'DO->C']);
+      assertSectionRelationships(parsed, 'Session Creation to Terminal Connection / Creation and start', ['U->W', 'W->W', 'W->KV', 'W->DO', 'DO->C']);
+      assertSectionRelationships(parsed, 'Session Creation to Terminal Connection / Terminal connection', ['U->W', 'W->U', 'W->DO', 'DO->C']);
       assertSectionRelationships(parsed, 'Session Lifecycle State Machine', ['stopped->running', 'running->stopped', 'initializing->error']);
       assertSectionRelationships(parsed, 'Metrics Data Flow', ['DO->A', 'DO->H', 'A->KV', 'H->KV', 'KV->W', 'W->F']);
       assertSectionRelationships(parsed, 'Dashboard WS Disconnect Flow', ['U->F', 'F->T', 'T->C']);
