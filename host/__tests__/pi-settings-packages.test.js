@@ -64,15 +64,22 @@ const REQUIRED = Object.entries(piPackage.dependencies)
   .filter(([name]) => name !== '@earendil-works/pi-coding-agent')
   .map(([name, version]) => `npm:${name}@${version}`);
 
+const REVIEWED_GOAL_RELEASES = Object.freeze({
+  '0.46.0': 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==',
+  '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
+});
+
 describe('Goal package preseed (REQ-AGENT-111)', () => {
-  it('replaces glla with the exact reviewed Goal package and integrity-locked release', () => {
+  it('replaces glla with one exact reviewed and integrity-locked Goal release', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@narumitw/pi-goal'], '0.46.0');
+    const version = pkg.dependencies['@narumitw/pi-goal'];
+    const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
+    assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
-    assert.equal(goal.version, '0.46.0');
-    assert.equal(goal.integrity, 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==');
+    assert.equal(goal.version, version);
+    assert.equal(goal.integrity, expectedIntegrity);
     assert.equal(lock.packages['node_modules/pi-goal-list-loop-audit'], undefined);
   });
 

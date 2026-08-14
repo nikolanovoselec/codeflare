@@ -10,6 +10,7 @@ export function buildBaseOpenVscodeSettings() {
   return {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
   };
 }
 
@@ -34,6 +35,7 @@ export function buildUnsupportedOpenVscodeSettings() {
 export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "security.workspace.trust.enabled",
   "extensions.ignoreRecommendations",
+  "chat.titleBar.signIn.enabled",
   "chat.disableAIFeatures",
   "chat.notifyWindowOnResponseReceived",
   "chat.notifyWindowOnConfirmation",

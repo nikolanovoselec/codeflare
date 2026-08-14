@@ -25,14 +25,18 @@ FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00
 WORKDIR /app/openvscode/agent-sidebar
 COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
 RUN npm ci
-COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json ./
+COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json openvscode/agent-sidebar/welcome-package.json ./
 COPY openvscode/agent-sidebar/src/ ./src/
 RUN npm run typecheck && NODE_ENV=production npm run build
 
-RUN mkdir -p /out/extension && \
+RUN mkdir -p /out/extension /out/welcome/dist && \
     cp package.json /out/extension/package.json && \
-    cp -a dist /out/extension/dist
+    cp -a dist /out/extension/dist && \
+    rm /out/extension/dist/welcome-extension.cjs && \
+    cp welcome-package.json /out/welcome/package.json && \
+    cp dist/welcome-extension.cjs /out/welcome/dist/welcome-extension.cjs
 COPY openvscode/agent-sidebar/media/ /out/extension/media/
+COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
@@ -244,6 +248,12 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz
+
+# Codeflare's non-agent welcome surface is available for every fixed inventory.
+# It is packaged as owned extension code without modifying code-server or Code OSS.
+COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/vscode/extensions/codeflare-welcome
+RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
+    chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
 
 # Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
 # exact official Claude extension, and an empty unsupported-agent inventory.

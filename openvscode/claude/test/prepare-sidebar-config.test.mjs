@@ -179,6 +179,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "workbench.colorTheme": "Default Light Modern",
     "keyboard.layout": "de",
     "chat.disableAIFeatures": true,
+    "chat.titleBar.signIn.enabled": true,
     "chat.notifyWindowOnResponseReceived": "off",
     "chat.agentFilesLocations": {
       "~/.claude/agents": true,
@@ -193,6 +194,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "chat.titleBar.signIn.enabled": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {

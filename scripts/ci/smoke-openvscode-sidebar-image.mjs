@@ -20,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = '/opt/codeflare/openvscode';
 const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
+const WELCOME_EXTENSION_NAME = 'codeflare-welcome';
 const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
 const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
@@ -101,6 +102,18 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
+  const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
+  const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
+  assert.equal(welcomeManifest.name, WELCOME_EXTENSION_NAME);
+  assert.equal(welcomeManifest.publisher, 'codeflare');
+  assert.equal(welcomeManifest.main, './dist/welcome-extension.cjs');
+  assert.deepEqual(welcomeManifest.activationEvents, [
+    'onStartupFinished',
+    'onCommand:codeflare.welcome.open',
+  ]);
+  assert.equal(welcomeManifest.contributes.chatParticipants, undefined);
+  assert.equal(welcomeManifest.contributes.languageModelChatProviders, undefined);
+  await assertImmutable(welcomeRoot);
   const inventoriesRoot = join(ROOT, 'extensions');
   const unsupportedInventory = join(inventoriesRoot, 'none');
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
@@ -166,6 +179,7 @@ async function main() {
     extensionHash,
     nativeChat,
     officialClaude,
+    welcomeExtension: WELCOME_EXTENSION_NAME,
     codeServerRuntime,
     agentPackages,
     agentVersions,

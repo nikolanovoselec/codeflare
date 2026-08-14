@@ -16,6 +16,18 @@ await Promise.all([
     logLevel: 'info',
   }),
   build({
+    entryPoints: ['src/welcome-extension.ts'],
+    outfile: 'dist/welcome-extension.cjs',
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    external: ['vscode'],
+    sourcemap: !production,
+    minify: production,
+    logLevel: 'info',
+  }),
+  build({
     entryPoints: ['src/package-extension.ts'],
     outfile: 'dist/package-extension.mjs',
     bundle: true,
