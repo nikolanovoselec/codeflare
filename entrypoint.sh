@@ -931,26 +931,35 @@ cleanup_old_transcripts() {
 cleanup_old_pi_transcripts() {
     local SESSIONS_DIR="$USER_HOME/.pi/agent/sessions"
     local KEEP_COUNT=5
+    local MAX_TOTAL_BYTES=$((256 * 1024 * 1024))
 
     [ -d "$SESSIONS_DIR" ] || return 0
 
     local ALL_TRANSCRIPTS
     ALL_TRANSCRIPTS=$(find "$SESSIONS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/tasks/*" 2>/dev/null) || true
-    local COUNT
-    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null) || COUNT=0
+    [ -z "$ALL_TRANSCRIPTS" ] && return 0
 
-    if [ "$COUNT" -le "$KEEP_COUNT" ]; then
-        return 0
-    fi
+    local SORTED_TRANSCRIPTS
+    SORTED_TRANSCRIPTS=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null) || true
 
-    local TO_DELETE
-    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1))) || true
-
-    [ -z "$TO_DELETE" ] && return 0
-
+    local KEPT=0
+    local RETAINED_BYTES=0
+    local RETENTION_FULL=0
     local DELETED=0
-    for transcript in $TO_DELETE; do
+    for transcript in $SORTED_TRANSCRIPTS; do
         [ -f "$transcript" ] || continue
+        local TRANSCRIPT_BYTES
+        TRANSCRIPT_BYTES=$(stat -c %s "$transcript" 2>/dev/null) || continue
+
+        # Always preserve the newest transcript, even when that active session
+        # alone exceeds the historical retention budget.
+        if [ "$KEPT" -eq 0 ] || { [ "$RETENTION_FULL" -eq 0 ] && [ "$KEPT" -lt "$KEEP_COUNT" ] && [ $((RETAINED_BYTES + TRANSCRIPT_BYTES)) -le "$MAX_TOTAL_BYTES" ]; }; then
+            KEPT=$((KEPT + 1))
+            RETAINED_BYTES=$((RETAINED_BYTES + TRANSCRIPT_BYTES))
+            continue
+        fi
+
+        RETENTION_FULL=1
         local TASK_DIR="${transcript%.jsonl}"
         [ -d "$TASK_DIR/tasks" ] && rm -rf "$TASK_DIR/tasks"
         rm -f "$transcript"
@@ -958,7 +967,7 @@ cleanup_old_pi_transcripts() {
     done
 
     if [ "$DELETED" -gt 0 ]; then
-        echo "[sync-daemon] Cleaned up $DELETED old Pi session transcript(s), kept newest $KEEP_COUNT" | tee -a /tmp/sync.log
+        echo "[sync-daemon] Cleaned up $DELETED old Pi session transcript(s), retained $KEPT within 256 MiB / newest-5 limits" | tee -a /tmp/sync.log
     fi
 }
 

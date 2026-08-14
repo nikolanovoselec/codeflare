@@ -359,7 +359,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-012: Session Transcript Cleanup
 
-**Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
+**Intent:** Old session transcripts must be pruned to prevent unbounded local-disk and R2 growth from long-lived users.
 
 **Applies To:** User
 
@@ -370,6 +370,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Session directories themselves are left intact so the agent can still resolve project paths. <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
 4. Cleanup deletions propagate to R2 automatically via the next bisync. <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
 5. Subagent transcripts are excluded from bisync entirely so they never reach R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
+6. Pi retains at most the five newest main-session transcripts within a 256 MiB historical retention budget, always preserving the newest transcript; deleting a Pi transcript also deletes its companion task logs. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (prunes oldest transcripts when the five-newest set exceeds the 256 MiB retention budget) -->
 
 **Constraints:**
 

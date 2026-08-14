@@ -9,7 +9,7 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, utimesSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, utimesSync, rmSync, readFileSync, truncateSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -101,6 +101,35 @@ describe('cleanup_old_pi_transcripts / REQ-STOR-012 (keeps 5 newest Pi .jsonl, d
       assert.ok(!existsSync(join(sessionsDir, 'session-0', 'tasks')), 'oldest task dir must be deleted');
       assert.ok(!existsSync(join(sessionsDir, 'session-1', 'tasks')), 'second-oldest task dir must be deleted');
       assert.ok(existsSync(join(sessionsDir, 'session-2', 'tasks')), 'kept transcript must retain task dir');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('prunes oldest transcripts when the five-newest set exceeds the 256 MiB retention budget', () => {
+    const scratch = makeScratch();
+    try {
+      const sessionsDir = join(scratch.dir, '.pi', 'agent', 'sessions', '--home-user-workspace--');
+      mkdirSync(sessionsDir, { recursive: true });
+
+      const now = Date.now() / 1000;
+      for (let i = 0; i < 3; i++) {
+        const base = `large-${i}`;
+        const transcript = join(sessionsDir, `${base}.jsonl`);
+        writeFileSync(transcript, '');
+        truncateSync(transcript, 100 * 1024 * 1024);
+        utimesSync(transcript, now - (3 - i) * 60, now - (3 - i) * 60);
+        const taskDir = join(sessionsDir, base, 'tasks');
+        mkdirSync(taskDir, { recursive: true });
+        writeFileSync(join(taskDir, 'task.jsonl'), '{}\n');
+      }
+
+      runCleanupIn(scratch.dir);
+
+      const survivors = readdirSync(sessionsDir).filter((name) => name.endsWith('.jsonl')).sort();
+      assert.deepEqual(survivors, ['large-1.jsonl', 'large-2.jsonl']);
+      assert.equal(existsSync(join(sessionsDir, 'large-0', 'tasks')), false, 'pruned transcript task logs must also be deleted');
+      assert.equal(existsSync(join(sessionsDir, 'large-1', 'tasks')), true, 'retained transcript task logs must survive');
     } finally {
       scratch.cleanup();
     }
