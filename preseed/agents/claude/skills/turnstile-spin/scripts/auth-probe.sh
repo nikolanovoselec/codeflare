@@ -176,7 +176,7 @@ account_enc=$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(
 
 if ! probe_response="$(
   printf 'header = "Authorization: Bearer %s"\n' "$token" |
-    curl --disable --config - --silent --show-error --write-out $'\n%{http_code}' -X POST \
+    curl --disable --config - --silent --show-error --connect-timeout 10 --max-time 30 --write-out $'\n%{http_code}' -X POST \
       "https://api.cloudflare.com/client/v4/accounts/$account_enc/challenges/widgets" \
       -H "Content-Type: application/json" \
       --data '{"name":"","domains":[]}'
@@ -207,7 +207,7 @@ if isinstance(data, dict):
     first_code = first.get("code", 0)
     if http_code in ("401", "403"):
         verdict = "missing_scope"
-    elif http_code == "200" and data.get("success") is False and first_code == 10000:
+    elif first_code == 10000:
         verdict = "missing_scope"
     elif http_code in ("400", "422"):
         verdict = "scope_ok"
@@ -237,7 +237,7 @@ if [ -n "$created_sitekey" ]; then
   sk_enc=$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$created_sitekey")
   cleanup_code=$(
     printf 'header = "Authorization: Bearer %s"\n' "$token" |
-      curl --disable --config - --silent --show-error --output /dev/null --write-out "%{http_code}" -X DELETE \
+      curl --disable --config - --silent --show-error --connect-timeout 10 --max-time 30 --output /dev/null --write-out "%{http_code}" -X DELETE \
         "https://api.cloudflare.com/client/v4/accounts/$account_enc/challenges/widgets/$sk_enc" || echo "000"
   )
   case "$cleanup_code" in

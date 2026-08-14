@@ -63,7 +63,7 @@ ACCOUNT_ENCODED="$(python3 -I -c 'import sys,urllib.parse; print(urllib.parse.qu
 
 if ! API_RESPONSE="$(
   printf 'header = "Authorization: Bearer %s"\n' "$API_TOKEN" |
-    curl --disable --config - --silent --show-error --write-out $'\n%{http_code}' -X POST \
+    curl --disable --config - --silent --show-error --connect-timeout 10 --max-time 30 --write-out $'\n%{http_code}' -X POST \
       "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ENCODED/challenges/widgets" \
       -H "Content-Type: application/json" \
       --data "$BODY_JSON"

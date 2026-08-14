@@ -80,7 +80,7 @@ SITEKEY_ENCODED="$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.q
 
 if ! WIDGET_RESPONSE="$(
   printf 'header = "Authorization: Bearer %s"\n' "$API_TOKEN" |
-    curl --disable --config - --fail --silent --show-error \
+    curl --disable --config - --fail --silent --show-error --connect-timeout 10 --max-time 30 \
       "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ENCODED/challenges/widgets/$SITEKEY_ENCODED"
 )"; then
   echo "validate: widget metadata lookup failed" >&2
@@ -114,7 +114,7 @@ unset WIDGET_RESPONSE
 if ! SITEVERIFY_RESPONSE="$(
   printf '%s' "$WIDGET_SECRET" |
     python3 -I -c 'import sys,urllib.parse; print(urllib.parse.urlencode({"secret":sys.stdin.read(),"response":"XXXX.DUMMY.TOKEN.XXXX"}),end="")' |
-    curl --disable --fail --silent --show-error \
+    curl --disable --fail --silent --show-error --connect-timeout 10 --max-time 30 \
       "https://challenges.cloudflare.com/turnstile/v0/siteverify" \
       -H "Content-Type: application/x-www-form-urlencoded" \
       --data-binary @-
