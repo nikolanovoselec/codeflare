@@ -204,7 +204,9 @@ All five serialize on `/tmp/graphify-global.lock`. Claude, boot init, and active
 4. **Reconcile ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1/AC5)**: read the manifest's repo tags, remove every one that is neither `user_vault` nor the active checkout's tag, and add the active checkout's graph when its recorded `source_hash` differs or the tag is new.
 5. **Sentinel advance ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1)**: both sentinels are rewritten and the path sentinel `touch`-bumped only after the whole reconciliation succeeded, so a failure leaves the prior state in place and the next tool call retries.
 
-Step 4's removals and addition run inside one `flock -w 5 /tmp/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely. In a worktree the branch is read through the `gitdir:` pointer in `.git`, since HEAD does not live under the checkout ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC7).
+Step 4's removals and addition run inside one `flock -w 5 /tmp/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely.
+
+In a worktree the branch is read through the `gitdir:` pointer in `.git`, since HEAD does not live under the checkout ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC7).
 
 The removal set is enumerated from the manifest rather than derived from the previous sentinel value. That is what lets the hook collect entries no transition diff can name: a tag a crashed run left behind, or a phantom tag minted back when a bare `graphify-out/` directory still resolved as a repo root. Drift self-heals on the next tool call. `user_vault` is excluded by name, since the vault is registered exclusively by entrypoint init and by the capture and extract pipelines, never as a repo.
 
@@ -547,7 +549,9 @@ then synthesises the final vault note. One locked fail-closed command merges
 the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
-switch from haiku to sonnet). Every attempt appends its capture exit status,
+switch from haiku to sonnet).
+
+Every attempt appends its capture exit status,
 the publisher's verdict, and — on failure — the stderr tail and the result
 envelope's failure subtype (a byte count when unparseable, never the response
 text) to

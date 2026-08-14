@@ -39,8 +39,10 @@ See [Architecture](architecture.md) for the system map, component and state owne
 | `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks the `Content-Type` header before JSON parsing; non-`application/json` bodies get a lenient `JSON.parse` fallback, and only a failed parse throws a structured `AppError` carrying the first 200 chars of the body. |
 | `src/lib/request-helpers.ts` | Shared request handling: `parseJsonBody(c)` (JSON parse with ValidationError on malformed input), `firstZodError(error)` (first Zod issue message with fallback), `validateSessionId(id)` (throws on invalid format), `maskSecret(value)` (shows last 4 chars). |
 | `src/lib/kv-keys.ts` | KV key utilities: session/user key helpers, `SETUP_KEYS` const for the complete typed `setup:*` configuration-key catalogue, `getBaseUrl(kv, requestUrl)`, `listAllKvKeys()`. |
-| `src/lib/currency.ts` | `getCurrencyForCountry(country)` - maps a 2-letter ISO country code to a supported currency (chf/usd/eur/gbp). CH/LI -> CHF; GB plus British territories GI/GG/JE/IM -> GBP; European countries (Eurozone, other EU, non-EU European) -> EUR; all others -> USD. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing). |
+| `src/lib/currency.ts` | Maps a two-letter ISO country code to a supported regional currency. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing). |
 | `src/types.ts` | `BillingStatus` union type with `BILLING_STATUS` const and `isBillingStatus()` guard. `ContainerConfigPayload` groups 16 container initialization params into logical sub-objects (R2 creds, LlmKeys, DeployKeys, preferences). |
+
+`getCurrencyForCountry(country)` maps CH and LI to CHF; GB plus GI, GG, JE, and IM to GBP; Eurozone, other EU, and non-EU European countries to EUR; and all other country codes to USD.
 
 ### Setup Wizard Resilience
 
