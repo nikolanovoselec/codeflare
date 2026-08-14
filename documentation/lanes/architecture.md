@@ -496,7 +496,7 @@ Persisted storage has only `running` and `stopped`; `running` may precede termin
 | Unexpected exit | Error hook plus confirmed metrics observation | Write `stopped` after confirmation | [Troubleshooting](troubleshooting.md) |
 | Restart with changed configuration | Lifecycle route | Teardown, repopulate, start, then re-assert running | [Container](container.md) |
 
-**Requirements:** [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable)
+**Requirements:** [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering), [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction), [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-ownership-is-durable)
 
 ### Metrics Data Flow
 

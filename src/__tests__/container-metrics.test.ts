@@ -585,7 +585,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
     });
 
-    it('REQ-SESSION-024 AC3: invalid monitor recovery state cannot authorize reconstruction', async () => {
+    it('REQ-SESSION-024 AC2: invalid monitor recovery state cannot authorize reconstruction', async () => {
       await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
       testState.containerRunning = false;
 
@@ -784,7 +784,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-024 AC4: attempts to re-arm when the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-024 AC3: attempts to re-arm when the early recovery ownership read fails', async () => {
       const timekeeperStub = await enableTimekeeper();
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleCalls = [];
@@ -801,7 +801,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-024 AC6: propagates scheduling failure after the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-025 AC2-AC3: logs and propagates scheduling failure after the early recovery ownership read fails', async () => {
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
@@ -937,7 +937,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-022 AC7 + REQ-SESSION-024 AC5: retains exhausted recovery and retries when terminal container stop fails', async () => {
+    it('REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -998,7 +998,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-024 AC6: keeps terminal stop ownership observable when retry scheduling fails', async () => {
+    it('REQ-SESSION-025 AC4-AC5: logs and propagates terminal retry scheduling failure', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -1033,7 +1033,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-024 AC7: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
+    it('REQ-SESSION-024 AC5: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -1068,7 +1068,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-024 AC7: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
+    it('REQ-SESSION-024 AC5: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
       await mockKV.delete('session:test-bucket:testsession123456');
       const now = Date.now();
       await storage().put(TRANSPORT_RECOVERY_KEY, {
@@ -1195,7 +1195,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    it('REQ-SESSION-024 AC3: malformed recovery state cannot authorize reconstruction', async () => {
+    it('REQ-SESSION-024 AC2: malformed recovery state cannot authorize reconstruction', async () => {
       const now = Date.now();
       await storage().put(TRANSPORT_RECOVERY_KEY, {
         attemptId: 'invalid-exhausted-state',
