@@ -203,6 +203,16 @@ function architectureLinks(path) {
   return links;
 }
 
+function localMarkdownLinks(path) {
+  const links = [];
+  for (const line of outsideFences(readFileSync(path, 'utf8'))) {
+    for (const match of line.matchAll(/\[[^\]]*\]\(([^)]+\.md)(?:#([^)]+))?\)/g)) {
+      if (!match[1].includes('://')) links.push({ target: resolve(dirname(path), match[1]), fragment: match[2] });
+    }
+  }
+  return links;
+}
+
 function mermaidBlocks(markdown) {
   return [...markdown.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((match) => match[1]);
 }
@@ -252,6 +262,15 @@ describe('Architecture documentation contract', () => {
         assert.equal(link.target, ARCHITECTURE, `unexpected Architecture target from ${path}`);
         if (link.fragment) assert.equal(counts.get(link.fragment), 1, `unresolved ${link.fragment} from ${path}`);
       }
+    }
+  });
+
+  it('keeps every local Architecture owner and evidence link resolvable', () => {
+    for (const link of localMarkdownLinks(ARCHITECTURE)) {
+      assert.ok(existsSync(link.target), `missing Architecture link target: ${link.target}`);
+      if (!link.fragment) continue;
+      const counts = fragmentCounts(parseDocument(readFileSync(link.target, 'utf8')));
+      assert.equal(counts.get(link.fragment), 1, `unresolved or duplicate ${link.fragment} in ${link.target}`);
     }
   });
 
