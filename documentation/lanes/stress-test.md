@@ -6,6 +6,8 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 
 **Audience:** Operators
 
+**Owns:** suite scenarios, prerequisites, thresholds, execution safety, and dated results. **Does not own:** canonical endpoint limits, deployment variables, workflow internals, or capacity guarantees.
+
 ## Contents
 
 - [Prerequisites](#prerequisites)

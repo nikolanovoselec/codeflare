@@ -4,6 +4,8 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 
 **Audience:** Operators, Security
 
+**Owns:** threats, trust boundaries, controls, fail-closed behavior, residual risk, encryption, credential containment, and supply-chain acceptance. **Does not own:** runtime composition, endpoint catalogues, workflow procedure, or private secret placement.
+
 For authentication modes and user identity flow, see [Authentication](authentication.md).
 
 > For the vulnerability reporting policy, see [SECURITY.md](../../SECURITY.md).
@@ -12,6 +14,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 
 ## Contents
 
+- [Threat Model](#threat-model)
 - [Authentication Gate](#authentication-gate)
 - [Onboarding Access Request (OAuth-Gated)](#onboarding-access-request-oauth-gated)
 - [API Token Containment](#api-token-containment)
@@ -32,6 +35,19 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Specification Coverage](#specification-coverage)
 - [Governed Mode — R2 SSE-C governance trade-off](#governed-mode--r2-sse-c-governance-trade-off)
 - [Related Documentation](#related-documentation)
+
+## Threat Model
+
+| Asset or boundary | Adversary / failure | Required control and failure posture | Residual risk / owner |
+|---|---|---|---|
+| User identity and session cookie | Forged, expired, or cross-user request | Verify the configured identity source, bind durable records to verified identity, and reject uncertainty | Provider and KV availability; [Authentication](authentication.md) owns the flow |
+| Worker-to-container authority | Direct host reachability, guessed session ID, or cross-session forwarding | Keep host routes private, validate ownership at the Worker and Durable Object, and fail closed before forwarding | Shared runtime defects; [Container](container.md) owns supervision |
+| Provider and deployment credentials | Prompt injection or compromised container reads and exfiltrates a token | Withhold master credentials, scope what must enter, and inject supported credentials only at a validated egress boundary | A legitimately scoped operation can still be destructive; provider policy remains external |
+| Durable user data | Cross-bucket access, stale encryption regime, partial shutdown, or object overwrite | Derive user ownership server-side, encrypt governed objects, reconcile mixed regimes, and drain persistence before teardown | Eventual consistency and operator key rotation; [Storage & Sync](storage-and-sync.md) owns reconciliation |
+| Public and authenticated APIs | Flooding, oversized input, CSRF, or privileged bypass | Validate input, cap bodies, apply route-appropriate limits and authorization, and fail closed on missing security state | `X-Service-Auth` restrictions accepted by AD68 remain unimplemented |
+| Build and release inputs | Malicious dependency, mutable artifact, or vulnerable image | Pin governed artifacts, scan source and image, require reviewed exact-head checks, and retain provenance | Scanner and advisory coverage are incomplete; [CI/CD](ci-cd.md) owns gates |
+
+The controls below document current source behavior. Accepted but unimplemented hardening remains identified as residual risk rather than being described as deployed.
 
 ## Authentication Gate
 

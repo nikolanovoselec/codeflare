@@ -4,6 +4,8 @@ Stripe payment integration, subscription tiers, usage tracking, and paygate enfo
 
 **Audience:** Operators, Developers
 
+**Owns:** tiers, effective entitlement, checkout, Stripe signal-and-sync, Timekeeper accounting, quota consequences, and admin tier behavior. **Does not own:** identity proof, JIT record creation, container teardown, or webhook threat controls.
+
 See [Authentication](authentication.md) for auth flows. See [User Provisioning](user-provisioning.md) for JIT provisioning and subscription UX.
 
 ---

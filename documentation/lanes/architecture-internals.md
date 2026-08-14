@@ -4,6 +4,8 @@ Source composition, runtime and client implementation, cache inventory, backend 
 
 **Audience:** Developers
 
+**Owns:** source composition, implementation-only control flow, process/client internals, caches, and the historical CF-NNN index. **Does not own:** public contracts, operator procedures, or authoritative state decisions.
+
 See [Architecture](architecture.md) for the system map, component and state ownership, cross-component flows, recovery boundaries, and operator signals.
 
 ## Contents

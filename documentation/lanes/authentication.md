@@ -1,8 +1,11 @@
-# Authentication & Billing
+<a id="authentication--billing"></a>
+# Authentication
 
-Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, and three-tier auth middleware for Codeflare.
+Identity resolution, sessions, authentication modes, logout, expiry recovery, and authorization middleware for Codeflare.
 
 **Audience:** Operators, Developers
+
+**Owns:** credential precedence, verified identity, cookies, logout, expiry recovery, middleware, and admin authorization. **Does not own:** provisioning state, billing entitlement, provider-secret placement, or token containment.
 
 For security hardening, rate limiting, and encryption at rest, see [Security](security.md).
 

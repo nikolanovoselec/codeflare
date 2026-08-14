@@ -4,6 +4,8 @@ Technical reference for the mobile terminal implementation covering keyboard han
 
 **Audience:** Developers
 
+**Owns:** mobile keyboard, touch, viewport, fit, scroll-ownership adaptations, platform limits, and deployed-device verification. **Does not own:** generic terminal protocol, WebSocket contracts, or landing-canvas implementation.
+
 ---
 
 ## Contents

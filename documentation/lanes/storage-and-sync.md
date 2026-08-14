@@ -4,6 +4,8 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 **Audience:** Operators, Developers
 
+**Owns:** R2/local authority, sync scope, cadence, conflict handling, recovery order, final persistence drain, and encryption-regime reconciliation. **Does not own:** endpoint envelopes, quota pricing, deployment procedure, or UI implementation.
+
 ---
 
 ## Contents

@@ -4,6 +4,8 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 
 **Audience:** Developers
 
+**Owns:** Vault path ownership, capture and user-edit extraction, cumulative graph publication, SilverBullet user/runtime behavior, and initialization tiers. **Does not own:** HTTP envelopes, authentication controls, bisync algorithms, or agent-manifest delivery.
+
 ---
 
 ## Contents

@@ -4,6 +4,8 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 **Audience:** Operators, Developers
 
+**Owns:** image contents, startup and readiness, host/runtime supervision, idle policy, teardown orchestration, and transport recovery. **Does not own:** durable-file reconciliation detail, endpoint schemas, entitlement policy, or credential-containment rationale.
+
 ---
 
 ## Contents

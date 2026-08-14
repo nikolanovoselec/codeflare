@@ -4,6 +4,8 @@ GitHub Actions workflows, test suites, and deployment pipeline.
 
 **Audience:** Developers
 
+**Owns:** workflow triggers, permissions, job topology, gates, artifacts, and historical run evidence. **Does not own:** operator deployment steps, private environment values, or Pi review-session mechanics.
+
 ## Contents
 
 - [CI/CD (GitHub Actions)](#cicd-github-actions)

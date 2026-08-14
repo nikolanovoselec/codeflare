@@ -4,8 +4,11 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 **Audience:** Operators
 
+**Owns:** symptom, diagnosis, likely cause, corrective action, verification, and escalation. **Does not own:** canonical endpoint contracts, configuration definitions, implementation composition, or private runbooks.
+
 ## Contents
 
+- [Start Here](#start-here)
 - [Common Issues](#common-issues)
 - [Common Failure Modes](#common-failure-modes)
 - [GitHub Integration](#github-integration)
@@ -15,6 +18,14 @@ Diagnostic commands, common failure modes, and resolution steps.
 - [Specification Coverage](#specification-coverage)
 
 ---
+
+## Start Here
+
+1. **Classify the boundary.** If login, setup, or every route fails, start with public `/api/health`, provider discovery, Worker logs, and [Authentication](authentication.md). If only one session fails, continue with its Worker session record and container status.
+2. **Classify lifecycle versus transport.** `creating`, `running`, `stopping`, and `stopped` are durable lifecycle signals; terminal or IDE failure while `running` is a transport/readiness problem. Do not rewrite lifecycle state from a single failed probe.
+3. **Correlate the shared runtime.** Terminal, Browser IDE, `/activity`, and private host `/health` share the container listener. A multi-surface failure points below the client; a single-surface failure points to that proxy or client path.
+4. **Separate persistence from presentation.** Vault or workspace content errors require the R2/bisync evidence in [Storage & Sync](storage-and-sync.md); editor readiness alone does not prove persistence completed.
+5. **Verify the correction.** Capture request/session identifiers, the failing step, relevant Worker and container logs, and the observable expected result. Escalate only after the corrective action below fails with that evidence.
 
 ## Common Issues
 

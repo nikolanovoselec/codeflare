@@ -4,6 +4,8 @@ Environment variables, secrets, CORS configuration, and API token permissions, o
 
 **Audience:** Operators
 
+**Owns:** public settings, defaults, configuration source, consumers, and security consequences. **Does not own:** request flows, credential-containment mechanics, migration state machines, or private non-default deployment values.
+
 Codeflare runs in four deployment modes. **Default mode** is self-contained — a single-developer fork needs only the configuration in that section. **Onboarding**, **SaaS**, and **Enterprise** are additive layers that document only the extra configuration each requires on top of Default. The **Reference** section (user token scopes, tooling, spec coverage) applies to every mode.
 
 ---

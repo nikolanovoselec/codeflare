@@ -4,6 +4,8 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 
 **Audience:** Developers
 
+**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, or security rationale.
+
 ## Contents
 
 - [Conventions](#conventions)
@@ -35,6 +37,17 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 ---
 
 ## Conventions
+
+### Route Ownership
+
+| Surface | Owner and exposure |
+|---|---|
+| Worker `/api/*` and `/public/*` | Public edge API. Each table below states whether the route is unauthenticated, cookie-authenticated, or service-authenticated. |
+| Worker `/api/container/*` | Authenticated edge proxy into the caller's session container; these are not direct host URLs. |
+| Host `/health`, `/metrics`, `/activity`, `/terminal`, `/vscode/*` | Private container-server routes reached through the Durable Object or Worker proxy. Runtime mechanics belong to [Container](container.md). |
+| Browser IDE `/api/browser-ide/*` | Authenticated Worker routes plus private container forwarding; IDE process and proxy mechanics belong to [Architecture Internals](architecture-internals.md#browser-ide-internals). |
+
+Route paths in this reference are externally callable only where their row says so; a private host path is not an alternate public endpoint.
 
 ### Common Response Headers
 

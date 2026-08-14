@@ -12,7 +12,7 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 2. **Spec-backed** - Documentation implements specification requirements. REQ backlinks at the bottom of each file connect operational docs to their acceptance criteria in `sdd/`.
 
-3. **Single source of truth** - Each fact lives in exactly one file. Other files cross-reference via markdown links rather than duplicating content. When a detail changes, it changes in one place.
+3. **Single source of truth** - Each fact lives in exactly one file. Every lane states what it owns and excludes; other files cross-reference the owner rather than duplicating content. When a detail changes, it changes in one place.
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 
@@ -41,7 +41,7 @@ When their public workflows or consumers change, update the private README in th
 | [Architecture](lanes/architecture.md) | System map, component and state ownership, cross-component flows, failure boundaries | Operators, Developers |
 | [Architecture Internals](lanes/architecture-internals.md) | Source composition, runtime/client internals, caches, backend libraries, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
-| [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
+| [Authentication](lanes/authentication.md) | Identity resolution, CF Access and OIDC sessions, authorization middleware | Operators, Developers, Security |
 | [Billing & Subscription](lanes/billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
 | [User Provisioning](lanes/user-provisioning.md) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
 | [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
@@ -49,14 +49,14 @@ When their public workflows or consumers change, update the private README in th
 | [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
 | [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
 | [CI/CD & Testing](lanes/ci-cd.md) | Public workflow behavior and test-suite structure | Developers |
-| [Development & Deployment](lanes/deployment.md) | Default deployment, rollback, dev setup, file structure, and cost analysis | Developers |
+| [Development & Deployment](lanes/deployment.md) | Deployment execution, verification, rollback, development references, dated cost evidence | Developers, Operators |
 | [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](lanes/mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
 | [Vault](lanes/vault.md) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
 | [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
 | [Architecture Decisions](decisions/README.md) | Architecture Decision Records with rationale and trade-offs | Developers |
-| [Penetration Testing](lanes/pentest.md) | Security scan results | Security |
-| [Stress Testing](lanes/stress-test.md) | Load testing guide, latest benchmark results | Operators |
+| [Penetration Testing](lanes/pentest.md) | Current scheduled probe contract and dated black-box evidence | Security |
+| [Stress Testing](lanes/stress-test.md) | Load-suite safety, execution, thresholds, and dated results | Operators |
 
 ## Architecture Decisions
 

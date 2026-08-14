@@ -1,11 +1,14 @@
 # Development & Deployment
 
-Development setup, project file structure, and cost analysis.
+Default deployment execution, verification, rollback, development references, and dated cost evidence.
 
 **Audience:** Developers, Operators
 
+**Owns:** when to deploy, operator action, verification, rollback, and public target boundaries. **Does not own:** workflow internals, source composition, or private environment procedures.
+
 ## Contents
 
+- [Standard Deployment](#standard-deployment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Production Rollback](#production-rollback)
@@ -15,6 +18,18 @@ Development setup, project file structure, and cost analysis.
 - [Specification Coverage](#specification-coverage)
 - [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
 - [Related Documentation](#related-documentation)
+
+---
+
+## Standard Deployment
+
+**When:** Deploy the reviewed `main` tree after every required exact-head check is green. A protected-branch push reaches `.github/workflows/deploy.yml` through the successful `PR Checks` workflow; manual dispatch is permitted only from the repository default branch.
+
+**Action:** Confirm the intended commit is `origin/main`, then use the GitHub `Deploy` workflow rather than running Wrangler locally. The workflow verifies the tree, builds and scans the container image, publishes its digest, deploys the Worker and binding, and performs its post-deploy contract checks. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deployment-pipeline).
+
+**Verify:** Retain the successful run URL and deployed commit, confirm public provider discovery returns an array, then exercise the changed user path. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
+
+**Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
 
 ---
 

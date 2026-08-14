@@ -4,6 +4,8 @@ JIT user provisioning, subscription UX flows, session mode authorization, and fr
 
 **Audience:** Operators, Developers
 
+**Owns:** when verified identity becomes a durable user record, initial provisioning state, approval transitions, and offboarding handoffs. **Does not own:** authentication proof, entitlement calculations, bucket internals, or frontend component composition.
+
 See [Authentication](authentication.md) for auth flows. See [Billing](billing.md) for subscription tiers and Stripe integration.
 
 ---

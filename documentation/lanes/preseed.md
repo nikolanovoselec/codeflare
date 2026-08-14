@@ -8,6 +8,8 @@ it gets there" content. Memory-system specifics live in
 [vault.md](vault.md#memory-capture-system); container runtime details live in
 [container.md](container.md).
 
+**Owns:** manifest inputs, session-mode delivery, seed generation/reconciliation, runtime adaptation, seeded reviewer/CI agent policy, settings/plugin assembly, and image-baked delivery. **Does not own:** GitHub workflow topology, Vault extraction state, public endpoint contracts, or container supervision.
+
 ## Contents
 
 - [Session Modes](#session-modes)
