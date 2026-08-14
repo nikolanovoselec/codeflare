@@ -196,7 +196,7 @@ Service automation (the k6 stress workflow, CLI probes) authenticates via `X-Ser
 - **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret
 - **Direct GitHub OAuth mode:** `OAUTH_E2E_TEST_SECRET` environment secret
 
-Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled.
+Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled. Current source checks this header before user authentication and returns an admin identity whenever the configured secret matches; it does not yet enforce the stress-mode, SaaS-mode, or hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted). That hardening remains unimplemented and tracked by issue #130. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 ### Auth Flow
 
@@ -321,7 +321,7 @@ The SaaS and onboarding activation flags, identity-provider settings, email cred
 
 3. **Policy overwrite on reconfigure:** If `syncAccessPolicy()` were called in SaaS mode, it would overwrite `login_method` with group includes. Fixed by not calling sync in SaaS mode.
 
-4. **Concurrent first-login writes:** KV eventual consistency means two simultaneous first-logins may write the same user record twice. This is benign (idempotent) - KV per-key serialization prevents split-brain.
+4. **Concurrent first-login writes:** KV eventual consistency means two simultaneous first-logins may write the same user record twice. The writes converge because they carry the same initial record; Workers KV does not provide per-key serialization.
 
 5. **CSRF on state-changing requests:** Added `X-Requested-With` header check on POST/PUT/DELETE in `authenticateRequest()`.
 

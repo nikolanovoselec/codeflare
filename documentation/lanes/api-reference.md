@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API endpoint reference for the Codeflare Worker.
+Public Worker, authenticated proxy, and integration endpoint contracts for Codeflare. Private host-only routes are identified but owned by the runtime lanes.
 
 **Audience:** Developers
 
@@ -67,6 +67,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/sessions/:id/stop` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) | Get session and container status |
 | GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode); optional query param `includePreseedCheck=true` adds `preseedNeedsUpgrade: boolean` (omitted otherwise; hash mismatch OR, under enterprise, stored sessionMode not yet advanced) for auto-upgrade detection on initial dashboard load |
+| POST | `/api/sessions/sync` | Session cookie | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-sync-now-triggers-bisync-on-running-sessions) | Trigger bisync across the user's running sessions and return the fan-out result |
 
 A successful stop ends Container vCPU, provisioned-memory, and local-disk metering once the Container sleeps. Local disk is ephemeral rather than hibernated state; a later start restores durable files from R2. This endpoint contract makes no zero-total-platform-cost claim: Workers, Durable Objects, R2, requests, logs, storage, and network usage may still be billable.
 
@@ -205,7 +206,7 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 
 ## GitHub Integration
 
-The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode (`githubFeatureEnabled` is always true); the **advanced-session entitlement** for the panel is enforced in the dashboard frontend, matching the Vault ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only (any authenticated user), so they work from Guided Setup + the Settings accordion even when the panel is hidden. The token is never returned to the browser — `/repos` proxies GitHub server-side.
+The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github`. The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode, and the dashboard renders the panel whenever GitHub integration is enabled; there is no advanced-session gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only, so they work from Guided Setup and Settings. The token is never returned to the browser; `/repos` proxies GitHub server-side.
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
@@ -691,33 +692,13 @@ Responses:
 
 ## Health
 
-| Method | Path | Auth | Implements | Description |
-|--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt - no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
-| GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Worker-proxied alias for `/health` |
+| Method | Path | Auth | Owner | Contract |
+|---|---|---|---|---|
+| GET | `/api/health` | Public | Worker | `{ "status": "ok", "timestamp": "..." }` <!-- @impl: src/index.ts::app --> |
+| GET | `/api/container/health` | Session cookie | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
+| GET | private host `/health` | Container bearer exemption during bootstrap | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
 
-Both endpoints return the same JSON body:
-
-```json
-{
-  "status": "healthy",
-  "sessions": 0,
-  "uptime": 42,
-  "syncStatus": "idle",
-  "syncError": null,
-  "userPath": "/root",
-  "prewarmReady": false,
-  "initFlagObserved": false,
-  "cpu": 12.5,
-  "mem": 45.2,
-  "hdd": 30.1,
-  "timestamp": "2026-05-15T10:00:00.000Z"
-}
-```
-
-**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
-
-**`prewarmReady`** - `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
+There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation. The private host body includes `initFlagObserved` and `prewarmReady`; see [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 
 ---
 

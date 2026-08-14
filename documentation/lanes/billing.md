@@ -71,7 +71,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 2. Backend detects visitor currency from `CF-IPCountry` header, creates Stripe Checkout Session
 3. Frontend redirects to Stripe-hosted checkout
 4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
-5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook activation
+5. Frontend polls `GET /api/auth/status` every 3s with no total deadline; after 5 minutes it exposes a report-problem control and continues polling <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 6. Stripe sends `checkout.session.completed` -> handler maps email->customer, calls `syncSubscriptionState()`
 
 **Webhook events handled:**
@@ -82,8 +82,8 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 **`syncSubscriptionState(customerId, subscriptionId, env)`:**
 1. Resolves email from customer ID (KV lookup with Stripe API fallback)
 2. Calls `fetchSubscription()` - fetches latest subscription state from Stripe
-3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook overwriting newer state)
-4. Writes via `updateUserRecord()` (preserves existing KV fields).
+3. Obtains a monotonic synchronization-start token from the per-user Timekeeper; only the newest-started in-flight synchronization may apply
+4. Writes via `updateUserRecord()` (preserves existing KV fields). `lastSyncedAt` remains recorded but is not the ordering authority. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
      `subscribedMode` is resolved from `price.metadata.mode` when present; otherwise the price ID is matched against the tier config's `stripePriceId` / `stripeAdvancedPriceId` slots (`resolveTierFromPriceId`), so a Standard<->Pro plan change always flips the mode even when prices are wired via tier slots rather than per-price metadata.
 5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination, recreating the new mode's skills and removing the previous mode's.
@@ -169,7 +169,7 @@ Frontend detects `code === 'QUOTA_EXCEEDED'` and shows upgrade CTA.
 
 Standalone admin page at `/admin/subscriptions`. Features:
 - Displays 6 editable tiers (free, trial, standard, advanced, max, unlimited; blocked/pending are read-only)
-- Edit form: monthly compute hours, max sessions, allowed session modes, monthly price, trial period, description
+- Edit form: monthly compute hours, max sessions, storage, Standard/Pro Stripe price IDs, advanced-mode availability, trial quota hours, and description. Provider-returned display prices are read-only. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
 - Submit -> `PUT /api/admin/tiers` -> validates 8-tier array -> writes `tiers:config` to KV
 - Admin changes take effect within 60 seconds (module-level cache refresh)
 
@@ -183,7 +183,7 @@ Notifications via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret)
 
 **Admin notifications** (`sendSubscriptionAdminNotification`): Same format, sent to all admin-role users. Reply-to set to subscriber's email.
 
-**Welcome email:** JIT-provisioned users receive a welcome email on first login. A `welcome-sent:{email}` KV flag with 24h TTL prevents duplicate sends.
+**Welcome email:** JIT-provisioned users receive a welcome email after a strongly serialized Timekeeper claim. Deterministic provider idempotency prevents duplicate delivery; no `welcome-sent:*` KV flag is written. This identity-provisioning behavior is owned by [User Provisioning](user-provisioning.md).
 
 ---
 

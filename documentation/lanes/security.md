@@ -44,7 +44,7 @@ The setup wizard skips CF Access provisioning entirely in Session-OIDC mode, mir
 
 The production `codeflare_session` cookie is always emitted with `HttpOnly`, `Secure`, and `SameSite=Lax` by `src/routes/github-auth.ts` and refreshed with the same attributes in `src/index.ts`. Browser JavaScript cannot read it; authentication is carried automatically by the browser. <!-- @impl: src/routes/github-auth.ts::Set-Cookie = HttpOnly; Secure; SameSite=Lax -->
 
-In SaaS mode specifically (not all session-OIDC deployments — the guard is `isSaasModeActive`, not `isSessionOidcMode`), the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-service-automation), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
+Service automation uses Codeflare's custom `X-Service-Auth` header, not Cloudflare Access service-token headers. When `SERVICE_AUTH_SECRET` exists, source checks the custom header first and returns an admin identity in every mode; the stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) remain unimplemented (issue #130). User-facing surfaces still require their normal identity path. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 ### Admin elevation via Access group (enterprise)
 
@@ -579,7 +579,7 @@ Per-user cap on concurrent running sessions, configurable by role. The two varia
 
 **Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
 
-**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 402 `QuotaExceededError` with the actual limit message if at or over the limit. This is a secondary guard -- the frontend prevents most limit violations before they reach the backend.
+**Backend best-effort check:** `POST /api/container/start` counts KV sessions whose list metadata or legacy records are `running` or `initializing`, excluding the current session to allow restarts. It returns 402 `QuotaExceededError` when the observed count reaches the limit. The count and later `running` write are not atomic, so simultaneous starts may exceed the nominal limit; this is resource protection, not a security boundary.
 
 **`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
 
@@ -597,6 +597,7 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 **Implements:** [REQ-OPS-034](../../sdd/spec/operations.md#req-ops-034-github-release-signing-eligibility), [REQ-OPS-035](../../sdd/spec/operations.md#req-ops-035-keyless-signed-release-artifacts).
 
+<a id="container-image-scanning-req-sec-011"></a>
 ### Container Image Scanning
 
 **Threat:** A deploy could promote a container with a fixable HIGH/CRITICAL vulnerability or an exception that has drifted beyond its reviewed artifact.
@@ -684,7 +685,7 @@ Standard integration run `30896944558` recorded the scanner path and PURL for ev
 
 ## Governed Mode — R2 SSE-C governance trade-off
 
-By default every R2 object is encrypted with SSE-C using the deployment's `ENCRYPTION_KEY`, so the bucket is opaque even to holders of the R2 S3 credentials. Governed Mode (enterprise-only, default-OFF; REQ-ENTERPRISE-018, [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) deliberately **disables** R2 SSE-C so the company can read and scan the agent configuration (skills, hooks, extensions) stored in each user's bucket with its own security tooling.
+When operator encryption is configured, R2 objects use SSE-C with the deployment's `ENCRYPTION_KEY`, making the bucket opaque even to holders of the R2 S3 credentials. Without the optional key, the accepted plaintext fallback emits a critical warning. Governed Mode (enterprise-only, default-OFF; REQ-ENTERPRISE-018, current migration authority [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)) deliberately **disables** R2 SSE-C so the company can read and scan agent configuration with its own security tooling; [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) remains superseded history.
 
 **Trade-off (intentional).** With Governed Mode ON, bucket objects fall back to R2's default Cloudflare-managed at-rest encryption — readable by anyone holding the R2 credentials (including the company's scanners) and exposing the plaintext MD5 ETag. This is the point: corporate-owned data must be company-inspectable. It is a deployment-wide admin decision, gated behind an explicit confirmation in the Setup wizard.
 

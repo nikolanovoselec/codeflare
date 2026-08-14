@@ -187,9 +187,7 @@ never seeded are never touched. Implements
 ECC (Everything Claude Code)-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
 
-**Agents**: `architect`, `build-error-resolver`, `code-reviewer`,
-`deep-reviewer`, `doc-updater`, `refactor-cleaner`, `security-reviewer`,
-`spec-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md`
+**Agents**: the manifests are authoritative. Representative advanced agents include `architect`, `code-reviewer`, `spec-reviewer`, `doc-updater`, `deep-reviewer`, `memory-capture`, and `vault-extract`. They are preseeded to `~/.claude/agents/*.md`
 (and adapted equivalents for other agents) via the manifest pipeline
 with `"modes": ["advanced"]`. `deep-reviewer` is invoked exclusively
 by `/review --deep`; it reads SDD REQ + impl + tests and judges
@@ -198,8 +196,7 @@ frontmatter with `name`, `description`, `tools` (emitted as a record
 `{read: true, write: true}` for OpenCode, instead of array format),
 and `model` (CC only).
 
-**Commands**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`.
-Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
+**Commands**: the manifest-defined command set includes `brainstorm`, `debug`, `deploy`, `review`, `sdd`, and the Cloudflare build helpers. Commands are preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
 support slash commands). Planning transitions are handled via Plan
 Mode (a built-in Claude Code primitive), not a slash command. `/review`
 takes mandatory scope flags (`--all` or `--diff`) plus optional
@@ -700,8 +697,7 @@ provider to measure the complete first-turn input, including active schemas and 
 | Grep | grep | search_file_content | search | search | grep |
 | Glob | glob | glob | search | glob | find |
 
-**What each agent gets:** Claude Code and Pi both receive the full capability set.
-Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
+**Runtime parity:** Claude Code and Pi receive the same supported workflow families, with intentional differences in commands, transport, PDF handling, provider tools, and transformed exclusions. Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
 always-on rule kernel, progressively disclosed adapted skills/agents, and native TypeScript
 extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
 and review enforcement. High-frequency proactive skills stay in Pi's startup catalog;
@@ -918,10 +914,7 @@ lanes spawn independently. Its Stop hook waits for every required lane's transcr
 completion; no lane depends on another lane's transcript. Claude in-flight
 suppression remains per lane, so a fresh in-flight lane does not mask missing peers.
 
-Each Claude PR reviewer exposes only `Skill`, Bash, and direct
-`mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
-consultation, and file mutation are unavailable. Reviewers return complete structured
-reports; the root persists triage content and applies fixes.
+Each Claude PR reviewer exposes only Bash. Its canonical review policy is embedded in the agent definition, and it uses bounded Bash/Node packet transport without file mutation or external consultation. Reviewers return complete structured reports; the root persists triage content and applies fixes.
 
 `/review` follows the
 same ownership boundary without adding agent types: its existing `refactor-cleaner`,
@@ -953,7 +946,7 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 The npm package is installed and patched at image-build time in both the global Claude MCP tree and Pi's prewarmed package tree, so first invocation performs no package fetch. Entrypoint registers the Claude MCP server for every user. Custom-tier (`unlimited` subscription) delivery adds the plugin hooks, while Pi remains installed but disabled until `/ctx on`. The package source is pulled from npm rather than vendored.
 
-Claude's three PR reviewer definitions carry the full research toolset: native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback. Indexed retrieval keeps raw scan output out of reviewer context. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
+Claude's three PR reviewer definitions are Bash-only report lanes with embedded policies and no write surface. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
 
 Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
 

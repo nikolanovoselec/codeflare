@@ -24,12 +24,12 @@ See [Authentication](authentication.md) for auth flows. See [Billing](billing.md
 
 When a GitHub-authenticated user makes their first request to a protected endpoint:
 
-1. `authenticateRequest()` in `src/lib/access.ts` extracts the user's email from the JWT
-2. `resolveUserFromKV()` looks up `user:{email}` - not found (first login)
-3. If `SAAS_MODE=active`, `resolveOrProvisionUser()` creates a new KV record with `subscriptionTier: 'pending'`
-4. The user is returned with pending tier; `requireActiveUser` rejects with 403, frontend redirects to `/app/subscribe`
+1. `authenticateRequest()` validates the cryptographic identity and records that a new JIT identity is verified. <!-- @impl: src/lib/access.ts::authenticateRequest -->
+2. The resolver checks `user:{email}` and rejects unverified first-login identities before provisioning.
+3. Bucket ownership is resolved through the strongly consistent claim boundary; a sanitized name alone is not authority.
+4. In SaaS mode, `resolveOrProvisionUser()` writes the pending user record and `requireActiveUser` routes the user to subscription. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
 
-**Concurrency note:** Simultaneous first-logins produce identical records (KV per-key serialization prevents split-brain).
+**Concurrency note:** simultaneous first logins may write the same initial record because Workers KV is eventually consistent. Identical writes converge benignly; KV does not provide per-key serialization.
 
 **User data cleanup:** `cleanupUserData()` normalizes email before constructing KV keys and performs full cleanup: destroys active sessions, deletes bucket-keyed KV entries, deletes R2 scoped token, empties and deletes R2 bucket.
 
@@ -39,10 +39,10 @@ When a GitHub-authenticated user makes their first request to a protected endpoi
 
 When `ENTERPRISE_MODE=active`, users are owned by the customer's Cloudflare Access, not by Codeflare. A dedicated branch in `authenticateRequest()` (`src/lib/access.ts`) runs **before** the SaaS path and provisions any Access-authenticated user just-in-time:
 
-1. `resolveOrProvisionEnterpriseUser()` looks up `user:{email}`. An existing record (admin, or a prior JIT user) is returned **unchanged** — enterprise provisioning never downgrades.
+1. `resolveOrProvisionEnterpriseUser()` looks up `user:{email}`. An existing durable record is not rewritten or downgraded; the request result separately overlays Enterprise `subscribedMode: advanced`. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
 2. For an unknown email, if the optional access-group gate is configured (see below) it is checked; on pass, a new KV record is written. **No welcome/subscription email is sent** (unlike the SaaS path).
     - Record fields: `addedBy: 'enterprise-jit'`, `role: 'user'`, `accessTier: 'advanced'`, `subscriptionTier: 'unlimited'`.
-3. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
+3. Effective-tier and session-mode resolvers force `unlimited` and Pro independently of the stored JIT fields. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
 
 **Enterprise frontend surface suppression ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression)):** When `ENTERPRISE_MODE=active`, the following surfaces are globally suppressed for all users regardless of role: Subscribe button, billing management page, setup-wizard access for non-admin users, and any onboarding/waitlist flow. The app header renders an enterprise-mode variant. These suppressions apply in the frontend unconditionally — there is no role or tier combination that re-enables them in enterprise mode.
 
@@ -88,11 +88,9 @@ Session mode access requires both tier support AND an active Pro mode subscripti
 - `subscribedMode` (KV record `user:{email}`) - what mode the user paid for. Set by `POST /api/auth/subscribe`. Read by SettingsPanel Pro gate and subscribe page.
 - `sessionMode` (preferences KV `user-prefs:{bucket}`) - what mode the next session uses. Changed by Settings toggle. Does not affect the Pro gate.
 
-Users can freely toggle Standard/Pro in Settings within what they subscribed to. To change subscription mode, users go through the subscribe page.
+The effective tier's `sessionModes`, paid `subscribedMode`, stored preference, billing downgrade, and Enterprise override all participate in authorization. [Billing](billing.md) owns that policy; this lane owns only the initial provisioning handoff.
 
-**Backend authorization (`canUseSessionMode()`):** Admin users always have advanced access. `getAllowedSessionModes()` reads from tier config - by default, `standard` allows `['default', 'advanced']`.
-
-**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the backend auto-sets `sessionMode: 'advanced'` in user preferences if not already set.
+**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user to a tier that supports advanced mode, the backend sets `sessionMode: 'advanced'` in user preferences if needed. <!-- @impl: src/routes/users.ts -->
 
 ---
 

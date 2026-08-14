@@ -48,7 +48,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 ## Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
-2. All file modifications run (`.claude.json`, `.codex/version.json`, tab autostart) - these complete before bisync starts to avoid hash mismatches
+2. Managed configuration and tab autostart finish, then `relay_managed_pi_extensions()` restores image-owned Pi extension bytes and removes retired managed files
 3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
@@ -127,7 +127,7 @@ Memory-capture counter files used to live at `~/.memory/counter/**` and required
 
 ## Manual Sync Triggers (REQ-STOR-015)
 
-Because the periodic cadence is 15 minutes, one user-driven trigger lets users pull fresh state immediately; a second trigger provides a durability guarantee at shutdown:
+The periodic cadence is supplemented by one user-driven freshness trigger and one lifecycle-owned durability trigger:
 
 1. **Sync-now button**
 
@@ -160,7 +160,7 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 `--retries 3 --retries-sleep 10s` (rclone v1.66+) on both functions adds bisync-level retries for transient R2 API failures. Each bisync invocation retries up to 3 times with 10s sleep between attempts, before the daemon-level retry logic even kicks in.
 
-**Consecutive failure recovery:** The daemon tracks consecutive bisync failures. After 3 consecutive failures (each with 3 internal retries = 9 total attempts), falls back to `establish_bisync_baseline` (which uses `--resync`) to re-establish clean bisync state. `--resync` merges both sides (files present on only one side get copied to the other), so this is a last resort. The counter resets to 0 on any success or after the resync fallback. Resync failures are logged with full command output for diagnostic visibility. The baseline establishment timeout is 600s (10 minutes) to accommodate large initial syncs.
+**Consecutive failure recovery:** The daemon tracks consecutive bisync failures. After 3 consecutive failed cycles, after each invocation's bounded internal retries are exhausted, the daemon falls back to `establish_bisync_baseline` (which uses `--resync`) to re-establish clean bisync state. `--resync` merges both sides (files present on only one side get copied to the other), so this is a last resort. The counter resets to 0 on any success or after the resync fallback. Resync failures are logged with full command output for diagnostic visibility. The baseline establishment timeout is 600s (10 minutes) to accommodate large initial syncs.
 
 **After consecutive failure recovery:** Transient file errors (encryption mismatch, size mismatch, hash mismatch) are handled by `--resilient` + `--recover` flags and the resync fallback in the daemon. Vanishing-file errors are handled by the per-session recovery filter (see below). A planned `nuke_corrupted_r2_files` function that would scan all R2 objects and delete unrecoverable ones was considered but not implemented; encryption-mismatch orphans from older sessions remain in R2 until manually deleted.
 
