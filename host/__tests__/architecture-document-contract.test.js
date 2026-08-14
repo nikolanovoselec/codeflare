@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '../..');
 const ARCHITECTURE = join(ROOT, 'documentation/lanes/architecture.md');
+const PROJECT_DOCUMENTATION_TEMPLATES = join(
+  ROOT,
+  'preseed/agents/claude/skills/spec-driven-development/references/templates',
+);
 
 const LEGACY_FRAGMENTS = [
   'architecture',
@@ -260,6 +264,9 @@ describe('Architecture documentation contract', () => {
     const files = trackedMarkdownFiles();
     const counts = fragmentCounts(parsed);
     for (const path of files) {
+      // These templates are copied into other repositories, where architecture.md
+      // is intentionally local to the generated documentation tree.
+      if (path.startsWith(`${PROJECT_DOCUMENTATION_TEMPLATES}/`)) continue;
       for (const link of architectureLinks(path)) {
         assert.equal(link.target, ARCHITECTURE, `unexpected Architecture target from ${path}`);
         if (link.fragment) assert.equal(counts.get(link.fragment), 1, `unresolved ${link.fragment} from ${path}`);
