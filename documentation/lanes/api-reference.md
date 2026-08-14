@@ -712,7 +712,23 @@ Responses:
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
 | GET | private host `/health` | Bearer-exempt on the private SDK container path | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::routeHttpRequest --> |
 
-There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation. The private host body includes `initFlagObserved` and `prewarmReady`; see [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
+There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation.
+
+The private host `/health` body contains:
+
+| Field | Meaning |
+|---|---|
+| `status` | Host health state (`healthy` on a successful response) |
+| `sessions` | Current host terminal-session count |
+| `uptime` | Host process uptime in seconds |
+| `syncStatus` / `syncError` / `userPath` | Current synchronization observation and local user path |
+| `prewarmReady` | Whether agent prewarm reached readiness |
+| `initFlagObserved` | Whether the container init-complete flag was observed |
+| `terminalServiceReady` | Whether the terminal service is ready |
+| `cpu` / `mem` / `hdd` | Host metric observations |
+| `timestamp` | Response-generation time in ISO-8601 form |
+
+`prewarmReady: false` together with `initFlagObserved: false` means the init-complete flag was never observed. See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
 
 ---
 

@@ -69,6 +69,8 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 | `stress/` | k6 suite implementations |
 | `scripts/` | Build, generation, validation, and CI helpers |
 | `sdd/` | Active requirements, acceptance criteria, and decisions |
+| `wrangler.toml` | Cloudflare Workers, Durable Objects, Containers, bindings, and default runtime configuration |
+| `vitest.config.ts` | Backend Vitest configuration |
 
 The similar Zod schemas in `src/lib/schemas.ts` and `web-ui/src/lib/schemas.ts` intentionally live in separate build targets. The frontend Vite bundle cannot import the Workers backend module; both copies validate the same API contract at their own boundary.
 

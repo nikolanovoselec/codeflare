@@ -102,6 +102,7 @@ npm install
 (cd web-ui && npm install)
 npm run dev
 npm run lint
+npm run lint:fix
 npm run typecheck
 npm test
 (cd web-ui && npm run dev)

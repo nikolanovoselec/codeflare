@@ -24,7 +24,7 @@ The landing package is a prerendered Astro application. The Worker serves its ou
 
 Marketing-only modules (`scramble`, `splash`, `proof`, `type-on-view`, `reveal`, `agentfoot`, feature terminals, and orchestration) run only on `index.astro`. `contact-controller.ts` owns form submission behavior. `login.ts` alone interprets the Worker's OAuth status/error response on the login page.
 
-The marketing page server-renders its stable final state. WebGL, motion, and proof sequences are enhancements: reduced motion, unavailable WebGL, backgrounding, or context loss retires the flare canvas to the CSS surface. Login and privacy keep a clean static first paint and do not load the marketing motion system.
+The marketing page server-renders its stable final state. WebGL, motion, and proof sequences are enhancements: reduced motion, unavailable WebGL, context loss, or coarse-pointer backgrounding retires the flare canvas to the CSS surface. Desktop backgrounding pauses the flare and resumes it on return. Login and privacy keep a clean static first paint and do not load the marketing motion system.
 
 ## Design
 
@@ -34,7 +34,7 @@ Current visual details and proof content are source-owned by `src/content/site.t
 
 ## Build & serving
 
-`astro build` writes to `../web-ui/dist/landing/` with base `/landing`, which the Worker's existing static-assets binding serves. Build order is significant: build `web-ui` first because it replaces `dist/`, then build `landing`.
+`astro build` writes to `../web-ui/dist/landing/` with base `/landing`, which the Worker's existing static-assets binding serves. Build order is significant: build `web-ui` first because it replaces `dist/`, then build `landing`. Astro renders the pages, but no client-side JavaScript framework ships to the browser; interactive behavior uses the package's focused TypeScript modules.
 
 The package consumes `POST /public/contact` and `GET /public/contact-config` through `src/config.ts`. Exact request, response, rate-limit, and failure contracts belong to the [API Reference](../documentation/lanes/api-reference.md#public-landing).
 

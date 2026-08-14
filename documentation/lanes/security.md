@@ -251,8 +251,6 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher -->
 <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
 <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamPath -->
-<!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER -->
-<!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER -->
 <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension -->
 <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
