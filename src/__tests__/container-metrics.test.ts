@@ -665,7 +665,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
     });
 
-    it('REQ-SESSION-021 AC1-AC3: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
+    it('REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456',
         name: 'Test',
@@ -801,7 +801,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-025 AC2-AC3: logs and propagates scheduling failure after the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-025 AC2 + REQ-SESSION-026 AC1: logs and propagates scheduling failure after the early recovery ownership read fails', async () => {
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
@@ -814,7 +814,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-022 AC2-AC3: bounds reconstruction and converges an exhausted unreachable session to stopped', async () => {
+    it('REQ-SESSION-022 AC2-AC3 + REQ-SESSION-025 AC1: bounds reconstruction and converges an exhausted unreachable session to stopped', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -998,7 +998,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-025 AC4-AC5: logs and propagates terminal retry scheduling failure', async () => {
+    it('REQ-SESSION-025 AC3 + REQ-SESSION-026 AC2: logs and propagates terminal retry scheduling failure', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
