@@ -784,7 +784,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-020 AC2: attempts to re-arm when the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-024 AC4: attempts to re-arm when the early recovery ownership read fails', async () => {
       const timekeeperStub = await enableTimekeeper();
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleCalls = [];
@@ -801,7 +801,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-020 AC2: propagates scheduling failure after the early recovery ownership read fails', async () => {
+    it('REQ-SESSION-024 AC6: propagates scheduling failure after the early recovery ownership read fails', async () => {
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
@@ -937,7 +937,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-022 AC7: retains exhausted recovery and retries when terminal container stop fails', async () => {
+    it('REQ-SESSION-022 AC7 + REQ-SESSION-024 AC5: retains exhausted recovery and retries when terminal container stop fails', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -998,7 +998,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-022 AC7: keeps terminal stop ownership observable when retry scheduling fails', async () => {
+    it('REQ-SESSION-024 AC6: keeps terminal stop ownership observable when retry scheduling fails', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -1033,7 +1033,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-022 AC7: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
+    it('REQ-SESSION-024 AC7: migrates pre-upgrade exhausted stopped ownership before responsive probes can resurrect it', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -1068,7 +1068,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
     });
 
-    it('REQ-SESSION-022 AC7: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
+    it('REQ-SESSION-024 AC7: migrates pre-upgrade exhausted ownership when the KV record is already absent', async () => {
       await mockKV.delete('session:test-bucket:testsession123456');
       const now = Date.now();
       await storage().put(TRANSPORT_RECOVERY_KEY, {
@@ -1088,7 +1088,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.stopCalls).toBe(1);
     });
 
-    it('REQ-SESSION-022 AC7: re-arms without probing when pre-upgrade terminal KV ownership cannot be read', async () => {
+    it('REQ-SESSION-024 AC1: re-arms without probing when pre-upgrade terminal KV ownership cannot be read', async () => {
       const now = Date.now();
       await storage().put(TRANSPORT_RECOVERY_KEY, {
         attemptId: 'pre-upgrade-exhausted-kv-read-failure',
@@ -1117,7 +1117,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-022 AC7: retains exhausted ownership when pre-upgrade terminal migration cannot persist', async () => {
+    it('REQ-SESSION-024 AC1: retains exhausted ownership when pre-upgrade terminal migration cannot persist', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
