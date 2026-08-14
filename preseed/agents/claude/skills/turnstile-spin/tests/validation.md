@@ -1,69 +1,62 @@
 # Skill validation cases
 
-These cases match the MVP-row assertions in the Turnstile Spin PRD. Run them after editing this skill to confirm an agent loading it can still execute the wizard end-to-end.
+These cases match the assertions in the Turnstile Spin PRD. Run them after editing this skill to confirm an agent loading it can still execute the wizard end-to-end.
 
-## Test 1 — Health check parses cleanly
+## Test 1: Dummy Siteverify returns a structured error
 
-Given a deployed Worker, the agent should be able to parse `/health` without ambiguity.
+Step 10's `validate.sh` sends a deliberately-invalid token directly to `challenges.cloudflare.com/turnstile/v0/siteverify` using the captured secret. The expected response is `success: false` with `error-codes: ["invalid-input-response"]`. Anything else means the secret is wrong or the widget is misconfigured.
 
 ```sh
-curl -sf "${WORKER_URL}/health" | jq -e '.ok == true and (.version | type) == "string"'
+printf '%s' "$WIDGET_SECRET" |
+  python3 -I -c 'import sys,urllib.parse; print(urllib.parse.urlencode({"secret":sys.stdin.read(),"response":"XXXX.DUMMY.TOKEN.XXXX"}),end="")' |
+  curl --disable --fail --silent --show-error \
+    "https://challenges.cloudflare.com/turnstile/v0/siteverify" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data-binary @- |
+  jq -e '.success == false and (.["error-codes"] | index("invalid-input-response"))'
 ```
 
 Expected exit code: 0.
 
-## Test 2 — Dummy siteverify returns a structured error
-
-The wizard's Step 7b sends a deliberately-invalid token. The Worker must return `success: false`, a non-empty `error-codes` array, and a `_worker` block — not a bare 500.
+## Test 2: Metadata matches the sitekey and secret
 
 ```sh
-curl -s -X POST "${WORKER_URL}/" \
-  -H "Content-Type: application/json" \
-  -d '{"token":"XXXX.DUMMY.TOKEN.XXXX"}' | \
-  jq -e '.success == false and (.["error-codes"] | length) > 0 and (._worker | type) == "object"'
+printf '%s' "$WIDGET_SECRET" |
+  scripts/validate.sh \
+    --sitekey "$SITEKEY" \
+    --account-id "$ACCOUNT_ID" \
+    --expected-domains '["example.com","localhost","127.0.0.1"]'
 ```
 
-Expected exit code: 0.
+Expected exit code: 0 for all valid clearance levels: `no_clearance`, `interactive`, `managed`, and `jschallenge`. A secret from another sitekey must fail.
 
-## Test 3 — Hostname configuration
+## Test 3: Runtime checks match the protected surface
 
-```sh
-npx wrangler turnstile widget show "${WIDGET_ID}" | \
-  jq -e '.result.domains | contains(["example.com"])'
-```
+Inspect every generated frontend and backend pair:
 
-Expected exit code: 0.
+- The widget has a meaningful action such as `signup`, `login`, or `contact`.
+- The backend requires the same `result.action` value.
+- The backend requires `result.hostname` to match its deployment-specific frontend hostname allowlist.
+- A production hostname allowlist does not contain `localhost` or `127.0.0.1`.
 
-## Test 4 — Telemetry marker is in every written snippet
+## Test 4: Same-page retries reset the correct widget
 
-After the wizard completes, grep the written files:
+Native forms that navigate do not need reset logic. For each same-page flow, verify that the code retains the widget ID returned by `turnstile.render()` and calls `turnstile.reset(widgetId)` after the request completes. Multiple protected surfaces must not share a widget ID or reset without an ID.
 
-```sh
-rg -l 'data-action="turnstile-spin-v1"' <(echo "$WRITTEN_FILES")
-```
+## Test 5: Skill persists to a bundle location
 
-Expected: every written file matches. If a snippet was written without the marker, the wizard skipped Step 6 (or the agent edited the template). Re-run.
-
-## Test 5 — Skill persists to the right location
-
-After Step 8:
+After Step 11:
 
 ```sh
 test -f .claude/skills/turnstile-spin/SKILL.md \
-  || test -f .cursor/rules/turnstile-spin.md \
   || test -f .codex/skills/turnstile-spin/SKILL.md \
-  || test -f .opencode/skills/turnstile-spin/SKILL.md \
-  || test -f .github/copilot/skills/turnstile-spin.md \
-  || test -f .windsurf/rules/turnstile-spin.md
+  || test -f .opencode/skills/turnstile-spin/SKILL.md
 ```
 
-Expected exit code: 0.
+Expected exit code: 0. File-oriented rules targets install the hosted `prompt.md` directly instead of using `persist-skill.sh`.
 
 ## Running all cases
 
-```sh
-WORKER_URL=https://your-worker.workers.dev WIDGET_ID=0x4AAAAAAA... \
-  bash tests/run-all.sh
-```
+The consuming test harness must pass the widget secret through standard input. It must not export it or place it in a command argument.
 
 (`run-all.sh` is not bundled with this skill; the cases above are intended to be wired into the consuming agent's own test harness, or run by hand after a deploy.)
