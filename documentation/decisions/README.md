@@ -690,6 +690,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ---
 
+<a id="ad32-encryption_key-is-optional"></a>
 ### AD32: ENCRYPTION_KEY is optional
 
 **Category:** Security
@@ -3302,7 +3303,7 @@ The extension compiles its exact `node-pty` dependency for OpenVSCode's Node 22 
 
 **Decision:** Keep fixed tab-1 inventory selection, but give each supported agent its editor-native integration. The Pi inventory contains one Codeflare-owned extension that registers `codeflare.pi` as the default participant in panel and editor Inline Chat. The pinned host resolves a non-optional eligible model before invoking either location, so the extension publishes one account-free selectable compatibility model and enables the extension-qualified `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant` proposals only for that package and host. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/package.json::enabledApiProposals -->
 
-Two inert compatibility providers satisfy separate pinned-host boundaries. A hidden, non-selectable `copilot`-vendor model is panel-default only so the extension host's absent-request-model lookup can construct the participant request. A selectable panel/editor-default model under the distinct `codeflare` vendor stays outside Code OSS's Copilot entitlement and sign-in path and reports tool calling solely for the pinned editor filter. Both request no authorization and reject generation; the participant never reads `request.model` or sends a prompt through either. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
+Two inert compatibility providers satisfy separate pinned-host boundaries. A hidden, non-selectable `copilot`-vendor model is panel-default only so the extension host's absent-request-model lookup can construct the participant request. A selectable panel/editor-default model under the distinct `codeflare` vendor stays outside Code OSS's Copilot entitlement and sign-in path and reports tool calling solely for the pinned editor filter. Both request no authorization and reject generation; the participant never reads `request.model` or sends a prompt through either. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 
 The Pi settings disable the duplicate `~/.claude/agents` discovery path while retaining `~/.copilot/agents` for Code OSS and `~/.pi/agent/agents` for Pi itself. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings -->
 
@@ -3331,6 +3332,7 @@ The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY 
 
 ---
 
+<a id="ad115-review-lanes-run-as-headless-claude--p-subprocesses"></a>
 ### AD115: Claude PR-boundary review lanes run as headless `claude -p` subprocesses
 
 **Category:** Architecture, Cost

@@ -1,6 +1,12 @@
 # Browser IDE agents
 
-Codeflare gives the agent selected in terminal tab 1 an editor-native code-server integration. The directory name is a retained private migration identifier. The IDE agent remains a separate process and conversation from terminal tab 1.
+**Audience:** Browser IDE contributors
+
+**Owns:** agent inventory selection, owned extension composition, package-local process adapters, UI-state projection code, package compatibility, and package verification.
+
+**Does not own:** public routes, container lifecycle, system-wide security rationale, deployment configuration, or durable persistence policy. Those remain in the canonical documentation lanes.
+
+The directory name is a retained private migration identifier. The selected IDE agent is always a separate process and conversation from terminal tab 1.
 
 ## Selection and UI
 
@@ -10,50 +16,64 @@ Codeflare gives the agent selected in terminal tab 1 an editor-native code-serve
 | Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | Anthropic's official Claude Code panel in the right sidebar |
 | Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | No agent extension |
 
-Every row opens the Codeflare welcome editor from a separate owned built-in extension. It explains the Browser IDE’s traditional coding and observability roles, the shared isolated container and workspace, and the selected native agent boundary. The primary action opens Codeflare Chat for Pi, the official Claude Code panel for Claude, and Explorer for unsupported selections; the welcome package contributes no agent surface of its own.
+An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty inventory. Classification never executes or rewrites the terminal command.
 
-An absent `TAB_CONFIG` keeps the existing Claude default. Malformed JSON, duplicate tab IDs, a missing tab 1, command suffixes, and other agents select the empty inventory. Classification never executes or rewrites the terminal command.
+Every inventory opens the separate owned Codeflare welcome editor. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface.
+
+## Package map
+
+| Area | Location | Responsibility |
+|---|---|---|
+| Inventory and activation | `agent-sidebar/src/extension.ts` | Participant/model registration, inventory context, welcome integration |
+| Native Pi adapter | `agent-sidebar/src/pi/` | RPC lifecycle, prompts, approvals/dialogs, native Chat surfaces |
+| Packaging | `agent-sidebar/src/package-extension.ts`, `agent-sidebar/esbuild.mjs` | Deterministic extension output and package identity |
+| Welcome extension | `agent-sidebar/src/welcome*.ts`, `agent-sidebar/welcome-package.json` | Shared editor content and inventory-specific actions |
+| Claude projection | `claude/` | Allowlisted config projection and managed settings around the unmodified package |
+| Package tests | `agent-sidebar/test/`, `claude/test/` | Behavioral package and projection verification |
 
 ## Native Pi Chat
 
-The Codeflare-owned workspace extension registers the stable private ID `codeflare.pi` as the pinned host's default participant in panel Chat and the existing editor Inline Chat **Refactor...** area, visibly named **Codeflare**. A hidden, non-selectable panel fallback under the reserved `copilot` vendor preserves the pinned extension host's absent-request-model lookup. A second selectable, account-free model under Codeflare's distinct `codeflare` vendor makes Codeflare eligible and default in both host locations without entering Code OSS's Copilot entitlement or sign-in flow; only this visible model advertises tool calling because the pinned Inline Chat filter requires it. Neither model can generate responses. The image removes code-server's bundled GitHub Copilot extension entirely.
+The owned extension registers stable participant ID `codeflare.pi`, visibly named **Codeflare**, in panel Chat and the pinned editor Inline Chat surface. Its hidden fallback and visible account-free model exist only to satisfy the pinned host's eligibility and model lookup; neither performs inference or requests authorization. Pi RPC remains the inference path and does not use VS Code Authentication or Copilot.
 
-Pi never reads `request.model` or sends inference through either provider: it calls `/usr/local/bin/pi --mode rpc --no-session --no-themes` directly and never uses VS Code Authentication or Copilot, so no Microsoft, GitHub, Copilot, or Anthropic login is needed.
+The first request lazily starts one IDE-owned `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. Panel and editor share its FIFO in-memory conversation, separate from terminal Pi. Accepted turns retain it; active cancellation, failure, exit, or deactivation boundedly reap it before replacement. The package captures bounded canonical-workspace editor context and rejects external paths, symbolic aliases, and malformed references.
 
-The Pi inventory activates its owned provider immediately and emits the provider-change signal required for Code OSS to resolve the full `Codeflare` model descriptor before first use, then marks generic Chat setup complete on startup. This keeps the selected model label stable and suppresses Code OSS's account-backed **Code Review** action without disabling native Chat. Every inventory also seeds Code OSS's supported web-profile visibility value for only `chat.statusBarEntry`, disables the separate Chat title-bar sign-in action with `chat.titleBar.signIn.enabled=false`, and hides the left-side Accounts control through `workbench.activity.showAccounts`, removing account chrome without disabling authentication APIs or independent agent credentials.
+Native `select` and `input` requests use bounded VS Code dialogs. Unknown or malformed blocking requests fail closed. Pi retains direct tools and can change files or run commands beyond an editor selection; those effects are not transactional host edits and Inline Chat Keep/Undo is not a rollback guarantee.
 
-It also disables Code OSS discovery of `~/.claude/agents` while retaining the equivalent `~/.copilot/agents` definitions, so each seeded Codeflare custom agent appears once in the Agent selector; native Pi continues to discover `~/.pi/agent/agents` independently. Right-click a workspace file in Explorer or inside its active editor and select **Review with Codeflare** to attach that file and submit a review directly to Codeflare. Files outside the workspace and symbolic-link aliases are rejected before Chat opens.
-
-Every request captures the active workspace document, selected text, open workspace documents, diagnostics, and explicit references when invoked. Canonical path checks exclude files outside `/home/user/workspace`, symbolic-link aliases, and malformed native references. Editor data is marked untrusted and the complete RPC prompt is capped at 1 MiB. A cold or replacement process also receives the requesting surface's bounded visible Chat history; warm turns omit that replay because Pi already holds the shared conversation.
-
-The first panel or editor request lazily starts one IDE-owned Pi process. Panel and editor intentionally share its in-memory transcript, which remains separate from terminal Pi. Requests run FIFO because streamed Pi events do not identify their prompt. Accepted-and-settled turns retain the process. Active cancellation sends Pi's abort and retires it; queued cancellation skips only the queued request. Failure, unexpected exit, or deactivation also boundedly reaps it before replacement.
-
-Sidebar Pi keeps its unrestricted built-in tools, and any extension confirmation auto-approves without opening an editor document or modal. Documented Pi `select` and `input` requests use bounded native VS Code dialogs, honor bounded RPC timeouts, and return correlated values or cancellation; malformed and unknown blocking UI requests remain fail-closed. Pi writes files and runs commands directly, including beyond the selected range; those effects are not transactional host edits and Codeflare does not promise that Inline Chat Keep/Undo reverses them.
-
-The Pi inventory enables pinned Code OSS's own OS notifications for received responses and native confirmations when the editor is unfocused. Code OSS owns browser permission, focus policy, lifetime, and click behavior; Codeflare does not duplicate native Chat events through the terminal OSC bridge.
+Detailed lifecycle, trust, and state contracts belong to [Container](../documentation/lanes/container.md#code-server-browser-ide) and [Security](../documentation/lanes/security.md#browser-ide-native-agents).
 
 ## Official Claude Code
 
-The image build fetches Anthropic's exact unmodified `linux-x64` VSIX from Open VSX, verifies its pinned SHA-256 and package identity, extracts the official files into the Claude-only inventory, deletes the archive, and makes the installed tree root-owned and immutable. Codeflare applies settings externally and does not patch or serve Anthropic's package. The owner accepts its all-rights-reserved license ambiguity for server-image inclusion.
+The image uses Anthropic's exact checksum-pinned package without patching or redistributing its source; the [pin manifest](agent-sidebar/official-claude.json) and [checksum-validating build stage](../Dockerfile) are the direct evidence. Codeflare prepares an allowlisted temporary configuration projection and managed settings outside the package. The official extension owns its loopback-authenticated IDE MCP transport, panel, context, native diffs, and lifecycle; Codeflare adds no public relay or tool-approval layer.
 
-Before Claude's code-server inventory starts, Codeflare creates `/tmp/codeflare-sidebar/claude/config` as an allowlisted projection of approved credentials and configuration. Terminal projects, history, runtime state, caches, and logs are excluded. Ephemeral code-server User settings select Anthropic's native UI, unrestricted `bypassPermissions` mode, dangerous permission skipping, no Anthropic login prompt, the right sidebar, and disabled unrelated native Chat/Copilot features. code-server does not launch if preparation fails.
-
-Anthropic's official extension runs its documented IDE MCP server on `127.0.0.1` with a random port and fresh authorization token under the private temporary config. This owner-approved local exception supplies active-file context, selections, native diffs, and diagnostics without adding a Codeflare relay or public listener. No Claude tool call is approval-gated.
-
-The official package contributes its own Claude Code webview, not a code-server `chatParticipant` or language-model provider. Claude settings therefore disable the unrelated native Chat and Copilot setup before launch. Use the Claude Code panel with a selection or `@` reference. Its upstream panel notifications remain in-product; Codeflare does not patch the checksum-pinned extension, scrape code-server UI, or add a private relay to turn them into OS notifications. Claude terminal tab 1 separately uses Claude's native terminal notification channel under REQ-TERM-024. The Accounts control is hidden for every inventory, while authentication APIs remain available and Codeflare adds no credential request, bridge, export, persistence, or sync path.
+Claude package-selection, pinning, and complete-image behavior belong to [Container](../documentation/lanes/container.md#code-server-browser-ide). Projection-file mechanics belong to [Claude IDE configuration](claude/README.md).
 
 ## Workspace selection and safe continuity
 
-The browser keeps a clean `/api/vscode/<sessionId>/` location. Public `folder`, `workspace`, and `ew` selectors are rejected independently by the Worker and container host for HTTP and WebSocket requests. Only the private loopback root request receives `folder=/home/user/workspace`; redirects remove selectors before they become browser-visible. This confines public workspace selection, not terminal, trusted-extension, or agent filesystem access.
+The public Browser IDE location stays clean and rejects browser-supplied workspace selectors at Worker and host boundaries. Only the private loopback root hop receives the canonical workspace. This limits public navigation; terminals, trusted extensions, and agents retain container filesystem access.
 
-Live code-server state remains under `/tmp/openvscode-data`. After the launch generation is fully reaped, `browser-ide-ui-state.py` exports only theme, the string-valued `keyboard.layout` User setting, Explorer expansion, and canonical in-workspace open-file state into the atomic, maximum-1-MiB `~/.codeflare/ide-ui-state.json` snapshot. A later session reconstructs fresh workspace storage before managed inventory settings are reapplied. The upstream keyboard-layout status item remains visible. Other User settings, raw databases, `workspaceStorage`, `globalStorage`, SecretStorage, Accounts authentication, chat history, logs, WAL, and SHM are never synced.
+Live code-server state remains ephemeral. Package code exports only the approved theme, string keyboard layout, Explorer expansion, and canonical in-workspace open-file state into the bounded snapshot. Credentials, authentication, unapproved settings, extension/global/workspace storage, editor databases, chat history, logs, WAL, and SHM are excluded. The canonical persistence and security consequences belong to [Container](../documentation/lanes/container.md) and [Storage & Sync](../documentation/lanes/storage-and-sync.md).
 
-## Build and verification
+<a id="build-and-verification"></a>
+## Develop and verify
 
-The owned Pi package is built under Node 22.21.1 for code-server's pinned Code OSS 1.132.0 host. It has no native addon or runtime npm dependency. The official Claude package is version- and checksum-pinned independently. Fixed staging validates both agent package identities, creates the Pi, Claude, and empty inventories atomically, rejects symbolic links and retained VSIX archives, and removes write permission. The separate owned welcome package is built from the same dependency-free project, installed beside code-server's bundled extensions, made read-only, and verified to contribute no agent or model surface.
+From `openvscode/agent-sidebar/`:
 
-The required `browser-ide` lane performs dependency and license checks for owned code, typecheck, deterministic build, behavioral tests, and report reconciliation. `browser-ide-image` builds the complete image, has the pinned host discover both extension IDs, verifies packaged native Pi registration, official Claude identity/binary and production preparation, isolated settings, permissions, inventory immutability, and process laziness, then records image size and idle resources.
+```sh
+npm install
+npm run check:dependencies
+npm run typecheck
+npm test
+npm run build
+```
 
-This constrained development container does not run builds or tests locally. Use GitHub Actions and an exact reviewed integration deployment.
+The suite includes the parent extension, native Pi behavior, packaging, welcome extension, and `../claude/test/*.test.mjs` projection tests through the package Vitest configuration. GitHub Actions remains authoritative for deterministic report reconciliation and complete-image smoke verification.
 
-See [REQ-IDE-002](../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-011](../sdd/spec/browser-ide.md#req-ide-011-file-review-with-codeflare), [REQ-IDE-019](../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution), [REQ-IDE-021](../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome), [REQ-IDE-022](../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-024](../sdd/spec/browser-ide.md#req-ide-024-codeflare-browser-ide-welcome), [REQ-IDE-012](../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [AD114](../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [Container](../documentation/lanes/container.md#code-server-browser-ide), and [Security](../documentation/lanes/security.md#browser-ide-native-agents).
+Volatile Node, code-server/Code OSS, Pi, and Claude pins remain owned by package manifests, Docker inputs, lockfiles, and [Container](../documentation/lanes/container.md); this reference does not duplicate them.
+
+## Canonical references
+
+- [Architecture Internals — Browser IDE internals](../documentation/lanes/architecture-internals.md#browser-ide-internals)
+- [Container — code-server Browser IDE](../documentation/lanes/container.md#code-server-browser-ide)
+- [Security — Browser IDE native agents](../documentation/lanes/security.md#browser-ide-native-agents)
+- [Browser IDE requirements](../sdd/spec/browser-ide.md)
+- [Documentation router](../documentation/README.md)

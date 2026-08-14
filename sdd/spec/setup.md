@@ -259,6 +259,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<a id="req-setup-009-saas-subscription-flow-and-ui"></a>
 ### REQ-SETUP-009: Subscribe page with tier selection
 
 **Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.

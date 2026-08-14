@@ -437,6 +437,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
+<a id="req-term-014-stable-scrollback-under-sustained-output"></a>
 ### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
 
 **Intent:** Long-running terminal output must keep bottom-following users at the live prompt while preserving a manually selected scrollback viewport until the user returns to bottom.
@@ -660,7 +661,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-015](security.md#req-sec-015-http-security-headers)
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response)
 
 **Verification:** Automated test (frontend and service-worker behavior tests); deployed desktop and mobile browser verification.
 

@@ -30,6 +30,8 @@
 
 ![Codeflare, engineering agents that can finish the job](assets/documentation/og.png)
 
+This page is the product synopsis and default deployment entry point. Exact contracts, limits, implementation mechanics, and operator recovery procedures belong to the linked documentation lanes.
+
 Most engineering agents stop at code. The awkward work remains with you: prepare the environment, watch the process, chase CI, handle review, deploy the result, and collect enough evidence to trust what happened. Infrastructure work is usually left out altogether.
 
 Codeflare runs software delivery and infrastructure operations in isolated environments inside your Cloudflare account. Agents can inspect repositories, implement changes, open pull requests, repair CI, deploy applications, investigate systems, patch fleets, execute migrations, and verify the result. The runtime and isolation model is documented in [Architecture](documentation/lanes/architecture.md).
@@ -78,7 +80,7 @@ Existing repositories do not need a ceremonial rewrite before agents can help. `
 
 ## Enterprise control without a second control plane
 
-Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute hibernates when unused.
+Cloudflare Access protects the deployment and can federate to the customer's identity provider and groups. Per-user R2 persistence carries selected data between disposable sessions. Workers KV holds control-plane state without waking idle containers, and session compute stops when unused; a later start restores selected durable files into fresh ephemeral local storage.
 
 When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and WebSocket traffic through the customer's Cloudflare Gateway and denies raw TCP and UDP internet egress. It is off by default and has documented own-account Cloudflare exceptions. Enterprise GitHub and Browser Rendering credentials are injected only at their allowlisted egress boundary; one session cannot select another user's credential. See [Strict Gateway Egress](documentation/lanes/security.md#strict-gateway-egress-enterprise-mode) for the exact boundary.
 
@@ -122,6 +124,10 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ## Deploy Codeflare
 
+### Before you begin
+
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the maintained minimum-scope operator token from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+
 ### Default self-operated deployment
 
 The public path creates a private single-tenant instance in four steps:
@@ -131,7 +137,11 @@ The public path creates a private single-tenant instance in four steps:
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the shared Worker, KV control plane, session container image, and Access application in the operator's account. Each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+The workflow provisions the shared Worker, KV control plane, and session container image in the operator's account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+
+### Verify the deployment
+
+Retain the successful Deploy run and commit, confirm public health and provider discovery on the deployed origin, then exercise the changed user path. Session changes require creating, starting, opening, and deleting a disposable session; a health response alone is not deployment evidence. The executable checks and rollback procedure live in [Development & Deployment](documentation/lanes/deployment.md#standard-deployment).
 
 ### Enterprise deployment
 

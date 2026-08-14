@@ -317,6 +317,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+<a id="req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred"></a>
 ### REQ-MEM-020: Capture requests are re-delivered under a bound and committed only against an artifact
 
 **Intent:** A capture directive that the agent does not act on must come back rather than disappear, and a capture that never produced a file must not be recorded as done. Replaces the removed hard block, which bought the first guarantee by making one hook able to wedge the session.
@@ -459,6 +460,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+<a id="req-mem-016-vault-extraction-runs-on-bounded-one-pass-inputs"></a>
 ### REQ-MEM-016: Pi extraction requests have a bounded execution profile
 
 **Intent:** Pi memory and Vault extraction requests must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
@@ -487,6 +489,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+<a id="req-mem-018-background-extraction-agents-are-bounded-and-visible"></a>
 ### REQ-MEM-018: Pi extraction agent definitions have a bounded profile
 
 **Intent:** Generated Pi memory and Vault extraction agent definitions expose only the tools and reasoning profile required by their bounded background work.

@@ -385,6 +385,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<a id="req-sec-022-terminal-server-bearer-authentication"></a>
 ### REQ-SEC-022: Container proxy bearer validation
 
 **Intent:** Worker-to-container requests carry a lifecycle token that the terminal server validates before serving non-exempt paths.
@@ -544,6 +545,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<a id="req-sec-019-websocket-connection-rate-limiting"></a>
 ### REQ-SEC-019: Per-endpoint rate-limit policy
 
 **Intent:** Specific endpoint families have specific limits (WebSocket, session caps), and security-critical endpoints fail closed while resource-protection endpoints fail open. Stress-test mode bypasses everything with a warning so load testing can saturate without changing code.

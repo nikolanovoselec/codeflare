@@ -523,6 +523,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-020-agent-toolchain-shadow-pin-freshness"></a>
 ### REQ-OPS-020: Shadow-pin version bump automation
 
 **Intent:** Every release pin outside a package manifest has one explicit weekly update owner and a fail-closed verification path.
@@ -575,6 +576,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-033-generated-seed-and-prewarm-lock-integrity"></a>
 ### REQ-OPS-033: Lock-Backed NPM Bump Coherence
 
 **Intent:** Automated npm release bumps must reject stale inputs and move each exact manifest pin with its owning committed lock.
@@ -1103,7 +1105,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Provenance verifies against Codeflare's reusable image workflow and SLSA provenance predicate. <!-- @impl: scripts/ci/verify-container-provenance.sh::SIGNER_WORKFLOW --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (cryptographically verifies the digest against the owned reusable workflow) -->
 3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::reused=true --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 4. A reused deployment binds the exact verified digest rather than its mutable tag. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (binds retained deployments to the verified digest instead of the mutable tag) -->
-5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::warning = Existing image has no valid Codeflare build provenance --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::Existing image has no valid Codeflare build provenance --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 6. Build, packaged smoke, vulnerability scan, and push are each gated on no reuse. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (gates required fresh-image stages on no reuse) -->
 
 **Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped; retained-image deployment requires the exported verified digest.

@@ -1,30 +1,58 @@
 # Development & Deployment
 
-Development setup, project file structure, and cost analysis.
+Default deployment execution, verification, rollback, development references, and dated cost evidence.
 
 **Audience:** Developers, Operators
 
+**Owns:** when to deploy, operator action, verification, rollback, and public target boundaries. **Does not own:** workflow internals, source composition, or private environment procedures.
+
 ## Contents
 
+- [Standard Deployment](#standard-deployment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Production Rollback](#production-rollback)
-- [Development](#development)
-- [File Structure](#file-structure)
+- [Development Reference](#development-reference)
+- [Source and Runtime Composition Aliases](#source-and-runtime-composition-aliases)
 - [Cost Analysis](#cost-analysis)
-- [Specification Coverage](#specification-coverage)
 - [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ---
 
+## Standard Deployment
+
+**When:** Normal production promotion starts automatically after the reviewed `main` commit's required `PR Checks` workflow succeeds. Use a manual **production** dispatch only for an initial deployment or an intentional retry/recovery from `main`; manual integration dispatches may use another branch, but the workflow rejects a manual production target unless the ref is `main`.
+
+**Prerequisites:** Confirm the intended commit is `origin/main`, every required exact-head check is green, and the production environment owns the expected public configuration. For a manual retry, confirm the failed automatic run did not already promote the same tree.
+
+**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds and scans the container image, publishes its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
+
+**Verify:** Retain the successful run URL and deployed commit, then verify the deployed origin explicitly:
+
+```sh
+CODEFLARE_URL=https://<production-host>
+curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "array"'
+```
+
+Exercise the changed user path after provider discovery returns the expected `{ providers: [...] }` envelope. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
+
+**Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
+
+---
+
 ## Enterprise Mode Secrets
+
+**Type:** Canonical private-operations alias.
 
 The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ---
 
 ## Strict Gateway Egress (Enterprise Mode)
+
+**Type:** Canonical private-operations alias.
 
 The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#strict-gateway-egress). The behavioral contract remains public in [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress).
 
@@ -36,14 +64,15 @@ The enterprise-only binding procedure, Gateway policy preparation, verification 
 
 **Prerequisites:** Run from the repository root with the production `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, then confirm `npx wrangler whoami` names the production account. In the incident record, capture the failed user-flow step and its expected result before rollback.
 
-**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Then list successful production workflow runs and Worker deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). The Worker is named `codeflare` (`wrangler.toml`), and `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
+**Command:** Record the version currently serving traffic first — it is both the version the incident is about and the baseline the post-rollback check compares against. Resolve `WORKER_NAME` from the successful Deploy run or production configuration (`CLOUDFLARE_WORKER_NAME`, default `codeflare`). Then list successful production workflow runs and that Worker's deployments, choose the newest deployment created before the faulty release whose timestamp matches a successful `Deploy` run, inspect that candidate, and pass it to rollback using the [Wrangler Worker commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/). `rollback` takes the **version** ID that `versions view` confirms, not a deployment ID:
 
 ```sh
-npx wrangler deployments status
+WORKER_NAME="${CLOUDFLARE_WORKER_NAME:-codeflare}"
+npx wrangler deployments status --name "$WORKER_NAME"
 gh run list --workflow deploy.yml --branch main --status success --limit 10
-npx wrangler deployments list
-npx wrangler versions view <CANDIDATE_VERSION_ID>
-npx wrangler rollback <CANDIDATE_VERSION_ID>
+npx wrangler deployments list --name "$WORKER_NAME"
+npx wrangler versions view <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
+npx wrangler rollback <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 ```
 
 Cloudflare immediately creates a deployment that sends 100% of traffic to the selected version, as defined by its [rollback behavior](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/).
@@ -51,8 +80,10 @@ Cloudflare immediately creates a deployment that sends 100% of traffic to the se
 **Verifies:** Confirm the active deployment, public health, and provider discovery:
 
 ```sh
-npx wrangler deployments status
-curl -fsS https://codeflare.ch/public/auth/providers | jq -e '.providers | type == "array"'
+CODEFLARE_URL=https://<production-host>
+npx wrangler deployments status --name "$WORKER_NAME"
+curl -fsS "$CODEFLARE_URL/api/health" | jq -e '.status == "ok"'
+curl -fsS "$CODEFLARE_URL/public/auth/providers" | jq -e '.providers | type == "array"'
 ```
 
 The status output names only the selected version at 100% traffic and provider discovery returns an array. Re-run the recorded failed step and confirm its expected result before closing the incident.
@@ -61,54 +92,31 @@ The status output names only the selected version at 100% traffic and provider d
 
 ---
 
-## Development
+<a id="development"></a>
+## Development Reference
+
+**Prerequisites:** Use Node.js 22, install the root and affected package dependencies, and use local Docker/Wrangler only for development. Production deployment is workflow-owned.
 
 ```bash
-npm install && cd web-ui && npm install && cd ..
-npm run dev          # Run locally (requires Docker)
-npm run lint         # Lint backend (oxlint)
-npm run lint:fix     # Lint backend with auto-fix
-npm run typecheck    # Type check backend
-npm test             # Backend unit tests
-npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see CI/CD)
-cd web-ui && npm run dev   # Frontend dev server
-cd web-ui && npm run build # Frontend production build
+npm install
+(cd web-ui && npm install)
+npm run dev
+npm run lint
+npm run lint:fix
+npm run typecheck
+npm test
+(cd web-ui && npm run dev)
+(cd web-ui && npm run build)
 ```
 
-## File Structure
+**Verifies:** The affected package starts or builds, lint/type checks complete, and behavioral suites pass where the environment supports them. GitHub Actions remains the authoritative exact-head result. Never run `npm run deploy` as a substitute for reviewed production promotion.
 
-```
-codeflare/
-├── src/               # Worker source (Hono router, routes, middleware, lib, Container DO)
-├── stress/            # k6 load test suites
-├── host/              # Terminal server (TypeScript) - HTTP/WS, PTY, activity tracking
-├── web-ui/            # SolidJS frontend - components, stores, styles
-├── scripts/           # Code generation (tutorial-seed, agent-seed, sourcemap fix)
-├── tutorials/         # Tutorial content (Getting Started, Examples)
-├── Dockerfile         # Multi-stage container image
-├── entrypoint.sh      # Container startup script (sync, agent config, hooks)
-├── wrangler.toml      # Cloudflare Workers + Containers configuration
-├── vitest.config.ts   # Backend test config
-```
+<a id="file-structure"></a>
+<a id="intentional-schema-duplication-bundle-boundary"></a>
+<a id="critical-paths-inside-container"></a>
+## Source and Runtime Composition Aliases
 
-For the current tree, run `tree -L 2 -I node_modules` from the repo root.
-
-### Intentional Schema Duplication (Bundle Boundary)
-
-`src/lib/schemas.ts` (backend) and `web-ui/src/lib/schemas.ts` (frontend) contain similar Zod schemas for API response validation. This is intentional, not a DRY violation. The frontend (`web-ui/`) has its own Vite build pipeline and produces a separate bundle - it cannot import from the backend Workers module. Both schemas validate the same API contract but live in independent build targets.
-
-### Critical Paths Inside Container
-
-| Path | Purpose |
-|------|---------|
-| `/home/user` | User home directory |
-| `/home/user/workspace` | Working directory (synced to R2) |
-| `/home/user/.claude/` | Claude config and credentials |
-| `/opt/codeflare/pi-agent/npm` | Image-local Pi extension npm seed cache (read-only at runtime) |
-| `/home/user/.pi/agent/npm` | Pi extension npm runtime directory (copied from seed on startup) |
-| `/home/user/.config/rclone/rclone.conf` | rclone configuration |
-| `/tmp/sync-status.json` | Sync status (read by health server) |
-| `/tmp/sync.log` | Sync log for debugging |
+The current repository/package map and intentional backend/frontend schema bundle boundary are owned by [Architecture Internals](architecture-internals.md#source-composition). Image and runtime paths—including workspace, agent configuration, Pi package cache, rclone configuration, and sync status/log files—are owned by [Container](container.md#runtime-paths). Run `tree -L 2 -I node_modules` from the repository root for a live tree rather than relying on a copied deployment inventory.
 
 ## Cost Analysis
 
@@ -139,20 +147,25 @@ Container resource usage scales per active session (each session is one containe
 
 ---
 
-## Specification Coverage
+## Governed Mode migration (batch-status driven)
 
-- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - AIG_GATEWAY_URL and AIG_TOKEN pushed as Worker secrets at deploy time (AC1)
-- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: runtime-KV toggle (no new GH var/secret), enterprise-only deploy-injected VPC binding, rollback = toggle OFF
-- [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and pre-deploy pipeline
-- [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
-- [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) - Deploy command and post-deploy hooks
-- [REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image) - Container binding and scaling from image
+**Type:** Canonical private-operations alias.
+
+The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 
 ---
 
-## Governed Mode migration (batch-status driven)
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
+| Procedure / alias | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Automatic production promotion | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) | Deploy workflow | Exact-head workflow run and changed user-path verification |
+| Image and binding promotion | [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image) | Container-image and Deploy workflows | Digest, scan, provenance, deployment receipt |
+| Production rollback | Operations SDD and Cloudflare version contract | Wrangler version/deployment surfaces | Selected version at 100% plus original failed-flow recovery |
+| Enterprise/egress/governed aliases | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | Private operations; public behavior remains in Enterprise/Security SDD | Private promotion/rollback evidence |
+
+---
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

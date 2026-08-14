@@ -1,146 +1,153 @@
 # User Provisioning
 
-JIT user provisioning, subscription UX flows, session mode authorization, and frontend auth components for Codeflare SaaS mode.
-
 **Audience:** Operators, Developers
 
-See [Authentication](authentication.md) for auth flows. See [Billing](billing.md) for subscription tiers and Stripe integration.
+**Owns:** the transition from verified identity to a durable user record, initial provisioning state, approval/activation transitions, and offboarding handoffs.
 
----
+**Does not own:** authentication proof, effective entitlement, billing policy, bucket algorithms, Access resource configuration, or frontend component composition.
 
 ## Contents
 
-- [JIT User Provisioning](#jit-user-provisioning)
-- [Enterprise Mode Provisioning](#enterprise-mode-provisioning)
-- [Self-Service Subscription Flow](#self-service-subscription-flow)
-- [Session Mode Authorization](#session-mode-authorization)
-- [CF Access Configuration Strategy](#cf-access-configuration-strategy)
-- [Frontend Components](#frontend-components)
-- [Legacy Compatibility](#legacy-compatibility)
-- [Specification Coverage](#specification-coverage)
+- [Provisioning State Model](#provisioning-state-model)
+- [SaaS JIT Provisioning](#saas-jit-provisioning)
+- [Enterprise JIT Provisioning](#enterprise-jit-provisioning)
+- [Approval and Activation](#approval-and-activation)
+- [Offboarding Handoff](#offboarding-handoff)
+- [Compatibility and Migration](#compatibility-and-migration)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-## JIT User Provisioning
+## Provisioning State Model
 
-When a GitHub-authenticated user makes their first request to a protected endpoint:
+Provisioning begins only after the active authentication mechanism establishes cryptographic identity. Token presence, caller-supplied email, or a sanitized bucket name is insufficient.
 
-1. `authenticateRequest()` in `src/lib/access.ts` extracts the user's email from the JWT
-2. `resolveUserFromKV()` looks up `user:{email}` - not found (first login)
-3. If `SAAS_MODE=active`, `resolveOrProvisionUser()` creates a new KV record with `subscriptionTier: 'pending'`
-4. The user is returned with pending tier; `requireActiveUser` rejects with 403, frontend redirects to `/app/subscribe`
+| State / transition | Durable authority | Observable result |
+|---|---|---|
+| Unknown, verified SaaS identity | `user:{normalized-email}` absent | Create pending user, then route to activation/subscription |
+| Unknown, verified Enterprise identity | User absent and optional Access entry gate passes | Create Enterprise JIT user with active initial state |
+| Existing user | Durable record | Preserve stored role and fields; apply request-time deployment overrides separately |
+| Pending → active | Approved free/direct activation or provider-confirmed paid state | Effective entitlement permits application/session behavior |
+| Any → blocked | Durable administrator/provider transition | Authentication may succeed, but active-user authorization fails |
+| Offboarding | Durable user plus cleanup handoffs | Revoke credentials, destroy sessions, remove scoped storage/control state |
 
-**Concurrency note:** Simultaneous first-logins produce identical records (KV per-key serialization prevents split-brain).
+Bucket ownership is resolved through the strongly consistent user/bucket claim boundary before durable provisioning uses it. Storage mechanics remain in [Storage & Sync](storage-and-sync.md). <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
-**User data cleanup:** `cleanupUserData()` normalizes email before constructing KV keys and performs full cleanup: destroys active sessions, deletes bucket-keyed KV entries, deletes R2 scoped token, empties and deletes R2 bucket.
+<a id="jit-user-provisioning"></a>
+## SaaS JIT Provisioning
 
----
+1. The configured Access or session-OIDC verifier produces a normalized, verified identity.
+2. The resolver checks `user:{email}` and refuses first-login persistence when verifier provenance is absent.
+3. The bucket claim boundary resolves durable ownership.
+4. `resolveOrProvisionUser()` creates the initial pending record when the user is unknown.
+5. `requireActiveUser` prevents pending application access and routes the browser to activation/subscription. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
 
-## Enterprise Mode Provisioning
+This flow is provider-independent: a verified Cloudflare Access-backed SaaS identity is eligible just as a verified GitHub OAuth identity is. Authentication mechanism details belong to [Authentication](authentication.md).
 
-When `ENTERPRISE_MODE=active`, users are owned by the customer's Cloudflare Access, not by Codeflare. A dedicated branch in `authenticateRequest()` (`src/lib/access.ts`) runs **before** the SaaS path and provisions any Access-authenticated user just-in-time:
+### Concurrent first login
 
-1. `resolveOrProvisionEnterpriseUser()` looks up `user:{email}`. An existing record (admin, or a prior JIT user) is returned **unchanged** — enterprise provisioning never downgrades.
-2. For an unknown email, if the optional access-group gate is configured (see below) it is checked; on pass, a new KV record is written. **No welcome/subscription email is sent** (unlike the SaaS path).
-    - Record fields: `addedBy: 'enterprise-jit'`, `role: 'user'`, `accessTier: 'advanced'`, `subscriptionTier: 'unlimited'`.
-3. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
+Workers KV is eventually consistent. Simultaneous first requests may both observe no record and write the same initial state; identical writes converge, but there is no per-key serialization. Bucket authority and welcome delivery use their own stronger boundaries so duplicate first-login observations do not grant another user's storage or send repeated welcome messages.
 
-**Enterprise frontend surface suppression ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression)):** When `ENTERPRISE_MODE=active`, the following surfaces are globally suppressed for all users regardless of role: Subscribe button, billing management page, setup-wizard access for non-admin users, and any onboarding/waitlist flow. The app header renders an enterprise-mode variant. These suppressions apply in the frontend unconditionally — there is no role or tier combination that re-enables them in enterprise mode.
+### Welcome-delivery handoff
 
-**Optional access-group gate (`ENTERPRISE_ACCESS_GROUP`):** an operator-managed value stored in KV (`setup:enterprise_access_group`), set via the setup wizard — editable without a redeploy. When set (a comma/newline-separated list of group names/ids), `resolveUserAccessGroup()` calls the Cloudflare Access **get-identity** endpoint (`GET https://{auth_domain}/cdn-cgi/access/get-identity` with the request's `CF_Authorization` cookie) and admits a user who is a member of **any** configured group. The session keeps all matches from that configured user-access list in configured order; the gateway receives up to four `group_<sanitized>_<hash>=1` metadata tags alongside `user`. Unconfigured IdP memberships and separately configured admin-group memberships are not stamped. A user matching none of the configured entry groups gets a 403.
+After successful first provisioning, a strongly serialized Timekeeper claim selects one welcome-delivery owner. The email provider receives a deterministic idempotency key. Delivery is best effort and does not roll back the durable user record; absence or failure remains observable in logs and retry ownership rather than a `welcome-sent:*` KV flag.
 
-The check **fails closed** — a missing token, non-OK response, or fetch error denies provisioning rather than admitting on incomplete information. When unset, any user the Access policy admits is provisioned on their valid Access JWT alone.
+## Enterprise JIT Provisioning
 
-The application JWT does not carry group membership by default, which is why the gate uses get-identity rather than reading a JWT claim. Each group name/id is matched **case-sensitively** against the configured value exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. See [Configuration — Enterprise Mode Runtime Configuration](configuration.md#enterprise-mode-runtime-configuration) for the KV key details.
+<a id="enterprise-mode-provisioning"></a>
+Enterprise provisioning runs before the SaaS branch for a verified Access identity.
 
-**Admin access groups widen the entry gate (`ENTERPRISE_ADMIN_ACCESS_GROUP`):** members of a configured admin Access group ([REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)) are granted admin access, and so they must also be admitted by the entry gate. When the user-access gate is active, membership is tested against the **union** of user-access + admin groups, so an admin who belongs to no *user* group is not locked out. Admin groups never arm the entry gate by themselves — with no user-access groups configured, entry stays open exactly as before.
+1. `resolveOrProvisionEnterpriseUser()` returns an existing durable record without rewriting or downgrading it. Request-time Enterprise overrides are applied separately. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+2. For an unknown identity, the optional configured Access entry group is checked live. Unset means no additional group gate; non-membership, missing/invalid Access token, unsafe Access domain, or provider error fails closed and creates no user.
+3. On admission, the durable record uses `addedBy: 'enterprise-jit'`, role `user`, initial advanced access fields, and unlimited subscription projection. No subscription/welcome flow runs.
+4. Effective tier and mode resolvers force the active Enterprise behavior independently of stale stored compatibility fields.
 
-Provisioning still creates the user as a normal `unlimited` user (role `user`); admin elevation happens per-request in `requireAdmin`, not at provisioning, so it leaves no `role:'admin'` record. See [Authentication — Admin authorization](authentication.md#admin-authorization-admin-by-email-and-admin-by-group) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
+### Existing-user preservation and admin union
 
-**Defense in depth:** the SaaS/admin routes that would let an enterprise user self-manage are also hardened server-side — billing, user-management, tier-config, subscribe, request-access, and the Stripe webhook all fail closed (403 / no-op) in enterprise mode ([REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)).
+A setup administrator remains a durable admin. An Enterprise admin Access group may elevate an admitted request for admin routes without persisting role changes. Entry-group and admin-group membership are a union of separate concerns: admission does not itself grant administration, and admin elevation does not rewrite stored role or session-limit role resolution. [Authentication](authentication.md#admin-authorization) owns the authorization check.
 
-**Non-enterprise unchanged:** the entire branch is gated on `isEnterpriseMode(env)`; with the flag unset an unknown user follows the existing SaaS or non-SaaS-allowlist path exactly as before.
+### Fail-closed outcomes
 
-**Subscribe route and billing UI suppression:** When `ENTERPRISE_MODE=active`, the subscribe page (`/subscribe`) and all billing-management routes return 403. The billing UI and "Subscribe" button are suppressed globally in the frontend regardless of the user's role. There is no path to reach a subscribe or payment flow in enterprise mode ([REQ-ENTERPRISE-002](../../sdd/spec/enterprise-mode.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded)).
+| Failure | Result |
+|---|---|
+| Unverified identity | Reject before lookup/provisioning side effects |
+| Configured entry group and non-member | Reject; no user write |
+| Access identity lookup error or unsafe domain | Treat as non-member; no user write |
+| Concurrent identical JIT writes | May both write; deterministic initial state converges |
+| Existing record | Return without destructive normalization |
 
----
+## Approval and Activation
 
-## Self-Service Subscription Flow
+<a id="self-service-subscription-flow"></a>
+### Pending activation
 
-When a pending user lands on `/app/subscribe`:
+Pending users may choose the configured activation path. When Stripe is configured, every non-free paid selection uses checkout; direct `/api/auth/subscribe` does not activate those paid tiers. Free or intentionally provider-free deployment flows follow the route's configured direct behavior.
 
-1. **Tier selection:** Frontend fetches `/api/auth/tiers` to display 5 subscribable tiers (free, standard, advanced, max, unlimited)
-2. **Turnstile CAPTCHA:** User selects a tier; Turnstile CAPTCHA widget renders
-3. **Subscription request:** `POST /api/auth/subscribe` with `{ tier, turnstileToken, mode? }`
-4. **Backend validation:** Verifies Turnstile, validates tier, writes to KV: `subscriptionTier`, `accessTier`, `subscribedAt`, `subscribedMode`, `trialUsed: false`
-5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user)
+Turnstile is required only for a new subscription when the site key/secret is configured. Existing active subscribers changing plan are exempt. Missing or rejected required verification performs no provider call and no user mutation. Exact payment and entitlement behavior belongs to [Billing](billing.md); exact request/response envelopes belong to the [API Reference](api-reference.md#auth-saas-mode).
 
-For paid tiers when `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects with "Paid subscriptions require checkout." Only `free` tier goes through the direct endpoint.
+### Approval transitions
 
-**First-time onboarding redirect:** After subscription, `AppContent.onMount` checks `onboardingComplete` from `/api/user`. If `false`, redirects to `/app/onboarding`. The onboarding page sets `onboardingComplete: true` via `POST /api/user/onboarding-complete`.
+Administrator approval, provider-confirmed checkout, onboarding admission, and block/unblock actions must preserve verified identity and unrelated durable fields. A transition becomes visible through active-user middleware and effective entitlement; frontend selection alone cannot activate a user.
 
----
+<a id="session-mode-authorization"></a>
+### Entitlement alias
 
-## Session Mode Authorization
+Configured tier modes, paid `subscribedMode`, stored next-session preference, downgrade policy, and Enterprise override are owned by [Billing](billing.md#concurrent-session-and-mode-gates). When an administrator assigns `advanced`, `max`, or `unlimited`, source may initialize `sessionMode: 'advanced'`; that preference does not bypass effective entitlement. <!-- @impl: src/routes/users.ts -->
 
-Session mode access requires both tier support AND an active Pro mode subscription.
+## Offboarding Handoff
 
-**Two distinct mode fields:**
-- `subscribedMode` (KV record `user:{email}`) - what mode the user paid for. Set by `POST /api/auth/subscribe`. Read by SettingsPanel Pro gate and subscribe page.
-- `sessionMode` (preferences KV `user-prefs:{bucket}`) - what mode the next session uses. Changed by Settings toggle. Does not affect the Pro gate.
+Provisioning owns orchestration; specialist owners perform each operation:
 
-Users can freely toggle Standard/Pro in Settings within what they subscribed to. To change subscription mode, users go through the subscribe page.
+| Handoff | Current result contract |
+|---|---|
+| Active sessions | Cleanup attempts container destruction; a failure is logged, then the session KV entry is still deleted. Numeric `deletedSessions` counts deleted KV entries, not confirmed container teardowns |
+| GitHub/Cloudflare provider bindings | Provider revocation failure aborts cleanup rather than deleting the user record |
+| User/bucket KV | Cleanup removes normalized user-scoped control keys after provider revocation succeeds |
+| R2 token | Deletion failure is logged and can leave `tokenDeleted: false` |
+| R2 objects and bucket | Empty/delete failure is logged and can leave `bucketDeleted: false` |
+| Usage/accounting state | Billing/Timekeeper cleanup removes the user's projection where implemented |
 
-**Backend authorization (`canUseSessionMode()`):** Admin users always have advanced access. `getAllowedSessionModes()` reads from tier config - by default, `standard` allows `['default', 'advanced']`.
+The current route logs the cleanup result but returns `{ success: true, email }` even when cleanup is unconfirmed. Operators must treat container-destruction warnings and false `tokenDeleted` or `bucketDeleted` results as residual cleanup work; the numeric session count alone does not confirm teardown. The API does not currently provide a fail-closed completion receipt. Exact route contracts belong to the [API Reference](api-reference.md#user-management).
 
-**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the backend auto-sets `sessionMode: 'advanced'` in user preferences if not already set.
+## Compatibility and Migration
 
----
+<a id="legacy-compatibility"></a>
+- Legacy `accessTier` remains a read fallback while `subscriptionTier` is preferred.
+- Tier mutation writes `subscriptionTier` and a compatible legacy `accessTier`; newer tier names map to legacy `advanced` where the old schema has no equivalent.
+- Auth status without either stored tier preserves the legacy `advanced` fallback.
+- General tier resolution uses the configured tier marked `isDefault`; `isActiveTier(undefined)` remains active for backward compatibility.
+- Migration must not invent entitlement beyond those explicit compatibility defaults.
+- Enterprise request-time overrides do not require rewriting older durable records.
+- Normalized email remains the durable identity key input.
+- Eventual consistency is explicit; no prose may claim KV per-key serialization.
 
-## CF Access Configuration Strategy
+<a id="cf-access-configuration-strategy"></a>
+### Authentication and configuration alias
 
-The setup wizard calls `handleCreateAccessApp()` only when GitHub OIDC is NOT configured. When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is set, the `create_access_app` step is skipped entirely - the Worker handles auth directly, and creating a CF Access app on the same domain would intercept requests before the Worker runs.
+Access application creation, policy/group configuration, and deployment-mode selection belong to [Authentication](authentication.md#authentication-modes) and [Configuration](configuration.md). This lane records only how a verified identity crosses the provisioning gate.
 
-**Why `login_method` in SaaS mode (not groups):**
-- **Groups (default mode):** `include: { group: { id: adminGroupId } }` - only allowlisted users can authenticate
-- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` - ANY GitHub-authenticated user passes CF Access; the Worker enforces subscription tiers
+<a id="frontend-components"></a>
+### Frontend alias
 
-In SaaS mode, the admin group is NOT included in the CF Access policy because admin status is enforced by `requireAdmin` middleware, not CF Access.
+Subscription, pending, administration, and Enterprise-suppression components render backend state. Component composition belongs to frontend/package implementation and is not provisioning authority.
 
-**`syncAccessPolicy` is skipped in SaaS mode** - if called, it would overwrite the `login_method` policy with group includes, breaking open signup.
+## Requirement and Source Map
 
----
+Exhaustive status remains in the active SDD domains.
 
-## Frontend Components
+| Transition | Requirements | Implementation | Evidence |
+|---|---|---|---|
+| Verified SaaS JIT | [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) | `src/lib/access.ts::resolveOrProvisionUser` | access/JIT suites |
+| Enterprise JIT and entry group | [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) | `src/lib/access.ts::resolveOrProvisionEnterpriseUser` | Enterprise access-group suites |
+| Admin request elevation | [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) | `src/lib/access.ts::requireAdmin` | admin group suites |
+| Activation/subscription handoff | [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection), subscription SDD | auth/billing routes | subscribe/checkout suites |
+| Offboarding | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation), user cleanup requirements | user cleanup and specialist owners | cleanup/revocation suites |
 
-See [Architecture Internals - SaaS UI Components](architecture-internals.md#saas-ui-components) for LoginPage, SubscribePage, RootPage, and admin user management details.
-
----
-
-## Legacy Compatibility
-
-**Legacy `accessTier` backward compatibility:** The original 4-tier system is preserved. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written.
-
-**Default tier behavior for users without a stored tier:**
-- Auth status: returns `'advanced'` (pre-subscription backward compat)
-- Tier resolution: returns the `isDefault` tier from config (standard)
-- `isActiveTier(undefined)`: returns `true` (backward compat for non-SaaS users)
-
----
-
-## Specification Coverage
-
-- [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) - JIT user provisioning in SaaS mode
-- [REQ-ENTERPRISE-002](../../sdd/spec/enterprise-mode.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) - Subscription UI hidden and subscribe route guarded in enterprise mode
-- [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) - Enterprise frontend surface suppression
-- [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening
-- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning
-- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin access via Cloudflare Access groups (entry-gate union; per-request elevation)
-
----
-
+<a id="specification-coverage"></a>
 ## Related Documentation
 
-- [Authentication](authentication.md) - Auth flows and SaaS mode
-- [Billing](billing.md) - Subscription tiers, Stripe, Timekeeper
-- [Preseed System](preseed.md#session-modes) - Session mode preseed matrix
-- [API Reference](api-reference.md#auth-saas-mode) - Auth API endpoints
+- [Authentication](authentication.md) — verified identity and authorization
+- [Billing](billing.md) — effective entitlement and payment lifecycle
+- [Security](security.md) — credential and Access-domain controls
+- [Storage & Sync](storage-and-sync.md) — durable bucket behavior
+- [API Reference](api-reference.md#user-management) — exact user/admin contracts
+- [Architecture](architecture.md) — cross-component provisioning flows

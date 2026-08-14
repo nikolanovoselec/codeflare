@@ -4,17 +4,18 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 **Audience:** Operators, Developers
 
+**Owns:** image contents, startup and readiness, host/runtime supervision, idle policy, teardown orchestration, and transport recovery. **Does not own:** durable-file reconciliation detail, endpoint schemas, entitlement policy, or credential-containment rationale.
+
 ---
 
 ## Contents
 
 - [Container Image](#container-image)
-- [Container Startup](#container-startup)
-- [Claude Code Integration](#claude-code-integration)
-- [Graphify (Knowledge-Graph Context)](#graphify-knowledge-graph-context-req-agent-023)
-- [LLM Consultation](#llm-consultation)
-- [Push & Deploy](#push--deploy)
-- [Specification Coverage](#specification-coverage)
+- [Runtime Paths](#runtime-paths)
+- [Runtime Lifecycle](#runtime-lifecycle)
+- [Agent Runtime Interfaces](#agent-runtime-interfaces)
+- [Release and Deployment Alias](#release-and-deployment-alias)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ## Container Image
@@ -112,7 +113,23 @@ code-server listens only on container-local `127.0.0.1:13337`; the terminal host
 
 ---
 
-## Container Startup
+## Runtime Paths
+
+| Path | Owner / purpose |
+|---|---|
+| `/home/user` | Runtime user home |
+| `/home/user/workspace` | Session working tree synchronized through the storage contract |
+| `/home/user/.claude/` | Claude configuration and credentials projection |
+| `/opt/codeflare/pi-agent/npm` | Image-local read-only Pi extension npm seed cache |
+| `/home/user/.pi/agent/npm` | Runtime Pi extension npm directory copied from the seed on startup |
+| `/home/user/.config/rclone/rclone.conf` | Generated rclone configuration |
+| `/tmp/sync-status.json` | Initialization/synchronization status read by the private health surface |
+| `/tmp/sync.log` | Runtime synchronization diagnostics |
+
+Path ownership is a runtime contract; storage semantics and finalization authority remain in [Storage & Sync](storage-and-sync.md).
+
+<a id="container-startup"></a>
+## Runtime Lifecycle
 
 **File:** `entrypoint.sh`
 
@@ -166,7 +183,7 @@ The deployment image smoke rejects any extension or entry other than that empty 
 
 Pi immediately activates its owned provider before initial model-picker resolution and uses one default panel and editor Inline Chat participant visibly named **Codeflare**. Before code-server starts, every inventory atomically adds only `chat.statusBarEntry` to Code OSS's supported ephemeral web-profile hidden-status list while preserving unrelated profile values; this removes the Copilot **Sign In** status control without changing the pinned host artifact, authentication APIs, or Bump Shadow Pins workflow. Shared web-profile state also hides the left-side Accounts control. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 
-The stable `codeflare.pi` identifier remains private, and an on-start compatibility context removes Code OSS's account-backed **Code Review** setup action while retaining **Review with Codeflare**. Its hidden `copilot` fallback preserves the pinned extension host's absent-request-model lookup, while its selectable model uses the distinct `codeflare` vendor to avoid Copilot setup. Both request no authorization and reject generation; panel and editor inference uses direct Pi RPC. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
+The stable `codeflare.pi` identifier remains private, and an on-start compatibility context removes Code OSS's account-backed **Code Review** setup action while retaining **Review with Codeflare**. Its hidden `copilot` fallback preserves the pinned extension host's absent-request-model lookup, while its selectable model uses the distinct `codeflare` vendor to avoid Copilot setup. Both request no authorization and reject generation; panel and editor inference uses direct Pi RPC. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
 
 Ephemeral Pi settings disable Code OSS's duplicate `~/.claude/agents` source and retain `~/.copilot/agents`, without changing native Pi's `~/.pi/agent/agents`. The first request lazily starts one `/usr/local/bin/pi --mode rpc --no-session --no-themes` process shared by panel and editor. FIFO requests retain it after normal completion; active cancellation, failure, exit, or deactivation boundedly reaps it before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
 
@@ -221,7 +238,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Self-heal:** When `collectMetrics` reaches its running branch (successful `/health` probe), but KV reads `stopped` and the persisted deliberate-stop marker (`shutdownRequested` in DO storage) is absent, it re-asserts `running` in KV, bounding any false-stopped window to a single alarm tick (~60 s). The self-heal does not apply when `destroy()` has written the marker: `destroy()` persists `shutdownRequested` as its first action — before clearing session identifiers — and also drops the `collectMetrics` alarm, so the guard survives a DO eviction mid-teardown.
 
-`destroy()` also writes KV `status: 'stopped'` itself, immediately after the marker persist and while `_bucketName` is still available, so a teardown killed partway — before `onStop()` ever runs — still leaves the session recorded `stopped` rather than dangling at `running` ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4). The order matters in one direction only: a KV await does not hold off alarm delivery the way a DO storage op does, so a `collectMetrics` tick landing between the two statements would read the new `stopped` write with no marker yet present and self-heal it straight back to `running`.
+`destroy()` also writes KV `status: 'stopped'` itself, immediately after the marker persist and while `_bucketName` is still available, so a teardown killed partway — before `onStop()` ever runs — still leaves the session recorded `stopped` rather than dangling at `running` ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4). The order closes the false-self-heal window: a `collectMetrics` tick cannot observe the new KV `stopped` value without first observing the durable shutdown marker.
 
 The stop and delete API routes treat a rejected `destroy()` as unconfirmed teardown. Stop leaves the prior session state retryable, while delete retains the KV record; neither route reports success until graceful destruction and its final-sync boundary complete ([REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC2/AC5).
 
@@ -245,7 +262,7 @@ Logs correlate reset, confirmation, success, and exhaustion with DO and attempt 
 
 The bound is on the poll rather than on the tick deliberately — four exits stop the loop on purpose (confirmed exit, idle stop, zombie DO, stop already issued), and a blanket re-arm would resurrect a zombie. Transport reconstruction is different: it preserves the workload and resets only the control object whose private container attachment stopped serving.
 
-**DO storage persistence:** `sleepAfter` is persisted to DO storage (`ctx.storage.put('sleepAfter', ...)`) on both initial set and restart paths. The constructor's `blockConcurrencyWhile` reloads it with regex validation, falling back to `'5m'` if absent or invalid. This ensures the user's configured idle timeout survives Cloudflare DO resets (infrastructure-level events that reinitialize the DO instance). Cleaned up in `destroy()` alongside other operational keys.
+**DO storage persistence:** `sleepAfter` is persisted to DO storage (`ctx.storage.put('sleepAfter', ...)`) on both initial set and restart paths. The constructor's `blockConcurrencyWhile` reloads it with regex validation, falling back fail-safely to `'4h'` if absent or invalid. This ensures the user's configured idle timeout survives Cloudflare DO resets (infrastructure-level events that reinitialize the DO instance). Cleaned up in `destroy()` alongside other operational keys.
 
 **Data flow:**
 
@@ -253,7 +270,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 2. `PATCH /api/preferences` saves `{ sleepAfter: '30m' }` to KV (`user-prefs:{bucketName}`)
 3. On next session start, `POST /api/container/start` reads preferences from KV
 4. `configureContainerDO()` → `buildSetBucketNameBody()` includes `sleepAfter` in the JSON body
-5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, sets `this.idleTimeoutPref = sleepAfterPref`, and persists to DO storage under the key `sleepAfter`
+5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h|4h)$/`, sets `this.idleTimeoutPref = sleepAfterPref`, and persists to DO storage under the key `sleepAfter`
 6. `collectMetrics()` reads `idleTimeoutPref` on every 60 s poll to determine the threshold; the SDK timer at 24 h is never the enforcer
 7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference and persisted to DO storage
 8. On DO reset (cold start), constructor loads `sleepAfter` from DO storage before any `collectMetrics` alarm fires
@@ -267,7 +284,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
 **Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` and computes `isFreeUser()` from `liveAccessTier()`. The `canChangeSleepAfter` accessor returns `(isAdmin() || userHasSubscribed()) && !isFreeUser()`. The `isFreeUser` prop is passed to `SessionSection` to show tier-specific hint text.
 
-**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
+**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['15m', '30m', '1h', '2h', '4h']`) is exported from `src/types.ts`; legacy stored `5m` remains tolerated on read.
 
 **Sleep timer UI (`web-ui/src/lib/sleep-timer.ts`):** Frontend displays a countdown clock icon when a session's idle timeout is approaching. Computes `remainingMs = sleepAfterMs - (now - lastActiveAt)` from batch-status data. Only visible when < 10 min remaining. Orange pulse at < 10 min, red faster pulse at < 5 min. Hidden for stopped sessions or when `lastActiveAt` is null.
 
@@ -279,7 +296,10 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
 ---
 
-## Claude Code Integration
+<a id="claude-code-integration"></a>
+## Agent Runtime Interfaces
+
+### Claude Code Projection
 
 When `claude-code` is build-selected, terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI regardless of shared CLI selection, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
@@ -295,7 +315,7 @@ When `claude-code` is build-selected, terminal tab 1 runs the official global `@
 
 ---
 
-## Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
+### Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
 `graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
 
@@ -325,7 +345,7 @@ The semantic merge driver for `graph.json` is registered globally in the image (
 
 ---
 
-## LLM Consultation
+### LLM Consultation
 
 When `CODEFLARE_OPENAI_API_KEY` or `CODEFLARE_GEMINI_API_KEY` env vars are present (or the user is logged into Codex), `entrypoint.sh` (`configure_consult_llm`) configures the `consult-llm-mcp` MCP server for **both** Claude Code (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). Pi reaches it through the pi-mcp-adapter `mcp` proxy with `lifecycle: "lazy"`, so the server starts only when the user explicitly asks to consult an external LLM. On each start, entrypoint replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing the old always-on `keep-alive` / `directTools` fields while preserving unrelated user MCP servers.
 
@@ -356,7 +376,8 @@ Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude),
 
 ---
 
-## Push & Deploy
+<a id="push--deploy"></a>
+## Release and Deployment Alias
 
 Optional feature that lets users connect GitHub and Cloudflare accounts once in Settings. Tokens are stored in KV (`deploy-keys:{bucketName}`), validated against provider APIs on save, and injected as environment variables into every container session.
 
@@ -384,26 +405,17 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
-- [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility) - Packaged compatibility of fixed inventories
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted tools
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup
-- [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome) - Account-free Browser IDE chrome
-- [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol) - Native Pi blocking UI protocol
-- [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
-- [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
-- [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle
-- [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
-- [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection) - Input-based idle detection
-- [REQ-SESSION-008](../../sdd/spec/session-lifecycle.md#req-session-008-container-restart-preserves-r2-bucket) - Container restart preserves R2 bucket
-- [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) - Container destroy wipes session state
-- [REQ-SESSION-011](../../sdd/spec/session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) - Graceful shutdown with final sync
-- [REQ-SESSION-013](../../sdd/spec/session-lifecycle.md#req-session-013-sleep-timer-countdown-ui) - Sleep timer countdown UI
-- [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
-- [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (enterprise only; `interceptOutboundHttps` wired before `container.start()`)
+| Runtime concern | Requirements | Source owner | Observable evidence |
+|---|---|---|---|
+| Image and pinned inventory | REQ-OPS-011, REQ-IDE-005/010 | `Dockerfile`, package manifests, image checks | Installed versions and packaged inventory tests |
+| Startup/readiness | Session Lifecycle and Storage SDD | `entrypoint.sh`, host health/prewarm, lifecycle route | Init status plus port/readiness gates |
+| Idle and status reconciliation | REQ-OPS-016/017, REQ-SESSION-005/013/018 | container metrics/lifecycle modules | DO/KV state and countdown/client behavior |
+| Finalization/teardown | REQ-OPS-010, REQ-SESSION-008/009/011 | `Container.destroy()` lifecycle and entrypoint backstop | Final drain result and authoritative persisted state |
+| Browser IDE runtime | REQ-IDE-006/007/008/021/022 | host, OpenVSCode package, agent-sidebar extension | Shared IDE conversation and bounded approval/process behavior |
+| Enterprise interception | [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) | Worker container-start composition | Interceptor installation before `container.start()` |
 
 ---
 

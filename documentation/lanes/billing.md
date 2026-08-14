@@ -1,211 +1,148 @@
-# Billing & Subscription System
-
-Stripe payment integration, subscription tiers, usage tracking, and paygate enforcement for Codeflare SaaS mode.
+<a id="billing--subscription-system"></a>
+# Billing and Entitlement
 
 **Audience:** Operators, Developers
 
-See [Authentication](authentication.md) for auth flows. See [User Provisioning](user-provisioning.md) for JIT provisioning and subscription UX.
+**Owns:** tier configuration, effective entitlement, checkout and provider synchronization, Timekeeper accounting, quota consequences, concurrent-session/mode policy, administrative tier changes, and commercial notifications.
 
----
+**Does not own:** identity proof, JIT record creation, container teardown mechanics, webhook threat controls, or provider-secret placement.
 
 ## Contents
 
-- [Subscription Tiers](#subscription-tiers)
-- [Stripe Payment Integration](#stripe-payment-integration)
-- [Timekeeper DO (Usage Tracking)](#timekeeper-do-usage-tracking)
-- [Paygate Enforcement](#paygate-enforcement)
-- [Admin Subscription Management](#admin-subscription-management)
-- [Email Notifications](#email-notifications)
-- [Specification Coverage](#specification-coverage)
+- [Commercial Model](#commercial-model)
+- [Checkout and Subscription Lifecycle](#checkout-and-subscription-lifecycle)
+- [Usage Accounting](#usage-accounting)
+- [Enforcement](#enforcement)
+- [Administrative Operations](#administrative-operations)
+- [Commercial Notifications](#commercial-notifications)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-## Subscription Tiers
+<a id="subscription-tiers"></a>
+## Commercial Model
 
-Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`.
+Codeflare uses eight stable tier IDs. Deployments may edit commercial values, but IDs and compatibility semantics remain part of the contract.
 
-**Default tier configuration** (from `getDefaultTiers()` in `src/lib/subscription.ts`):
+| ID | Default display | Hours/month | Sessions | Modes | Storage | Login |
+|---|---|---:|---:|---|---:|---|
+| `blocked` | Blocked | 0 | 0 | — | 0 | no |
+| `pending` | Pending | 0 | 0 | — | 0 | yes, activation flow only |
+| `free` | Free | 4h | 1 | Standard | 250 MB | yes |
+| `trial` | Trial | 5h | 2 | Standard | 500 MB | yes |
+| `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB | yes |
+| `advanced` | Advanced | 80h | 2 | Standard, Pro | 1 GB | yes |
+| `max` | Max | 160h | 3 | Standard, Pro | 2 GB | yes |
+| `unlimited` | Custom | unlimited | 5 | Standard, Pro | unlimited | yes |
 
-| ID | Display Name | Hours/Month | Sessions | Modes | Storage | canLogin |
-|----|-------------|-------------|----------|-------|---------|----------|
-| `blocked` | Blocked | 0 | 0 | - | 0 | false |
-| `pending` | Pending | 0 | 0 | - | 0 | true |
-| `free` | Free | 4h | 1 | Standard | 250 MB | true |
-| `trial` | Trial | 5h | 2 | Standard | 500 MB | true |
-| `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB | true |
-| `advanced` | Advanced | 80h | 2 | Standard, Pro | 1 GB | true |
-| `max` | Max | 160h | 3 | Standard, Pro | 2 GB | true |
-| `unlimited` | Custom | Unlimited | 5 | Standard, Pro | Unlimited | true |
+`tiers:config` in KV stores deployment overrides. `getTierConfig()` caches the record for sixty seconds and falls back to source-defined defaults when no valid override is available. The provider returns display prices; admin configuration owns Standard and Pro Stripe price slots. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
-Prices, trial hours, and other parameters are configurable per deployment via the admin Subscription Management panel. Prices come from Stripe via admin-configured price slots per tier: `stripePriceId` (Standard mode) and `stripeAdvancedPriceId` (Pro mode) (CF-027). The mode-on-plan-change reconcile (below) reverse-looks-up these slots when the price carries no `mode` metadata.
+### Effective entitlement
 
-**Graceful degradation:** When `STRIPE_SECRET_KEY` is not set, all tiers work via direct `POST /api/auth/subscribe` without payment.
+The effective tier is not a frontend label. Source resolves current `subscriptionTier`, compatible legacy `accessTier`, billing status, configured tier existence/default, deployment mode, paid `subscribedMode`, and requested/stored session mode. Billing downgrade rules can reduce effective entitlement even when a stale user record names a higher tier. Provider truth is authoritative for paid subscription state; KV is its serving projection.
 
-**Tier storage and caching:**
-- Stored in `user:{email}` KV record as `subscriptionTier`
-- `getTierConfig()` reads from KV with 60-second module-level TTL, falling back to defaults
-- Admin changes via `/admin/subscriptions` write to `tiers:config` KV key; take effect within 60 seconds
+Legacy records without `subscriptionTier` retain their documented fallback. Non-SaaS deployments use their non-commercial access path; Enterprise applies its explicit override. [Authentication](authentication.md) owns identity and [User Provisioning](user-provisioning.md) owns initial record creation.
 
-**Tier resolution logic (`src/lib/subscription.ts`):**
-- `isActiveTier(tier)` - returns true for free/trial/standard/advanced/max/unlimited (undefined -> true for backward compat)
-- `getUserTier(tierValue, tiers)` - resolves tier config; falls back to the tier with `isDefault: true`
-- `getMaxSessionsForTier(tierValue, tiers)` - max concurrent sessions
-- `getAllowedSessionModes(tierValue, tiers)` - list of allowed session modes
+<a id="stripe-payment-integration"></a>
+## Checkout and Subscription Lifecycle
 
-**Backward compatibility:** Legacy `accessTier` field (4-tier system) is maintained. Code reads `subscriptionTier` first, falls back to `accessTier`. Non-SaaS users without a tier default to `unlimited` access.
+### Checkout initiation
 
----
+When Stripe is configured, paid tiers use Stripe Checkout; the free tier remains direct. The backend derives supported currency from `CF-IPCountry`, creates a provider session, and redirects to the hosted checkout. After `checkout=success`, the frontend polls auth status every three seconds without a total deadline; after five minutes it exposes a report-problem control and continues polling. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 
-## Stripe Payment Integration
+When Stripe is intentionally not configured, deployment policy may permit the direct subscription route. This is a configured mode, not a fail-open response to an unexpected provider outage. Turnstile behavior for initial activation is conditional on configuration and new-subscription state; the exact route contract belongs to the [API Reference](api-reference.md#auth-saas-mode).
 
-When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment).
+### Stripe signal-and-sync
 
-**Architecture - Signal and Sync pattern:** Webhooks are signals that trigger a fetch of the latest state from Stripe. KV is a read cache, not the source of truth.
+Webhooks are authenticated signals, not subscription truth. `checkout.session.completed`, update, and deletion events cause Codeflare to fetch the current provider state. `syncSubscriptionState()` resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not the ordering authority. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
-- Library: `src/lib/stripe.ts` - checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
-- Currency detection: `src/lib/currency.ts` - `getCurrencyForCountry(country)` maps ISO country code to CHF/USD/EUR/GBP. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing).
-- Billing routes: `src/routes/billing.ts` - `POST /api/billing/checkout`, `GET /api/billing/status`, `POST /api/billing/switch`
-- Webhook: `src/routes/stripe-webhook.ts` - `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
+Price metadata supplies mode when present; otherwise configured Standard/Pro price slots determine tier and mode. A mode or entitlement change reconciles agent configuration so removed capabilities do not persist from the previous subscription.
 
-**Checkout flow:**
-1. User selects paid tier -> frontend calls `POST /api/billing/checkout` with `{ tier, mode }`
-2. Backend detects visitor currency from `CF-IPCountry` header, creates Stripe Checkout Session
-3. Frontend redirects to Stripe-hosted checkout
-4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
-5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook activation
-6. Stripe sends `checkout.session.completed` -> handler maps email->customer, calls `syncSubscriptionState()`
+### Cancellation, past due, and provider unavailability
 
-**Webhook events handled:**
-- `checkout.session.completed` - maps email->customer in KV, calls `syncSubscriptionState()`, sends admin notification
-- `customer.subscription.updated` - delegates entirely to `syncSubscriptionState()`
-- `customer.subscription.deleted` - writes `billingStatus: 'canceled'`, resets tiers to `free`
+Cancellation writes the canceled billing state and applies the source-defined fallback entitlement. Billing-status enforcement controls whether provider grace/past-due states retain access. A missing or failed provider response never becomes newer subscription truth; reconciliation remains retryable and observable through the serving projection.
 
-**`syncSubscriptionState(customerId, subscriptionId, env)`:**
-1. Resolves email from customer ID (KV lookup with Stripe API fallback)
-2. Calls `fetchSubscription()` - fetches latest subscription state from Stripe
-3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook overwriting newer state)
-4. Writes via `updateUserRecord()` (preserves existing KV fields).
+Webhook signature validation and replay/threat controls belong to [Security](security.md); exact webhook and checkout envelopes belong to the [API Reference](api-reference.md#billing).
 
-     `subscribedMode` is resolved from `price.metadata.mode` when present; otherwise the price ID is matched against the tier config's `stripePriceId` / `stripeAdvancedPriceId` slots (`resolveTierFromPriceId`), so a Standard<->Pro plan change always flips the mode even when prices are wired via tier slots rather than per-price metadata.
-5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination, recreating the new mode's skills and removing the previous mode's.
+<a id="timekeeper-do-usage-tracking"></a>
+## Usage Accounting
 
-   It also flips the `sessionMode` preference. Lazy: a running session is unaffected until next start. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) AC6-AC7.
+One Timekeeper Durable Object owns each user's in-flight usage accumulator. A ping carries the bound bucket, session, cumulative total, and email. Timekeeper validates the bound identity, calculates a per-session delta, clamps one ping to 300 seconds, caps remembered sessions, persists accumulator state, and arms the flush alarm. <!-- @impl: src/timekeeper/index.ts -->
 
-**Security:**
-- Webhook at `/public/stripe/webhook` bypasses CF Access (same as `/public/auth/providers`)
-- HMAC-SHA256 signature verification via `crypto.subtle.timingSafeEqual()`
-- 5-minute timestamp tolerance prevents replay attacks
-- Event deduplication via `stripe:event:{eventId}` KV key with 72-hour TTL
+| State | Authority / behavior |
+|---|---|
+| `pendingSeconds` and per-session totals | Durable Object storage; restored through `blockConcurrencyWhile` |
+| Aggregated day/week/month/year/all-time record | `timekeeper:{bucket}` KV after successful flush |
+| Real-time usage query | Flushed KV plus pending durable accumulator |
+| Monthly entitlement | Effective tier configuration, not a client-provided value |
 
-**KV fields added to user record (billing):** `stripeCustomerId`, `stripeSubscriptionId`, `stripePriceId`, `billingPeriodEnd`, `checkoutSessionId`, `billingStatus` (`active`/`trialing`/`past_due`/`canceled`), `lastSyncedAt`, `cancelAtPeriodEnd`.
+Pending usage is decremented only after a successful KV write. Timekeeper identity mismatch fails closed with 403. Timekeeper itself is an accounting and quota signal, not an atomic session-admission reservation.
 
-**Billing enforcement (`getEffectiveTier()`):**
-- `billingStatus === CANCELED` -> immediate downgrade to `free`
-- `billingStatus === PAST_DUE` + future `billingPeriodEnd` -> keep paid tier (grace period)
-- `billingPeriodEnd` expired + `billingStatus === ACTIVE` -> downgrade to `free` (catches missed webhooks, CF-015)
-- Stored `subscriptionTier` preserved in KV so resubscription restores the correct plan
+<a id="paygate-enforcement"></a>
+## Enforcement
 
-**Trial model:** Every paid tier has a configurable `trialQuotaHours`. Trial is compute-based, not time-based. When trial compute quota is consumed, Timekeeper calls `endTrialNow()` to end the Stripe trial immediately and trigger the first charge. `trialUsed: true` set in KV prevents infinite free trials via subscribe->cancel->resubscribe.
+### Session-start quota gate
 
----
+`POST /api/container/start` resolves effective tier, reads monthly usage, and returns HTTP 402 `QUOTA_EXCEEDED` when a finite quota is exhausted. It skips commercial quota enforcement outside SaaS and in explicit stress mode. If the quota KV read fails, the start check fails open to availability; the consequence is temporary overuse/cost exposure, not cross-user access. The error is logged and later accounting remains authoritative. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 
-## Timekeeper DO (Usage Tracking)
+### Mid-session quota response
 
-One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper every 60 seconds with monotonic `totalSeconds` per session. Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes.
+Timekeeper checks quota on pings. A confirmed exceeded quota asks the Container DO to stop with `SIGTERM`, allowing the lifecycle-owned final persistence drain. If Timekeeper cannot read the quota projection, the active-session check fails open rather than evicting on uncertain state; subsequent pings retry. Container teardown mechanics belong to [Container](container.md).
 
-```
-Container DO (session 1) --> ping --> Timekeeper DO (user X)
-Container DO (session 2) --> ping --> Timekeeper DO (user X)
-                                           |
-                                  flush every 5 min (alarm)
-                                           |
-                                           v
-                                KV: timekeeper:{bucketName}
-```
+### Concurrent-session and mode gates
 
-**Ping handler** (`POST /ping`): receives `{ bucketName, sessionId, totalSeconds, email }`, computes delta per session, accumulates pendingSeconds, arms alarm, checks quota. Returns `{ quotaExceeded, totalMonthlySeconds }`.
+Concurrent-session admission uses the configured effective-tier limit and counts observed `running` plus `initializing` sessions. The KV count and later running write are not atomic, so simultaneous starts can exceed the nominal limit; this is best-effort resource protection, not a security boundary or hard billing reservation. Deployment `max_instances` remains a separate platform ceiling.
 
-**Usage query** (`GET /usage`): returns real-time usage (KV flushed + pending in-memory).
+Advanced session authorization combines configured allowed modes, effective tier, paid `subscribedMode`, stored preference, billing downgrade, and Enterprise override. Settings cannot manufacture paid entitlement.
 
-**Mid-session eviction:** when Timekeeper returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')` (not SIGKILL) so the entrypoint trap runs the final rclone bisync before exit. See [REQ-SUB-008](../../sdd/spec/subscription.md#req-sub-008-mid-session-quota-enforcement-graceful-stop).
+### User consequence and observability
 
-KV value shape at `timekeeper:{bucketName}`:
-```typescript
-interface UsageRecord {
-  today:     { date: string; seconds: number };
-  thisWeek:  { weekStart: string; seconds: number };
-  thisMonth: { month: string; seconds: number };
-  thisYear:  { year: string; seconds: number };
-  allTime:   { seconds: number };
-  lastUpdatedAt: string;
-}
-```
+The frontend renders `QUOTA_EXCEEDED`, disables starts at the observed session limit, and displays SaaS usage from batch status. Warnings appear at 80%, 95%, and 100% of monthly quota; only lower warnings are dismissible for the UTC month. User-facing displays are projections; server enforcement remains authoritative.
 
-**Crash resilience:** Constructor restores all state via `blockConcurrencyWhile()`. Persisted fields: `pendingSeconds`, `sessionTotals`, `bucketName`, `email`, `lastFlushedMonthlyTotal`. Only decrements `pendingSeconds` after successful KV write.
+## Administrative Operations
 
-**Security:**
-- Identity validation: stores `bucketName` and `email` on first ping; subsequent pings with mismatched identity are rejected 403
-- Delta clamping: per-ping delta capped at 300s (`MAX_DELTA_PER_PING`) to prevent corruption-driven usage spikes
-- `sessionTotals` map capped at 30 entries (oldest evicted first) to prevent unbounded growth
-- Only reachable via internal Worker-to-DO RPC, not public internet
+<a id="admin-subscription-management"></a>
+Administrators manage the six editable tiers; blocked and pending remain protected system states. The editor covers compute, sessions, storage, Standard/Pro provider price IDs, advanced-mode availability, trial quota, and description. Provider-returned display prices are read-only. `PUT /api/admin/tiers` validates the complete tier array and writes `tiers:config`; cache propagation is bounded by the sixty-second TTL. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
 
----
+Changing a user to `advanced`, `max`, or `unlimited` may initialize the next-session preference to advanced, but effective authorization still follows the complete policy above. User transition mechanics belong to [User Provisioning](user-provisioning.md).
 
-## Paygate Enforcement
+<a id="email-notifications"></a>
+## Commercial Notifications
 
-Session start (`POST /api/container/start`) checks tier-based usage quota in `validateSessionAndCheckLimits()`:
-1. Resolves user's tier from `subscriptionTier ?? accessTier`
-2. Reads monthly usage from `timekeeper:{bucketName}` KV
-3. Compares against `tier.monthlySeconds` (skip for `null`/unlimited)
-4. Throws `QuotaExceededError` (HTTP 402, code `QUOTA_EXCEEDED`) if exceeded
-5. Skips for non-SaaS mode and stress test mode; fail-open on KV errors
+Subscription and administrator notifications are best-effort Resend messages scheduled without blocking the commercial state transition. Subscriber messages identify old/new plan and mode, quota/session effects, provider/trial status, and activation time. Administrator messages use the subscriber as reply-to. Provider-secret placement belongs to [Configuration](configuration.md).
 
-Frontend detects `code === 'QUOTA_EXCEEDED'` and shows upgrade CTA.
+Welcome delivery is not a billing event. It is claimed through the strongly serialized provisioning path and uses deterministic provider idempotency; [User Provisioning](user-provisioning.md) owns that handoff.
 
-**Usage display:** The `GET /api/sessions/batch-status` response includes an optional `usage` field (SaaS mode only) with `{ dailySeconds, monthlySeconds, monthlyQuotaSeconds, tier }`. Warning banners appear at 80%, 95%, 100% of monthly quota. The 80%/95% banners are dismissible per UTC month (localStorage). The 100% banner is not dismissible and blocks session creation. Implements [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page).
+## Failure Posture and Residual Risk
 
----
+| Boundary | Posture | Consequence / owner |
+|---|---|---|
+| Invalid checkout input or signature | Fail closed | No provider or user mutation; API/Security owners |
+| Missing intentionally optional Stripe configuration | Configured direct-flow behavior | Deployment policy must make this explicit |
+| Stale/out-of-order webhook | Newest-start token prevents older sync applying | Retry provider fetch; Billing owner |
+| Tier-config read invalid/missing | Source defaults | Temporary configuration mismatch; operator logs/cache window |
+| Session-start usage KV unavailable | Fail open | Temporary quota overrun/cost; Billing owner |
+| Active-session quota projection unavailable | Fail open | Session continues until a later confirmed check |
+| Simultaneous starts | Best effort | Nominal per-user limit may be exceeded; not a security boundary |
 
-## Admin Subscription Management
+## Requirement and Source Map
 
-Standalone admin page at `/admin/subscriptions`. Features:
-- Displays 6 editable tiers (free, trial, standard, advanced, max, unlimited; blocked/pending are read-only)
-- Edit form: monthly compute hours, max sessions, allowed session modes, monthly price, trial period, description
-- Submit -> `PUT /api/admin/tiers` -> validates 8-tier array -> writes `tiers:config` to KV
-- Admin changes take effect within 60 seconds (module-level cache refresh)
+Exhaustive requirement status remains in `sdd/spec/subscription.md`. This map records canonical concern entry points.
 
----
+| Concern | Requirements / decisions | Implementation | Evidence |
+|---|---|---|---|
+| Tier and effective entitlement | [REQ-SUB-001](../../sdd/spec/subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](../../sdd/spec/subscription.md#req-sub-012-billing-status-enforcement-effective-tier) | `src/lib/subscription.ts` | subscription/access-tier suites |
+| Stripe checkout and synchronization | [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) | `src/lib/stripe.ts`, `src/routes/stripe-webhook.ts` | checkout/webhook suites |
+| Usage accounting and quota | [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402), [REQ-SUB-008](../../sdd/spec/subscription.md#req-sub-008-mid-session-quota-enforcement-graceful-stop) | `src/timekeeper/index.ts`, lifecycle validation | Timekeeper/lifecycle suites |
+| Concurrent sessions | [REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits), [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | session lifecycle/counting | simultaneous-start evidence documents best-effort behavior |
+| Usage display | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | batch status and frontend usage surfaces | frontend behavioral suites |
+| Currency | [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) | `src/lib/currency.ts` | currency suite |
 
-## Email Notifications
-
-Notifications via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret). All sending is non-blocking and non-fatal. `RESEND_API_KEY` must be a Worker secret (`wrangler secret put`), not just a GitHub Actions secret.
-
-**Subscription emails** (`sendSubscriptionEmail`): Show old/new plan+mode, compute hours, sessions, price, trial/billing status, activation timestamp, instance URL.
-
-**Admin notifications** (`sendSubscriptionAdminNotification`): Same format, sent to all admin-role users. Reply-to set to subscriber's email.
-
-**Welcome email:** JIT-provisioned users receive a welcome email on first login. A `welcome-sent:{email}` KV flag with 24h TTL prevents duplicate sends.
-
----
-
-## Specification Coverage
-
-- [REQ-SUB-001](../../sdd/spec/subscription.md#req-sub-001-eight-tier-subscription-system) - Eight-Tier Subscription System
-- [REQ-SUB-002](../../sdd/spec/subscription.md#req-sub-002-tier-property-definitions) - Tier Property Definitions
-- [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do) - Real-Time Usage Tracking via Timekeeper DO
-- [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) - Quota Enforcement at Session Start (402)
-- [REQ-SUB-010](../../sdd/spec/subscription.md#req-sub-010-tier-config-cached-with-60-second-ttl) - Tier Config Cached with 60-Second TTL
-- [REQ-SUB-012](../../sdd/spec/subscription.md#req-sub-012-billing-status-enforcement-effective-tier) - Billing Status Enforcement (Effective Tier)
-- [REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits) - Concurrent Session Limits
-- [REQ-SUB-014](../../sdd/spec/subscription.md#req-sub-014-session-mode-gating-by-tier) - Session Mode Gating by Tier
-- [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) - Stripe Webhook Signal-and-Sync Pattern
-- [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) - Enterprise tier contact flow
-- [REQ-SUB-019](../../sdd/spec/subscription.md#req-sub-019-session-limit-popup-in-frontend) - Session limit popup in frontend
-
----
-
+<a id="specification-coverage"></a>
 ## Related Documentation
 
-- [Authentication](authentication.md) - Auth flows, SaaS mode, three-tier middleware
-- [User Provisioning](user-provisioning.md) - JIT provisioning, subscribe page, frontend components
-- [Configuration](configuration.md#secrets) - Worker secrets
-- [Architecture](architecture.md) - System overview
+- [Authentication](authentication.md) — verified principal and middleware
+- [User Provisioning](user-provisioning.md) — durable user transitions
+- [Security](security.md) — webhook, credential, and abuse controls
+- [API Reference](api-reference.md#billing) — checkout/status/webhook envelopes
+- [Configuration](configuration.md) — public provider settings
+- [Subscription requirements](../../sdd/spec/subscription.md) — exhaustive normative behavior

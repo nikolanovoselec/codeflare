@@ -339,6 +339,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-011-review-with-pi-explorer-action"></a>
 ### REQ-IDE-011: File review with Codeflare
 
 **Intent:** A Pi user can send one Explorer workspace file to Codeflare for review without entering a separate account-backed workflow.
@@ -396,6 +397,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-013-account-free-native-pi-chat"></a>
 ### REQ-IDE-013: Account-backed Code Review suppression
 
 **Intent:** A Pi user sees the account-free Codeflare review path without Code OSS's unrelated account-backed Code Review action.
@@ -422,6 +424,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-014-editor-context-native-chat-review"></a>
+<a id="req-ide-014-review-with-pi-editor-context-action"></a>
 ### REQ-IDE-014: Active-editor review with Codeflare
 
 **Intent:** A Pi user can send the active workspace file to Codeflare from the editor context menu.
@@ -722,11 +726,12 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Pi, Claude, and unsupported sessions open a Codeflare welcome editor. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) -->
-2. The welcome editor explains traditional VS Code functionality, the observability-plane role, and the shared isolated ephemeral container. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5: welcome HTML explains the editor plane without external content) -->
+2. The welcome editor explains full VS Code availability, the observability-plane role, and the shared isolated ephemeral container. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
 3. The welcome editor adapts to light and dark themes, responsive viewport widths, and reduced-motion preferences. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @manual: On deployed integration, verify the welcome editor in light and dark themes at desktop and mobile widths, including reduced motion. -->
-4. The welcome action opens Codeflare Chat for Pi, opens the official Claude Code panel for Claude, and exposes no agent action for unsupported selections. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent) -->
-5. The welcome extension loads no external content. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5: welcome HTML explains the editor plane without external content) -->
+4. The welcome action opens Codeflare Chat for Pi, opens the official Claude Code panel for Claude, and exposes no agent action for unsupported selections. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent) -->
+5. The welcome extension loads no external content. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
 6. The welcome extension contributes no Chat participant, language-model provider, or agent view and leaves agent inventory ownership unchanged. <!-- @impl: openvscode/agent-sidebar/welcome-package.json --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-024 AC6: the shared welcome extension contributes no agent surface) -->
+7. The welcome editor identifies native Pi, official Claude Code, or editor-only mode according to the selected inventory. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
 
 **Constraints:**
 

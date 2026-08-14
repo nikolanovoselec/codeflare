@@ -345,6 +345,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-119-bounded-settled-review-follow-ups"></a>
 ### REQ-AGENT-119: Settled review follow-up accounting
 
 **Intent:** Missing PR-boundary launch recovery must be bounded independently for each PR head in a normal checkout.
@@ -369,6 +370,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-120-claude-protected-base-review-boundaries"></a>
 ### REQ-AGENT-120: Claude review enforcement lifecycle
 
 **Intent:** Claude must complete an eligible review through bounded enforcement, tool-free triage, exact-head acknowledgement, and a separate FIX handoff.
@@ -2060,7 +2062,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Audit trail --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
+1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) --> <!-- @manual -->
 2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-clean half)) --> <!-- @manual -->
 
 **Constraints:** None.
