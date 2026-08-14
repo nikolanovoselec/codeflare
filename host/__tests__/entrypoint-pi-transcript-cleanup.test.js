@@ -135,7 +135,7 @@ describe('cleanup_old_pi_transcripts / REQ-STOR-012 (keeps 5 newest Pi .jsonl, d
     }
   });
 
-  test('no-op when total transcripts <= KEEP_COUNT (5)', () => {
+  test('no-op when total transcripts <= KEEP_COUNT (5) and retained bytes are within budget', () => {
     const scratch = makeScratch();
     try {
       const sessionsDir = join(scratch.dir, '.pi', 'agent', 'sessions', '--home-user-workspace--');
@@ -148,7 +148,36 @@ describe('cleanup_old_pi_transcripts / REQ-STOR-012 (keeps 5 newest Pi .jsonl, d
       runCleanupIn(scratch.dir);
 
       const survivors = readdirSync(sessionsDir).filter((n) => n.endsWith('.jsonl'));
-      assert.equal(survivors.length, 4, 'all 4 transcripts must survive when count <= KEEP_COUNT');
+      assert.equal(survivors.length, 4, 'all 4 transcripts must survive when count and bytes are within limits');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('preserves an oversized newest transcript while pruning older transcripts and task logs', () => {
+    const scratch = makeScratch();
+    try {
+      const sessionsDir = join(scratch.dir, '.pi', 'agent', 'sessions', '--home-user-workspace--');
+      mkdirSync(sessionsDir, { recursive: true });
+
+      const now = Date.now() / 1000;
+      const older = join(sessionsDir, 'older.jsonl');
+      writeFileSync(older, '{}\n');
+      utimesSync(older, now - 60, now - 60);
+      const olderTasks = join(sessionsDir, 'older', 'tasks');
+      mkdirSync(olderTasks, { recursive: true });
+      writeFileSync(join(olderTasks, 'task.jsonl'), '{}\n');
+
+      const newest = join(sessionsDir, 'newest.jsonl');
+      writeFileSync(newest, '');
+      truncateSync(newest, 300 * 1024 * 1024);
+      utimesSync(newest, now, now);
+
+      runCleanupIn(scratch.dir);
+
+      assert.equal(existsSync(newest), true, 'the newest transcript must survive even when it alone exceeds the budget');
+      assert.equal(existsSync(older), false, 'older transcripts must be pruned after an oversized newest transcript');
+      assert.equal(existsSync(olderTasks), false, 'pruned older transcript task logs must also be deleted');
     } finally {
       scratch.cleanup();
     }
