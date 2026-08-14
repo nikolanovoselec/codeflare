@@ -74,7 +74,7 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) | Start container (5 requests/user/minute; enforces concurrent-running and compute quota; non-blocking) |
+| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) | Start container (5 requests/user/minute; checks current concurrent-running count and compute quota; non-blocking) |
 | POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Destroy container (SIGKILL) |
 | GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
@@ -94,6 +94,10 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 | `error` | 0 | Initial sync failed or the startup-status handler failed |
 
 These are endpoint observations, not persisted lifecycle states. `details` identifies container, sync, host, terminal, and metric observations when available.
+
+Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later KV `running` write are not atomic, so it is a best-effort policy guard under simultaneous starts rather than the deployment's hard capacity boundary.
+
+A successful start response means asynchronous startup was accepted, not that ports are ready. If `startAndWaitForPorts()` later fails, the background task rolls KV back to `stopped`; clients observe `stopped` through startup status rather than a persisted `error` lifecycle state. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
 ## Terminal
 

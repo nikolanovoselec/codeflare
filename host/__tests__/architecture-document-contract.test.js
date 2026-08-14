@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, extname, join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -188,26 +189,25 @@ function componentSections(markdown) {
   return components;
 }
 
-function findMarkdownFiles(directory) {
-  if (!existsSync(directory)) return [];
-  const result = [];
-  for (const name of readdirSync(directory)) {
-    const path = join(directory, name);
-    if (statSync(path).isDirectory()) result.push(...findMarkdownFiles(path));
-    else if (extname(path) === '.md') result.push(path);
-  }
-  return result;
-}
-
 function architectureLinks(path) {
   const markdown = readFileSync(path, 'utf8');
   const links = [];
   for (const line of outsideFences(markdown)) {
     for (const match of line.matchAll(/\[[^\]]*\]\(([^)]*architecture\.md)(?:#([^)]+))?\)/g)) {
-      links.push({ target: resolve(dirname(path), match[1]), fragment: match[2] });
+      if (!match[1].includes('://')) links.push({ target: resolve(dirname(path), match[1]), fragment: match[2] });
+    }
+    for (const match of line.matchAll(/href=["']([^"']*architecture\.md)(?:#([^"']+))?["']/gi)) {
+      if (!match[1].includes('://')) links.push({ target: resolve(dirname(path), match[1]), fragment: match[2] });
     }
   }
   return links;
+}
+
+function trackedMarkdownFiles() {
+  return execFileSync('git', ['ls-files', '*.md'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    .map((path) => join(ROOT, path));
 }
 
 function localMarkdownLinks(path) {
@@ -257,12 +257,7 @@ describe('Architecture documentation contract', () => {
   });
 
   it('keeps every repository link into Architecture resolvable', () => {
-    const files = [
-      join(ROOT, 'README.md'),
-      join(ROOT, 'CONTRIBUTING.md'),
-      ...findMarkdownFiles(join(ROOT, 'documentation')),
-      ...findMarkdownFiles(join(ROOT, 'sdd')),
-    ];
+    const files = trackedMarkdownFiles();
     const counts = fragmentCounts(parsed);
     for (const path of files) {
       for (const link of architectureLinks(path)) {

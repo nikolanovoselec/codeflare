@@ -411,10 +411,13 @@ sequenceDiagram
     participant DO as Container DO
     participant C as Container host
     U->>W: Create session
+    W->>W: Validate identity, agent policy, and storage quota
     W->>KV: Persist session record
     U->>W: Start session
+    W->>W: Check migration, installed agent, session policy, and compute quota
+    W->>DO: Bind session, bucket, credentials, and preferences
     W->>KV: Write persisted running status
-    W->>DO: Bind session and bucket; start container
+    W->>DO: Start container asynchronously
     DO->>C: Restore workspace; start host and selected services
     U->>W: Poll startup status
     W-->>U: Ready
@@ -423,9 +426,11 @@ sequenceDiagram
     DO->>C: PTY stream
 ```
 
-**Authority:** An active authenticated user may create the record. Creation and start are distinct operations: creation does not consume a concurrent-running slot; start enforces role/tier concurrency and compute quota, then writes KV `running` before asynchronous container startup. The Container DO coordinates startup, and successful host readiness owns service availability.
+**Authority:** An active authenticated user may create the record. Creation and start are distinct operations: creation does not consume a concurrent-running slot; start checks role/tier concurrency and compute quota, binds the Container DO, then writes KV `running` before asynchronous startup. The KV count check and later status write are not atomic, so simultaneous starts can oversubscribe this policy guard; deployment `max_instances` is the hard capacity boundary. Successful host readiness owns service availability.
 
-**Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes.
+Creation may reject enterprise agent policy or SaaS storage quota. Start may reject bucket migration, unavailable agent, the current session-count guard, or compute quota. An accepted asynchronous start that later fails rolls KV back to `stopped` rather than producing a persisted `error` state.
+
+**Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes. [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) owns operator diagnosis.
 
 **Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
 
@@ -635,6 +640,7 @@ CI monitoring launches independently after required reviewers are launched. It o
 | Worker isolate/cache | Isolates temporarily read different cached configuration | KV plus bounded TTL/reset | [Architecture Internals](architecture-internals.md#module-level-caches) | Never treat isolate memory as durable authority |
 | Durable Object attachment | Host routes fail while platform may still report running | Correlated host probes and durable recovery record | [Container](container.md#auto-sleep-configurable-sleepafter) | Reconstruct the coordinator at most twice while preserving workload where possible |
 | Container process | KV says running but not-running persists | Confirmed container state | [Container](container.md#auto-sleep-configurable-sleepafter) | Write `stopped` only after the confirmation window |
+| Accepted asynchronous start | Start was accepted, then startup status returns to `stopped` | KV rollback plus Worker/container-start logs | [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped) | Preserve `stopped`; inspect policy/platform capacity and retry after correction |
 | False persisted stop | Health proves live while KV says stopped | Live health plus absence of shutdown marker | [Container](container.md#auto-sleep-configurable-sleepafter) | Re-assert `running` within one metrics tick |
 | Final persistence drain | Stop requested while local changes may be newer | Awaited host final-sync result | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) | Stop remains bounded; outcome is audited |
 | R2 bisync | Listings or transfer remain unrecoverable | Sync daemon state and health report | [Storage & Sync](storage-and-sync.md#vanishing-file-recovery) | Repair vanished files first; bounded baseline rebuild last |
@@ -648,7 +654,7 @@ CI monitoring launches independently after required reviewers are launched. It o
 | Signal | Meaning / non-evidence | Observed at | Escalate when | Runbook |
 |---|---|---|---|---|
 | KV session `status` | Authoritative persisted running/stopped; not immediate host readiness | Dashboard `/api/sessions/batch-status` | `stopped` disagrees with successful live health | [False stopped](troubleshooting.md#session-shows-stopped-on-the-dashboard-but-container-is-actually-running) |
-| Startup stage | Derived startup boundary; not persisted lifecycle status | `/api/container/startup-status` | `error`, or no progress while startup should be active | [Waiting for services](troubleshooting.md#container-stuck-at-waiting-for-services) |
+| Startup stage | Derived startup boundary; not persisted lifecycle status | `/api/container/startup-status` | Rejected start, accepted start returning to `stopped`, `error`, or no progress | [Start rejection/rollback](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped), [Waiting for services](troubleshooting.md#container-stuck-at-waiting-for-services) |
 | `lastInputAt` | Latest classified terminal or Browser IDE input; not agent output or liveness | Internal host `/activity`, surfaced through idle decisions and lifecycle logs | A session idles despite recent user input | [Container idle policy](container.md#auto-sleep-configurable-sleepafter) |
 | Metrics `updatedAt` | Last metrics publication; not liveness while the alarm loop sleeps | Dashboard batch status | Older than one 60-second metrics cycle while KV remains `running` | [Dashboard metrics](troubleshooting.md#dashboard-metrics-look-stale-or-cpu-exceeds-100) |
 | Terminal connection state | Visible-pane connectivity; not persisted session state | Terminal UI and client WebSocket state | Reconnecting persists after visibility return | [Terminal reconnect](troubleshooting.md#terminal-stuck-on-connecting-after-a-mobile-app-switch) |
@@ -670,9 +676,10 @@ Worker module caches are per isolate. Different isolates may observe configurati
 | Background R2 bisync | 15 minutes, plus manual triggers | Local files may lead R2 between reconciliations | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
 | Final persistence drain | 120-second sync budget; 135-second teardown cap | Stop stays bounded while awaiting durability before signalling the container | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
 | Background bisync baseline and PTY pre-warm | Run concurrently after the required initial restore; baseline sync is deprioritized on the default single-vCPU tier | Readiness waits for mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
-| Session create/start requests | 10 creates and 5 starts per minute per user | Creation records intent; start separately applies concurrency and compute-quota policy | [API Reference](api-reference.md#session-management), [Container](container.md) |
-| Concurrent running sessions | Non-SaaS defaults: 3 per user, 10 per admin; SaaS varies by effective tier | The limit is enforced at start, not record creation | [Configuration](configuration.md#container-specs), [Billing](billing.md) |
-| Container profiles | Low: 0.25 vCPU/1 GiB/4 GB; default: 1 vCPU/3 GiB/6 GB; high: 2 vCPU/6 GiB/12 GB; 10 instances per profile | Deployment selection defines the workload envelope | [Configuration](configuration.md#container-specs) |
+| Session create/start requests | 10 creates and 5 starts per minute per user | Creation records intent; start separately checks concurrency and compute-quota policy | [API Reference](api-reference.md#session-management), [Container](container.md) |
+| Concurrent-session policy | Non-SaaS defaults: 3 per user, 10 per admin; SaaS varies by effective tier | Checked at start, not record creation; the KV check/write gap permits simultaneous starts to oversubscribe | [Configuration](configuration.md#worker-environment), [Billing](billing.md), [AD6](../decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) |
+| Container resource profile | Low: 0.25 vCPU/1 GiB/4 GB; default or `saas`: 1 vCPU/3 GiB/6 GB; high: 2 vCPU/6 GiB/12 GB | One profile is selected per deployment | [Configuration](configuration.md#container-specs) |
+| Deployment container capacity | 10 instances by default; positive-integer `MAX_INSTANCES` override | This deployment-wide platform bound is distinct from the per-user policy guard | [Configuration](configuration.md#container-specs) |
 | Timekeeper user-record cache | 60 seconds; 100 entries per isolate | Quota decisions may briefly observe stale billing state | [Architecture Internals](architecture-internals.md#module-level-caches) |
 
 Container work runs on local disk. R2 is the durability boundary, not a FUSE filesystem. Capacity and sync performance therefore depend on bounded reconciliation, not remote latency for every file operation.

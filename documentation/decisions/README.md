@@ -237,6 +237,8 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 
 Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccessedAt` is best-effort. KV doesn't support atomic read-modify-write. Durable Objects would add latency for negligible consistency gain in this use case.
 
+**Update (2026-08-14):** the start-time concurrent-session policy has the same accepted boundary. A request counts KV list metadata before a later write marks its session `running`; simultaneous starts may both pass and oversubscribe the policy until a session stops. Per-user start rate limiting bounds request pressure, while deployment `max_instances` remains the hard platform capacity. The policy guard is not an atomic reservation.
+
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
 **Update (2026-06-02, [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)):** the specific Dashboard-side revert this note worried about was the read-side `reconcileStaleStatus` heuristic (a separate later addition), which inferred `stopped` from a stale `metrics.updatedAt` heartbeat and could falsely kick a still-live session. That heuristic was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153); KV `status` is now authoritative and written on every container exit, so the Dashboard renders it verbatim with no reconciliation. The remaining `collectMetrics` RMW concern (overlapping writes to the same record) is unchanged and still last-writer-wins.

@@ -103,13 +103,15 @@ The `workers.dev` URL is only the initial setup surface. After setup configures 
 
 ### Container Specs
 
-| Tier | Config | Max Instances | Notes |
-|------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 12 GB | 10 | Higher parallelism |
+| Tier | Config | Notes |
+|------|--------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
+| default or `saas` | 1 vCPU, 3 GiB, 6 GB | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
+| `high` | 2 vCPU, 6 GiB, 12 GB | Higher parallelism |
 
-Selected via the `RESSOURCE_TIER` GitHub Actions repo variable at deploy time (`low` / `default` / `high`). The misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
+One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
+
+The `RESSOURCE_TIER` misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
 
 Base image: Node.js 24 Debian (bookworm-slim).
 

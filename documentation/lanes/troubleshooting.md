@@ -255,6 +255,14 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 **Verify:** With permission granted and the terminal unfocused, a settled Pi turn or completed Claude task in terminal tab 1 produces one notification titled with the agent and session name. `useTerminal.test.ts` covers the late-store registration, `agent-notifications.test.ts` covers the activated-worker path, and `entrypoint-governed-sync.test.js` covers the bake backfill.
 
+### Container start is rejected or returns to stopped
+
+**Symptom:** Create/start returns a policy error, or start is accepted but `/api/container/startup-status` returns to `stopped` before services become ready.
+
+**Cause:** Creation can reject the enterprise agent allowlist or SaaS storage quota. Start can reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check is not atomic with its later KV `running` write, so simultaneous starts can oversubscribe that policy guard; deployment-wide `max_instances` is the hard platform capacity. After acceptance, `startAndWaitForPorts()` runs asynchronously and rolls KV back to `stopped` if platform/container startup fails.
+
+**Fix:** Read the original response before retrying. Correct the named agent, migration, storage, session-policy, or compute-quota condition. If start was accepted and then returned to `stopped`, use `wrangler tail` to find `Failed to start container`, confirm the deployment's `MAX_INSTANCES` and selected resource profile, and inspect startup/container logs. Retry only after policy or platform capacity is available; `stopped` is the expected durable rollback state, not evidence that startup reached readiness.
+
 ### Container Stuck at "Waiting for Services"
 
 **Symptom:** Container startup remains on the Waiting for Services screen and never reports ready.
@@ -623,8 +631,8 @@ Update the deploy to the build with the WebSocket-**bridge** path (`src/egress-c
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| GitHub panel not visible while `GET /api/github/status` returns `{ enabled: true }` | In non-enterprise modes the backend is enabled, but Dashboard shows the GitHub face only for `sessionMode === 'advanced'`; enterprise shows it whenever enabled ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). | Switch the session to Advanced/Pro, or use Guided Setup / Settings to connect GitHub while the panel is hidden. If Connect returns `503 GITHUB_NOT_CONFIGURED`, configure a GitHub App or OAuth provider. |
-| `GET /api/github/connect` returns `503 GITHUB_NOT_CONFIGURED` | No provider configured — neither a GitHub App (`GITHUB_APP_CLIENT_ID` + `GITHUB_APP_CLIENT_SECRET`) nor the OAuth App (`OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET`) is set | Set the GitHub App secrets (enterprise/EMU) or the OAuth App secrets (SaaS). A configured GitHub App takes precedence over the OAuth App. |
+| GitHub panel not visible while `GET /api/github/status` returns `{ enabled: true }` | The current Dashboard renders the GitHub face whenever GitHub is enabled, with no session-tier gate ([REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). A missing face indicates stale frontend assets/state rather than Standard versus Advanced mode. | Reload the current deployment assets and reopen the session/dashboard. Verify the deployed head contains the current GitHub panel and that the backend remains enabled; changing session tier is not a fix. |
+| `GET /api/github/connect` returns `503 GITHUB_NOT_CONFIGURED` | No provider is available. Every mode resolves the admin Setup KV provider first, then falls back to environment GitHub App or OAuth credentials when KV is unconfigured. | Configure the GitHub App or OAuth App in the admin Setup wizard. Environment credentials remain a fallback; a configured GitHub App takes precedence over OAuth. |
 | `/api/github/repos` returns `401 NOT_CONNECTED`, or the agent's git/`gh` calls fail with auth errors in enterprise | No valid token for the session — never connected, or an expired GitHub App token that could not be refreshed. The system fails closed and never falls back to a stale token. | Click **Connect GitHub** again to re-authorize. |
 | Clone fails with "already exists" / `409 CLONE_TARGET_EXISTS` | `$USER_WORKSPACE/<repo-name>` already exists; clone refuses to overwrite it | Remove or rename the existing folder, or clone into a new session. |
 | Clone returns `503 NOT_RUNNING` | The target session's container is asleep, so `POST /api/github/clone` (running-session path) cannot reach it | Start/wake the session first, or use the new-session clone (`POST /api/sessions` with a `clone` field), which clones before the agent starts ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)). |

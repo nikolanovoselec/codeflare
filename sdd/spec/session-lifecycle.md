@@ -205,7 +205,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-007: Running session count limited per tier
 
-**Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
+**Intent:** Each container start is checked against the configured concurrent-session policy to support fair usage and plan differentiation; deployment `max_instances` remains the hard platform capacity bound.
 
 **Applies To:** User
 
@@ -221,6 +221,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 - Tier limits are configurable per deployment via the admin Subscription Management panel.
 - The session-cap lookup respects an explicit zero value (a zero cap blocks all starts, not a fallthrough to default).
+- The KV list/count and the later `running` write are not atomic. Simultaneous starts may both pass the policy check and oversubscribe it until a session stops; this accepted last-writer-wins boundary is recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity).
 
 **Priority:** P1
 
