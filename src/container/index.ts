@@ -418,12 +418,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    *                        session to stopped and then sticks (REQ-SESSION-018
    *                        AC3). A monitor `Network connection lost` first enters
    *                        bounded DO reconstruction so a surviving container can
-   *                        be rediscovered. Other errors, or exhausted recovery,
-   *                        open the not-running confirmation window and re-arm
-   *                        collectMetrics, which
-   *                        confirms a genuine exit to 'stopped' within the window
-   *                        and clears it on recovery. Empirically onError is the
-   *                        COMMON way idle containers die: over a 96h prod sample
+   *                        be rediscovered. Other errors open the not-running
+   *                        confirmation window. Exhausted recovery returns a
+   *                        genuinely not-running container to that window; if the
+   *                        SDK instead leaves `running` stale at true, another
+   *                        complete probe failure writes `stopped`, requests
+   *                        `SIGTERM`, and retains non-billable retry ownership
+   *                        until both terminal operations succeed. Empirically
+   *                        onError is the COMMON way idle containers die: over a 96h prod sample
    *                        onActivityExpired fired 0x and the idle-stop 3x, while
    *                        onError fired on every unexpected exit (including a
    *                        near-daily ~00:00 UTC platform reap and any deploy
