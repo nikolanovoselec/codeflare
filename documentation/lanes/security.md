@@ -66,7 +66,7 @@ Onboarding access requests are reachable only after completed provider authentic
 <a id="api-token-containment"></a>
 ### Master and user provider credentials
 
-The Worker's deployment/account-management token never enters a session container. Non-Enterprise pasted user PATs may enter the user's own container at startup and must be scoped accordingly. Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. Enterprise Cloudflare Browser Rendering and GitHub interception similarly withhold supported real credentials and inject them only for configured account/organization paths. <!-- @impl: src/container/container-env.ts --> <!-- @impl: src/llm-interceptor.ts -->
+The Worker's deployment/account-management token never enters a session container. Non-Enterprise pasted user PATs may enter the user's own container at startup and must be scoped accordingly. Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. Enterprise Cloudflare Browser Rendering and GitHub interception similarly withhold supported real credentials and inject them only for configured account/organization paths. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 A compromised container can still exercise any legitimate capability represented by a credential or boundary interceptor. Prompt isolation is not authorization; provider scope and branch/deployment policy remain necessary.
 
@@ -83,7 +83,7 @@ Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
 
-Each lifecycle instance generates an unpredictable bearer credential for private host HTTP and WebSocket forwarding. The host rejects missing/invalid credentials before route dispatch except for explicitly bearer-exempt private SDK health behavior. The credential is lifecycle-scoped and not a public user token. <!-- @impl: host/src/auth-check.ts -->
+Each lifecycle instance generates an unpredictable bearer credential for private host HTTP and WebSocket forwarding. The host rejects missing/invalid credentials before route dispatch except for explicitly bearer-exempt private SDK health behavior. The credential is lifecycle-scoped and not a public user token. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
@@ -93,7 +93,7 @@ The deployment token creates/manages resources but never enters containers. Cont
 <a id="credential-encryption-at-rest"></a>
 ### Encryption at rest and missing-key posture
 
-When `ENCRYPTION_KEY` is configured, protected KV values use AES-256-GCM with key-specific additional authenticated data, R2 can use SSE-C, and Vault derives a bucket-specific browser key through HKDF. Transparent reads migrate supported legacy plaintext KV entries after successful decryption/write conditions. <!-- @impl: src/lib/kv-crypto.ts -->
+When `ENCRYPTION_KEY` is configured, protected KV values use AES-256-GCM with key-specific additional authenticated data, R2 can use SSE-C, and Vault derives a bucket-specific browser key through HKDF. Transparent reads migrate supported legacy plaintext KV entries after successful decryption/write conditions. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 
 AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. Rotation changes derived Vault keys and can require explicit browser/store recovery.
 
@@ -150,7 +150,7 @@ When operator encryption is configured, R2 objects use SSE-C. Governed Mode deli
 <a id="security-headers"></a>
 ### Default response headers
 
-The Worker applies HSTS, content-type protection, framing, referrer, permissions, and route-appropriate CSP headers even on validation/security errors. API responses use the stricter non-document policy. Current literal values remain source-owned by the Worker rather than duplicated into policy files. <!-- @impl: src/index.ts -->
+The Worker applies HSTS, content-type protection, framing, referrer, permissions, and route-appropriate CSP headers even on validation/security errors. API responses use the stricter non-document policy. Current literal values remain source-owned by the Worker rather than duplicated into policy files. <!-- @impl: src/index.ts::withSecurityHeaders -->
 
 ### Framing exceptions
 
@@ -197,7 +197,7 @@ Governed dependencies/actions/images are pinned through their owning lock/manife
 <a id="container-image-scanning-req-sec-011"></a>
 ### Container image vulnerability gate
 
-Fresh images are scanned for HIGH/CRITICAL findings. The executable validator accepts only exact reviewed vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Reviewed exceptions are bounded acceptances, not wildcard ignores; dated scan occurrences belong to CI evidence rather than this current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs -->
+Fresh images are scanned for HIGH/CRITICAL findings. The executable validator accepts only exact reviewed vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Reviewed exceptions are bounded acceptances, not wildcard ignores; dated scan occurrences belong to CI evidence rather than this current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 

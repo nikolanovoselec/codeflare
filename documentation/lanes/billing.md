@@ -66,7 +66,7 @@ Webhook signature validation and replay/threat controls belong to [Security](sec
 <a id="timekeeper-do-usage-tracking"></a>
 ## Usage Accounting
 
-One Timekeeper Durable Object owns each user's in-flight usage accumulator. A ping carries the bound bucket, session, cumulative total, and email. Timekeeper validates the bound identity, calculates a per-session delta, clamps one ping to 300 seconds, caps remembered sessions, persists accumulator state, and arms the flush alarm. <!-- @impl: src/timekeeper/index.ts -->
+One Timekeeper Durable Object owns each user's in-flight usage accumulator. A ping carries the bound bucket, session, cumulative total, and email. Timekeeper validates the bound identity, calculates a per-session delta, clamps one ping to 300 seconds, caps remembered sessions, persists accumulator state, and arms the flush alarm. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 | State | Authority / behavior |
 |---|---|
