@@ -25,7 +25,7 @@ Default deployment execution, verification, rollback, development references, an
 
 **When:** Deploy the reviewed `main` tree after every required exact-head check is green. A protected-branch push reaches `.github/workflows/deploy.yml` through the successful `PR Checks` workflow; manual dispatch is permitted only from the repository default branch.
 
-**Action:** Confirm the intended commit is `origin/main`, then use the GitHub `Deploy` workflow rather than running Wrangler locally. The workflow verifies the tree, builds and scans the container image, publishes its digest, deploys the Worker and binding, and performs its post-deploy contract checks. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deployment-pipeline).
+**Action:** Confirm the intended commit is `origin/main`, then use the GitHub `Deploy` workflow rather than running Wrangler locally. The workflow verifies the tree, builds and scans the container image, publishes its digest, deploys the Worker and binding, and performs its post-deploy contract checks. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
 **Verify:** Retain the successful run URL and deployed commit, confirm public provider discovery returns an array, then exercise the changed user path. Changes that affect sessions require creating and starting a disposable session, observing it reach `running`, opening its terminal or IDE route, and deleting it cleanly; a health response alone is insufficient.
 

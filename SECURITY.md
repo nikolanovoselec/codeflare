@@ -42,7 +42,7 @@ State-changing browser requests use the authentication mode's CSRF controls, inc
 
 ### Container Isolation
 
-Each session receives a distinct Cloudflare Container, lifecycle coordinator, authenticated route, agent process tree, and ephemeral local filesystem. Agents, terminals, and trusted IDE extensions retain broad filesystem and command access inside that boundary. See [Architecture](documentation/lanes/architecture.md#container-runtime-trust-boundary) and [Container](documentation/lanes/container.md).
+Each session receives a distinct Cloudflare Container, lifecycle coordinator, authenticated route, agent process tree, and ephemeral local filesystem. Agents, terminals, and trusted IDE extensions retain broad filesystem and command access inside that boundary. See the [Threat Model](documentation/lanes/security.md#threat-model), [Architecture](documentation/lanes/architecture.md), and [Container](documentation/lanes/container.md).
 
 ### Storage Isolation
 
@@ -54,7 +54,7 @@ Outbound mail is best effort, escapes user-controlled HTML content, uses bounded
 
 ### Usage Tracking (Timekeeper DO)
 
-Timekeeper isolates accounting by user, persists its accumulator state, binds identity, and clamps deltas. It is a usage and quota signal, not an atomic session-admission lock. Current ordering and enforcement behavior are documented in [Billing](documentation/lanes/billing.md#usage-tracking-timekeeper-do).
+Timekeeper isolates accounting by user, persists its accumulator state, binds identity, and clamps deltas. It is a usage and quota signal, not an atomic session-admission lock. Current ordering and enforcement behavior are documented in [Billing](documentation/lanes/billing.md#timekeeper-do-usage-tracking).
 
 ### Supply Chain Security
 
@@ -66,7 +66,7 @@ Repository security settings such as private vulnerability reporting, secret sca
 
 ### CORS Policy
 
-Configured exact origins and bounded suffix patterns control cross-origin access; origin matching is not an authentication substitute. Setup-time and deployment-mode behavior belongs to [Configuration](documentation/lanes/configuration.md#cors-configuration), with rationale preserved in the architecture decisions.
+Configured exact origins and bounded suffix patterns control cross-origin access; origin matching is not an authentication substitute. Setup-time and deployment-mode behavior belongs to [Configuration](documentation/lanes/configuration.md#cors), with rationale preserved in the architecture decisions.
 
 ### WebSocket Security
 

@@ -288,6 +288,7 @@ Results are uploaded as artifacts (retained 30 days).
 
 ## Results
 
+<a id="latest-results-2026-03-07-50-vus"></a>
 ### Historical Results (2026-03-07 workflow and suite definitions, 50 VUs)
 
 All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#22808941531](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531).
