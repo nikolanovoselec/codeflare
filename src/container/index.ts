@@ -422,9 +422,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    *                        confirmation window. Exhausted recovery returns a
    *                        genuinely not-running container to that window; if the
    *                        SDK instead leaves `running` stale at true, another
-   *                        complete probe failure writes `stopped` directly and
-   *                        retries that authoritative write without billing. Empirically onError is the
-   *                        COMMON way idle containers die: over a 96h prod sample
+   *                        complete probe failure writes `stopped`, requests
+   *                        `SIGTERM`, and retains non-billable retry ownership
+   *                        until both terminal operations succeed. Empirically
+   *                        onError is the COMMON way idle containers die: over a 96h prod sample
    *                        onActivityExpired fired 0x and the idle-stop 3x, while
    *                        onError fired on every unexpected exit (including a
    *                        near-daily ~00:00 UTC platform reap and any deploy

@@ -28,6 +28,7 @@ const testState = vi.hoisted(() => ({
   activityStatus: 200,
   healthStatus: 200,
   stopCalls: 0,
+  stopFailuresRemaining: 0,
   scheduleCalls: [] as Array<[number, string]>,
   scheduleFailuresRemaining: 0,
   deleteScheduleCalls: [] as string[],
@@ -158,6 +159,10 @@ vi.mock('@cloudflare/containers', () => {
     async stop(_signal?: number | string) {
       testState.stopCalls += 1;
       testState.callOrder.push('stop');
+      if (testState.stopFailuresRemaining > 0) {
+        testState.stopFailuresRemaining -= 1;
+        throw new Error('container stop failed');
+      }
     }
 
     // Mock destroy
@@ -235,6 +240,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.deleteScheduleCalls = [];
     testState.abortReasons = [];
     testState.stopCalls = 0;
+    testState.stopFailuresRemaining = 0;
     testState.storedSleepAfter = undefined;
     testState.storedUserEmail = undefined;
     testState.kvRef = mockKV;
@@ -791,6 +797,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
+      expect(testState.stopCalls).toBe(1);
       expect(testState.scheduleCalls).toHaveLength(schedulesBeforeTerminalTick);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'collectMetrics: post-reconstruction transport confirmation failed',
@@ -817,7 +824,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       );
     });
 
-    it('REQ-SESSION-022 AC3: retains exhausted recovery and retries a failed authoritative stopped write', async () => {
+    it('REQ-SESSION-022 AC6: retains exhausted recovery and retries a failed authoritative stopped write without billing', async () => {
       const sessionKey = 'session:test-bucket:testsession123456';
       mockKV._set(sessionKey, {
         id: 'testsession123456',
@@ -837,6 +844,21 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         totalFailureCount: 9,
         status: 'exhausted',
       });
+      testState.storedUserEmail = 'quota@example.com';
+      containerInstance = createContainerInstance();
+      const timekeeperStub = {
+        fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
+      };
+      const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+      await vi.waitFor(
+        () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
       testState.tcpFetchShouldFail = true;
       testState.scheduleCalls = [];
       mockKV.put.mockRejectedValueOnce(new Error('KV PUT failed: 429 Too Many Requests'));
@@ -846,11 +868,53 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('running');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
 
       await containerInstance.collectMetrics();
 
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
+    });
+
+    it('REQ-SESSION-022 AC7: retains exhausted recovery and retries when terminal container stop fails', async () => {
+      const sessionKey = 'session:test-bucket:testsession123456';
+      mockKV._set(sessionKey, {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      const now = Date.now();
+      await storage().put(TRANSPORT_RECOVERY_KEY, {
+        attemptId: 'recovery-exhausted-stop-retry',
+        startedAt: now - 120_000,
+        lastAttemptAt: now - 60_000,
+        attemptCount: 2,
+        postResetFailureCount: 3,
+        totalFailureCount: 9,
+        status: 'exhausted',
+      });
+      testState.tcpFetchShouldFail = true;
+      testState.stopFailuresRemaining = 1;
+      testState.scheduleCalls = [];
+
+      await containerInstance.collectMetrics();
+
+      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
+
+      await containerInstance.collectMetrics();
+
+      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
+      expect(testState.stopCalls).toBe(2);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
     });
 

@@ -1113,9 +1113,21 @@ export async function collectMetrics(
       return;
     }
     try {
+      await callbacks.stop('SIGTERM');
+    } catch (err) {
+      // KV already says stopped, but recovery still owns the possibly allocated
+      // container until the platform accepts the stop request.
+      logger.warn('collectMetrics: terminal container stop failed; retaining recovery for retry', {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
+      return;
+    }
+    try {
       await clearTransportRecoveryState(ctx);
     } catch (err) {
-      logger.warn('collectMetrics: failed to clear exhausted recovery after stopped write', {
+      logger.warn('collectMetrics: failed to clear exhausted recovery after terminal stop', {
         durableObjectId: ctx.id.toString(),
         error: err instanceof Error ? err.message : String(err),
       });
