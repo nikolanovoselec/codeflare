@@ -20,13 +20,13 @@
 
 | Source | Scope | Change mechanism | Precedence / authority |
 |---|---|---|---|
-| {Source} | {Scope} | {How changed} | {Authority order} |
+| {SOURCE} | {SCOPE} | {CHANGE_MECHANISM} | {AUTHORITY} |
 
 ## Runtime Variables
 
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |---|---|---|---|---|---|
-| `{VARIABLE}` | {Purpose} | `{DEFAULT}` | {yes/no/conditional} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
+| `{VARIABLE}` | {PURPOSE} | `{DEFAULT}` | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
 
 ## Secrets
 
@@ -36,20 +36,20 @@ Document secret names, consumers, rotation boundaries, and fail-closed behavior.
 
 | Binding | Purpose | Required | Consumed by | Implements |
 |---|---|---|---|---|
-| `{BINDING}` | {Purpose} | {yes/no/conditional} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
+| `{BINDING}` | {PURPOSE} | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
 
 ## Configuration Files
 
 | File | Purpose | Consumer | Source of truth |
 |---|---|---|---|
-| `{PATH}` | {Purpose} | `{CONSUMER}` | {Authority} |
+| `{PATH}` | {PURPOSE} | `{CONSUMER}` | {AUTHORITY} |
 
 ## Requirement and Source Map
 
 | Configuration concern | Source owner | Requirements | Specialist owner |
 |---|---|---|---|
-| {Concern} | `{PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {Lane link} |
+| {CONCERN} | `{PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {SPECIALIST_OWNER} |
 
 ## Related Documentation
 
-{Links to emitted Architecture, Deployment, and Security lanes.}
+{RELATED_DOCUMENTATION}

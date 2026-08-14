@@ -35,6 +35,7 @@ const TABLE_PROFILES = {
     id: 'configuration-variables',
     discriminator: ['Variable'],
     required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
+    aliases: { Purpose: ['Description'] },
   }],
   security: [
     {
@@ -74,6 +75,7 @@ function laneKind(file) {
   if (name === 'deployment.md') return 'deployment';
   if (name === 'observability.md') return 'observability';
   if (/^api-reference.*\.md$/.test(name)) return 'api';
+  if (path.basename(path.dirname(file)) === 'lanes' && name.endsWith('.md')) return 'project';
   return null;
 }
 
@@ -176,6 +178,27 @@ function stripHtmlComments(content) {
   }
 }
 
+function maskFencedLines(lines) {
+  let fence = null;
+  return lines.map((line) => {
+    const marker = fenceMarker(line);
+    if (fence) {
+      if (marker
+        && marker.character === fence.character
+        && marker.length >= fence.length
+        && marker.rest.trim() === '') {
+        fence = null;
+      }
+      return '';
+    }
+    if (marker && (marker.character === '~' || !marker.rest.includes('`'))) {
+      fence = marker;
+      return '';
+    }
+    return line;
+  });
+}
+
 function plain(value) {
   return value
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -199,18 +222,51 @@ function isSeparator(line) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replaceAll(' ', '')));
 }
 
+function profileFieldPresent(profile, field, headers) {
+  return headers.includes(field)
+    || (profile.aliases?.[field] ?? []).some((alias) => headers.includes(alias));
+}
+
+function profileForHeaders(profiles, headers) {
+  const exact = profiles.find(({ discriminator }) =>
+    discriminator.every((field) => headers.includes(field)));
+  if (exact) return exact;
+
+  return profiles
+    .map((profile) => {
+      const fields = [...profile.discriminator, ...profile.required];
+      const matched = fields.filter((field) => profileFieldPresent(profile, field, headers)).length;
+      return { profile, matched };
+    })
+    .filter(({ matched }) => matched >= 2)
+    .sort((left, right) => right.matched - left.matched)[0]?.profile ?? null;
+}
+
 function scanTables(lines, kind, file, findings) {
   const profiles = TABLE_PROFILES[kind] ?? [];
 
   for (let index = 0; index < lines.length - 1; index += 1) {
     const headers = markdownCells(lines[index]);
+    const separators = markdownCells(lines[index + 1]);
     if (headers.length === 0 || !isSeparator(lines[index + 1])) continue;
-    const profile = profiles.find(({ discriminator }) =>
-      discriminator.every((field) => headers.includes(field)));
+    const profile = profileForHeaders(profiles, headers);
     if (!profile) continue;
 
-    const missing = profile.required.filter((field) => !headers.includes(field));
     const area = nearestArea(lines, index);
+    if (headers.length !== separators.length) {
+      findings.push({
+        rule: 'table-column-count-mismatch',
+        file,
+        line: index + 1,
+        collection: profile.id,
+        item: `${area || kind} table`,
+        missing: [],
+      });
+      continue;
+    }
+
+    const missing = [...profile.discriminator, ...profile.required]
+      .filter((field) => !profileFieldPresent(profile, field, headers));
     if (missing.length > 0) {
       findings.push({
         rule: 'template-field-missing',
@@ -282,8 +338,8 @@ function scanSections(lines, kind, file, findings) {
     );
 
     if (kind === 'api') {
-      const endpoint = section.title.match(/^(GET|POST|PUT|PATCH|DELETE)\s+[`]?([^\s`]+)/i);
-      const hasDetailedShape = ['Request', 'Errors', 'Source'].some((field) => labels.has(field));
+      const endpoint = section.title.match(/^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE|CONNECT)\s+[`]?([^\s`]+)/i);
+      const hasDetailedShape = ['Request', 'Errors'].some((field) => labels.has(field));
       const hasLegacyShape = ['Authentication', 'Auth'].some((field) => labels.has(field));
       if (!endpoint || (!hasDetailedShape && !hasLegacyShape)) continue;
       const required = hasDetailedShape
@@ -356,6 +412,35 @@ function scanDeploymentSections(lines, file, findings) {
   }
 }
 
+function scanProjectLane(lines, file, findings) {
+  const firstSection = lines.findIndex((line) => /^##\s+/.test(line));
+  const preamble = lines.slice(0, firstSection === -1 ? lines.length : firstSection).join('\n');
+  const labels = new Set(
+    [...preamble.matchAll(/^\*\*([^*:\n]+):\*\*/gm)].map((match) => plain(match[1])),
+  );
+  const headings = new Set(
+    lines.flatMap((line) => {
+      const match = line.match(/^##\s+(.+)$/);
+      return match ? [plain(match[1])] : [];
+    }),
+  );
+  const missing = [
+    ...['Audience', 'Owns'].filter((field) => !labels.has(field)),
+    ...['Contents', 'Requirement and Source Map', 'Related Documentation']
+      .filter((heading) => !headings.has(heading)),
+  ];
+  if (missing.length > 0) {
+    findings.push({
+      rule: 'project-lane-envelope-missing',
+      file,
+      line: 1,
+      collection: 'project-lane',
+      item: path.basename(file),
+      missing,
+    });
+  }
+}
+
 export async function checkDocuments(files) {
   const findings = [];
 
@@ -364,9 +449,10 @@ export async function checkDocuments(files) {
     if (!kind) continue;
     const content = stripHtmlComments(await readFile(file, 'utf8'));
     const lines = content.split(/\r?\n/);
-    scanTables(lines, kind, file, findings);
+    scanTables(maskFencedLines(lines), kind, file, findings);
     scanSections(lines, kind, file, findings);
-    if (kind === 'deployment') scanDeploymentSections(lines, file, findings);
+    if (kind === 'deployment') scanDeploymentSections(maskFencedLines(lines), file, findings);
+    if (kind === 'project') scanProjectLane(maskFencedLines(lines), file, findings);
   }
 
   return { ok: findings.length === 0, findings };

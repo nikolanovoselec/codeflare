@@ -23,13 +23,13 @@ Explain identifiers, redaction, sampling, retention, and what an absent signal d
 
 | Signal | Meaning / non-evidence | Observed at | Escalate when | Runbook |
 |---|---|---|---|---|
-| `{SIGNAL}` | {Meaning and limitation} | `{PATH}::{SYMBOL}` | {Threshold or contradiction} | {Troubleshooting link} |
+| `{SIGNAL}` | {MEANING_AND_NON_EVIDENCE} | `{PATH}::{SYMBOL}` | {ESCALATION_THRESHOLD} | {RUNBOOK_LINK} |
 
 ## Dashboards and Alerts
 
 | Surface | Signals | Audience | Authority |
 |---|---|---|---|
-| {Dashboard or alert} | {Signals} | {Audience} | {Whether it is authoritative} |
+| {SURFACE} | {SIGNALS} | {AUDIENCE} | {AUTHORITY} |
 
 ## Failure and Degradation
 
@@ -39,8 +39,8 @@ Document collection failures and whether product behavior continues, degrades, o
 
 | Observability concern | Requirements | Source owner | Behavioral evidence |
 |---|---|---|---|
-| {Concern} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONCERN} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 
-{Links to emitted Architecture, Deployment, Security, and Troubleshooting lanes.}
+{RELATED_DOCUMENTATION}

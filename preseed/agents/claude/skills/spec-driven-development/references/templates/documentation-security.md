@@ -23,7 +23,7 @@ Summarize the trust model and default fail-open or fail-closed posture.
 
 | Asset / boundary | Threat or failure | Control and failure posture | Residual risk / owner |
 |---|---|---|---|
-| {Asset or boundary} | {Threat} | {Control and failure behavior} | {Residual risk and owner} |
+| {ASSET_OR_BOUNDARY} | {THREAT_OR_FAILURE} | {CONTROL_AND_FAILURE_POSTURE} | {RESIDUAL_RISK_AND_OWNER} |
 
 ## Controls and Failure Posture
 
@@ -33,14 +33,14 @@ Explain controls by security concern. Link implementation and behavioral evidenc
 
 | Exception / residual risk | Current decision | Owner / review signal |
 |---|---|---|
-| {Risk} | {Accepted boundary or mitigation} | {Owner and trigger for review} |
+| {RESIDUAL_RISK} | {CURRENT_DECISION} | {OWNER_AND_REVIEW_SIGNAL} |
 
 ## Verification and Source Map
 
 | Control family | Requirements / decisions | Implementation | Evidence |
 |---|---|---|---|
-| {Control} | [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONTROL_FAMILY} | [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 
-{Links to emitted Architecture, API, Configuration, Deployment, and Troubleshooting lanes.}
+{RELATED_DOCUMENTATION}

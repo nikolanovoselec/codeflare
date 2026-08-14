@@ -23,23 +23,23 @@ State the safest first checks and the identifiers an operator should capture bef
 
 ### {SYMPTOM_TITLE}
 
-**Symptom:** {Observable failure.}
+**Symptom:** {SYMPTOM}
 
-**Diagnose:** {Non-destructive checks in order.}
+**Diagnose:** {DIAGNOSIS}
 
-**Cause:** {Verified cause or bounded likely causes.}
+**Cause:** {CAUSE}
 
-**Fix:** {Smallest safe corrective action.}
+**Fix:** {FIX}
 
-**Verify:** {Observable evidence that service recovered.}
+**Verify:** {VERIFICATION}
 
-**Escalate:** {Condition and evidence to hand off.}
+**Escalate:** {ESCALATION}
 
 ## Failure Index
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| {Symptom} | {Cause summary} | [Recipe](#symptom-title) |
+| {SYMPTOM} | {CAUSE_SUMMARY} | [Recipe](#symptom-title) |
 
 ## Diagnostic Reference
 
@@ -49,8 +49,8 @@ Keep reusable read-only commands here. Link destructive actions to Deployment ru
 
 | Recipe family | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| {Family} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {RECIPE_FAMILY} | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 
-{Links to emitted Architecture, Deployment, Observability, and Security lanes.}
+{RELATED_DOCUMENTATION}

@@ -19,7 +19,7 @@ ADRs document choices between **real alternatives** where the chosen path has co
 | Risk acceptance with no alternative considered | Inline source-code comment OR `documentation/[lanes/]security.md` "trust model" section |
 | Implementation note framed as a decision | Delete or move to `pending.md` |
 
-The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. The full rule and detection signals live in `~/.claude/rules/documentation-discipline.md` ("What is NOT an ADR") and run as `doc-updater` Pass 5 on every push.
+The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. Runtime-neutral classification and reclassification rules live in `doc-enforce-lanes` under `Dual-narrative ADRs` and run during documentation lane enforcement.
 
 When an existing ADR is reclassified to a canonical home, preserve its `### AD-N:` heading as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references in the codebase keep resolving. Same shape applies to merged ADRs (`Status: Merged into AD-X`). Never delete entries outright — content is moved, anchors stay.
 
@@ -29,24 +29,24 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 | ID | Decision | Category | Date |
 |----|----------|----------|------|
-| AD1 | {First decision title} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
+| AD1 | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
 
 ---
 
-### AD1: {First decision title}
+### AD1: {DECISION_TITLE}
 
 **Status:** Accepted (YYYY-MM-DD)
 
-**Decision:** {What was decided in one sentence.}
+**Decision:** {DECISION}
 
-**Context:** {What prompted the decision. What problem or constraint was being addressed?} <!-- @impl: <path>::<symbol> -->
+**Context:** {CONTEXT} <!-- @impl: <path>::<symbol> -->
 
-**Alternatives considered:** {Brief list of other options that were rejected. ADRs require real alternatives — if none, this is not an ADR (see "What is NOT an ADR" above).}
+**Alternatives considered:** {ALTERNATIVES}
 
-**Rationale:** {Why this choice over the alternatives. Trade-offs accepted.}
+**Rationale:** {RATIONALE}
 
-**Consequences:** {What downstream code/docs must keep in lockstep.}
+**Consequences:** {CONSEQUENCES}
 
-**Related requirements:** [REQ-X-N](../../sdd/spec/{domain}.md#req-x-n)
+**Related requirements:** [REQ-X-N](../../sdd/spec/{DOMAIN}.md#req-x-n)
 
 ---

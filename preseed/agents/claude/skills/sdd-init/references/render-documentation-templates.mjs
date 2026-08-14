@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -70,8 +70,8 @@ function validateProjectLane(lane) {
   if (typeof lane.title !== 'string'
     || lane.title.trim() === ''
     || lane.title.length > 120
-    || /[\r\n]/.test(lane.title)) {
-    throw new Error(`Project lane ${lane.slug} requires a single-line title of at most 120 characters`);
+    || !/^[\p{L}\p{N}][\p{L}\p{N} .&()'/_-]*$/u.test(lane.title)) {
+    throw new Error(`Project lane ${lane.slug} requires a Markdown-safe title of at most 120 characters`);
   }
 }
 
@@ -107,47 +107,61 @@ export async function renderDocumentationTemplates({
     }
   }
 
-  await mkdir(path.join(outputDir, 'lanes'), { recursive: true });
-  await mkdir(path.join(outputDir, 'decisions'), { recursive: true });
-
-  const rows = [];
-  for (const id of selected) {
-    const definition = laneDefinition(id);
-    const source = await readFile(path.join(templatesDir, definition.template), 'utf8');
-    const rendered = render(source, { PROJECT_NAME: projectName });
-    await writeFile(path.join(outputDir, 'lanes', `${id}.md`), rendered);
-    rows.push(`| [${definition.title}](lanes/${id}.md) | ${definition.summary} |`);
+  try {
+    await mkdir(outputDir);
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      throw new Error(`Documentation staging directory must not already exist: ${outputDir}`);
+    }
+    throw error;
   }
 
-  const projectTemplate = await readFile(path.join(templatesDir, 'documentation-project-lane.md'), 'utf8');
-  for (const lane of projectLanes) {
-    const rendered = render(projectTemplate, {
+  try {
+    await mkdir(path.join(outputDir, 'lanes'));
+    await mkdir(path.join(outputDir, 'decisions'));
+
+    const rows = [];
+    for (const id of selected) {
+      const definition = laneDefinition(id);
+      const source = await readFile(path.join(templatesDir, definition.template), 'utf8');
+      const rendered = render(source, { PROJECT_NAME: projectName });
+      await writeFile(path.join(outputDir, 'lanes', `${id}.md`), rendered);
+      rows.push(`| [${definition.title}](lanes/${id}.md) | ${definition.summary} |`);
+    }
+
+    const projectTemplate = await readFile(path.join(templatesDir, 'documentation-project-lane.md'), 'utf8');
+    for (const lane of projectLanes) {
+      const rendered = render(projectTemplate, {
+        PROJECT_NAME: projectName,
+        PROJECT_LANE_TITLE: lane.title,
+      });
+      await writeFile(path.join(outputDir, 'lanes', `${lane.slug}.md`), rendered);
+      rows.push(`| [${lane.title}](lanes/${lane.slug}.md) | Project-specific ${lane.title.toLowerCase()} contracts and evidence |`);
+    }
+
+    const indexTemplate = await readFile(path.join(templatesDir, 'documentation-readme.md'), 'utf8');
+    const index = render(indexTemplate, {
       PROJECT_NAME: projectName,
-      PROJECT_LANE_TITLE: lane.title,
+      LANE_INDEX_ROWS: rows.join('\n'),
     });
-    await writeFile(path.join(outputDir, 'lanes', `${lane.slug}.md`), rendered);
-    rows.push(`| [${lane.title}](lanes/${lane.slug}.md) | Project-specific ${lane.title.toLowerCase()} contracts and evidence |`);
+    await writeFile(path.join(outputDir, 'README.md'), index);
+
+    const decisionsTemplate = await readFile(path.join(templatesDir, 'documentation-decisions-readme.md'), 'utf8');
+    await writeFile(
+      path.join(outputDir, 'decisions', 'README.md'),
+      render(decisionsTemplate, { PROJECT_NAME: projectName }),
+    );
+
+    return {
+      lanes: [
+        ...selected.map((lane) => `lanes/${lane}.md`),
+        ...projectLanes.map((lane) => `lanes/${lane.slug}.md`),
+      ],
+    };
+  } catch (error) {
+    await rm(outputDir, { recursive: true, force: true });
+    throw error;
   }
-
-  const indexTemplate = await readFile(path.join(templatesDir, 'documentation-readme.md'), 'utf8');
-  const index = render(indexTemplate, {
-    PROJECT_NAME: projectName,
-    LANE_INDEX_ROWS: rows.join('\n'),
-  });
-  await writeFile(path.join(outputDir, 'README.md'), index);
-
-  const decisionsTemplate = await readFile(path.join(templatesDir, 'documentation-decisions-readme.md'), 'utf8');
-  await writeFile(
-    path.join(outputDir, 'decisions', 'README.md'),
-    render(decisionsTemplate, { PROJECT_NAME: projectName }),
-  );
-
-  return {
-    lanes: [
-      ...selected.map((lane) => `lanes/${lane}.md`),
-      ...projectLanes.map((lane) => `lanes/${lane.slug}.md`),
-    ],
-  };
 }
 
 function argument(argv, name) {

@@ -40,7 +40,7 @@ Return findings and any permitted clean actions. Populate:
 | `deployment.md` | H2 runbook carrying at least two runbook fields | `When`, `Action`, `Verify`, `Rollback` |
 | `observability.md` | Table carrying `Signal` | `Signal`, `Meaning / non-evidence`, `Observed at`, `Escalate when`, `Runbook` |
 | `troubleshooting.md` | H3 recipe under `Common Issues`, `Recipes`, or `Troubleshooting Recipes` | `Symptom`, `Cause`, `Fix`; canonical detailed recipes also include `Diagnose`, `Verify`, and `Escalate` |
-| project lane | File indexed by `documentation/README.md` | `Audience`, `Owns`, `Does not own`, navigation, requirement/source map, and related links; its subject-specific body follows its natural axis |
+| project lane | File indexed by `documentation/README.md` | `Audience`, `Owns`, navigation, requirement/source map, and related links; add `Does not own` when an adjacent ownership boundary could be confused; its subject-specific body follows its natural axis |
 
 Architecture state, flow, failure, observability, security, and decision collections have their own tables or diagrams. They are not component records. Configuration permission or binding tables are not variable records. Security control prose is not a threat-table row. Deployment aliases and development references are not runbooks unless their fields begin a runbook record.
 

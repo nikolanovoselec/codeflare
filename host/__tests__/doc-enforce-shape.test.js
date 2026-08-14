@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -282,22 +282,46 @@ describe('doc-enforce shape item traversal', () => {
 describe('optimized documentation lane shapes', () => {
   const tableProfiles = [
     {
+      name: 'configuration variables',
       file: 'configuration.md',
       heading: 'Worker Environment',
       discriminator: 'Variable',
       required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
     },
     {
+      name: 'security threats',
       file: 'security.md',
       heading: 'Threat Model',
       discriminator: 'Asset / boundary',
       required: ['Threat or failure', 'Control and failure posture', 'Residual risk / owner'],
     },
     {
+      name: 'security residual risks',
+      file: 'security.md',
+      heading: 'Accepted Exceptions and Residual Risks',
+      discriminator: 'Exception / residual risk',
+      required: ['Current decision', 'Owner / review signal'],
+    },
+    {
+      name: 'security verification',
+      file: 'security.md',
+      heading: 'Verification and Source Map',
+      discriminator: 'Control family',
+      required: ['Requirements / decisions', 'Implementation', 'Evidence'],
+    },
+    {
+      name: 'observability signals',
       file: 'observability.md',
       heading: 'Signals',
       discriminator: 'Signal',
       required: ['Meaning / non-evidence', 'Observed at', 'Escalate when', 'Runbook'],
+    },
+    {
+      name: 'troubleshooting summary recipes',
+      file: 'troubleshooting.md',
+      heading: 'Failure Index',
+      discriminator: 'Symptom',
+      required: ['Cause', 'Fix'],
     },
   ];
 
@@ -315,19 +339,110 @@ describe('optimized documentation lane shapes', () => {
   }
 
   for (const profile of tableProfiles) {
-    it(`accepts a complete ${profile.file} governed collection`, () => {
+    it(`accepts complete ${profile.name}`, () => {
       const result = runFixture({ [profile.file]: tableFixture(profile) });
       assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     });
 
     for (const field of profile.required) {
-      it(`reports ${field} missing from ${profile.file}`, () => {
+      it(`reports ${field} missing from ${profile.name}`, () => {
         const result = runFixture({ [profile.file]: tableFixture(profile, field) });
         assert.equal(result.status, 1, result.stdout);
         assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
       });
     }
   }
+
+  it('accepts Description as a legacy configuration Purpose alias', () => {
+    const profile = tableProfiles.find(({ name }) => name === 'configuration variables');
+    const legacy = tableFixture(profile).replace('| Variable | Purpose |', '| Variable | Description |');
+    const result = runFixture({ 'configuration.md': legacy });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('requires every API register discriminator and contract field', () => {
+    const fields = ['Method', 'Path', 'Auth', 'Implements', 'Description'];
+    const fixture = (omitted = null) => {
+      const headers = fields.filter((field) => field !== omitted);
+      return [
+        '# API',
+        '',
+        '## Sessions',
+        '',
+        `| ${headers.join(' | ')} |`,
+        `| ${headers.map(() => '---').join(' | ')} |`,
+        `| ${headers.map((field) => `Example ${field}`).join(' | ')} |`,
+      ].join('\n');
+    };
+    assert.equal(runFixture({ 'api-reference.md': fixture() }).status, 0);
+    for (const field of ['Method', 'Path', 'Auth', 'Implements']) {
+      const result = runFixture({ 'api-reference.md': fixture(field) });
+      assert.equal(result.status, 1, `${field}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    }
+  });
+
+  it('accepts legacy API sections and validates detailed standard-method sections', () => {
+    const legacy = [
+      '# API', '', '## Items', '', '### GET `/items`', '',
+      '**Authentication:** Session cookie', '',
+      '**Response:** `200` item list', '',
+      '**Implements:** REQ-API-001', '',
+      '**Source:** `src/items.ts`',
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': legacy }).status, 0);
+    const malformedLegacy = runFixture({
+      'api-reference.md': legacy.replace('**Response:** `200` item list\n\n', ''),
+    });
+    assert.equal(malformedLegacy.status, 1, malformedLegacy.stdout);
+    assert.deepEqual(JSON.parse(malformedLegacy.stdout).findings[0].missing, ['Response']);
+
+    const detailed = [
+      '# API', '', '## Items', '', '### HEAD `/items`', '',
+      '**Request:** No request body.', '',
+      '**Response:** `200` headers.', '',
+      '**Errors:** `401` when unauthenticated.', '',
+      '**Source:** `src/items.ts`', '',
+      '**Implements:** REQ-API-001',
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': detailed }).status, 0);
+    const malformed = runFixture({
+      'api-reference.md': detailed.replace('**Errors:** `401` when unauthenticated.\n\n', ''),
+    });
+    assert.equal(malformed.status, 1, malformed.stdout);
+    assert.deepEqual(JSON.parse(malformed.stdout).findings[0].missing, ['Errors']);
+  });
+
+  it('ignores fenced collection tables and still reports a later live table', () => {
+    for (const [open, close] of [['```markdown', '```'], ['~~~markdown', '~~~']]) {
+      const fenced = [
+        '# Configuration', '', '## Examples', '', open,
+        '| Variable | Purpose |', '|---|---|', '| EXAMPLE | Demonstration |', close,
+        '', '## Worker Environment', '',
+        '| Variable | Purpose |', '|---|---|', '| LIVE | Runtime |',
+      ].join('\n');
+      const result = runFixture({ 'configuration.md': fenced });
+      assert.equal(result.status, 1, `${open}: ${result.stdout}`);
+      assert.equal(JSON.parse(result.stdout).findings.length, 1);
+    }
+  });
+
+  it('checks the shared envelope of first-level project lanes', () => {
+    const complete = [
+      '# Payments', '',
+      '**Audience:** Engineers', '',
+      '**Owns:** Payment contracts.', '',
+      '## Contents', '', '- [Requirement and Source Map](#requirement-and-source-map)', '',
+      '## Requirement and Source Map', '', '| Concern | Source |', '|---|---|', '| Charges | `src/pay.ts` |', '',
+      '## Related Documentation', '', '- [Architecture](architecture.md)',
+    ].join('\n');
+    assert.equal(runFixture({ 'documentation/lanes/payments.md': complete }).status, 0);
+    const result = runFixture({
+      'documentation/lanes/payments.md': complete.replace('**Owns:** Payment contracts.\n\n', ''),
+    });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, ['Owns']);
+  });
 
   const deploymentFields = {
     When: 'A reviewed release is ready.',
@@ -366,6 +481,30 @@ describe('optimized documentation lane shapes', () => {
       .replace('**Action:**', '**Command:**')
       .replace('**Verify:**', '**Verifies:**');
     const result = runFixture({ 'deployment.md': legacy });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('reports malformed governed table separators', () => {
+    const content = [
+      '# Configuration', '', '## Worker Environment', '',
+      '| Variable | Purpose | Default | Required | Consumed by | Implements |',
+      '|---|---|---|',
+      '| `API_TOKEN` | API access | none | yes | client | REQ-CONFIG-001 |',
+    ].join('\n');
+    const result = runFixture({ 'configuration.md': content });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'table-column-count-mismatch');
+  });
+
+  it('accepts the current indexed Codeflare lane corpus without product inventory names', () => {
+    const lanesDir = join(ROOT, 'documentation', 'lanes');
+    const files = readdirSync(lanesDir)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(lanesDir, name));
+    const result = spawnSync(process.execPath, [CHECKER, ...files], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 

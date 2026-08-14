@@ -16,9 +16,9 @@
 
 ## Standard Deployment
 
-**When:** {Reviewed artifact and target preconditions.}
+**When:** {DEPLOY_WHEN}
 
-**Prerequisites:** {Required access, checks, and immutable artifact identity.}
+**Prerequisites:** {DEPLOY_PREREQUISITES}
 
 **Action:**
 
@@ -26,15 +26,15 @@
 {DEPLOY_COMMAND}
 ```
 
-**Verify:** {Observable health, version, or smoke-test result.}
+**Verify:** {DEPLOY_VERIFICATION}
 
-**Rollback:** {Exact prior artifact or command and rollback verification.}
+**Rollback:** {DEPLOY_ROLLBACK}
 
 ## Rollback
 
-**When:** {Failure conditions that require rollback.}
+**When:** {ROLLBACK_WHEN}
 
-**Prerequisites:** {Prior version, digest, or release identifier.}
+**Prerequisites:** {ROLLBACK_PREREQUISITES}
 
 **Action:**
 
@@ -42,7 +42,7 @@
 {ROLLBACK_COMMAND}
 ```
 
-**Verify:** {Evidence that the previous release is restored.}
+**Verify:** {ROLLBACK_VERIFICATION}
 
 **Rollback:** Escalate rather than applying another unreviewed change if restoration fails.
 
@@ -54,8 +54,8 @@ Keep local development commands separate from production runbooks.
 
 | Procedure | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| Standard deployment | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{WORKFLOW_PATH}` | {Workflow or smoke-test link} |
+| Standard deployment | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{WORKFLOW_PATH}` | {DEPLOY_EVIDENCE} |
 
 ## Related Documentation
 
-{Links to emitted Architecture, Configuration, Security, Observability, and Troubleshooting lanes.}
+{RELATED_DOCUMENTATION}

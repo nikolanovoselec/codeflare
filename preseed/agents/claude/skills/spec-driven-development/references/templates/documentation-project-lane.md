@@ -1,10 +1,10 @@
 # {PROJECT_LANE_TITLE}
 
-**Audience:** {Readers who need this project-specific concern.}
+**Audience:** {AUDIENCE}
 
-**Owns:** {Facts and procedures for this concern that no canonical lane owns.}
+**Owns:** {OWNED_CONCERN}
 
-**Does not own:** {Adjacent canonical concerns and their owner lanes.}
+**Does not own:** {ADJACENT_OWNERS}
 
 ## Contents
 
@@ -30,8 +30,8 @@ Identify observable failures, authoritative state, recovery ownership, and the c
 
 | Concern | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| {Concern} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
+| {CONCERN} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |
 
 ## Related Documentation
 
-{Links to canonical lanes, decisions, and the SDD index.}
+{RELATED_DOCUMENTATION}

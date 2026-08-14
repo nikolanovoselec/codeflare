@@ -40,33 +40,33 @@ Use one dossier per long-lived component or authority boundary. Do not create an
 
 ### {COMPONENT_NAME}
 
-**Responsibility:** {Owned behavior or boundary.}
+**Responsibility:** {RESPONSIBILITY}
 
-**Inputs:** {Requests, events, or state consumed.}
+**Inputs:** {INPUTS}
 
-**Outputs:** {Responses, events, or state produced.}
+**Outputs:** {OUTPUTS}
 
-**State owned:** {Authoritative state, or None.}
+**State owned:** {STATE_OWNED}
 
-**Does not own:** {Important adjacent responsibility.}
+**Does not own:** {NOT_OWNED}
 
 **Source:** `{PATH}::{SYMBOL}`
 
 **Requirements:** [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001)
 
-**Detailed documentation:** {Link to the canonical owner lane, when applicable.}
+**Detailed documentation:** {DETAILED_DOCUMENTATION}
 
 ## Architectural Invariants
 
 | Invariant | Consequence | Detailed owner |
 |---|---|---|
-| {Invariant} | {Failure prevented or behavior guaranteed} | {Lane or ADR link} |
+| {INVARIANT} | {CONSEQUENCE} | {DETAILED_OWNER} |
 
 ## State Ownership and Durability
 
 | State | Scope | Authority | Durability | Writers | Readers | Recovery owner |
 |---|---|---|---|---|---|---|
-| {State} | {Scope} | {Authoritative owner} | {Lifetime} | {Writers} | {Readers} | {Recovery owner} |
+| {STATE} | {SCOPE} | {AUTHORITY} | {DURABILITY} | {WRITERS} | {READERS} | {RECOVERY_OWNER} |
 
 ## Data Flow
 
@@ -78,17 +78,17 @@ Use one short flow per cross-component path. Identify the authoritative state in
 sequenceDiagram
   participant Caller
   participant Owner
-  Caller->>Owner: {Input}
-  Owner-->>Caller: {Observable result}
+  Caller->>Owner: {INPUT}
+  Owner-->>Caller: {OBSERVABLE_RESULT}
 ```
 
-Failure and recovery are owned by {component or linked runbook}.
+Failure and recovery are owned by {FAILURE_OWNER}.
 
 ## Failure Domains and Recovery Ownership
 
 | Failure domain | Observable disagreement | Authority | Recovery owner | Degradation rule |
 |---|---|---|---|---|
-| {Failure domain} | {Signal} | {Source of truth} | {Owner or runbook} | {Fail-open or fail-closed behavior} |
+| {FAILURE_DOMAIN} | {SIGNAL} | {AUTHORITY} | {RECOVERY_OWNER} | {DEGRADATION_RULE} |
 
 ## Observability and Operator Signals
 
@@ -102,8 +102,8 @@ Summarize trust boundaries and failure posture. Link detailed controls and resid
 
 | Concern | Architecture section | Requirements | Decisions | Detailed owner |
 |---|---|---|---|---|
-| {Concern} | {Section link} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | [AD1](../decisions/README.md#ad1-example) | {Lane link} |
+| {CONCERN} | {SECTION_LINK} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | [AD1](../decisions/README.md#ad1-example) | {DETAILED_OWNER} |
 
 ## Related Documentation
 
-{Links to emitted owner lanes and the SDD index.}
+{RELATED_DOCUMENTATION}

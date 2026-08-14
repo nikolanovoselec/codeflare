@@ -26,17 +26,17 @@ Group endpoints by resource family. Add detailed contracts only when request, re
 
 | Method | Path | Auth | Implements | Description |
 |---|---|---|---|---|
-| `{METHOD}` | `{PATH}` | {Authentication boundary} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {Observable behavior} |
+| `{METHOD}` | `{PATH}` | {AUTH_BOUNDARY} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {OBSERVABLE_BEHAVIOR} |
 
 ## Detailed Contracts
 
 ### {METHOD} `{PATH}`
 
-**Request:** {Parameters or “No request body.”}
+**Request:** {REQUEST_CONTRACT}
 
-**Response:** {Success status and response shape.}
+**Response:** {RESPONSE_CONTRACT}
 
-**Errors:** {Failure statuses and error contract.}
+**Errors:** {ERROR_CONTRACT}
 
 **Source:** `{SOURCE_PATH}::{SYMBOL}`
 
@@ -46,8 +46,8 @@ Group endpoints by resource family. Add detailed contracts only when request, re
 
 | Resource family | Source owner | Requirements | Behavioral evidence |
 |---|---|---|---|
-| {Family} | `{SOURCE_PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{TEST_PATH}` |
+| {RESOURCE_FAMILY} | `{SOURCE_PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{TEST_PATH}` |
 
 ## Related Documentation
 
-{Links to emitted Architecture, Configuration, Security, and Troubleshooting lanes.}
+{RELATED_DOCUMENTATION}
