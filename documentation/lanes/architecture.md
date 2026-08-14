@@ -403,6 +403,7 @@ Bucket creation is lazy and idempotent. Session start and storage browse ensure 
 
 ### Session Creation to Terminal Connection
 
+<!-- doc-allow-element: AD1 complete create/start/proxy flow must remain one sequence -->
 ```mermaid
 sequenceDiagram
     participant U as Browser
@@ -453,6 +454,7 @@ These endpoint stages are derived observations, not persisted lifecycle state. K
 <a id="session-lifecycle-state-machine-req-session-018"></a>
 ### Session Lifecycle State Machine
 
+<!-- doc-allow-element: AD70 durable and presentation authority must remain visible together -->
 ```mermaid
 stateDiagram-v2
     state "Persisted KV" as Persisted

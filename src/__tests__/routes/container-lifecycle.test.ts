@@ -672,7 +672,7 @@ describe('Container Lifecycle Routes', () => {
       expect(res.status).toBe(200);
     });
 
-    it('respects MAX_SESSIONS_USER env var override', async () => {
+    it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override', async () => {
       const app = createTestApp({
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,

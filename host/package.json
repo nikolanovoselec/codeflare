@@ -20,6 +20,7 @@
     "@types/node": "^26.1.2",
     "@types/ws": "^8.18.1",
     "fast-check": "^4.9.0",
+    "mermaid": "^11.16.1",
     "typescript": "^7.0.2"
   }
 }
