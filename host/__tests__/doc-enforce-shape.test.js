@@ -391,3 +391,86 @@ describe('doc-enforce shape item traversal', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 });
+
+// REQ-AGENT-139 AC2-AC4
+// Test-only RED contract: the existing checker does not yet recognize these lane collections.
+describe('optimized documentation lane shapes', () => {
+  it('reports incomplete configuration variable registers', () => {
+    const content = [
+      '# Configuration',
+      '',
+      '## Worker Environment',
+      '',
+      '| Variable | Purpose |',
+      '|---|---|',
+      '| `API_TOKEN` | Authenticate API calls |',
+    ].join('\n');
+    const result = runFixture({ 'configuration.md': content });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
+      'Default', 'Required', 'Consumed by', 'Implements',
+    ]);
+  });
+
+  it('reports incomplete security threat registers', () => {
+    const content = [
+      '# Security',
+      '',
+      '## Threat Model',
+      '',
+      '| Asset / boundary | Threat or failure |',
+      '|---|---|',
+      '| Session cookie | Theft |',
+    ].join('\n');
+    const result = runFixture({ 'security.md': content });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
+      'Control and failure posture', 'Residual risk / owner',
+    ]);
+  });
+
+  it('validates canonical deployment runbooks and accepts legacy field aliases', () => {
+    const incomplete = [
+      '# Deployment',
+      '',
+      '## Standard Deployment',
+      '',
+      '**When:** A reviewed release is ready.',
+      '',
+      '**Action:** Run the release workflow.',
+    ].join('\n');
+    const failed = runFixture({ 'deployment.md': incomplete });
+    assert.equal(failed.status, 1, failed.stdout);
+    assert.deepEqual(JSON.parse(failed.stdout).findings[0].missing, ['Verify', 'Rollback']);
+
+    const legacy = `${incomplete.replace('**Action:**', '**Command:**')}\n\n**Verifies:** The health check passes.\n\n**Rollback:** Restore the prior release.\n`;
+    const accepted = runFixture({ 'deployment.md': legacy });
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  });
+
+  it('reports incomplete observability signal registers', () => {
+    const content = [
+      '# Observability',
+      '',
+      '## Signals',
+      '',
+      '| Signal | Meaning |',
+      '|---|---|',
+      '| `request.failed` | A request failed |',
+    ].join('\n');
+    const result = runFixture({ 'observability.md': content });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
+      'Source', 'Escalate when', 'Runbook',
+    ]);
+  });
+
+  it('does not confuse unrelated tables with governed collections', () => {
+    const result = runFixture({
+      'configuration.md': '# Configuration\n\n## Permissions\n\n| Permission | Why |\n|---|---|\n| read | Inspection |\n',
+      'security.md': '# Security\n\n## Contacts\n\n| Team | Email |\n|---|---|\n| Security | security@example.com |\n',
+      'observability.md': '# Observability\n\n## Vendors\n\n| Vendor | Product |\n|---|---|\n| Example | Logs |\n',
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+});
