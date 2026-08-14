@@ -12,21 +12,19 @@ it gets there" content. Memory-system specifics live in
 
 ## Contents
 
-- [Session Modes](#session-modes)
-- [Preseed Components](#preseed-components)
-- [Preseed Deployment](#preseed-deployment)
-- [Multi-Agent Preseed](#multi-agent-preseed)
-- [Settings.json Merge](#settingsjson-merge)
-- [Plugin Enablement](#plugin-enablement)
-- [Third-party plugin: context-mode](#third-party-plugin-context-mode)
-- [Graphify](#graphify-req-agent-023)
-- [/sdd init Modes](#sdd-init-modes)
-- [Troubleshooting](#troubleshooting)
-- [Specification Coverage](#specification-coverage)
-- [Image-baked seed (Governed Mode delta sync)](#image-baked-seed-governed-mode-delta-sync)
+- [Mode and Manifest Model](#mode-and-manifest-model)
+- [Artifact Inventory and Sources](#artifact-inventory-and-sources)
+- [Runtime Delivery Pipeline](#runtime-delivery-pipeline)
+- [Agent-Specific Projection](#agent-specific-projection)
+- [Graphify Toolchain](#graphify-toolchain-req-agent-023)
+- [SDD Bootstrap Contract](#sdd-bootstrap-contract)
+- [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Image-Baked Delivery Alias](#image-baked-delivery-alias)
 - [Related Documentation](#related-documentation)
 
-## Session Modes
+<a id="session-modes"></a>
+## Mode and Manifest Model
 
 Users choose between **Default** and **Advanced** session modes via
 Settings > Session Defaults. The mode controls which preseed files are
@@ -184,10 +182,23 @@ reconcile overwrites live keys and removes retired ones. Files the build
 never seeded are never touched. Implements
 [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
-## Preseed Components
+<a id="preseed-components"></a>
+## Artifact Inventory and Sources
 
 ECC (Everything Claude Code)-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
+
+| Artifact class | Canonical inventory / source | Generated or runtime target |
+|---|---|---|
+| Mode and feature selection | `preseed/agents/claude/manifest.json` | Per-agent projected files |
+| Agent definitions | `preseed/agents/claude/agents/` plus manifest membership | Claude/Pi/OpenCode agent directories |
+| Rules and commands | Claude seed directories plus manifest membership | Agent-specific rule/command surfaces |
+| Skills and plugins | Seed trees, `ORIGIN.md`, plugin manifests, lock/pin inputs | Runtime skill/plugin directories |
+| Pi runtime packages | `preseed/agents/pi/package.json` and lock | Image cache then `~/.pi/agent/npm` |
+| Generated seed | `scripts/generate-agent-seed.mjs` output | Image-baked `/opt/codeflare/preseed` |
+| Runtime projection | `entrypoint.sh` merge/copy functions | User-home agent configuration |
+
+Do not infer inclusion from a file's mere presence: manifest membership, mode gates, generator behavior, and agent-specific adapters are jointly authoritative.
 
 **Agents**: the manifests are authoritative. Representative advanced agents include `architect`, `code-reviewer`, `spec-reviewer`, `doc-updater`, `deep-reviewer`, `memory-capture`, and `vault-extract`. They are preseeded to `~/.claude/agents/*.md`
 (and adapted equivalents for other agents) via the manifest pipeline
@@ -360,7 +371,8 @@ the official Anthropic plugin marketplace URL for user discovery.
 **Updates**: Preseed files update when the pipeline is redeployed
 and users click "Recreate AI agent skills & rules".
 
-## Preseed Deployment
+<a id="preseed-deployment"></a>
+## Runtime Delivery Pipeline
 
 All preseed content is deployed via the manifest pipeline:
 
@@ -652,7 +664,8 @@ Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
   preinstalls Pi extension npm dependencies into an image-local cache, and
   entrypoint copies that cache into `~/.pi/agent/npm` after R2 restore.
 
-## Multi-Agent Preseed
+<a id="multi-agent-preseed"></a>
+## Agent-Specific Projection
 
 The generator produces adapted config files for all supported agents
 from CC's preseed as the default source of truth. Pi-specific runtime contracts
@@ -791,7 +804,7 @@ advanced mode (all rules including memory, ECC), with the same R2
 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
 
-## Settings.json Merge
+### Settings.json Merge
 
 Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC1, AC2, AC4, AC5.
 
@@ -853,7 +866,7 @@ checked by hand under the same pinned Claude Code version on
 The capture hooks depend on it and it would fail silently, so re-check
 it when `CLAUDE_CODE_VERSION` moves.
 
-## Plugin Enablement
+### Plugin Enablement
 
 (Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC3, [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
@@ -942,7 +955,7 @@ context-mode is active or not. Implements
 [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
-## Third-party plugin: context-mode
+### Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi installs context-mode but keeps it disabled by default. `/ctx on` enables the package for the current running container and reloads resources; `/ctx off` disables it again. The next Codeflare container start returns Pi to the disabled default.
 
@@ -979,7 +992,8 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-## Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+<a id="graphify-req-agent-023"></a>
+## Graphify Toolchain ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
 Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. The owned Claude and Pi query references preserve directed traversal as the default and never reinterpret an absent reverse path as permission to walk edges backwards.
 
@@ -1085,7 +1099,8 @@ During `/sdd init`, a graph built for enrichment is still a repo artifact. The
 scaffold or same-turn graph commit must include the durable graph files and the
 ignore/merge wiring rather than leaving them as local-only files.
 
-## /sdd init Modes
+<a id="sdd-init-modes"></a>
+## SDD Bootstrap Contract
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
@@ -1190,7 +1205,8 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/spec/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
-## Troubleshooting
+<a id="troubleshooting"></a>
+## Failure Diagnosis and Recovery
 
 ### Common Issues
 
@@ -1357,84 +1373,25 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) - Preseed Configs Generated from Single Source of Truth
-- [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) - Multi-Agent Adaptation Pipeline
-- [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) - Manifest-Driven Preseed Pipeline
-- [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
-- [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) - /review command for multi-perspective codebase review
-- [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) - Bubblewrap sandbox for Codex
-- [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) - Branded settings UI
-- [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) - LLM API key management UI
-- [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
-- [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) - Graph Publication Artifacts and Optional Labels
-- [REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite) - Advanced Design Skill Suite
-- [REQ-AGENT-135](../../sdd/spec/agents.md#req-agent-135-ui-ux-pro-max-query-and-generation) - UI UX Pro Max Query and Generation
-- [REQ-AGENT-136](../../sdd/spec/agents.md#req-agent-136-ui-ux-pro-max-persistence) - UI UX Pro Max Persistence
-- [REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-ui-ux-pro-max-data-validation) - UI UX Pro Max Data Validation
-- [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
-- [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
-- [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing
-- [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions) - Native Usage Workflow in Pi Sessions
-- [REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions) - Native Evaluation Workflow in Pi Sessions
-- [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) - Advanced-Session Graph-First Runtime Reminders
-- [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) - Post-Clone Graph Triage
-- [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) - Knowledge-Graph Persistence via Git
-- [REQ-AGENT-027](../../sdd/spec/agents.md#req-agent-027-context-mode-interoperability) - Context-Mode Interoperability
-- [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) - Deploy Credential Token-Creation UX
-- [REQ-AGENT-029](../../sdd/spec/agents.md#req-agent-029-deploy-credential-propagation-to-container) - Deploy Credential Propagation to Container
-- [REQ-AGENT-030](../../sdd/spec/agents.md#req-agent-030-multi-agent-format-transforms) - Multi-Agent Format Transforms
-- [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity) - consult-llm Key Isolation, Subscription Backend, and Multi-Agent Parity
-- [REQ-AGENT-032](../../sdd/spec/agents.md#req-agent-032-starter-documentation-manually-recreatable-from-settings) - Starter Documentation Manually Recreatable from Settings
-- [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) - `/sdd clean` Rescue and Autonomy Modes
-- [REQ-AGENT-038](../../sdd/spec/agents.md#req-agent-038-resume-mode-drain-workflow) - Resume Mode Drain Workflow
-- [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) - `/sdd init` Phase 7b Enumeration-Coverage Verifier Gate
-- [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) - PR-Boundary Lane Classification and Agent Dispatch
-- [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) - PR-Boundary Review Bypass Surfaces
-- [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) - Graphify Build Mode Dispatch
-- [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) - Review-Agent Discipline Enforcement
-- [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
-- [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
-- [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) - Pi-Native `/review` Workflow Skill
-- [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) - PR-Boundary Review Trigger Conditions
-- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) - Pi Native Review Result Correlation
-- [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) - Pi Session-Scoped Review Window
-- [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
-- [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) - Supported Boundary Recovery
-- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) - Pi Native Review Findings Handoff
-- [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection) - PR-Boundary Candidate Detection
-- [REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) - Heredoc-safe PR-boundary classification
-- [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) - Non-disruptive review-owned Goal control
-- [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) - Enterprise consult-LLM unavailability
-- [REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting) - Settled review follow-up accounting
-- [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
-- [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
-- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
-- [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) - Pi CI Result and Launch Checkpoint
-- [REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring) - Pi consult-llm MCP lazy wiring
-- [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) - Claude on-demand CI monitoring policy
-- [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
-- [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) - Pi Settled Review Handoff
-- [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) - Unified Pi PR-Boundary Launch Plan
-- [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) - Pi PR-Boundary Missing-Launch Follow-Up
-- [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
-- [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
-- [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
-- [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract) - Reviewer Policy Contract
-- [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
-- [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
-- [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier) - Pi Review Triage Acknowledgement Barrier
-- [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift) - Pi Review Checkpoint Persistence and Head Drift
-- [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate) - Deterministic Round-Limit Gate
-- [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
-- [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) - Pi Extraction Request Profile
-- [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile) - Pi Extraction Agent Definition Profile
-- [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic) - Deterministic Session Memory Graph Identity
+Exhaustive Agents and Memory status remains in the active SDD; section-local links identify clause details.
+
+| Delivery concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Manifest and generated seed | REQ-AGENT-006/007/014/030/049 | manifest, seed generator, generated TypeScript | freshness and byte/manifest membership tests |
+| Session modes and advanced tools | REQ-AGENT-024/091/127-137 | manifest mode gates, selected skills/plugins | mode-specific projection and validation tests |
+| Review/CI/governance runtime | REQ-AGENT-015/036-126 as linked in sections | rules, skills, Pi extension, agent definitions | policy contract and workflow behavioral tests |
+| Graphify | REQ-AGENT-023/025/026/043/127/128 | Graphify plugin/scripts and Pi tools | build-mode, publication, and graph-limit checks |
+| Provider/tool integration | REQ-AGENT-017/019/020/027-032/067/069/118 | entrypoint, setup, skills, MCP adapters | agent-specific projection and isolation tests |
+| Memory capture/extraction | REQ-MEM-013/016/017/018 | hooks and capture/extract agent definitions | bounded profile and deterministic identity tests |
+| SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
 
 ---
 
-## Image-baked seed (Governed Mode delta sync)
+<a id="image-baked-seed-governed-mode-delta-sync"></a>
+## Image-Baked Delivery Alias
 
 In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
 

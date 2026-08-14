@@ -10,22 +10,20 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 ## Contents
 
-- [Storage Quota](#storage-quota-req-stor-006-req-stor-014)
-- [Why rclone bisync (Not s3fs)](#why-rclone-bisync-not-s3fs)
-- [Initial Sync on Startup](#initial-sync-on-startup)
-- [What's Synced vs Excluded](#whats-synced-vs-excluded-req-stor-011)
-- [rclone Sync Modes](#rclone-sync-modes-req-stor-003)
-- [Manual Sync Triggers](#manual-sync-triggers-req-stor-015)
-- [Session Transcript Cleanup](#session-transcript-cleanup)
+- [Data Model and Boundaries](#data-model-and-boundaries)
+- [Synchronization Lifecycle](#synchronization-lifecycle)
 - [Conflict Resolution](#conflict-resolution)
-- [Troubleshooting](#troubleshooting)
+- [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
-- [Specification Coverage](#specification-coverage)
-- [Startup & steady-state sync performance](#startup--steady-state-sync-performance)
-- [Governed Mode (R2 SSE-C disabled)](#governed-mode-r2-sse-c-disabled)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Performance Characteristics](#performance-characteristics)
+- [Encryption-Regime Alias](#encryption-regime-alias)
 - [Related Documentation](#related-documentation)
 
-## Storage Quota (REQ-STOR-006, REQ-STOR-014)
+## Data Model and Boundaries
+
+<a id="storage-quota-req-stor-006-req-stor-014"></a>
+### Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
 Per-user bucket identities are serialized by a bucket-keyed Durable Object rather than inferred solely from a lossy email slug. KV owner records are non-authoritative observability only. Unambiguous legacy buckets remain stable, later collisions receive deterministic digest-suffixed names, and ambiguous legacy collisions are blocked pending operator resolution.
 
@@ -41,13 +39,15 @@ Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. 
 
 **Tier config merge:** `getTierConfig()` merges stored KV tiers with hardcoded defaults via `{ ...default, ...stored }`. New fields (like `maxStorageBytes`) backfill from defaults even when KV was saved before the field existed. Admin-saved values always take priority. The admin `PUT /api/admin/tiers` Zod schema includes `maxStorageBytes` so it persists on save.
 
-## Why rclone bisync (Not s3fs)
+### Why rclone bisync (Not s3fs)
 
 s3fs FUSE: every file op = network call (~340ms PUT, ~50ms HEAD), fragile on network hiccups, "Socket not connected" errors.
 
 rclone bisync: all file ops on local disk (<1ms), background daemon every 15 minutes (`sleep 900`, SIGUSR1-interruptible for manual triggers from the storage panel), final bisync on shutdown via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cadence rationale and [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) for the shutdown budget.
 
-## Initial Sync on Startup
+## Synchronization Lifecycle
+
+### Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
 2. Managed configuration and tab autostart finish, then `relay_managed_pi_extensions()` restores image-owned Pi extension bytes and removes retired managed files
@@ -59,7 +59,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 `--max-delete 100` allows bisync to propagate bulk deletions (e.g., deleting entire workspace folders). The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle - in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
 
-## What's Synced vs Excluded (REQ-STOR-011)
+### What's Synced vs Excluded (REQ-STOR-011)
 
 | Path | Synced | Reason |
 |------|--------|--------|
@@ -98,7 +98,7 @@ The Browser IDE snapshot is atomic, mode `0600`, and capped at 1 MiB. It contain
 
 The two durable `VAULT_FILTER` allow-rules precede `+ Vault/**` because rclone uses first-match semantics. `- Vault/graphify-out/**` drops derived output: `graph.json`, `graph.html`, chunks, `.graphify_labels.json`, `GRAPH_REPORT.md`, cache, and Graphify's own manifest. The published visualization remains under `Vault/Raw/Graphs/`.
 
-## rclone Sync Modes (REQ-STOR-003)
+### rclone Sync Modes (REQ-STOR-003)
 
 | Mode | Workspace Sync | Use Case |
 |------|---------------|----------|
@@ -127,7 +127,8 @@ Memory-capture counter files used to live at `~/.memory/counter/**` and required
 
 **Why `none` is the default.** Workspace directories can be large (gigabytes for compiled projects). Bisyncing the full workspace on every session start adds significant latency and R2 egress cost for content that git already tracks. The recommended pattern for workspace persistence is `git push` before stopping a session and `git clone` on the next. Enable `full` mode only for files that are genuinely hard to reproduce from source: local build artifacts, large datasets, or binary assets not committed to git. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cost-vs-staleness rationale behind the 15-minute cadence.
 
-## Manual Sync Triggers (REQ-STOR-015)
+<a id="manual-sync-triggers-req-stor-015"></a>
+### Manual and Final Sync Triggers (REQ-STOR-015)
 
 The periodic cadence is supplemented by one user-driven freshness trigger and one lifecycle-owned durability trigger:
 
@@ -148,7 +149,7 @@ R2 uploads do not auto-fan-out to running containers. The user clicks Sync-now t
 
 **Hibernation note.** Triggers are best-effort. A SIGUSR1 sent while the container is sleeping never reaches the daemon (the daemon process is dead); the next container wake runs a forced baseline bisync per [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) AC4, which absorbs any pending trigger. The Sync-now button surfaces hibernated sessions as `'not-running'` in the per-session result so the user gets honest feedback rather than a hang.
 
-## Session Transcript Cleanup
+### Session Transcript Cleanup
 
 `cleanup_old_transcripts()` runs before each periodic bisync (sequential in the same loop iteration - no concurrent access). Keeps the 5 most recent session transcripts (`.claude/projects/**/*.jsonl` sorted by mtime), deletes older `.jsonl` files only - session directories are left intact so Claude Code can still resolve project paths. Deletions propagate to R2 via bisync automatically. Subagent transcripts are also excluded from bisync entirely (`--filter "- .claude/projects/**/subagents/**"`) since results are captured in the main transcript. `cleanup_old_transcripts()` is wrapped in a subshell with `|| true` so `set -euo pipefail` cannot kill the bisync daemon when cleanup encounters benign non-zero exits (e.g., empty `find` results, `xargs` with no input).
 
@@ -186,7 +187,8 @@ The recovery filter file starts empty on every container start and is never sync
 
 ---
 
-## Troubleshooting
+<a id="troubleshooting"></a>
+## Failure Diagnosis and Recovery
 
 - **Storage panel doesn't show a file I just created in the terminal**
 
@@ -237,21 +239,22 @@ return an error response (4xx) rather than any listing.
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions) - File Persistence Across Sessions
-- [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) - Initial Sync Restores Files on Container Start
-- [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) - Graceful Shutdown Performs Final Sync
-- [REQ-STOR-010](../../sdd/spec/storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode) - Agent Configs Auto-Seeded Based on Session Mode
-- [REQ-STOR-011](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope) - Sync Mode Controls Workspace Scope
-- [REQ-STOR-012](../../sdd/spec/storage.md#req-stor-012-session-transcript-cleanup) - Session Transcript Cleanup
-- [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) - Explicit Sync Trigger from UI
-- [REQ-STOR-016](../../sdd/spec/storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) - File browser presentation and traversal safety
-- [REQ-STOR-018](../../sdd/spec/storage.md#req-stor-018-file-browser-pagination-is-append-only-and-recoverable) - File browser pagination
+| Storage concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Persistent workspace and restore | REQ-STOR-002/004/011 | entrypoint sync functions and storage mode resolver | Startup/baseline and scope tests |
+| Final persistence drain | [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) | `Container.destroy()` → `drainFinalSync`; entrypoint is backstop | Final-sync endpoint/result and lifecycle tests |
+| Seed/transcript policy | REQ-STOR-010/012 | seed generator and cleanup scripts | Generated inventory and cleanup behavior |
+| Explicit sync | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) | storage route, host endpoint, sync daemon | Trigger/result contract tests |
+| File browser | REQ-STOR-016/018 | storage routes and UI browser state | Traversal, pagination, and recovery tests |
+| Encryption regime | Enterprise/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |
 
 ---
 
-## Startup & steady-state sync performance
+<a id="startup--steady-state-sync-performance"></a>
+## Performance Characteristics
 
 Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
@@ -274,7 +277,8 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
     The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.
 
-## Governed Mode (R2 SSE-C disabled)
+<a id="governed-mode-r2-sse-c-disabled"></a>
+## Encryption-Regime Alias
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the dashboard `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
 

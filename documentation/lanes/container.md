@@ -11,12 +11,11 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 ## Contents
 
 - [Container Image](#container-image)
-- [Container Startup](#container-startup)
-- [Claude Code Integration](#claude-code-integration)
-- [Graphify (Knowledge-Graph Context)](#graphify-knowledge-graph-context-req-agent-023)
-- [LLM Consultation](#llm-consultation)
-- [Push & Deploy](#push--deploy)
-- [Specification Coverage](#specification-coverage)
+- [Runtime Paths](#runtime-paths)
+- [Runtime Lifecycle](#runtime-lifecycle)
+- [Agent Runtime Interfaces](#agent-runtime-interfaces)
+- [Release and Deployment Alias](#release-and-deployment-alias)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ## Container Image
@@ -114,7 +113,23 @@ code-server listens only on container-local `127.0.0.1:13337`; the terminal host
 
 ---
 
-## Container Startup
+## Runtime Paths
+
+| Path | Owner / purpose |
+|---|---|
+| `/home/user` | Runtime user home |
+| `/home/user/workspace` | Session working tree synchronized through the storage contract |
+| `/home/user/.claude/` | Claude configuration and credentials projection |
+| `/opt/codeflare/pi-agent/npm` | Image-local read-only Pi extension npm seed cache |
+| `/home/user/.pi/agent/npm` | Runtime Pi extension npm directory copied from the seed on startup |
+| `/home/user/.config/rclone/rclone.conf` | Generated rclone configuration |
+| `/tmp/sync-status.json` | Initialization/synchronization status read by the private health surface |
+| `/tmp/sync.log` | Runtime synchronization diagnostics |
+
+Path ownership is a runtime contract; storage semantics and finalization authority remain in [Storage & Sync](storage-and-sync.md).
+
+<a id="container-startup"></a>
+## Runtime Lifecycle
 
 **File:** `entrypoint.sh`
 
@@ -281,7 +296,10 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
 ---
 
-## Claude Code Integration
+<a id="claude-code-integration"></a>
+## Agent Runtime Interfaces
+
+### Claude Code Projection
 
 When `claude-code` is build-selected, terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI regardless of shared CLI selection, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
@@ -297,7 +315,7 @@ When `claude-code` is build-selected, terminal tab 1 runs the official global `@
 
 ---
 
-## Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
+### Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
 `graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
 
@@ -327,7 +345,7 @@ The semantic merge driver for `graph.json` is registered globally in the image (
 
 ---
 
-## LLM Consultation
+### LLM Consultation
 
 When `CODEFLARE_OPENAI_API_KEY` or `CODEFLARE_GEMINI_API_KEY` env vars are present (or the user is logged into Codex), `entrypoint.sh` (`configure_consult_llm`) configures the `consult-llm-mcp` MCP server for **both** Claude Code (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). Pi reaches it through the pi-mcp-adapter `mcp` proxy with `lifecycle: "lazy"`, so the server starts only when the user explicitly asks to consult an external LLM. On each start, entrypoint replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing the old always-on `keep-alive` / `directTools` fields while preserving unrelated user MCP servers.
 
@@ -358,7 +376,8 @@ Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude),
 
 ---
 
-## Push & Deploy
+<a id="push--deploy"></a>
+## Release and Deployment Alias
 
 Optional feature that lets users connect GitHub and Cloudflare accounts once in Settings. Tokens are stored in KV (`deploy-keys:{bucketName}`), validated against provider APIs on save, and injected as environment variables into every container session.
 
@@ -386,26 +405,17 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
-- [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility) - Packaged compatibility of fixed inventories
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted tools
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup
-- [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome) - Account-free Browser IDE chrome
-- [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol) - Native Pi blocking UI protocol
-- [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
-- [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
-- [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle
-- [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
-- [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection) - Input-based idle detection
-- [REQ-SESSION-008](../../sdd/spec/session-lifecycle.md#req-session-008-container-restart-preserves-r2-bucket) - Container restart preserves R2 bucket
-- [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) - Container destroy wipes session state
-- [REQ-SESSION-011](../../sdd/spec/session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) - Graceful shutdown with final sync
-- [REQ-SESSION-013](../../sdd/spec/session-lifecycle.md#req-session-013-sleep-timer-countdown-ui) - Sleep timer countdown UI
-- [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
-- [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (enterprise only; `interceptOutboundHttps` wired before `container.start()`)
+| Runtime concern | Requirements | Source owner | Observable evidence |
+|---|---|---|---|
+| Image and pinned inventory | REQ-OPS-011, REQ-IDE-005/010 | `Dockerfile`, package manifests, image checks | Installed versions and packaged inventory tests |
+| Startup/readiness | Session Lifecycle and Storage SDD | `entrypoint.sh`, host health/prewarm, lifecycle route | Init status plus port/readiness gates |
+| Idle and status reconciliation | REQ-OPS-016/017, REQ-SESSION-005/013/018 | container metrics/lifecycle modules | DO/KV state and countdown/client behavior |
+| Finalization/teardown | REQ-OPS-010, REQ-SESSION-008/009/011 | `Container.destroy()` lifecycle and entrypoint backstop | Final drain result and authoritative persisted state |
+| Browser IDE runtime | REQ-IDE-006/007/008/021/022 | host, OpenVSCode package, agent-sidebar extension | Shared IDE conversation and bounded approval/process behavior |
+| Enterprise interception | [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) | Worker container-start composition | Interceptor installation before `container.start()` |
 
 ---
 

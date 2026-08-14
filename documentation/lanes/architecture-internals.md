@@ -10,18 +10,19 @@ See [Architecture](architecture.md) for the system map, component and state owne
 
 ## Contents
 
-- [Backend Libraries](#backend-libraries)
-- [Code Structure (Pre-Launch Refactoring)](#code-structure-pre-launch-refactoring)
-- [Runtime and Client Internals](#runtime-and-client-internals)
+- [Source Module Registry](#source-module-registry)
+- [Source Composition](#source-composition)
+- [Cross-Process Runtime Composition](#cross-process-runtime-composition)
 - [Module-Level Caches](#module-level-caches)
-- [Appendix: CF-NNN Code Index](#appendix-cf-nnn-code-index)
-- [SaaS UI Components](#saas-ui-components)
+- [Compatibility and Stable Internal Aliases](#compatibility-and-stable-internal-aliases)
+- [SaaS and Frontend Composition](#saas-and-frontend-composition)
 - [Related Documentation](#related-documentation)
-- [Specification Coverage](#specification-coverage)
+- [Requirement and Source Map](#requirement-and-source-map)
 
 ---
 
-## Backend Libraries
+<a id="backend-libraries"></a>
+## Source Module Registry
 
 | File | Purpose |
 |------|---------|
@@ -55,7 +56,23 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Code Structure (Pre-Launch Refactoring)
+<a id="code-structure-pre-launch-refactoring"></a>
+## Source Composition
+
+| Area | Responsibility |
+|---|---|
+| `src/` | Worker routes, policy, Durable Objects, and backend libraries |
+| `host/` | Private container HTTP/WebSocket, PTY, activity, and runtime services |
+| `web-ui/` | SolidJS application and client state |
+| `landing/` | Prerendered landing/login/privacy package |
+| `openvscode/` | Browser IDE package composition |
+| `stress/` | k6 suite implementations |
+| `scripts/` | Build, generation, validation, and CI helpers |
+| `sdd/` | Active requirements, acceptance criteria, and decisions |
+
+The similar Zod schemas in `src/lib/schemas.ts` and `web-ui/src/lib/schemas.ts` intentionally live in separate build targets. The frontend Vite bundle cannot import the Workers backend module; both copies validate the same API contract at their own boundary.
+
+For a live repository tree, run `tree -L 2 -I node_modules` rather than relying on a copied inventory.
 
 **Container DO extraction:** `src/container/index.ts` split into focused modules:
 - `container-env.ts`: env var construction, bucket name application, credential injection, prefs-on-restart
@@ -97,7 +114,8 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Runtime and Client Internals
+<a id="runtime-and-client-internals"></a>
+## Cross-Process Runtime Composition
 
 The [Architecture](architecture.md) lane owns component boundaries and cross-component flow. This section owns the source composition and implementation mechanisms behind those boundaries.
 
@@ -227,7 +245,8 @@ The original 1,500-user sizing model estimated that approximately 195-byte sessi
 
 ---
 
-## Appendix: CF-NNN Code Index
+<a id="appendix-cf-nnn-code-index"></a>
+## Compatibility and Stable Internal Aliases
 
 | Code | Description | Source Location |
 |------|-------------|-----------------|
@@ -261,7 +280,8 @@ The original 1,500-user sizing model estimated that approximately 195-byte sessi
 
 ---
 
-## SaaS UI Components
+<a id="saas-ui-components"></a>
+## SaaS and Frontend Composition
 
 SolidJS components for the SaaS auth and subscription flow (`web-ui/src/`). These components handle login, tier selection, onboarding, and admin user management.
 
@@ -307,10 +327,14 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-Partial coverage - this section indexes only REQs whose implementation is described inline here. See [api-reference.md](api-reference.md) and [architecture.md](architecture.md) for the broader REQ backlinks.
+Exhaustive status belongs to the active SDD. This implementation map identifies composition owners and representative contracts.
 
-- [REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page) - Custom branded login page (LoginPage component)
-- [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) - Enterprise tier contact flow (SubscribePage plan view)
-- [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) - Multi-Currency Pricing
+| Composition concern | Requirements | Source owner |
+|---|---|---|
+| Worker/container modules | Session Lifecycle, Storage, Vault, Operations | `src/container/`, `src/routes/`, `src/lib/` |
+| Cross-process IDE/terminal runtime | Browser IDE, Terminal, Mobile, Agents | `host/src/`, `openvscode/agent-sidebar/`, `web-ui/src/` |
+| Authentication/subscription UI | [REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page), [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow), [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) | `web-ui/src/`, `landing/` |
+| Stable internal aliases | CF-NNN index and source comments/tests | Named modules in this document |
