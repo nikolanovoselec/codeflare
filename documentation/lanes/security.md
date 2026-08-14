@@ -97,12 +97,14 @@ When `ENCRYPTION_KEY` is configured, protected KV values use AES-256-GCM with ke
 
 AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. Rotation changes derived Vault keys and can require explicit browser/store recovery.
 
+Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Secret placement and rotation execution remain Configuration/private-operations responsibilities.
+
 ## Network and Egress Controls
 
 <a id="enterprise-mode-credential-containment-and-ca-trust"></a>
 ### Interception and CA trust
 
-Supported Enterprise model/provider traffic is intercepted at exact Worker-owned boundaries. The container trusts only the platform-mounted interception CA through the configured runtime stores. Missing mandatory interception or CA prerequisites abort startup rather than silently sending a real credential direct.
+Supported Enterprise model/provider traffic is intercepted at exact Worker-owned boundaries. The container trusts only the platform-mounted interception CA through the configured runtime stores. If the expected CA file is missing, current entrypoint behavior logs a warning and continues startup; intercepted provider calls then fail. It does not silently fall back to sending the real credential directly.
 
 <a id="strict-gateway-egress-enterprise-mode"></a>
 ### Strict Gateway Egress
@@ -133,6 +135,10 @@ Session IDs are strict bounded lowercase alphanumeric values before routing. Req
 
 <a id="body-limit"></a>
 Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
+
+### Outbound email boundary
+
+Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body.
 
 ### Governed-mode encryption regime
 
@@ -192,6 +198,8 @@ Governed dependencies/actions/images are pinned through their owning lock/manife
 ### Container image vulnerability gate
 
 Fresh images are scanned for HIGH/CRITICAL findings. The executable validator accepts only exact reviewed vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Reviewed exceptions are bounded acceptances, not wildcard ignores; dated scan occurrences belong to CI evidence rather than this current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs -->
+
+Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias

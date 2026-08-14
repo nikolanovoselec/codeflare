@@ -95,23 +95,27 @@ Configured tier modes, paid `subscribedMode`, stored next-session preference, do
 
 ## Offboarding Handoff
 
-Provisioning owns orchestration and completion evidence; specialist owners perform each operation:
+Provisioning owns orchestration; specialist owners perform each operation:
 
-| Handoff | Owner / required result |
+| Handoff | Current result contract |
 |---|---|
-| Active sessions | Container lifecycle destroys them and confirms teardown/final drain |
-| GitHub/Cloudflare provider bindings | Provider integration revokes or records retryable revocation state |
-| User/bucket KV | Cleanup removes normalized user-scoped control keys |
-| R2 objects and bucket | Storage empties and deletes the claimed user bucket |
-| Usage/accounting state | Billing/Timekeeper cleanup removes the user's projection |
+| Active sessions | Cleanup attempts container destruction; failures are logged and can leave `deletedSessions: false` |
+| GitHub/Cloudflare provider bindings | Provider revocation failure aborts cleanup rather than deleting the user record |
+| User/bucket KV | Cleanup removes normalized user-scoped control keys after provider revocation succeeds |
+| R2 token | Deletion failure is logged and can leave `tokenDeleted: false` |
+| R2 objects and bucket | Empty/delete failure is logged and can leave `bucketDeleted: false` |
+| Usage/accounting state | Billing/Timekeeper cleanup removes the user's projection where implemented |
 
-A delete response must not claim completion while a required destructive handoff is unconfirmed. Exact route contracts belong to the [API Reference](api-reference.md#user-management).
+The current route logs the cleanup result but returns `{ success: true, email }` even when session, token, or bucket cleanup is unconfirmed. Operators must treat those logged false results as residual cleanup work; the API does not currently provide a fail-closed completion receipt. Exact route contracts belong to the [API Reference](api-reference.md#user-management).
 
 ## Compatibility and Migration
 
 <a id="legacy-compatibility"></a>
 - Legacy `accessTier` remains a read fallback while `subscriptionTier` is preferred.
-- Missing fields resolve through source-defined defaults; migration must not invent stronger entitlement.
+- Tier mutation writes `subscriptionTier` and a compatible legacy `accessTier`; newer tier names map to legacy `advanced` where the old schema has no equivalent.
+- Auth status without either stored tier preserves the legacy `advanced` fallback.
+- General tier resolution uses the configured tier marked `isDefault`; `isActiveTier(undefined)` remains active for backward compatibility.
+- Migration must not invent entitlement beyond those explicit compatibility defaults.
 - Enterprise request-time overrides do not require rewriting older durable records.
 - Normalized email remains the durable identity key input.
 - Eventual consistency is explicit; no prose may claim KV per-key serialization.

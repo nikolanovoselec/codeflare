@@ -159,7 +159,7 @@ Session-OIDC deployments do not create competing Cloudflare Access resources for
 <a id="connect-github"></a>
 ### Provider account connections
 
-Connecting GitHub or Cloudflare after authentication binds provider capability to the already verified user. Provider OAuth/PAT transport and token containment are owned by [Security](security.md#api-token-containment), [GitHub integration](api-reference.md#github-integration), and [Configuration](configuration.md).
+Connecting GitHub or Cloudflare after authentication binds provider capability to the already verified user. Provider OAuth/PAT transport and token containment are owned by [Security](security.md#api-token-containment), [GitHub integration](api-reference.md#github-integration), and [Configuration](configuration.md). GitHub connections authorized before the `gist` scope was added must be disconnected and reconnected before gist-backed features are available.
 
 <a id="per-user-bucket-naming"></a>
 <a id="bucket-auto-creation"></a>
