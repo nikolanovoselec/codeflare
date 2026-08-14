@@ -327,7 +327,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -548,7 +548,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual release-job verification
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -679,7 +679,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 

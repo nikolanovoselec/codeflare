@@ -1277,7 +1277,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Behavioral tests and manual check
+**Verification:** Manual check
 
 **Status:** Implemented
 
