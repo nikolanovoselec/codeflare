@@ -289,6 +289,13 @@ describe('optimized documentation lane shapes', () => {
       required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
     },
     {
+      name: 'configuration bindings',
+      file: 'configuration.md',
+      heading: 'Platform Bindings',
+      discriminator: 'Binding',
+      required: ['Purpose', 'Required', 'Consumed by', 'Implements'],
+    },
+    {
       name: 'security threats',
       file: 'security.md',
       heading: 'Threat Model',
@@ -398,6 +405,18 @@ describe('optimized documentation lane shapes', () => {
     });
     assert.equal(malformedLegacy.status, 1, malformedLegacy.stdout);
     assert.deepEqual(JSON.parse(malformedLegacy.stdout).findings[0].missing, ['Response']);
+    for (const [label, value, semantic] of [
+      ['Request', 'No request body.', 'Request'],
+      ['Error responses', '`401` when unauthenticated.', 'Errors'],
+      ['Implementation', '`src/items.ts`', 'Source'],
+    ]) {
+      const line = `**${label}:** ${value}`;
+      const result = runFixture({
+        'api-reference.md': legacy.replace(label === 'Implementation' ? line : `${line}\n\n`, ''),
+      });
+      assert.equal(result.status, 1, `${label}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [semantic]);
+    }
 
     const detailed = [
       '# API', '', '## Items', '', '### HEAD `/items`', '',

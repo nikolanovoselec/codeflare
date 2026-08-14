@@ -197,12 +197,15 @@ describe('optimized SDD documentation templates', () => {
     const architectureTemplate = join(templatesDir, 'documentation-architecture.md');
     const base = readFileSync(architectureTemplate, 'utf8');
     try {
-      writeFileSync(architectureTemplate, `${base}\n{bad placeholder}\n`);
-      await assert.rejects(renderDocumentationTemplates({
-        mode: 'greenfield', templatesDir, outputDir: join(root, 'bad-placeholder'),
-        projectName: 'Example Project', lanes: ['architecture'],
-      }), /Invalid placeholder/);
-      assert.equal(existsSync(join(root, 'bad-placeholder')), false);
+      for (const [index, invalid] of ['{bad placeholder}', '{BAD', 'BAD}', '{}'].entries()) {
+        const outputDir = join(root, `bad-placeholder-${index}`);
+        writeFileSync(architectureTemplate, `${base}\n${invalid}\n`);
+        await assert.rejects(renderDocumentationTemplates({
+          mode: 'greenfield', templatesDir, outputDir,
+          projectName: 'Example Project', lanes: ['architecture'],
+        }), /Invalid placeholder|Unmatched placeholder brace/);
+        assert.equal(existsSync(outputDir), false);
+      }
 
       writeFileSync(architectureTemplate, `${base}\nREQ-FAKE-001\n`);
       await assert.rejects(renderDocumentationTemplates({

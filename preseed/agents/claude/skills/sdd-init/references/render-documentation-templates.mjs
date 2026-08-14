@@ -64,6 +64,9 @@ function validateTemplate(content, name) {
       throw new Error(`Invalid placeholder in ${name}: {${match[1]}}`);
     }
   }
+  const unmatched = content.replace(/\{[A-Z][A-Z0-9_]*\}/g, '');
+  if (/[{}]/.test(unmatched)) throw new Error(`Unmatched placeholder brace in ${name}`);
+
   const exemplar = content.match(/\b(?:REQ-[A-Z]+-\d+|AD\d+)\b/);
   if (exemplar) throw new Error(`Hard-coded exemplar ID in ${name}: ${exemplar[0]}`);
 }

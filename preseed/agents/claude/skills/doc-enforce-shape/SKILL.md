@@ -34,6 +34,7 @@ Return findings and any permitted clean actions. Populate:
 | `architecture.md` | H3 component dossier under `Components` or `System Components` | `Responsibility`, `Inputs`, `Outputs`, `Source` |
 | `api-reference*.md` | Table carrying `Method` and `Path` | `Method`, `Path`, `Auth`, `Implements`; canonical templates also include `Description` |
 | `configuration.md` | Table carrying `Variable` | `Variable`, `Purpose`, `Default`, `Required`, `Consumed by`, `Implements` |
+| `configuration.md` | Table carrying `Binding` | `Binding`, `Purpose`, `Required`, `Consumed by`, `Implements` |
 | `security.md` | Threat table carrying `Asset / boundary` | `Asset / boundary`, `Threat or failure`, `Control and failure posture`, `Residual risk / owner` |
 | `security.md` | Residual-risk table carrying `Exception / residual risk` | `Exception / residual risk`, `Current decision`, `Owner / review signal` |
 | `security.md` | Evidence table carrying `Control family` | `Control family`, `Requirements / decisions`, `Implementation`, `Evidence` |

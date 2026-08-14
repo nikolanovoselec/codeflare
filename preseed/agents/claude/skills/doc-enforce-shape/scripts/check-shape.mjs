@@ -31,12 +31,19 @@ const TABLE_PROFILES = {
     discriminator: ['Method', 'Path'],
     required: ['Auth', 'Implements'],
   }],
-  configuration: [{
-    id: 'configuration-variables',
-    discriminator: ['Variable'],
-    required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
-    aliases: { Purpose: ['Description'] },
-  }],
+  configuration: [
+    {
+      id: 'configuration-variables',
+      discriminator: ['Variable'],
+      required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
+      aliases: { Purpose: ['Description'] },
+    },
+    {
+      id: 'configuration-bindings',
+      discriminator: ['Binding'],
+      required: ['Purpose', 'Required', 'Consumed by', 'Implements'],
+    },
+  ],
   security: [
     {
       id: 'security-threats',
@@ -351,11 +358,10 @@ function scanSections(lines, kind, file, findings) {
       const recognized = Object.keys(aliases).some((field) => present(field));
       if (!endpoint || !recognized) continue;
 
-      const legacy = ['Authentication', 'Auth', 'Response 200', 'Error responses', 'Implementation']
-        .some((field) => labels.has(field));
-      const required = legacy
-        ? ['Authentication', 'Response', 'Implements']
-        : ['Request', 'Response', 'Errors', 'Source', 'Implements'];
+      const detailed = ['Request', 'Errors', 'Source'].some((field) => present(field));
+      const required = detailed
+        ? ['Request', 'Response', 'Errors', 'Source', 'Implements']
+        : ['Authentication', 'Response', 'Implements'];
       const missing = required.filter((field) => !present(field));
       if (missing.length > 0) {
         findings.push({

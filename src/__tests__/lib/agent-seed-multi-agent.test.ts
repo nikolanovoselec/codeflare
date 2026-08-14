@@ -61,7 +61,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-139 AC5: optimized documentation templates reach Claude and Pi seeds', () => {
+  it('REQ-AGENT-139 AC7: optimized documentation templates reach Claude and Pi seeds', () => {
     const relativePaths = [
       'skills/sdd-init/references/render-documentation-templates.mjs',
       'skills/spec-driven-development/references/templates/documentation-security.md',

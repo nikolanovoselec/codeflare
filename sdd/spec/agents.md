@@ -3710,8 +3710,12 @@ None.
 1. The bundled templates cover Architecture, API, Configuration, Deployment, Security, Observability, Troubleshooting, and the shared envelope for optional indexed project lanes. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-architecture.md::System Components --> <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Templates location --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
 2. Greenfield and Import Mode pass their evidence-selected lanes through one renderer. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
 3. Rendering emits only selected lane files and matching index rows. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (emits only selected lane rows) -->
-4. Rendering uses fresh staging, removes partial output after failure, and preserves the live documentation tree until checked promotion. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
-5. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-139 AC5: optimized documentation templates reach Claude and Pi seeds) -->
+4. Rendering requires a fresh non-symlink staging path. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
+5. A rendering failure removes its partial staging output. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
+6. Checked promotion keeps the live documentation tree restorable until post-promotion validation succeeds. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Greenfield — lean two-confirm flow --> <!-- @manual: On a disposable Import Mode fixture with existing documentation, force post-promotion validation to fail and confirm the original tree is restored from the sibling backup. -->
+7. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-139 AC7: optimized documentation templates reach Claude and Pi seeds) -->
+
+**Notes:** Live validation of checked Import Mode promotion and rollback is pending; see the [Preseed SDD Bootstrap Contract](../../documentation/lanes/preseed.md#sdd-bootstrap-contract).
 
 **Constraints:** Existing discovery, Import Mode triage, and review ownership remain unchanged. Architecture and the ADR ledger remain universal; other lanes require source evidence. Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership. No project schema engine or replacement migration subsystem is introduced.
 
@@ -3721,7 +3725,7 @@ None.
 
 **Verification:** Automated test ([documentation template contract tests](../../host/__tests__/documentation-template-contract.test.js), [generated seed parity tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -3740,6 +3744,8 @@ None.
 5. The reusable checker contains no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts the current indexed Codeflare lane corpus without product inventory names) -->
 6. Indexed first-level project lanes retain the shared ownership, navigation, evidence-map, and related-document envelope. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanProjectLane --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (checks the shared envelope of first-level project lanes) -->
 
+**Notes:** Live validation of lossless collection normalization is pending; see the [Preseed SDD Bootstrap Contract](../../documentation/lanes/preseed.md#sdd-bootstrap-contract).
+
 **Constraints:** Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged. Ambiguous or conflicting content is reported and left intact. No suppression baseline or separate migration subsystem is introduced.
 
 **Priority:** P1
@@ -3749,7 +3755,5 @@ None.
 **Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
 
 **Status:** Partial
-
-**Notes:** Live validation of lossless collection normalization is pending; see the [Preseed SDD Bootstrap Contract](../../documentation/lanes/preseed.md#sdd-bootstrap-contract).
 
 ---
