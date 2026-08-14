@@ -7,7 +7,7 @@ import {
   renderWelcomeHtml,
 } from '../src/welcome.ts';
 
-test('REQ-IDE-024 AC1+AC2: every inventory gets an honest shared-runtime welcome action', () => {
+test('REQ-IDE-024 AC4: every inventory gets an honest fixed welcome action', () => {
   const pi = buildWelcomePresentation('pi');
   assert.deepEqual(pi.action, {
     label: 'Open Codeflare Chat',
@@ -36,7 +36,7 @@ test('REQ-IDE-024 AC1+AC2: every inventory gets an honest shared-runtime welcome
   assert.equal(unsupported.runtimeLabel, 'EDITOR / STANDARD');
 });
 
-test('REQ-IDE-024 AC2: only exact Pi and Claude selections enable an IDE agent', () => {
+test('REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent', () => {
   assert.equal(normalizeIdeAgentKind('pi'), 'pi');
   assert.equal(normalizeIdeAgentKind('claude'), 'claude');
   for (const value of [undefined, '', 'codex', 'pi --mode rpc', 'CLAUDE']) {
@@ -44,7 +44,7 @@ test('REQ-IDE-024 AC2: only exact Pi and Claude selections enable an IDE agent',
   }
 });
 
-test('REQ-IDE-024 AC1+AC3: welcome HTML explains the editor plane without external content', () => {
+test('REQ-IDE-024 AC2+AC5: welcome HTML explains the editor plane without external content', () => {
   const html = renderWelcomeHtml(
     buildWelcomePresentation('pi'),
     'vscode-webview://codeflare',
@@ -56,6 +56,7 @@ test('REQ-IDE-024 AC1+AC3: welcome HTML explains the editor plane without extern
   assert.match(html, /same isolated, ephemeral container/i);
   assert.match(html, /agents, tools, skills, and MCPs/i);
   assert.match(html, /Open Codeflare Chat/);
-  assert.match(html, /default-src 'none'; style-src vscode-webview:\/\/codeflare; script-src 'nonce-fixed-nonce'/);
+  assert.match(html, /default-src 'none'; style-src 'nonce-fixed-nonce'; script-src 'nonce-fixed-nonce'/);
+  assert.match(html, /<style nonce="fixed-nonce">/);
   assert.doesNotMatch(html, /https?:\/\//i);
 });

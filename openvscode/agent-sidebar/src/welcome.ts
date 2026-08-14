@@ -80,9 +80,9 @@ export function renderWelcomeHtml(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src 'nonce-${nonce}'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'">
 <title>Codeflare</title>
-<style>
+<style nonce="${nonce}">
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }

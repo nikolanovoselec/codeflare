@@ -190,7 +190,7 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + RE
   assert.equal(manifest.contributes.views, undefined);
 });
 
-test('REQ-IDE-024 AC1+AC2: the shared welcome extension contributes no agent surface', async () => {
+test('REQ-IDE-024 AC6: the shared welcome extension contributes no agent surface', async () => {
   const manifest = JSON.parse(
     await readFile(new URL('../welcome-package.json', import.meta.url), 'utf8'),
   ) as {

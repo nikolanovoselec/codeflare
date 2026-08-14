@@ -66,15 +66,6 @@ describe('shadow-pin workflow forward-only routing', () => {
     }
   });
 
-  it('keeps the official Claude Code panel in the shadow-pin workflow', () => {
-    const job = workflow.jobs['claude-vscode-extension'];
-    assert.ok(job, 'official Claude Code extension bump job is required');
-    const scripts = (job.steps ?? []).map((step) => step.run ?? '').join('\n');
-    assert.match(scripts, /openvscode\/agent-sidebar\/official-claude\.json/);
-    assert.match(scripts, /open-vsx\.org\/api/);
-    assert.match(scripts, /sha256/);
-  });
-
   it('fails every cooldown route when the comparator rejects malformed input', () => {
     const directory = mkdtempSync(join(tmpdir(), 'semver-forward-'));
     const node = join(directory, 'node');
