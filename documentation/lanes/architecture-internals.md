@@ -1,6 +1,6 @@
 # Architecture Internals
 
-Backend library reference, code structure, and refactoring index for Codeflare.
+Source composition, runtime and client implementation, cache inventory, backend libraries, and refactoring index for Codeflare.
 
 **Audience:** Developers
 
@@ -10,6 +10,8 @@ See [Architecture](architecture.md) for system overview, components, data flow, 
 
 - [Backend Libraries](#backend-libraries)
 - [Code Structure (Pre-Launch Refactoring)](#code-structure-pre-launch-refactoring)
+- [Runtime and Client Internals](#runtime-and-client-internals)
+- [Module-Level Caches](#module-level-caches)
 - [Appendix: CF-NNN Code Index](#appendix-cf-nnn-code-index)
 - [SaaS UI Components](#saas-ui-components)
 - [Related Documentation](#related-documentation)
@@ -93,6 +95,131 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
+## Runtime and Client Internals
+
+The [Architecture](architecture.md) lane owns component boundaries and cross-component flow. This section owns the source composition and implementation mechanisms behind those boundaries.
+
+### Worker routing internals
+
+`src/index.ts` is the Hono entry point and asset gateway. WebSocket route validation runs before Hono dispatch because the Workers runtime upgrade path cannot be treated as an ordinary routed response. Authentication middleware and `requireAdmin` establish identity before protected route modules execute. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
+
+The route catalogue and HTTP outcomes live in [API Reference](api-reference.md). CORS sources and `run_worker_first` asset paths live in [Configuration](configuration.md); failures where an API route or fingerprinted asset falls through to SPA HTML live in [Troubleshooting](troubleshooting.md).
+
+### Container and interception composition
+
+`src/container/index.ts` is a thin Durable Object facade over configuration, lifecycle, routing, metrics, and environment modules. `src/container/container-interception.ts` builds one ordered registry before container start:
+
+1. Host-specific LLM interception owns OpenAI-wire traffic in enterprise mode.
+2. Host-specific GitHub interception owns GitHub web, API, and Copilot MCP hosts in enterprise mode.
+3. Cloudflare Browser interception owns account API and CDP traffic when its user or enterprise token boundary applies.
+4. The optional strict-egress catch-all receives otherwise-unclaimed direct-internet traffic.
+
+The platform resolves denied hosts, host-specific registrations, and the catch-all in that order. A mandatory LLM registration failure aborts enterprise startup; independently optional transports remain bounded by their own contract.
+
+`LlmInterceptor` buffers model-routable requests so a complete REST 404 can be replayed through the compatibility transport before any stream starts. It strips container placeholder authorization, selects `dynamic/<route>` through the shared route-catalogue resolver, keeps REST/OpenAI request fields on the REST leg, removes incompatible fields only for the compatibility replay, and normalizes streamed Chat Completions that reach `[DONE]` without a terminal `finish_reason`. The same ordered configured user-group list controls first-match route restrictions and the bounded metadata tags. Credential containment and exact configuration remain in [Security](security.md) and [Configuration](configuration.md).
+
+`EgressController` preserves end-to-end caller authorization for transparent traffic and strips only hop-by-hop headers. It routes direct-internet requests through `env.EGRESS`, rejects literal-IP targets before sending, and fails closed when strict mode lacks the binding. Explicit own-account R2 and account-scoped Cloudflare API/Browser Rendering destinations bypass that hop; R2 is re-signed with the Worker-held key while preserving streaming and SSE-C headers. WebSocket upgrades are bridged through a fresh pair rather than returned as an upstream socket. The Container DO resolves strict mode once at start so catch-all wiring and placeholder R2 credentials cannot disagree.
+
+`CloudflareBrowserInterceptor` uses the wiring-time bucket identity rather than a caller header. It refreshes non-enterprise OAuth tokens for Cloudflare API and AI Gateway requests, injects enterprise Browser Rendering tokens where configured, handles REST and CDP WebSockets through the same relay/bridge boundary, and returns 401 without upstream traffic when no valid token is available.
+
+### GitHub integration internals
+
+The integration spans `src/routes/github.ts`, `src/routes/github-auth.ts`, `src/lib/github-token.ts`, `src/github-interceptor.ts`, `host/src/git-clone.ts`, `host/src/request-router.ts`, and `web-ui/src/components/github/`.
+
+The token provider uses the existing encrypted `DeployKeys.githubToken` record. Enterprise containers hold only a placeholder: `GitHubInterceptor` resolves the real token from the session-bound bucket and stamps host-appropriate Basic or Bearer authorization. Other modes retain the existing `GH_TOKEN` container transport. AI interception and GitHub interception remain separate Worker entry points even though both use the Containers host-interception layer.
+
+New-session cloning is an entrypoint directive that runs before the selected agent starts. Running-session cloning uses the authenticated private host endpoint. Both validate `owner/name`, optional ref, and destination absence. [API Reference](api-reference.md#github-integration) owns public outcomes.
+
+The browser panel shares a column with Storage. Desktop/tablet use a measured top/bottom split: GitHub anchors at the top, Storage at the bottom, and the larger face absorbs spare height until both meet at equal allocation. Narrow or short layouts expose one face with a flip control. GitHub is the default enabled face; Storage is sole only when GitHub is disabled. Search is disclosed by a focus-preserving toggle on every breakpoint, and mobile keyboard handling scrolls the revealed field into view. These behaviors implement [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus), and [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) without creating backend session state.
+
+### Browser IDE internals
+
+The Browser IDE runs pinned code-server inside the selected session container and reaches it only through the authenticated session proxy. The Worker and host reject public workspace selectors independently. The host injects the fixed canonical `/home/user/workspace` projection only into the private root workbench response and fails closed when the pinned workbench shape cannot be verified. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
+
+A Codeflare-owned welcome extension exists in every inventory and contributes no agent, provider, or external-content surface ([REQ-IDE-024](../../sdd/spec/browser-ide.md#req-ide-024-codeflare-browser-ide-welcome)). Pi receives the owned native participant and compatibility providers; Claude receives the exact checksum-pinned official package; unsupported agents receive an empty inventory. code-server's bundled Copilot extension is removed from the image so the account-backed setup does not compete with Codeflare. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot -->
+
+Panel and editor Inline Chat share one IDE-owned Pi RPC process and one in-memory conversation, separate from terminal Pi. Requests execute FIFO because stream events carry no prompt ID. Cold creation or replacement receives bounded visible history from the requesting surface; warm turns send only current request/editor context. Normal completion retains the backend. Active cancellation, protocol/input/spawn failure, unexpected exit, deactivation, or editor restart retires and boundedly reaps it before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend -->
+
+Pi receives bounded active-document content, selection, open workspace files, diagnostics, and explicit references. Canonical path checks reject external and symbolic-link escapes. `select` and `input` blocking requests are bounded and cancellable; malformed or unsupported requests fail closed. Pi remains otherwise unrestricted, so direct effects are not transactional editor text edits.
+
+Claude uses an isolated allowlisted temporary configuration projection, unrestricted permission mode, and Anthropic's authenticated loopback IDE MCP. Codeflare does not patch the official package or bridge generic VS Code Authentication. The package and local MCP boundaries are accepted under [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
+
+Live code-server databases, extension storage, SecretStorage, authentication, chat, logs, and unmanaged settings remain ephemeral. After a generation is fully reaped, the exporter persists only allowlisted theme, string-valued keyboard layout, Explorer expansion, and canonical in-workspace open-file state to the bounded UI snapshot. Managed settings override restored preferences on every launch.
+
+Launch generations carry PID, process group, start time, and a random token; native Pi adds a narrower process token and official Claude descendants inherit the launch token. Cleanup scans and reaps the applicable generation before replacement or session shutdown. Active Browser IDE REQs remain Partial wherever their ACs retain deployed/manual evidence.
+
+### Terminal and frontend internals
+
+The host uses one shared activity tracker. Classified terminal input and every client-to-server Browser IDE frame advance `lastInputAt`; terminal output, server-to-client IDE traffic, protocol chatter, Vault activity, and autonomous-agent output do not. `collectMetrics()` owns the resulting idle decision.
+
+A PTY may have several clients, but one foreground owner applies resize. The first client owns by default, a focused pane claims authority before resizing, and detach transfers authority to a remaining client. Stale hidden clients therefore cannot overwrite the visible pane's dimensions. <!-- @impl: host/src/session.ts::resize --> <!-- @impl: host/src/session.ts::detach --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
+
+`terminal-workspace.ts` separates running, visible, connected, and focused state. Dashboard has no terminal panes; a real session has its visible active/tiled panes; MultiView has one pane per selected member. Hidden running sessions mount no xterm instance or WebSocket and cannot own resize, input, or URL detection.
+
+MultiView is a browser-local virtual workspace. It validates members against live sessions, allows two to four desktop members and exactly two tablet members, remains hidden on mobile, and is never sent to lifecycle, quota, storage, metrics, or terminal-route APIs. Focused-pane ownership prevents cleanup from an old pane clearing the current pane's detected URL.
+
+On dashboard navigation, Layout starts the bounded disconnect grace. Returning cancels it and reconnects only exact visible terminal keys. Connection generations prevent stale cleanup from closing newer sockets. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+
+Session cards combine authoritative KV status with visible connection state: running and connected is green, running and disconnected is yellow, stopped is gray. A server-authoritative stopped close ends retries; transient transport closes remain retryable until persisted status converges.
+
+The terminal host strips emulator replies before writing browser input to the PTY, classifies actual input separately for idle tracking, forwards synchronized-output frames atomically to xterm, and keeps protocol control frames distinct from raw terminal bytes. Native agent notifications ride bounded OSC 777 handling only while the live page processes terminal output; there is no Worker queue, wake path, or after-close delivery. Terminal tab-one startup, tiling, write batching, and process-name control remain governed by [REQ-TERM-005](../../sdd/spec/terminal.md#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-007](../../sdd/spec/terminal.md#req-term-007-tiling-layouts-2-split-3-split-4-grid), [REQ-TERM-008](../../sdd/spec/terminal.md#req-term-008-write-batching-at-30fps), and [REQ-TERM-009](../../sdd/spec/terminal.md#req-term-009-process-name-detection-via-control-messages).
+
+### Landing implementation
+
+The Landing package is a static Astro build rooted at `/landing` and emitted into the main web asset tree. `tokens.css` owns fonts, colors, type/space scales, easing, and layout constants; `global.css` consumes those tokens for page and component styling. Typed copy, links, proof identifiers, and navigation live in `site.ts`; components render that data without private copies.
+
+`BaseLayout.astro` server-renders the dark first-paint contract and `html.flare-on` on the marketing page. `splash.ts` mounts the WebGL canvas when supported and retires it to the CSS fallback on reduced motion, coarse-pointer backgrounding, unavailable WebGL, or context loss. Login and privacy omit the marketing motion/proof system. The server output is complete without JavaScript; scripts enhance rather than reveal required content.
+
+The Hero family includes the primary product hero and the optional Inference Mesh band. The mesh reuses shared terminal/transcript chrome and presents company-owned idle compute as an additional inference source, not the only or default route ([REQ-LANDING-005](../../sdd/spec/landing.md#req-landing-005-inference-mesh-family-hero)). The fixed in-flow sign-in CTA preserves navigation geometry while its hover shell changes ([REQ-LANDING-006](../../sdd/spec/landing.md#req-landing-006-enter-the-matrix-sign-in-cta)).
+
+The Execution overview renders software-delivery and infrastructure runs from the typed `EXECUTION` model ([REQ-LANDING-010](../../sdd/spec/landing.md#req-landing-010-execution-overview-reel)). The software sequence follows Codeflare Inference Mesh PR #1 from clone and planning through SDD/TDD, review, integration verification, merge, and branch realignment; its approved merged-PR link remains part of the terminal evidence ([REQ-LANDING-015](../../sdd/spec/landing.md#req-landing-015-execution-reel-merged-pr-link)). The infrastructure sequence follows CVE-2024-6387 discovery, canary-first approval, bounded fleet remediation, rescan, and evidence publication. <!-- @impl: landing/src/content/site.ts::EXECUTION --> <!-- @impl: landing/src/components/Transcript.astro::transcript-feed --> <!-- @impl: landing/src/styles/global.css::terminal-inline-link -->
+
+Progressive motion restores a fitted context prefix, stages one pending row, types that same row first, then appends authored events in order while preserving frame geometry ([REQ-LANDING-011](../../sdd/spec/landing.md#req-landing-011-execution-reel-progressive-motion)). Reduced motion shows complete resolved viewports. Capture readiness uses the stable execution marker. REQ-LANDING-012, REQ-LANDING-013, and REQ-LANDING-014 remain Partial pending their separate deployed/manual checks.
+
+The Browser IDE band renders a workbench-shaped proof with activity rail, explorer, editor, integrated terminal, tab, and status bar ([REQ-LANDING-007](../../sdd/spec/landing.md#req-landing-007-browser-ide-continuity-band)). Narrow viewports fold away rail/explorer. The same terminal reel and single coral accent connect it to the rest of the landing without claiming a second runtime.
+
+`proof.ts`, `type-on-view.ts`, `feature-terminals.ts`, `hero-kicker.ts`, `scramble.ts`, `reveal.ts`, `agentfoot.ts`, `orch.ts`, and `splash.ts` own separate enhancement responsibilities. `proof.ts` reveals resolved rows once; `type-on-view.ts` handles the marked final-line cursor sequence; `feature-terminals.ts` loops authored command beats; `hero-kicker.ts` measures and advances the capability ticker; `scramble.ts` churns within a reserved footprint; `reveal.ts` arms below-fold entrances; `agentfoot.ts` animates calm status detail; `orch.ts` advances the authored orchestration feed.
+
+Shared composition is:
+
+| Concern | Responsibility | Source |
+|---|---|---|
+| Page composition | Orders the narrative and subordinate bands | `landing/src/pages/index.astro` |
+| Content model | Centralizes copy, links, proof IDs, and navigation | `landing/src/content/site.ts` |
+| Shared sections | Renders peer sections and substations | `landing/src/components/Section.astro`, `SectionHead.astro` |
+| Shared terminals | Renders terminal frames, transcript hooks, and resting state | `landing/src/components/Terminal.astro`, `Transcript.astro` |
+| Proof animation | Reveals resolved rows after visibility | `landing/src/scripts/proof.ts` |
+| Feature reels | Types, holds, deletes, and advances authored beats | `landing/src/scripts/feature-terminals.ts` |
+| Reveal motion | Arms one-shot below-fold entrances | `landing/src/scripts/reveal.ts` |
+| Scramble motion | Churns glyphs without reflow | `landing/src/scripts/scramble.ts` |
+| Orchestration proof | Advances authored agent rows and counters | `landing/src/scripts/orch.ts` |
+| Design tokens | Defines shared visual constants; global styles consume them | `landing/src/styles/tokens.css`, `landing/src/styles/global.css` |
+| Navigation and trust | Renders typed pillars, sign-in, proof, FAQ, and footer controls | `landing/src/components/Header.astro`, `landing/src/pages/index.astro` |
+
+The Worker serves fingerprinted assets with immutable caching while HTML revalidates. SaaS and onboarding may rewrite unauthenticated entry to the landing; default and enterprise remain private. Discoverability documents are mode-aware: public modes publish robots, sitemap, and product summary; private modes disallow indexing and omit public discovery surfaces.
+
+---
+
+## Module-Level Caches
+
+Workers isolates do not share memory. Each cache is an optimization with an explicit consistency window; KV or the owning external system remains authoritative.
+
+| Module | Cache | Lifetime / TTL | Reset |
+|---|---|---|---|
+| `src/lib/access.ts` | Auth domain and audience | 5 minutes | `resetAuthConfigCache()` |
+| `src/lib/subscription.ts` | Tier configuration | 60 seconds | `resetTierConfigCache()` |
+| `src/lib/cors-cache.ts` | Dynamic origins | 5 minutes | `resetCorsOriginsCache()` |
+| `src/lib/jwt.ts` | Access JWKS | 30-second freshness threshold | `resetJWKSCache()` |
+| `src/lib/stripe.ts` | Price and currency options | 1 hour | TTL only |
+| `src/lib/kv-crypto.ts` | Imported AES key | Isolate lifetime | New isolate or changed secret |
+| `src/lib/rate-limit-core.ts` | Consecutive KV failures | Isolate lifetime | New isolate |
+| `src/lib/circuit-breakers.ts` | Per-container breaker state | Isolate lifetime | New isolate |
+| `src/lib/session-jwt.ts` | Imported HMAC key | Isolate lifetime | Re-import when secret changes |
+
+After an admin changes configuration, different isolates may enforce old and new values within the listed window. This is the accepted KV-read trade-off; it is not strong-consistency state.
+
+---
+
 ## Appendix: CF-NNN Code Index
 
 | Code | Description | Source Location |
@@ -110,7 +237,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 | CF-011 | Prefer metadata.email over customer_email; typed user records | src/routes/stripe-webhook.ts, src/lib/user-record.ts |
 | CF-012 | Decode URI-encoded sequences before path-traversal check | src/routes/storage/validation.ts |
 | CF-013 | Session store extraction (facade pattern) | web-ui/src/stores/session.ts, session-polling.ts, session-usage.ts |
-| CF-014 | Module-level cache inventory | See [Architecture](architecture.md#module-level-caches) |
+| CF-014 | Module-level cache inventory | See [Module-Level Caches](#module-level-caches) |
 | CF-015 | Catch missed subscription.deleted via billing period expiry | src/lib/subscription.ts |
 | CF-016 | ScrambleText consolidation to hook-based pattern | web-ui/src/lib/use-scramble-text.ts, web-ui/src/components/ScrambleText.tsx |
 | CF-017 | Warn on plaintext credential storage when ENCRYPTION_KEY absent | src/index.ts, src/lib/kv-crypto.ts, src/lib/access.ts |
@@ -167,7 +294,7 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 
 ## Related Documentation
 
-- [Architecture](architecture.md) - System overview, components, data flow, design rationale
+- [Architecture](architecture.md) - System map, component boundaries, authoritative state, and data flow
 - [API Reference](api-reference.md) - All API endpoints
 - [Authentication](authentication.md) - Authentication modes and SaaS billing
 

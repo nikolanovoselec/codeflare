@@ -546,7 +546,7 @@ The generated file is output, never a second ownership source.
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
 SDD PRs targeting `main`/`master`/`develop` ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions)). Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
-and `/sdd clean --all` are exhaustive.
+and `/sdd clean --all` are exhaustive. The shared packet builder records normalized hunk ranges and follows a changed input only when its range intersects the cited symbol or test. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects --> <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
 
 `/sdd init` and `/sdd clean` are root-session mutation workflows, not reviewer
 invocations. The root keeps file and Git ownership; cleanup resolves the shared
@@ -569,7 +569,7 @@ For PR boundaries, required lanes are named only after GitHub's authoritative PR
 matches the pushed checkout; settled recovery retries during propagation. The root
 launches reviewers together without inherited context, waits for each correlated successful
 native notification or public result retrieval, publishes the fixed triage table in a tool-free
-response, and ends that turn without mutation. Agent-end enforcement reads live session
+response, and ends that turn without mutation. Code, specification, and documentation reviewers use the shared provider-neutral medium profile. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::thinking: medium --> Agent-end enforcement reads live session
 state, records the full-SHA checkpoint, and emits one FIX follow-up; settled enforcement is
 the idempotent fallback, and only that separate turn applies accepted findings. Delayed
 terminal evidence may acknowledge its reviewed head after reload or newer unpublished work
@@ -592,6 +592,8 @@ This implements
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
 [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
+[REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile),
+[REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage),
 [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier),
 [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift), and
 [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate),
@@ -632,7 +634,7 @@ The unified graph is the only source either runtime queries: at the moment this 
 
 The whole handler is fail-silent — a failure in the child-session check, the digest build or the delivery is swallowed rather than raised, because it runs inside Pi's dispatch at the compaction boundary, where the session is least able to absorb a throw, for a feature that is a convenience. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
 
-Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
+Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. `memory-vault.ts` derives the request-specific home-backed path and can discover an active legacy pointer before retry; the [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) shows the ownership boundary. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readActiveMemoryRequest -->
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
