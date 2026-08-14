@@ -2706,14 +2706,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. The 13 skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-stable`, `sandbox-next`, `sandbox-migrate-to-next`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) and both build commands reach every skill-capable runtime in advanced mode only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (all 13 current Cloudflare skills are seeded to Claude and are advanced-only) --> <!-- @manual -->
+1. The 13 skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-stable`, `sandbox-next`, `sandbox-migrate-to-next`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) and both build commands reach every skill-capable runtime in advanced mode only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (all 13 current Cloudflare skills are seeded to Claude and are advanced-only) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (bundles the 2 Cloudflare commands (advanced-only)) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (is seeded to non-Claude agents too (not Claude-only) — e.g. Pi gets the cloudflare skill) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) --> <!-- @manual -->
 2. Stable Sandbox work, 1.0-preview work, and migration use distinct `sandbox-stable`, `sandbox-next`, and `sandbox-migrate-to-next` skills; the ambiguous `sandbox-sdk` skill is absent. <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-stable/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-next/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-migrate-to-next/SKILL.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (keeps stable, next, and migration Sandbox APIs as separate skills) --> <!-- @manual -->
 3. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) --> <!-- @manual -->
 4. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) --> <!-- @manual -->
 5. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) --> <!-- @manual -->
-6. Bundled Turnstile API scripts apply bounded connection and total deadlines to every HTTP request. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::probe_response --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/widget-create.sh::API_RESPONSE --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/validate.sh::WIDGET_RESPONSE --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds the auth probe and reports curl timeout failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget creation and returns structured network failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget metadata validation requests) -->
-7. The Turnstile authentication probe classifies API error code 10000 as missing scope regardless of HTTP status. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::first_code --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (classifies Cloudflare code 10000 over HTTP 400 as missing scope) -->
-8. Turnstile skill persistence removes its temporary clone after failure. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (removes its temporary clone after persistence fails) -->
 
 **Constraints:**
 
@@ -2725,7 +2722,33 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual check
+**Verification:** Automated tests ([Cloudflare seed tests](../../src/__tests__/lib/cloudflare-skills-seed.test.ts)) and manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-138: Bundled Turnstile Scripts Fail Closed
+
+**Intent:** Bundled Turnstile automation must bound external requests, distinguish missing authorization from valid payload rejection, and remove transient persistence state after failure.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Every Turnstile API request applies bounded connection and total deadlines. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::probe_response --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/widget-create.sh::API_RESPONSE --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/validate.sh::WIDGET_RESPONSE --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds the auth probe and reports curl timeout failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds cleanup after an unexpected widget creation) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget creation and returns structured network failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget metadata validation requests) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds dummy-token Siteverify requests) -->
+2. Error code 10000 is classified as missing scope regardless of HTTP status. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::first_code --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (classifies Cloudflare code 10000 over HTTP 400 as missing scope) -->
+3. Skill persistence removes its temporary clone after failure. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (removes its temporary clone after persistence fails) -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
+
+**Verification:** Automated tests ([Turnstile script tests](../../host/__tests__/turnstile-spin-scripts.test.js))
 
 **Status:** Implemented
 

@@ -245,9 +245,10 @@ Its former ambiguous `sandbox-sdk` entry is replaced by `sandbox-stable`,
 APIs from being mixed with the 1.0-preview argv/process-handle APIs. The
 Turnstile skill is refreshed from
 [`30553f8`](https://github.com/cloudflare/skills/commit/30553f89ae1ef1e3c2917cd09d72dac992bb4e9a),
-then locally hardens API calls with bounded deadlines and behavioral tests;
-obsolete deployment templates are retired in favor of the current
-siteverify-first runbook and scripts. Codeflare keeps the mega-skill reference
+then locally hardens API calls with bounded deadlines and behavioral tests
+([REQ-AGENT-138](../../sdd/spec/agents.md#req-agent-138-bundled-turnstile-scripts-fail-closed));
+obsolete deployment templates are retired in favor of the current siteverify-first
+runbook and scripts. Codeflare keeps the mega-skill reference
 tree slimmed and excludes upstream MCP configuration as specified by
 [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed).
 
