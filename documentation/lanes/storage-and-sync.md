@@ -50,8 +50,10 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 ### Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
-2. Managed configuration and tab autostart finish—including generated `.claude.json` and `.codex/version.json`—then `relay_managed_pi_extensions()` restores image-owned Pi extension bytes and removes retired managed files. These generated writes must settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
+2. Managed configuration and tab autostart finish—including generated `.claude.json` and `.codex/version.json`—then `relay_managed_pi_extensions()` restores image-owned Pi extension bytes and removes retired managed files.
 3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
+
+The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
 
