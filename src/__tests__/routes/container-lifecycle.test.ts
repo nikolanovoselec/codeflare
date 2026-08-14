@@ -451,6 +451,41 @@ describe('Container Lifecycle Routes', () => {
       expect(body.code).toBe('QUOTA_EXCEEDED');
     });
 
+    it('REQ-ENTERPRISE-001 AC3: enterprise currently applies the non-SaaS stored-user role limit', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        user: { email: 'enterprise@example.com', authenticated: true, role: 'user' },
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ENTERPRISE_MODE: 'active' } as Partial<Env>,
+      });
+      const fetchEnterprise = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+      for (let i = 1; i <= 3; i++) {
+        const id = `enterprise${String(i).padStart(14, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Enterprise ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchEnterprise('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(402);
+    });
+
     it('allows start when under the limit', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });

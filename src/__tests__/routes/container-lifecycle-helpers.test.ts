@@ -150,6 +150,35 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.id).toBe('session1');
     });
 
+    it('REQ-SESSION-007 AC6 / REQ-SUB-013 AC5: concurrent checks are best effort and reserve no slot', async () => {
+      for (const id of ['session-a', 'session-b']) {
+        mockKV._set(`session:bucket:${id}`, {
+          id,
+          name: id,
+          status: 'stopped',
+          createdAt: '2024-01-01T00:00:00Z',
+        } satisfies Partial<Session>);
+      }
+
+      const [first, second] = await Promise.all([
+        validateSessionAndCheckLimits({
+          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          bucketName: 'bucket',
+          sessionId: 'session-a',
+          maxSessions: 1,
+        }),
+        validateSessionAndCheckLimits({
+          env: { KV: mockKV as unknown as KVNamespace } as Env,
+          bucketName: 'bucket',
+          sessionId: 'session-b',
+          maxSessions: 1,
+        }),
+      ]);
+
+      expect([first.id, second.id]).toEqual(['session-a', 'session-b']);
+      expect(mockListAllKvKeys).toHaveBeenCalledTimes(2);
+    });
+
     it('throws NotFoundError when session does not exist', async () => {
       await expect(
         validateSessionAndCheckLimits({
@@ -198,10 +227,9 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ).rejects.toThrow('Session limit reached');
     });
 
-    // REQ-ENTERPRISE-001: every enterprise user is a custom (unlimited) user. The
-    // stored billing tier must never restrict them — they get the unlimited tier's
-    // limits, and no monthly compute quota is ever enforced ("no time limit").
-    it('REQ-ENTERPRISE-001 AC3: enterprise resolves the unlimited session cap, not the stored free-tier cap', async () => {
+    // Defensive behavior for an invalid combined-mode deployment: Enterprise still
+    // forces the effective subscription tier to unlimited when SaaS resolution runs.
+    it('combined SAAS_MODE and ENTERPRISE_MODE flags resolve the unlimited tier cap', async () => {
       // 4 sessions running: over the free cap (maxSessions=1) but under unlimited (5).
       const sessionKeys = [];
       for (let i = 1; i <= 4; i++) {
