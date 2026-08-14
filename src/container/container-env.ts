@@ -41,7 +41,7 @@ export interface ContainerEnvState {
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
-  /** REQ-ENTERPRISE-004: the user's matched Cloudflare Access groups, one cf-aig-metadata tag per group. */
+  /** REQ-ENTERPRISE-004: matches from the configured user-access list, one metadata tag per group. */
   _userGroups: string[];
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   _routeCatalog: string[];

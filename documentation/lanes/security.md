@@ -246,7 +246,7 @@ The placeholder substitution pipes its sed script through stdin (`sed -i -f -`) 
 
 ## Graceful Shutdown
 
-`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism - no in-memory PID variable fallback), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. The bisync-initialized flag is touched on the timeout path as well (was previously missing, which caused shutdown to skip final bisync when initial sync timed out). This ensures no data loss on container stop.
+The authoritative durability boundary runs before the stop signal: the Container DO invokes the authenticated `/internal/final-sync` endpoint while the container is alive and waits within its bounded drain budget. `STOPSIGNAL SIGINT` and the `entrypoint.sh` SIGINT/SIGTERM trap remain a best-effort backstop for paths that bypass that orchestrated drain; the trap stops the sync daemon, attempts a final `rclone bisync` with the established safeguards, and then kills the terminal server. The platform's short post-signal grace is never relied on for sync completion. See [REQ-SESSION-011](../../sdd/spec/session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) and [Storage & Sync](storage-and-sync.md#conflict-resolution).
 
 ## Security Hardening (Pre-Launch Review)
 

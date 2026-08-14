@@ -19,7 +19,7 @@ System architecture, components, data flow, and design rationale for Codeflare.
 
 ## Architecture Overview
 
-Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)).
+Codeflare runs AI coding agents in isolated containers, one per backend session. Browser tabs, terminal panes, MultiView, and the Browser IDE connect to those sessions without defining container identity. All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)).
 
 ```mermaid
 graph TD
@@ -108,7 +108,7 @@ The interceptor maps the agent's slash-free `model` handle to the gateway dynami
 
 See [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST transport (it amends [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), whose interception mechanism is unchanged). On the compat replay the interceptor strips OpenAI-only fields (`store`, `prompt_cache_key`) that non-OpenAI providers reject with a 400 (the REST leg keeps them, so OpenAI prompt caching is unaffected).
 
-Per-user attribution is stamped into `cf-aig-metadata` as the IdP-verified `user` email plus one `group_<sanitized>_<hash>=1` tag per matched Cloudflare Access group (the scalar `group` key is dropped), within CF's 5-entry cap (`user` + up to 4 groups, deterministic truncation with a warn), so the customer's gateway analytics attribute usage to the real identity and can branch per-group routing/cost/rate-limit policies via an equals-filter on each `group_*` key.
+Per-user attribution is stamped into `cf-aig-metadata` as the IdP-verified `user` email plus one `group_<sanitized>_<hash>=1` tag per match from the configured `ENTERPRISE_ACCESS_GROUP` user-access list (the scalar `group` key is dropped), within CF's 5-entry cap (`user` + up to 4 groups, deterministic truncation in configured-list order with a warning). Unconfigured IdP memberships and separately configured admin-group memberships are not stamped. The customer's gateway can therefore attribute usage to the real identity and branch per-group routing, cost, or rate-limit policy through an equals filter on each `group_*` key ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)).
 
 The key carries a deterministic djb2/base-36 suffix of the original group name (`sanitizeGroupKey`) so lossy `[a-z0-9_]` sanitization can't collide two distinct groups (e.g. `codeflare_admins` → `group_codeflare_admins_150f5d1`); the gateway equals-filter must target that full hashed key, not the bare name. See [Enterprise Access Group Configuration](configuration.md#enterprise-access-group-configuration) for the operator-facing detail.
 
@@ -248,6 +248,8 @@ Sidebar Pi registers no guarded tool replacements, and the Browser IDE host auto
 
 Browser IDE launch generations record PID, process group, start time, and a random token. Native Pi requests add a narrower process token, while official Claude descendants inherit the launch token. Active cancellation, backend failure, deactivation, editor restart, and session shutdown reap the applicable generation completely before replacement. See [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
+**Evidence boundary:** The source and CI-backed behavior above is implemented, but the active specification still marks REQ-IDE-002, REQ-IDE-005, REQ-IDE-006, REQ-IDE-008, REQ-IDE-019, REQ-IDE-020, and REQ-IDE-022 Partial. Deployed/manual checks remain authoritative where their ACs require them; inclusion here does not promote those statuses.
+
 ### Terminal Server (node-pty)
 
 **Responsibility:** Own the in-container PTY sessions, terminal WebSocket protocol, activity tracking, and private health/control endpoints.
@@ -264,13 +266,13 @@ Sync handled entirely by `entrypoint.sh` (15-minute daemon, SIGUSR1-interruptibl
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. `/health` and `/activity` are in the `AUTH_EXEMPT_PATHS` Set at `host/src/auth-check.ts` because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)` from inside the DO class - that path enters the container over the SDK's private TCP plumbing and never runs through the public `fetch()` override, so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Consumed exclusively by the Container DO's `collectMetrics()` poll. Active connections = WebSocket clients currently connected. `disconnectedForMs` tracks time since all clients disconnected (null while clients are connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input - determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). This is the authoritative signal for codeflare's "user has walked away" idle policy.
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Consumed exclusively by the Container DO's `collectMetrics()` poll. Active connections = WebSocket clients currently connected. `disconnectedForMs` tracks time since all clients disconnected (null while clients are connected). `lastInputAt` is the Unix timestamp (ms) of the latest classified terminal input or client-to-server Browser IDE frame. Terminal input passes through `stripTerminalResponses()` and `containsUserInput()`; editor frames refresh the same shared host activity tracker without protocol parsing. This is the authoritative signal for codeflare's "user has walked away" idle policy.
 
 **Idle Detection (Single Source of Truth):** Idle hibernation is enforced exclusively by `collectMetrics()`, which polls `/activity` every 60 s and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`. When this exceeds `parseSleepAfterMs(idleTimeoutPref)`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')` directly. See [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) / [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection). A secondary per-PTY reaper in `host/src/server.ts` (`PTY_KEEPALIVE_MS`, default 240 min / 4h) acts as a safety net if `lastInputAt` tracking gets stuck. It is floor-clamped at the maximum `sleepAfter` so it cannot fire before the authoritative `collectMetrics` path. See [AD47](../decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy).
 
-The SDK's `sleepAfter` timer is intentionally disabled - it's pinned to `'24h'` so it never fires in normal operation. This is necessary because `@cloudflare/containers` v0.2.x refreshes the SDK timer on every WebSocket message in both directions, which would give "any traffic" semantics (containers running `tail -f` or `yes` would never sleep even after the user walks away). Codeflare needs "no user input" semantics, which only an in-container PTY tracker (the terminal server's `lastInputAt`) can provide.
+The SDK's `sleepAfter` timer is intentionally disabled - it is pinned to `'24h'` so it never fires in normal operation. The pinned current Containers SDK refreshes its timer on every WebSocket message in both directions, which would give "any traffic" semantics (containers running `tail -f` or `yes` would never sleep after the user walks away). Codeflare instead uses the in-container host's shared `lastInputAt`, advanced by classified terminal input and client-to-server Browser IDE frames but not output traffic.
 
-The `containerStartedAt` fallback is critical: if a user opens a terminal but never types, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start, so an unused terminal still stops after the configured timeout.
+The `containerStartedAt` fallback is critical: if no classified terminal or Browser IDE input arrives, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start, so an unused session still stops after the configured timeout.
 
 `containsUserInput()` in `host/src/session.ts` uses a whitelist approach - only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops after `sleepAfter` + up to 60s (poll granularity); browser closed → same; user opens terminal but never types → container stops after `sleepAfter` from start time.
 
@@ -278,8 +280,8 @@ The `containerStartedAt` fallback is critical: if a user opens a terminal but ne
 
 | Field | Source / owner | Advances on | Used for |
 | --- | --- | --- | --- |
-| `lastInputAt` | terminal server `/activity` (`host/src/session.ts`) | PTY **keystrokes only** - not output, not WS traffic, not vault/SB activity, not autonomous-agent output | The idle reference for `collectMetrics`. A long agent run with no keystrokes looks "idle". |
-| `lastSeenInputAt` | Container DO in-memory cache of the last non-null `lastInputAt` | New keystroke observed by the poll | Surviving a poll where `/activity` momentarily returns `null`. |
+| `lastInputAt` | shared host activity tracker exposed by `/activity` | Classified terminal input or any client-to-server Browser IDE frame; not terminal output, server-to-client editor traffic, vault/SB activity, or autonomous-agent output | The idle reference for `collectMetrics`. A long agent run with no terminal or editor input looks "idle". |
+| `lastSeenInputAt` | Container DO in-memory cache of the last non-null `lastInputAt` | New shared input timestamp observed by the poll | Surviving a poll where `/activity` momentarily returns `null`. |
 | `lastActiveAt` | KV session record (written by `updateKvStatus`) | Input-driven status writes + the sleep-timer path | Dashboard "last active" display; persisted across hibernation. |
 | `metrics.updatedAt` (`m.u` in list metadata) | `collectMetrics` heartbeat | **Wall-clock, every tick**, regardless of input | Metrics-staleness display **only**. **Not** a liveness signal - it freezes when the alarm loop is not running (hibernation). A heartbeat-age heuristic over this field previously caused false "stopped" kicks; removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Liveness comes from the authoritative KV `status`. |
 
@@ -342,7 +344,7 @@ The progressive-motion contract ([REQ-LANDING-011](../../sdd/spec/landing.md#req
 
 During command typing, the row's shared coral prompt moves into both overlaid copies so it remains beside the live text and contributes the same wrapped geometry to the hidden reservation. The authored simulation runs once, retains every authored row in the log, and settles with a blinking cursor.
 
-Reduced motion ([REQ-LANDING-012](../../sdd/spec/landing.md#req-landing-012-execution-reel-reduced-motion-accessibility)) leaves each full resolved event viewport static. Capture readiness ([REQ-LANDING-013](../../sdd/spec/landing.md#req-landing-013-execution-reel-capture-readiness)) retains the stable `data-readme-reel="execution"` marker.
+Reduced motion ([REQ-LANDING-012](../../sdd/spec/landing.md#req-landing-012-execution-reel-reduced-motion-accessibility)) leaves each full resolved event viewport static. Capture readiness ([REQ-LANDING-013](../../sdd/spec/landing.md#req-landing-013-execution-reel-capture-readiness)) retains the stable `data-readme-reel="execution"` marker. Both requirements remain Partial pending their distinct deployed/manual checks; the static reduced-motion result and stable capture marker are source-backed but not promoted by this documentation.
 
 Responsive stability ([REQ-LANDING-014](../../sdd/spec/landing.md#req-landing-014-execution-reel-responsive-layout-stability)) keeps the Hero-scale pair side by side at desktop/tablet widths and stacks it on mobile. With normal-motion enhancement, `feature-terminals.ts::reserveHeroFrame` measures every authored Hero command through the shared Terminal layout and fixes the Hero at the tallest result for the current width. At mobile and tablet widths, `proof.ts::syncExecutionFrames` samples that stable frame for both Execution terminals. Initial layout sets the value immediately; font readiness refreshes it only while no Execution frame is exposed, and an actual viewport-width change refreshes both reservations. Typing is not observed, so it cannot resize visible frames. Desktop retains the equal-height grid pair; no-JavaScript and reduced-motion rendering use intrinsic sizing and complete resolved viewports.
 
@@ -507,11 +509,14 @@ stateDiagram-v2
     running --> stopping : stop
     stopping --> stopped : poll stopped
     running --> running : 3 complete probe failures (DO reconstructs, container and PTY preserved)
+    stopped --> running : live health + no shutdownRequested marker (self-heal)
     running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
     running --> stopped : onError then collectMetrics confirmation (unexpected exit)
 ```
 
 (`error` — like `initializing` and `stopping` — is a frontend-ephemeral state, never persisted ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) AC2); it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` starts recovery or exit confirmation; `collectMetrics()` owns the eventual `running --> stopped` write.)
+
+A live health response can also repair a false persisted `stopped`: `collectMetrics()` re-asserts `running` only when no durable `shutdownRequested` marker shows a deliberate stop is in flight ([REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) AC4).
 
 **Transport reconstruction (unreachable host or monitor network loss):** `ctx.container.running` proves process existence, not host readiness. `/activity` and `/health` are separate routes on the same port 8080 Node server and event loop, so both failing does not distinguish a stale DO attachment from container networking, listener, CPU, or host-process failure. `collectMetrics()` confirms three complete failures at 5 s cadence, persists a correlated recovery attempt, then calls `ctx.abort()` without writing `stopped`, signalling the container, or running final sync.
 
@@ -810,10 +815,10 @@ Architectural principles and design rationale.
 
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
-3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
+3. **Ordinary recovery before bounded resync** - `--resilient` + `--recover` and vanished-file repair handle recoverable failures without spending the deletion-safety trade-off. Baseline re-establishment follows only after three consecutive unrecoverable failures, or immediately when exit code 7 has no prior listing state and another ordinary retry cannot operate ([REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6; [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery)).
 4. **Single-source idle detection via `collectMetrics`**
 
-     The DO polls `/activity` inside the container every 60 s and explicitly calls `stop('SIGTERM')` when `idleMs > parseSleepAfterMs(idleTimeoutPref)`. The SDK's own `sleepAfter` timer is pinned to `'24h'` and plays no role in idle decisions (see AD/rationale #11). This replaced both the earlier heartbeat-based approach AND a short-lived input-change-detection design that leaned on the SDK timer - both were fragile when WebSocket reconnects reset the SDK's activity timer. One mechanism, one signal: has the user typed within the configured threshold? Container stops ~threshold + up to 60 s after the last keystroke.
+     The DO polls `/activity` inside the container every 60 s and explicitly calls `stop('SIGTERM')` when `idleMs > parseSleepAfterMs(idleTimeoutPref)`. The SDK's own `sleepAfter` timer is pinned to `'24h'` and plays no role in idle decisions (see AD/rationale #11). This replaced both the earlier heartbeat-based approach AND a short-lived input-change-detection design that leaned on the SDK timer - both were fragile when WebSocket reconnects reset the SDK's activity timer. One mechanism, one signal: has classified terminal or Browser IDE input arrived within the configured threshold? The container stops at roughly the threshold plus up to one 60-second poll interval after the last qualifying input.
 5. **Every container exit must write KV `status: 'stopped'` - KV is the single source of truth**
 
      The persisted KV `status` is authoritative; the dashboard renders it verbatim with no read-side staleness reconciliation (the former `reconcileStaleStatus` heartbeat-age heuristic was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153), see rationale #17 / [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)).
@@ -833,14 +838,14 @@ Architectural principles and design rationale.
 
       Dashboard status endpoints must be pure KV reads with zero DO contact. Waking a DO resets the Container SDK's internal activity timer; even with the SDK timer pinned to 24 h (see [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) AC5), unnecessary DO wake-ups waste resources and can interfere with hibernation.
 
-      `@cloudflare/containers` v0.2.x also auto-refreshes on any WebSocket message, so the SDK timer sees "any traffic" semantics, not "no user input" semantics - this is the primary reason idle enforcement is delegated entirely to `collectMetrics()` rather than the SDK timer.
+      The pinned current Containers SDK also auto-refreshes on any WebSocket message, so its timer sees "any traffic" semantics rather than Codeflare's classified user-input semantics. This is the primary reason idle enforcement is delegated entirely to `collectMetrics()` rather than the SDK timer.
 12. **Polling interval vs push cadence** - The backend pushes metrics to KV every 60s (`collectMetrics`). The frontend polls at 5s for responsive session status updates (start/stop transitions). Metrics on the dashboard may be up to ~60s stale.
 13. **rclone version upgrades can break bisync**
 
-      The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands - the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism - it destroys bisync's deletion tracking (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
-14. **Never auto-`--resync` on bisync failure**
+      The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands - the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. Baseline re-establishment remains a last resort because it can resurrect pending deletions; its bounded use is recorded in [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
+14. **Bound automatic baseline re-establishment**
 
-      `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B. Use `--resilient` + `--recover` for self-healing: `--resilient` allows bisync to continue past non-critical errors, and `--recover` automatically reconstructs corrupted listing files without losing state. Manual `--resync` is still available via `establish_bisync_baseline()` on container startup (one-way restore runs first, so no data loss).
+      `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. It can resurrect a pending deletion if the other side still has the file. The daemon therefore uses resilient/recover semantics and vanished-file repair first. It invokes `establish_bisync_baseline()` only after the three-failure budget is exhausted, or immediately when exit code 7 coincides with missing listing state. Startup baseline establishment remains separate and follows the one-way restore. See [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
 15. **Never `docker system prune` in CI deploy workflows**
 
       `docker system prune -af` in the deploy workflow nukes the Docker layer cache on self-hosted runners, causing every subsequent build to pull all layers from scratch. This triggers Docker Hub 429 rate limit errors when base images need re-downloading. Let Docker manage its own cache; only prune manually if disk space is critical.
@@ -965,7 +970,7 @@ Architectural principles and design rationale.
 
 **Outputs:** Shared responsive styling
 
-**Source:** `landing/src/styles/global.css`
+**Source:** `landing/src/styles/tokens.css` (token definitions) and `landing/src/styles/global.css` (shared consumption)
 
 ### Navigation and trust
 
