@@ -3561,7 +3561,7 @@ Anyone weakening the Claude directive must move the instruction, not merely rest
 
 **Status:** Accepted (2026-08-11)
 
-**Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
+**Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
 
 The block bought that guarantee at a price the design never accounted for. It made a second hook the sole arbiter of whether any work could proceed, and the review gate refuses exactly the spawn the block demands during the post-lane, pre-triage window. Reading the lane report is a tool call, publishing the triage table is what lifts the review gate, and the block forbids the read.
 

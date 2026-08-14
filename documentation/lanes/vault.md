@@ -609,7 +609,8 @@ in the user's vault.
 <a id="specification-coverage-memory"></a>
 ### Memory Requirement Cross-links
 
-- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) - Capture requests are re-delivered under a bound and committed only against an artifact
+- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound) - Capture requests are re-delivered under a bound.
+- [REQ-MEM-021](../../sdd/spec/memory.md#req-mem-021-capture-publication-requires-its-artifact) - Capture publication requires its artifact.
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 <a id="troubleshooting"></a>
