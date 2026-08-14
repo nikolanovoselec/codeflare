@@ -583,9 +583,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Pi retains at most five main-session transcripts and retains older transcripts only while aggregate retained size remains within 256 MiB. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (prunes oldest transcripts when the five-newest set exceeds the 256 MiB retention budget) -->
-2. The newest Pi transcript is preserved even when it alone exceeds the retention budget. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (preserves an oversized newest transcript while pruning older transcripts and task logs) -->
-3. Deleting a Pi transcript also deletes its companion task logs. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (deletes companion tasks/ subdirectory alongside transcript) -->
+1. Pi retains at most five main-session transcripts. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (deletes older transcripts beyond the 5-most-recent cap) -->
+2. Older Pi transcripts are retained only while aggregate retained size remains within 256 MiB. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (prunes oldest transcripts when the five-newest set exceeds the 256 MiB retention budget) -->
+3. The newest Pi transcript is preserved even when it alone exceeds the retention budget. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (preserves an oversized newest transcript while pruning older transcripts and task logs) -->
+4. Deleting a Pi transcript also deletes its companion task logs. <!-- @impl: entrypoint.sh::cleanup_old_pi_transcripts --> <!-- @test: host/__tests__/entrypoint-pi-transcript-cleanup.test.js (deletes companion tasks/ subdirectory alongside transcript) -->
 
 **Constraints:**
 

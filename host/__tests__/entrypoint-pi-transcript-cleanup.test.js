@@ -1,4 +1,4 @@
-// REQ-STOR-012: Pi Session Transcript Cleanup
+// REQ-STOR-020: Pi Session Transcript Retention
 //
 // Verifies cleanup_old_pi_transcripts() in entrypoint.sh keeps the 5 newest
 // .jsonl session transcripts under ~/.pi/agent/sessions/ and deletes the
@@ -47,7 +47,7 @@ function makeScratch() {
   };
 }
 
-describe('cleanup_old_pi_transcripts / REQ-STOR-012 (keeps 5 newest Pi .jsonl, deletes older + companion tasks/ dirs)', () => {
+describe('cleanup_old_pi_transcripts / REQ-STOR-020 (keeps 5 newest Pi .jsonl, deletes older + companion tasks/ dirs)', () => {
   test('deletes older transcripts beyond the 5-most-recent cap', () => {
     const scratch = makeScratch();
     try {
