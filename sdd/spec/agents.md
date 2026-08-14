@@ -2722,7 +2722,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated tests ([Cloudflare seed tests](../../src/__tests__/lib/cloudflare-skills-seed.test.ts)) and manual check
+**Verification:** Manual check
 
 **Status:** Implemented
 
