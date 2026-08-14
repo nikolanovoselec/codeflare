@@ -148,7 +148,7 @@ Claude uses an isolated allowlisted temporary configuration projection, unrestri
 
 Live code-server databases, extension storage, SecretStorage, authentication, chat, logs, and unmanaged settings remain ephemeral. After a generation is fully reaped, the exporter persists only allowlisted theme, string-valued keyboard layout, Explorer expansion, and canonical in-workspace open-file state to the bounded UI snapshot. Managed settings override restored preferences on every launch.
 
-Launch generations carry PID, process group, start time, and a random token; native Pi adds a narrower process token and official Claude descendants inherit the launch token. Cleanup scans and reaps the applicable generation before replacement or session shutdown. Active Browser IDE REQs remain Partial wherever their ACs retain deployed/manual evidence.
+Launch generations carry PID, process group, start time, and a random token; native Pi adds a narrower process token and official Claude descendants inherit the launch token. Cleanup scans and reaps the applicable generation before replacement or session shutdown. Active requirement status and outstanding evidence remain authoritative in `sdd/spec/browser-ide.md`; this implementation account does not promote Partial requirements.
 
 ### Terminal and frontend internals
 
@@ -212,9 +212,9 @@ Workers isolates do not share memory. Each cache is an optimization with an expl
 | `src/lib/subscription.ts` | Tier configuration | 60 seconds | `resetTierConfigCache()` |
 | `src/lib/cors-cache.ts` | Dynamic origins | 5 minutes | `resetCorsOriginsCache()` |
 | `src/lib/jwt.ts` | Access JWKS | 1 hour; a key-ID miss may refresh after 30 seconds | `resetJWKSCache()` |
-| `src/lib/stripe.ts` | Price and currency options | 1 hour | TTL only |
+| `src/lib/stripe.ts` | Price and currency options by price ID | 1 hour per ID; no map-wide size bound or pruning | Requested stale ID refreshes; new isolate clears all |
 | `src/lib/kv-crypto.ts` | Imported AES key | Isolate lifetime | New isolate or changed secret |
-| `src/lib/rate-limit-core.ts` | Consecutive KV failures | Isolate lifetime | New isolate |
+| `src/lib/rate-limit-core.ts` | Per-key fallback rate-limit windows during KV failure | Caller window; expired cleanup every 100 inserts; 10,000-entry FIFO cap | Window cleanup, oldest-entry eviction, or new isolate |
 | `src/lib/circuit-breakers.ts` | Per-container breaker state | 5 idle minutes; 10,000-entry LRU cap per map | `resetContainerBreakersForReset()` during setup reset |
 | `src/lib/session-jwt.ts` | Imported HMAC key | Isolate lifetime | Re-import when secret changes |
 | `src/timekeeper/index.ts` | User records used for quota decisions | 60 seconds; 100 entries | `resetUserRecordCache()` |

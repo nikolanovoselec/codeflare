@@ -198,6 +198,11 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Detailed documentation:** [API Reference](api-reference.md#github-integration), [Security](security.md#github-token-containment), [Architecture Internals](architecture-internals.md)
 
+<a id="browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021"></a>
+<a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022"></a>
 <a id="browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022-req-ide-024"></a>
 ### Browser IDE
 
@@ -219,7 +224,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Detailed documentation:** [Container](container.md#code-server-browser-ide), [Security](security.md#browser-ide-native-agents), [Architecture Internals](architecture-internals.md)
 
-The listed Browser IDE requirements remain Partial where their active ACs retain deployed or manual evidence. This system map does not promote their status.
+Requirement status and outstanding evidence remain authoritative in `sdd/spec/browser-ide.md`. This system map does not promote a Partial requirement by describing implemented behavior.
 
 ### Terminal Server (node-pty)
 
@@ -418,12 +423,13 @@ sequenceDiagram
     DO->>C: PTY stream
 ```
 
-**Authority:** KV owns persisted status; the Container DO owns startup coordination; successful host readiness owns service availability.
+**Authority:** An active authenticated user may create the record. Creation and start are distinct operations: creation does not consume a concurrent-running slot; start enforces role/tier concurrency and compute quota, then writes KV `running` before asynchronous container startup. The Container DO coordinates startup, and successful host readiness owns service availability.
 
 **Failure owner:** [Container](container.md) owns startup, retry, and recovery detail. [API Reference](api-reference.md) owns endpoint outcomes.
 
 **Requirements:** [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api)
 
+<a id="startup-status-stages-req-session-015"></a>
 <a id="startup-status-stages-req-session-017"></a>
 ### Startup Status Stages
 
@@ -444,18 +450,23 @@ These endpoint stages are derived observations, not persisted lifecycle state. K
 
 ```mermaid
 stateDiagram-v2
-    [*] --> stopped
-    stopped --> initializing : explicit start
-    initializing --> running : required services ready
-    initializing --> error : startup failure (frontend only)
-    running --> stopping : explicit stop (frontend only)
-    stopping --> stopped : batch status confirms
-    running --> stopped : confirmed idle or exit
-    running --> running : bounded DO reconstruction preserves workload
-    stopped --> running : live health and no shutdownRequested marker
+    state "Persisted KV" as Persisted {
+        [*] --> stopped
+        stopped --> running : start accepted before service readiness
+        running --> stopped : confirmed idle, exit, or shutdownRequested
+        running --> running : bounded DO reconstruction preserves workload
+        stopped --> running : live health and no shutdownRequested marker
+    }
+    state "Frontend presentation" as Frontend {
+        [*] --> initializing
+        initializing --> sessionView : startup-status ready
+        initializing --> error : startup failure
+        sessionView --> stopping : explicit stop or delete
+        stopping --> dashboard : batch status confirms stopped
+    }
 ```
 
-Persisted storage has only `running` and `stopped`. `initializing`, `stopping`, and `error` are frontend states. `collectMetrics()` confirms a not-running condition before writing `stopped`; a successful live health probe may re-assert `running` only when no durable `shutdownRequested` marker proves deliberate teardown. Transport reconstruction is bounded and preserves the running workload where possible.
+Persisted storage has only `running` and `stopped`; `running` may precede terminal readiness. `initializing`, `sessionView`, `stopping`, `dashboard`, and `error` above are frontend presentation states. `collectMetrics()` confirms a not-running condition before writing `stopped`; a successful live health probe may re-assert `running` only when no durable `shutdownRequested` marker proves deliberate teardown. Transport reconstruction is bounded and preserves the running workload where possible.
 
 | Event | Authoritative owner | Durable effect | Recovery pointer |
 |---|---|---|---|
@@ -517,6 +528,7 @@ Submission content is validated, escaped, and relayed without persistence; KV st
 
 **Requirements:** [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)
 
+<a id="onboarding-access-request-flow-req-auth-020"></a>
 <a id="onboarding-access-request-flow-req-auth-021"></a>
 ### Onboarding Access-Request Flow
 
@@ -582,7 +594,7 @@ sequenceDiagram
     R->>R: Persist immutable request snapshot
     R->>A: Public bounded background launch
     A->>G: Write work artifact, lock merge, publish graph
-    A-->>R: Native terminal notification with correlated result
+    A-->>R: native terminal notification with correlated result
     R->>R: Verify exact-success artifacts and advance matching state
 ```
 
@@ -657,7 +669,10 @@ Worker module caches are per isolate. Different isolates may observe configurati
 | Coordinator reconstruction | At most two resets | Recovery preserves a possibly live workload, then fails closed into ordinary exit confirmation | [Troubleshooting](troubleshooting.md#common-failure-modes) |
 | Background R2 bisync | 15 minutes, plus manual triggers | Local files may lead R2 between reconciliations | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
 | Final persistence drain | 120-second sync budget; 135-second teardown cap | Stop stays bounded while awaiting durability before signalling the container | [Storage & Sync](storage-and-sync.md#rclone-sync-modes-req-stor-003) |
-| Initial restore and PTY pre-warm | Run concurrently; sync is deprioritized on the default single-vCPU tier | Readiness waits for required mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
+| Background bisync baseline and PTY pre-warm | Run concurrently after the required initial restore; baseline sync is deprioritized on the default single-vCPU tier | Readiness waits for mode-specific restore and pre-warm rather than port binding alone | [Container](container.md#container-startup) |
+| Session create/start requests | 10 creates and 5 starts per minute per user | Creation records intent; start separately applies concurrency and compute-quota policy | [API Reference](api-reference.md#session-management), [Container](container.md) |
+| Concurrent running sessions | Non-SaaS defaults: 3 per user, 10 per admin; SaaS varies by effective tier | The limit is enforced at start, not record creation | [Configuration](configuration.md#container-specs), [Billing](billing.md) |
+| Container profiles | Low: 0.25 vCPU/1 GiB/4 GB; default: 1 vCPU/3 GiB/6 GB; high: 2 vCPU/6 GiB/12 GB; 10 instances per profile | Deployment selection defines the workload envelope | [Configuration](configuration.md#container-specs) |
 | Timekeeper user-record cache | 60 seconds; 100 entries per isolate | Quota decisions may briefly observe stale billing state | [Architecture Internals](architecture-internals.md#module-level-caches) |
 
 Container work runs on local disk. R2 is the durability boundary, not a FUSE filesystem. Capacity and sync performance therefore depend on bounded reconciliation, not remote latency for every file operation.
