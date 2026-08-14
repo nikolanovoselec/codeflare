@@ -4,7 +4,7 @@ Source composition, runtime and client implementation, cache inventory, backend 
 
 **Audience:** Developers
 
-See [Architecture](architecture.md) for system overview, components, data flow, and design rationale.
+See [Architecture](architecture.md) for the system map, component and state ownership, cross-component flows, recovery boundaries, and operator signals.
 
 ## Contents
 

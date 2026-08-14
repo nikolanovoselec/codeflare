@@ -95,7 +95,7 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 
 These are endpoint observations, not persisted lifecycle states. `details` identifies container, sync, host, terminal, and metric observations when available.
 
-Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later KV `running` write are not atomic, so it is a best-effort policy guard under simultaneous starts rather than the deployment's hard capacity boundary.
+Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later KV `running` write are not atomic, so simultaneous starts can exceed the hard per-user cap required by REQ-SESSION-007. This is a known incomplete runtime contract; deployment `max_instances` is a separate platform boundary.
 
 A successful start response means asynchronous startup was accepted, not that ports are ready. If `startAndWaitForPorts()` later fails, the background task rolls KV back to `stopped`; clients observe `stopped` through startup status rather than a persisted `error` lifecycle state. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
