@@ -15,8 +15,8 @@ Default deployment execution, verification, rollback, development references, an
 - [Development Reference](#development-reference)
 - [Source and Runtime Composition Aliases](#source-and-runtime-composition-aliases)
 - [Cost Analysis](#cost-analysis)
-- [Requirement and Source Map](#requirement-and-source-map)
 - [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -146,6 +146,14 @@ Container resource usage scales per active session (each session is one containe
 
 ---
 
+## Governed Mode migration (batch-status driven)
+
+**Type:** Canonical private-operations alias.
+
+The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
+
+---
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
@@ -157,12 +165,6 @@ Container resource usage scales per active session (each session is one containe
 | Enterprise/egress/governed aliases | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | Private operations; public behavior remains in Enterprise/Security SDD | Private promotion/rollback evidence |
 
 ---
-
-## Governed Mode migration (batch-status driven)
-
-**Type:** Canonical private-operations alias.
-
-The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

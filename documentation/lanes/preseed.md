@@ -19,8 +19,8 @@ it gets there" content. Memory-system specifics live in
 - [Graphify Toolchain](#graphify-toolchain-req-agent-023)
 - [SDD Bootstrap Contract](#sdd-bootstrap-contract)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
-- [Requirement and Source Map](#requirement-and-source-map)
 - [Image-Baked Delivery Alias](#image-baked-delivery-alias)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 <a id="session-modes"></a>
@@ -1373,23 +1373,6 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 
 ---
 
-<a id="specification-coverage"></a>
-## Requirement and Source Map
-
-Exhaustive Agents and Memory status remains in the active SDD; section-local links identify clause details.
-
-| Delivery concern | Requirements | Source owner | Evidence |
-|---|---|---|---|
-| Manifest and generated seed | REQ-AGENT-006/007/014/030/049 | manifest, seed generator, generated TypeScript | freshness and byte/manifest membership tests |
-| Session modes and advanced tools | REQ-AGENT-024/091/127-137 | manifest mode gates, selected skills/plugins | mode-specific projection and validation tests |
-| Review/CI/governance runtime | REQ-AGENT-015/036-126 as linked in sections | rules, skills, Pi extension, agent definitions | policy contract and workflow behavioral tests |
-| Graphify | REQ-AGENT-023/025/026/043/127/128 | Graphify plugin/scripts and Pi tools | build-mode, publication, and graph-limit checks |
-| Provider/tool integration | REQ-AGENT-017/019/020/027-032/067/069/118 | entrypoint, setup, skills, MCP adapters | agent-specific projection and isolation tests |
-| Memory capture/extraction | REQ-MEM-013/016/017/018 | hooks and capture/extract agent definitions | bounded profile and deterministic identity tests |
-| SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
-
----
-
 <a id="image-baked-seed-governed-mode-delta-sync"></a>
 ## Image-Baked Delivery Alias
 
@@ -1410,6 +1393,25 @@ In addition to seeding the agent config into R2 at session start, the container 
   - Under SSE-C, the default path remains byte-identical to before: no lay-down and `--size-only`.
   - This avoids relying on `--size-only`, which could not detect a same-size edit to a seed file.
   - It also prevents the bake from overwriting an in-container edit.
+
+---
+
+<a id="specification-coverage"></a>
+## Requirement and Source Map
+
+Exhaustive Agents and Memory status remains in the active SDD; section-local links identify clause details.
+
+| Delivery concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Manifest and generated seed | REQ-AGENT-006/007/014/030/049 | manifest, seed generator, generated TypeScript | freshness and byte/manifest membership tests |
+| Session modes and advanced tools | REQ-AGENT-024/091/127-137 | manifest mode gates, selected skills/plugins | mode-specific projection and validation tests |
+| Review/CI/governance runtime | REQ-AGENT-015/036-126 as linked in sections | rules, skills, Pi extension, agent definitions | policy contract and workflow behavioral tests |
+| Graphify | REQ-AGENT-023/025/026/043/127/128 | Graphify plugin/scripts and Pi tools | build-mode, publication, and graph-limit checks |
+| Provider/tool integration | REQ-AGENT-017/019/020/027-032/067/069/118 | entrypoint, setup, skills, MCP adapters | agent-specific projection and isolation tests |
+| Memory capture/extraction | REQ-MEM-013/016/017/018 | hooks and capture/extract agent definitions | bounded profile and deterministic identity tests |
+| SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
+
+---
 
 ## Related Documentation
 

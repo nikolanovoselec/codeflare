@@ -31,8 +31,8 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Public (Onboarding)](#public-onboarding)
 - [Public (Landing)](#public-landing)
 - [Health](#health)
-- [Related Documentation](#related-documentation)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 ---
 
@@ -716,13 +716,6 @@ There is no public `/health` alias, and `/api/health` does not proxy the contain
 
 ---
 
-## Related Documentation
-- [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
-- [Security](security.md#rate-limiting) - Rate limits per endpoint
-- [Configuration](configuration.md#worker-environment) - Environment variables
-
----
-
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
@@ -738,3 +731,11 @@ Exhaustive requirement status remains in the active SDD domains. Endpoint rows c
 | Setup and discovery | setup/public/discoverability routes | Setup, Landing, Operations | [Configuration](configuration.md), [Architecture Internals](architecture-internals.md) |
 
 Grouped endpoint tables are valid contract records when their resource section declares the shared handler and the row provides method/path, authentication, requirement, and observable contract. Complex request/response/error schemas remain expanded directly below their route group.
+
+---
+
+## Related Documentation
+
+- [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
+- [Security](security.md#rate-limiting) - Rate limits per endpoint
+- [Configuration](configuration.md#worker-environment) - Environment variables

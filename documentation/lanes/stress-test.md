@@ -17,8 +17,8 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 - [Target Safety and Rate-Limit Bypass](#target-safety-and-rate-limit-bypass)
 - [Configuration and Workflow Aliases](#configuration-and-workflow-aliases)
 - [Results and Historical Evidence](#results-and-historical-evidence)
-- [Related Documentation](#related-documentation)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 <a id="prerequisites"></a>
 ## Target Modes and Preconditions
@@ -379,16 +379,6 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 
 ---
 
-## Related Documentation
-
-- [Security Reference - Rate Limiting](security.md#rate-limiting) - Rate limits per endpoint
-- [Security Policy](../../SECURITY.md) - Vulnerability reporting
-- [pentest.md](pentest.md) - Security scan results
-- [Configuration - Worker Environment](configuration.md#worker-environment) - Environment variables
-- [CI/CD & Testing](ci-cd.md#testing) - CI test suites
-
----
-
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
@@ -398,3 +388,13 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 | Read-only target validation | [REQ-OPS-044](../../sdd/spec/operations.md#req-ops-044-read-only-stress-target-verification) | `.github/workflows/stress-test.yml::setup` | Target/auth smoke and workflow contracts |
 | Rate-limit bypass/enforcement | Security and Operations SDD | rate-limit middleware plus rate validation suite | Backend limiter tests and selected k6 run |
 | Historical result | Dated evidence only | Run `22808941531` and its then-current scripts | Not current capacity evidence |
+
+---
+
+## Related Documentation
+
+- [Security Reference - Rate Limiting](security.md#rate-limiting) - Rate limits per endpoint
+- [Security Policy](../../SECURITY.md) - Vulnerability reporting
+- [pentest.md](pentest.md) - Security scan results
+- [Configuration - Worker Environment](configuration.md#worker-environment) - Environment variables
+- [CI/CD & Testing](ci-cd.md#testing) - CI test suites
