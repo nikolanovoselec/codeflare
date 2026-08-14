@@ -19,6 +19,11 @@ const LEGACY_FRAGMENTS = [
   'egresscontroller-strict-gateway-egress-enterprise-mode',
   'cloudflarebrowserinterceptor-non-enterprise-oauth-mode',
   'github-integration',
+  'browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008',
+  'browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017',
+  'browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020',
+  'browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021',
+  'browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022',
   'browser-ide-native-agents-req-ide-002-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-015-req-ide-016-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022-req-ide-024',
   'terminal-server-node-pty',
   'landing-astro-prerendered',
@@ -28,10 +33,12 @@ const LEGACY_FRAGMENTS = [
   'three-color-session-status',
   'data-flow',
   'session-creation-to-terminal-connection',
+  'startup-status-stages-req-session-015',
   'startup-status-stages-req-session-017',
   'session-lifecycle-state-machine-req-session-018',
   'metrics-data-flow',
   'contact-relay-data-flow-req-landing-002',
+  'onboarding-access-request-flow-req-auth-020',
   'onboarding-access-request-flow-req-auth-021',
   'github-clone-data-flow-req-github-004',
   'enterprise-llm-routing',
@@ -196,7 +203,7 @@ function architectureLinks(path) {
   const markdown = readFileSync(path, 'utf8');
   const links = [];
   for (const line of outsideFences(markdown)) {
-    for (const match of line.matchAll(/\[[^\]]*\]\(([^)]+architecture\.md)(?:#([^)]+))?\)/g)) {
+    for (const match of line.matchAll(/\[[^\]]*\]\(([^)]*architecture\.md)(?:#([^)]+))?\)/g)) {
       links.push({ target: resolve(dirname(path), match[1]), fragment: match[2] });
     }
   }
