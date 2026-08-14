@@ -253,7 +253,9 @@ function mermaidBlocks(markdown) {
 function parsedRelationships(diagram) {
   const relationships = [];
   const db = diagram.db;
-  if (typeof db.getEdges === 'function') {
+  if (diagram.type.startsWith('state') && typeof db.getData === 'function') {
+    for (const edge of db.getData().edges) relationships.push(`${edge.start}->${edge.end}`);
+  } else if (typeof db.getEdges === 'function') {
     for (const edge of db.getEdges()) relationships.push(`${edge.start}->${edge.end}`);
   }
   if (typeof db.getMessages === 'function') {
@@ -261,7 +263,7 @@ function parsedRelationships(diagram) {
       if (message.from && message.to) relationships.push(`${message.from}->${message.to}`);
     }
   }
-  if (typeof db.getRelations === 'function') {
+  if (!diagram.type.startsWith('state') && typeof db.getRelations === 'function') {
     for (const relation of db.getRelations()) relationships.push(`${relation.id1}->${relation.id2}`);
   }
   return relationships;
