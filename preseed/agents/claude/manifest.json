@@ -778,6 +778,26 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/degraded/asset-producer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/documenter.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/finish-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/manual-edit-applier.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/delight.md": {
     "modes": [
       "advanced"
@@ -1098,6 +1118,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/open-system-browser.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/provider.mjs": {
     "modes": [
       "advanced"
@@ -1393,7 +1418,7 @@
       "advanced"
     ]
   },
-  "skills/impeccable/scripts/live/ui-core.mjs": {
+  "skills/impeccable/scripts/live/ui-surfaces.mjs": {
     "modes": [
       "advanced"
     ]

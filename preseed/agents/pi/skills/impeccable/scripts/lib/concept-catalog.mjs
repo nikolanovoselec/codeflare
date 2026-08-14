@@ -50,9 +50,36 @@ export function normalizeConceptForm(value) {
     .trim();
 }
 
-export function validateConceptEntry(concept, { existingForms = new Map() } = {}) {
+export function validateConceptEntry(concept, { existingForms = new Map(), axes = null } = {}) {
   const errors = [];
   const id = concept?.id || '(unknown)';
+
+  // Recorded aesthetic axis values. Optional, and absent means the value is
+  // inferred from the system rules instead. Some axes cannot be inferred at all:
+  // depth's keyword probe matched worlds that said "no cast shadow anywhere",
+  // and motion and colour strategy describe properties the rules never state, so
+  // a wave that assigns those has to record them or the assignment is lost.
+  // Validated against the axes definition when the caller supplies it, because a
+  // typo would read as "unrecorded" and silently fall back to a probe that is
+  // known not to work.
+  if (concept?.axes !== undefined && concept.axes !== null) {
+    if (typeof concept.axes !== 'object' || Array.isArray(concept.axes)) {
+      errors.push(`concept ${id} axes must be an object of axis id to value id`);
+    } else if (axes) {
+      const byId = new Map((axes.axes || []).map(axis => [axis.id, axis]));
+      for (const [axisId, valueId] of Object.entries(concept.axes)) {
+        const axis = byId.get(axisId);
+        if (!axis) {
+          errors.push(`concept ${id} names unknown axis "${axisId}"`);
+        } else if (!(axis.values || []).some(value => value.id === valueId)) {
+          errors.push(
+            `concept ${id} axis "${axisId}" has unknown value "${valueId}" `
+            + `(expected one of ${(axis.values || []).map(v => v.id).join(', ')})`
+          );
+        }
+      }
+    }
+  }
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(concept?.id || '')) {
     errors.push(`invalid concept id: ${String(concept?.id)}`);
   }
@@ -81,6 +108,18 @@ export function validateConceptEntry(concept, { existingForms = new Map() } = {}
     || concept.tags.length !== 3
     || concept.tags.some(tag => typeof tag !== 'string' || !tag.trim())) {
     errors.push(`concept ${id} must have exactly three structural tags`);
+  }
+  // The slop this world in particular is at risk of. Optional, because 541
+  // entries predate it and none of them are wrong for lacking it. A world built
+  // from posters is at risk of shouting and one built from instruments is at
+  // risk of dead greys; a global detector cannot know which, and the author can.
+  if (concept?.avoid !== undefined) {
+    if (!Array.isArray(concept.avoid)
+      || concept.avoid.length < 2
+      || concept.avoid.length > 3
+      || concept.avoid.some(item => typeof item !== 'string' || item.trim().length < 12 || item.trim().length > 160)) {
+      errors.push(`concept ${id} avoid must be two or three negations of 12–160 characters`);
+    }
   }
   if (!Array.isArray(concept?.system)
     || concept.system.length !== SYSTEM_PREFIXES.length
