@@ -13,7 +13,7 @@ const CHECKER = join(
   'preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs',
 );
 
-function runFixture(files, { inventory = false } = {}) {
+function runFixture(files) {
   const cwd = mkdtempSync(join(tmpdir(), 'doc-shape-'));
   try {
     const paths = Object.entries(files).map(([name, content]) => {
@@ -22,7 +22,7 @@ function runFixture(files, { inventory = false } = {}) {
       writeFileSync(path, content);
       return path;
     });
-    return spawnSync(process.execPath, [CHECKER, ...(inventory ? ['--inventory'] : []), ...paths], {
+    return spawnSync(process.execPath, [CHECKER, ...paths], {
       cwd,
       encoding: 'utf8',
     });
@@ -48,67 +48,6 @@ const fields = {
 function perItemFixture(kind, body = fields[kind]) {
   const area = kind === 'architecture' ? 'System Components' : 'Common Issues';
   return `# Guide\n\nPreamble without template fields.\n\n## Contents\n\n- [${area}](#${area.toLowerCase().replaceAll(' ', '-')})\n\n## ${area}\n\nArea introduction without template fields.\n\n### Example Item\n\n${body.join('\n\n')}\n\n## Unrelated Area\n\n### Background Detail\n\nThis unrelated heading is not an item collection.\n`;
-}
-
-function inventoryFixture() {
-  const architecture = [
-    '# Architecture',
-    '',
-    '## System Components',
-    '',
-    ...[
-      'Worker',
-      'Container DO',
-      'LlmInterceptor',
-      'EgressController',
-      'CloudflareBrowserInterceptor',
-      'GitHub Integration',
-      'Terminal Server',
-      'Landing',
-    ].flatMap((name) => [`### ${name}`, '', ...fields.architecture, '']),
-  ].join('\n');
-
-  const troubleshooting = [
-    '# Troubleshooting',
-    '',
-    '## Common Issues',
-    '',
-    ...[
-      '/api/* Returns HTML',
-      '/setup Shows Access Denied',
-      'Auth Error After Access Login',
-      'HTTP 500 After Login',
-      'Access Application Not Found',
-      'Container Stuck Waiting for Services',
-      'Secrets Lost After Worker Deletion',
-      'Chrome in CI',
-    ].flatMap((name) => [`### ${name}`, '', ...fields.troubleshooting, '']),
-  ].join('\n');
-
-  const api = [
-    '# API Reference',
-    '',
-    '## Preferences',
-    '',
-    '| Method | Path | Auth | Implements | Description |',
-    '|---|---|---|---|---|',
-    '| GET | `/api/preferences` | Session cookie | REQ-MEM-011 | Read preferences |',
-    '| PATCH | `/api/preferences` | Session cookie | REQ-MEM-011 | Update preferences |',
-    '',
-    '## LLM API Keys',
-    '',
-    '| Method | Path | Auth | Implements | Description |',
-    '|---|---|---|---|---|',
-    '| GET | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Read masked keys |',
-    '| PUT | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Update keys |',
-    '| DELETE | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Delete keys |',
-  ].join('\n');
-
-  return {
-    'documentation/lanes/architecture.md': architecture,
-    'documentation/lanes/troubleshooting.md': troubleshooting,
-    'documentation/lanes/api-reference.md': api,
-  };
 }
 
 // CF-017 / DOCS-002
@@ -337,132 +276,97 @@ describe('doc-enforce shape item traversal', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
-  it('fails when any one of the exact 21 inventory items disappears', () => {
-    const complete = inventoryFixture();
-    const baseline = runFixture(complete, { inventory: true });
-    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`);
-
-    const identities = [
-      ['architecture.md', '### Worker'],
-      ['architecture.md', '### Container DO'],
-      ['architecture.md', '### LlmInterceptor'],
-      ['architecture.md', '### EgressController'],
-      ['architecture.md', '### CloudflareBrowserInterceptor'],
-      ['architecture.md', '### GitHub Integration'],
-      ['architecture.md', '### Terminal Server'],
-      ['architecture.md', '### Landing'],
-      ['troubleshooting.md', '### /api/* Returns HTML'],
-      ['troubleshooting.md', '### /setup Shows Access Denied'],
-      ['troubleshooting.md', '### Auth Error After Access Login'],
-      ['troubleshooting.md', '### HTTP 500 After Login'],
-      ['troubleshooting.md', '### Access Application Not Found'],
-      ['troubleshooting.md', '### Container Stuck Waiting for Services'],
-      ['troubleshooting.md', '### Secrets Lost After Worker Deletion'],
-      ['troubleshooting.md', '### Chrome in CI'],
-      ['api-reference.md', '| GET | `/api/preferences`'],
-      ['api-reference.md', '| PATCH | `/api/preferences`'],
-      ['api-reference.md', '| GET | `/api/llm-keys`'],
-      ['api-reference.md', '| PUT | `/api/llm-keys`'],
-      ['api-reference.md', '| DELETE | `/api/llm-keys`'],
-    ];
-
-    for (const [basename, identity] of identities) {
-      const entry = Object.entries(complete).find(([path]) => path.endsWith(basename));
-      assert.ok(entry, basename);
-      const [path, content] = entry;
-      const regressed = {
-        ...complete,
-        [path]: content.replace(identity, identity.replace(/Worker|Container DO|LlmInterceptor|EgressController|CloudflareBrowserInterceptor|GitHub Integration|Terminal Server|Landing|\/api\/\* Returns HTML|\/setup Shows Access Denied|Auth Error After Access Login|HTTP 500 After Login|Access Application Not Found|Container Stuck Waiting for Services|Secrets Lost After Worker Deletion|Chrome in CI|GET|PATCH|PUT|DELETE/, 'Removed')),
-      };
-      const result = runFixture(regressed, { inventory: true });
-      assert.equal(result.status, 1, `expected inventory regression for ${identity}`);
-      assert.match(result.stdout, /inventory-item-missing/);
-    }
-  });
-
-  it('accepts the repository exact inventory', () => {
-    const result = spawnSync(process.execPath, [
-      CHECKER,
-      '--inventory',
-      join(ROOT, 'documentation/lanes/architecture.md'),
-      join(ROOT, 'documentation/lanes/troubleshooting.md'),
-      join(ROOT, 'documentation/lanes/api-reference.md'),
-    ], { cwd: ROOT, encoding: 'utf8' });
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  });
 });
 
 // REQ-AGENT-139 AC2-AC4
-// Test-only RED contract: the existing checker does not yet recognize these lane collections.
 describe('optimized documentation lane shapes', () => {
-  it('reports incomplete configuration variable registers', () => {
-    const content = [
-      '# Configuration',
-      '',
-      '## Worker Environment',
-      '',
-      '| Variable | Purpose |',
-      '|---|---|',
-      '| `API_TOKEN` | Authenticate API calls |',
-    ].join('\n');
-    const result = runFixture({ 'configuration.md': content });
-    assert.equal(result.status, 1, result.stdout);
-    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
-      'Default', 'Required', 'Consumed by', 'Implements',
-    ]);
-  });
+  const tableProfiles = [
+    {
+      file: 'configuration.md',
+      heading: 'Worker Environment',
+      discriminator: 'Variable',
+      required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
+    },
+    {
+      file: 'security.md',
+      heading: 'Threat Model',
+      discriminator: 'Asset / boundary',
+      required: ['Threat or failure', 'Control and failure posture', 'Residual risk / owner'],
+    },
+    {
+      file: 'observability.md',
+      heading: 'Signals',
+      discriminator: 'Signal',
+      required: ['Meaning / non-evidence', 'Observed at', 'Escalate when', 'Runbook'],
+    },
+  ];
 
-  it('reports incomplete security threat registers', () => {
-    const content = [
-      '# Security',
+  function tableFixture({ heading, discriminator, required }, omitted = null) {
+    const headers = [discriminator, ...required].filter((field) => field !== omitted);
+    return [
+      '# Guide',
       '',
-      '## Threat Model',
+      `## ${heading}`,
       '',
-      '| Asset / boundary | Threat or failure |',
-      '|---|---|',
-      '| Session cookie | Theft |',
+      `| ${headers.join(' | ')} |`,
+      `| ${headers.map(() => '---').join(' | ')} |`,
+      `| ${headers.map((field) => `Example ${field}`).join(' | ')} |`,
     ].join('\n');
-    const result = runFixture({ 'security.md': content });
-    assert.equal(result.status, 1, result.stdout);
-    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
-      'Control and failure posture', 'Residual risk / owner',
-    ]);
-  });
+  }
 
-  it('validates canonical deployment runbooks and accepts legacy field aliases', () => {
-    const incomplete = [
+  for (const profile of tableProfiles) {
+    it(`accepts a complete ${profile.file} governed collection`, () => {
+      const result = runFixture({ [profile.file]: tableFixture(profile) });
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    });
+
+    for (const field of profile.required) {
+      it(`reports ${field} missing from ${profile.file}`, () => {
+        const result = runFixture({ [profile.file]: tableFixture(profile, field) });
+        assert.equal(result.status, 1, result.stdout);
+        assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+      });
+    }
+  }
+
+  const deploymentFields = {
+    When: 'A reviewed release is ready.',
+    Action: 'Run the release workflow.',
+    Verify: 'The health check passes.',
+    Rollback: 'Restore the prior release.',
+  };
+
+  function deploymentFixture(omitted = null) {
+    return [
       '# Deployment',
       '',
       '## Standard Deployment',
       '',
-      '**When:** A reviewed release is ready.',
-      '',
-      '**Action:** Run the release workflow.',
+      ...Object.entries(deploymentFields)
+        .filter(([field]) => field !== omitted)
+        .flatMap(([field, value]) => [`**${field}:** ${value}`, '']),
     ].join('\n');
-    const failed = runFixture({ 'deployment.md': incomplete });
-    assert.equal(failed.status, 1, failed.stdout);
-    assert.deepEqual(JSON.parse(failed.stdout).findings[0].missing, ['Verify', 'Rollback']);
+  }
 
-    const legacy = `${incomplete.replace('**Action:**', '**Command:**')}\n\n**Verifies:** The health check passes.\n\n**Rollback:** Restore the prior release.\n`;
-    const accepted = runFixture({ 'deployment.md': legacy });
-    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  it('accepts a complete canonical deployment runbook', () => {
+    const result = runFixture({ 'deployment.md': deploymentFixture() });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
-  it('reports incomplete observability signal registers', () => {
-    const content = [
-      '# Observability',
-      '',
-      '## Signals',
-      '',
-      '| Signal | Meaning |',
-      '|---|---|',
-      '| `request.failed` | A request failed |',
-    ].join('\n');
-    const result = runFixture({ 'observability.md': content });
-    assert.equal(result.status, 1, result.stdout);
-    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [
-      'Source', 'Escalate when', 'Runbook',
-    ]);
+  for (const field of Object.keys(deploymentFields)) {
+    it(`reports ${field} missing from a deployment runbook`, () => {
+      const result = runFixture({ 'deployment.md': deploymentFixture(field) });
+      assert.equal(result.status, 1, result.stdout);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    });
+  }
+
+  it('accepts legacy deployment field aliases without making them canonical', () => {
+    const legacy = deploymentFixture()
+      .replace('**Action:**', '**Command:**')
+      .replace('**Verify:**', '**Verifies:**');
+    const result = runFixture({ 'deployment.md': legacy });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
   it('does not confuse unrelated tables with governed collections', () => {

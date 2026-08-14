@@ -61,6 +61,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-139 AC5: optimized documentation templates reach Claude and Pi seeds', () => {
+    const relativePaths = [
+      'skills/sdd-init/references/render-documentation-templates.mjs',
+      'skills/spec-driven-development/references/templates/documentation-security.md',
+      'skills/spec-driven-development/references/templates/documentation-observability.md',
+      'skills/spec-driven-development/references/templates/documentation-troubleshooting.md',
+      'skills/spec-driven-development/references/templates/documentation-project-lane.md',
+    ];
+
+    for (const relativePath of relativePaths) {
+      const claude = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === `.claude/${relativePath}`);
+      const pi = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === `.pi/agent/${relativePath}`);
+      expect(claude?.modes).toEqual(['advanced']);
+      expect(pi?.modes).toEqual(['advanced']);
+      expect(pi?.content).toBe(claude?.content);
+    }
+  });
+
   it('REQ-AGENT-056 AC1: seeds the Pi local statusline in default and advanced modes', () => {
     const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/extensions/local-statusline.ts');
     expect(entries).toHaveLength(1);

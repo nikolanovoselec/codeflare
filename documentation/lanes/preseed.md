@@ -1136,6 +1136,10 @@ CON-* constraints, founding ADRs, and glossary terms. The agent presents the ful
 draft as one review surface and applies edits in place until the user accepts.
 The 10-15-turn one-domain-at-a-time confirmation chain is not used.
 
+**Documentation emission.** Greenfield and Import Mode use the same bundled lane renderer after source discovery selects the applicable canonical lanes and any source-backed first-level project lanes. Architecture and the ADR ledger remain universal; API, Configuration, Deployment, Security, Observability, and Troubleshooting emit only when evidence supports them. The renderer stages only selected files and matching index rows outside the live documentation tree; the agent fills them from verified evidence and promotes the complete tree only after review and losslessness checks pass. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates -->
+
+The same templates are the normalization target for `/sdd clean`. Cleanup operates on positively recognized collections and defers when a clause, diagram, link, compatibility fragment, requirement, decision, or source anchor cannot be moved losslessly. Project-specific lanes retain their natural subject structure inside the shared audience, ownership, navigation, evidence, and related-document envelope. Implements [REQ-AGENT-139](../../sdd/spec/agents.md#req-agent-139-shared-optimized-documentation-lane-output).
+
 **Enrichment pass.** After the draft is accepted, before any files are written,
 three passes run automatically in one in-memory cycle. All three query the
 project's `graphify-out/graph.json` for structural inputs.

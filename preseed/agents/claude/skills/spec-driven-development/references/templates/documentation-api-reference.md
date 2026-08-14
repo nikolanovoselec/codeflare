@@ -1,61 +1,53 @@
-<!-- doc-discipline: one-line table cells (≤50 words), no architecture rationale (lives in architecture.md), no env var docs (lives in configuration.md). -->
+# {PROJECT_NAME} API Reference
 
-# API Reference
+**Audience:** Integrators, client authors, and operators diagnosing request behavior.
 
-All public and internal API endpoints.
+**Owns:** Route, authorization, request, response, error, rate-limit, requirement, and source contracts.
 
-**Audience:** Developers
+**Does not own:** Architecture rationale, configuration values, or deployment procedures.
 
----
+## Contents
 
-## Public API
+- [Contract Conventions](#contract-conventions)
+- [Endpoint Register](#endpoint-register)
+- [Detailed Contracts](#detailed-contracts)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
-### {METHOD} {/path}
+## Contract Conventions
 
-{One-line description.}
+Document the shared authentication vocabulary, error envelope, pagination, and response headers once.
 
-**Implements:** [REQ-X-N](../../sdd/spec/{domain}.md#req-x-n)
+## Endpoint Register
 
-**Authentication:** None | Required (describe)
+Group endpoints by resource family. Add detailed contracts only when request, response, or failure behavior cannot fit the register safely.
 
-**Path Parameters:**
+### {RESOURCE_FAMILY}
 
-| Parameter | Format | Description |
-|---|---|---|
-| `{name}` | `{format}` | {description} |
+| Method | Path | Auth | Implements | Description |
+|---|---|---|---|---|
+| `{METHOD}` | `{PATH}` | {Authentication boundary} | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {Observable behavior} |
 
-**Request:**
+## Detailed Contracts
 
-```json
-{example}
-```
+### {METHOD} `{PATH}`
 
-**Response 200:**
+**Request:** {Parameters or “No request body.”}
 
-```json
-{example}
-```
+**Response:** {Success status and response shape.}
 
-**Error responses:**
+**Errors:** {Failure statuses and error contract.}
 
-| Code | When | Body |
-|---|---|---|
-| 400 | {when} | `{error shape}` |
-| 401 | {when} | `{error shape}` |
+**Source:** `{SOURCE_PATH}::{SYMBOL}`
 
-**Cache:** `Cache-Control: {policy}`
+**Implements:** [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001)
 
-**Implementation:** `src/{path}`
+## Requirement and Source Map
 
----
-
-## Admin API
-
-{Same format as Public API for admin-only endpoints.}
-
----
+| Resource family | Source owner | Requirements | Behavioral evidence |
+|---|---|---|---|
+| {Family} | `{SOURCE_PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | `{TEST_PATH}` |
 
 ## Related Documentation
 
-- [Architecture](architecture.md) — Component overview
-- [Configuration](configuration.md) — Required env vars and secrets
+{Links to emitted Architecture, Configuration, Security, and Troubleshooting lanes.}

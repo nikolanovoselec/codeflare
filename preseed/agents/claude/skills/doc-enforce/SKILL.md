@@ -1,7 +1,7 @@
 ---
 name: doc-enforce
 description: SDD documentation enforcement orchestrator — the canonical cross-agent contract. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Documentation Enforcement (orchestrator)
@@ -50,7 +50,7 @@ Audit location by trigger:
 | Pass 3 — Implementation-prose detection | Invoke `doc-enforce-lanes`. | `ran (...)` or `inert` |
 | Pass 4 — Lane-violation detection | Invoke `doc-enforce-lanes`. | `ran (...)` or `inert` |
 | Pass 5 — Format-template field presence | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
-| Pass 6 — File-level shape consistency | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
+| Pass 6 — Collection rendering consistency | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
 | Pass 7 — Canonical per-endpoint rendering | Invoke `doc-enforce-shape`. | `ran (...)` or `inert (no api-reference*.md present)` |
 | Pass 8 — Verification truth-check | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 9 — Implements-vs-AC cross-walk | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
@@ -169,7 +169,7 @@ Auto-fix in `auto`/`unleashed`: same value (whitespace-normalised) in every occu
 
 Detection: parse the section's prefix-block bolded labels; for each table in the section body, take the header row column names; if the intersection size >=2, fire.
 
-Auto-fix in `auto`/`unleashed`: keep whichever shape dominates the file. Delete the duplicate-content side of the hybrid. Preserve only the unique columns/fields, dropping the overlapping ones.
+Auto-fix in `auto`/`unleashed`: compare the two renderings within the recognized collection and retain the canonical template shape only when every clause and value has an accounted destination. If either side contains unique or conflicting content, emit a finding and leave both unchanged; never select by file-wide dominance.
 
 **Trigger 3 — Repeated paragraph across sibling sections.** A normalised paragraph (collapse whitespace, lowercase, strip surrounding emphasis) appearing byte-identical in >=3 sibling sections at the same heading depth within one parent is `repeated-prose-pattern`. Identical prose copy-pasted across >=3 siblings belongs in one shared section the siblings link to.
 

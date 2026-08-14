@@ -1,58 +1,61 @@
-<!-- doc-discipline: one-line table cells (≤50 words), deploy commands and rollback steps only — no env var documentation (link to configuration.md), no API contracts (link to api-reference.md). -->
+# {PROJECT_NAME} Deployment
 
-# Deployment
+**Audience:** Operators releasing, verifying, and rolling back the project.
 
-**Audience:** Developers, Operators
+**Owns:** Executable deployment, verification, and rollback runbooks.
 
-Local development setup and production deployment steps.
+**Does not own:** Architecture rationale, configuration inventories, or private credentials.
 
----
+## Contents
 
-## Prerequisites
+- [Standard Deployment](#standard-deployment)
+- [Rollback](#rollback)
+- [Development Reference](#development-reference)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
-- {Tool name} version {X.Y+}
-- {Account or credential needed}
+## Standard Deployment
 
-## Local Development
+**When:** {Reviewed artifact and target preconditions.}
 
-```bash
-{install command}
-{seed/migration command}
-{dev server command}
+**Prerequisites:** {Required access, checks, and immutable artifact identity.}
+
+**Action:**
+
+```sh
+{DEPLOY_COMMAND}
 ```
 
-The dev server runs at {URL}.
+**Verify:** {Observable health, version, or smoke-test result.}
 
-## Tests
+**Rollback:** {Exact prior artifact or command and rollback verification.}
 
-```bash
-{test command}
+## Rollback
+
+**When:** {Failure conditions that require rollback.}
+
+**Prerequisites:** {Prior version, digest, or release identifier.}
+
+**Action:**
+
+```sh
+{ROLLBACK_COMMAND}
 ```
 
-Tests are organized so each test references a REQ ID — `spec-reviewer` reads test files to verify which Implemented REQs have automated coverage.
+**Verify:** {Evidence that the previous release is restored.}
 
-## Production Deployment
+**Rollback:** Escalate rather than applying another unreviewed change if restoration fails.
 
-```bash
-{deploy command}
-```
+## Development Reference
 
-### Environment-specific configuration
+Keep local development commands separate from production runbooks.
 
-| Environment | Branch | Notes |
-|---|---|---|
-| Development | `develop` | {what's special} |
-| Production | `main` | {what's special} |
+## Requirement and Source Map
 
-## Cloudflare Resources
-
-| Resource | Type | Purpose |
-|---|---|---|
-| `{name}` | D1/R2/KV/Worker | {purpose} |
-
----
+| Procedure | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Standard deployment | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001) | `{WORKFLOW_PATH}` | {Workflow or smoke-test link} |
 
 ## Related Documentation
 
-- [Configuration](configuration.md) — Env vars and secrets
-- [Architecture](architecture.md) — System overview
+{Links to emitted Architecture, Configuration, Security, Observability, and Troubleshooting lanes.}

@@ -1,40 +1,55 @@
-<!-- doc-discipline: one-line table cells (≤50 words), env var entries only — no API contracts, no deploy commands. Long descriptions go in body paragraphs below the variables table. Each row carries an inline @impl source-anchor naming the consuming symbol. -->
+# {PROJECT_NAME} Configuration
 
-# Configuration
+**Audience:** Developers and operators configuring a deployment.
 
-**Audience:** Operators, Developers
+**Owns:** Configuration sources, precedence, defaults, consumers, and security consequences.
 
-Environment variables, secrets, and platform bindings required to run the system.
+**Does not own:** Deployment procedures or secret values.
 
----
+## Contents
 
-## Environment Variables
+- [Configuration Sources and Precedence](#configuration-sources-and-precedence)
+- [Runtime Variables](#runtime-variables)
+- [Secrets](#secrets)
+- [Platform Bindings](#platform-bindings)
+- [Configuration Files](#configuration-files)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
-| Variable | Required | Default | Description |
+## Configuration Sources and Precedence
+
+| Source | Scope | Change mechanism | Precedence / authority |
 |---|---|---|---|
-| `{NAME}` | yes/no | `{default}` | {description} |
+| {Source} | {Scope} | {How changed} | {Authority order} |
+
+## Runtime Variables
+
+| Variable | Purpose | Default | Required | Consumed by | Implements |
+|---|---|---|---|---|---|
+| `{VARIABLE}` | {Purpose} | `{DEFAULT}` | {yes/no/conditional} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
 
 ## Secrets
 
-| Secret | Storage | Description |
-|---|---|---|
-| `{NAME}` | wrangler secret / env / vault | {description} |
+Document secret names, consumers, rotation boundaries, and fail-closed behavior. Never include secret values.
 
 ## Platform Bindings
 
-| Binding | Type | Purpose |
-|---|---|---|
-| `{NAME}` | D1 / R2 / KV / Durable Object | {what it stores or does} |
+| Binding | Purpose | Required | Consumed by | Implements |
+|---|---|---|---|---|
+| `{BINDING}` | {Purpose} | {yes/no/conditional} | `{PATH}::{SYMBOL}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) |
 
 ## Configuration Files
 
-| File | Purpose |
-|---|---|
-| `{path}` | {description} |
+| File | Purpose | Consumer | Source of truth |
+|---|---|---|---|
+| `{PATH}` | {Purpose} | `{CONSUMER}` | {Authority} |
 
----
+## Requirement and Source Map
+
+| Configuration concern | Source owner | Requirements | Specialist owner |
+|---|---|---|---|
+| {Concern} | `{PATH}` | [REQ-DOMAIN-001](../../sdd/spec/domain.md#req-domain-001) | {Lane link} |
 
 ## Related Documentation
 
-- [Deployment](deployment.md) — How to set these up in dev and prod
-- [Architecture](architecture.md) — Where these bindings are used
+{Links to emitted Architecture, Deployment, and Security lanes.}

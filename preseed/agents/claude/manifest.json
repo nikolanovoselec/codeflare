@@ -558,6 +558,11 @@
       "advanced"
     ]
   },
+  "skills/sdd-init/references/render-documentation-templates.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/sdd-init/references/verify-source-anchors.py": {
     "modes": [
       "advanced"
@@ -603,7 +608,27 @@
       "advanced"
     ]
   },
+  "skills/spec-driven-development/references/templates/documentation-observability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-project-lane.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-troubleshooting.md": {
     "modes": [
       "advanced"
     ]
