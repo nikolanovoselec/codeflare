@@ -418,7 +418,7 @@ sequenceDiagram
     W->>DO: Bind session, bucket, credentials, and preferences
     W->>KV: Write persisted running status
     W->>DO: Start container asynchronously
-    DO->>C: Restore workspace; start host and selected services
+    DO->>C: Restore workspace#59; start host and selected services
     U->>W: Poll startup status
     W-->>U: Ready
     U->>W: Upgrade terminal WebSocket
@@ -455,14 +455,16 @@ These endpoint stages are derived observations, not persisted lifecycle state. K
 
 ```mermaid
 stateDiagram-v2
-    state "Persisted KV" as Persisted {
+    state "Persisted KV" as Persisted
+    state Persisted {
         [*] --> stopped
         stopped --> running : start accepted before service readiness
         running --> stopped : confirmed idle, exit, or shutdownRequested
         running --> running : bounded DO reconstruction preserves workload
         stopped --> running : live health and no shutdownRequested marker
     }
-    state "Frontend presentation" as Frontend {
+    state "Frontend presentation" as Frontend
+    state Frontend {
         [*] --> initializing
         initializing --> sessionView : startup-status ready
         initializing --> error : startup failure

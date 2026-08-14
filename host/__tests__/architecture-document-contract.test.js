@@ -129,9 +129,7 @@ function visibleHeadingText(source) {
     previous = value;
     value = value.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
   } while (value !== previous);
-  return value
-    .replace(/<[^>]+>/g, '')
-    .replace(/[`*_\\]/g, '');
+  return value.replace(/[`*_\\]/g, '');
 }
 
 function githubSlug(source, seen) {
@@ -225,8 +223,11 @@ function mermaidBlocks(markdown) {
   return [...markdown.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((match) => match[1]);
 }
 
-function hasBlock(blocks, required) {
-  return blocks.some((block) => required.every((token) => block.includes(token)));
+function hasFlow(blocks, requiredLines) {
+  return blocks.some((block) => {
+    const lines = new Set(block.split('\n').map((line) => line.trim()));
+    return requiredLines.every((line) => lines.has(line));
+  });
 }
 
 describe('Architecture documentation contract', () => {
@@ -280,13 +281,48 @@ describe('Architecture documentation contract', () => {
     }
   });
 
-  it('retains the required cross-component diagram evidence', () => {
+  it('retains the required cross-component diagram relationships', () => {
     const blocks = mermaidBlocks(markdown);
-    assert.ok(hasBlock(blocks, ['Browser', 'Worker', 'Container', 'R2']), 'missing system context diagram evidence');
-    assert.ok(hasBlock(blocks, ['Browser', 'KV', 'Container DO', 'WebSocket']), 'missing session start diagram evidence');
-    assert.ok(hasBlock(blocks, ['stopped', 'initializing', 'running', 'shutdownRequested']), 'missing lifecycle authority diagram evidence');
-    assert.ok(hasBlock(blocks, ['Container', 'LlmInterceptor', 'AI Gateway']), 'missing enterprise LLM boundary diagram evidence');
-    assert.ok(hasBlock(blocks, ['env.EGRESS', 'Cloudflare Gateway', 'own-account']), 'missing strict egress boundary diagram evidence');
-    assert.ok(hasBlock(blocks, ['Root Pi session', 'Extraction agent', 'graph', 'native terminal notification']), 'missing extraction ownership diagram evidence');
+    assert.ok(hasFlow(blocks, [
+      'B["Browser: dashboard, terminal, Browser IDE"] -->|"HTTP / WebSocket"| W["Cloudflare Worker"]',
+      'W --> DO1["Container DO: session A"]',
+      'DO1 --> C1["Container A"]',
+      'C1 <-->|"restore + bounded bisync"| R2["R2 bucket: shared per user"]',
+    ]), 'missing system context relationships');
+    assert.ok(hasFlow(blocks, [
+      'U->>W: Start session',
+      'W->>KV: Write persisted running status',
+      'W->>DO: Start container asynchronously',
+      'DO->>C: Restore workspace#59; start host and selected services',
+      'U->>W: Upgrade terminal WebSocket',
+      'W->>DO: Session-scoped proxy',
+    ]), 'missing session start relationships');
+    assert.ok(hasFlow(blocks, [
+      'state "Persisted KV" as Persisted',
+      'state Persisted {',
+      'stopped --> running : start accepted before service readiness',
+      'running --> stopped : confirmed idle, exit, or shutdownRequested',
+      'stopped --> running : live health and no shutdownRequested marker',
+      'state "Frontend presentation" as Frontend',
+      'state Frontend {',
+      'initializing --> error : startup failure',
+    ]), 'missing lifecycle authority relationships');
+    assert.ok(hasFlow(blocks, [
+      'C->>I: HTTPS to intercepted provider host with placeholder credential',
+      'I->>G: Worker-held auth, route, user, and configured-group metadata',
+      'G->>P: Gateway-selected backend',
+    ]), 'missing enterprise LLM boundary relationships');
+    assert.ok(hasFlow(blocks, [
+      'Note over X: own-account platform primitives use explicit direct exceptions',
+      'X->>E: Other direct-internet traffic',
+      'E->>G: Customer network boundary',
+      'G->>U: Policy-authorized upstream',
+    ]), 'missing strict egress boundary relationships');
+    assert.ok(hasFlow(blocks, [
+      'R->>A: Public bounded background launch',
+      'A->>G: Write work artifact, lock merge, publish graph',
+      'A-->>R: native terminal notification with correlated result',
+      'R->>R: Verify exact-success artifacts and advance matching state',
+    ]), 'missing extraction ownership relationships');
   });
 });
