@@ -389,7 +389,25 @@ describe('optimized documentation lane shapes', () => {
     }
   });
 
-  it('accepts legacy API sections and validates detailed standard-method sections', () => {
+  it('accepts minimal and legacy API sections and validates detailed standard-method sections', () => {
+    const minimalFields = {
+      Authentication: 'Session cookie',
+      Response: '`200` item list',
+      Implements: 'REQ-API-001',
+    };
+    const minimalFixture = (omitted = null) => [
+      '# API', '', '## Items', '', '### GET `/items`', '',
+      ...Object.entries(minimalFields)
+        .filter(([field]) => field !== omitted)
+        .flatMap(([field, value]) => [`**${field}:** ${value}`, '']),
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': minimalFixture() }).status, 0);
+    for (const field of Object.keys(minimalFields)) {
+      const result = runFixture({ 'api-reference.md': minimalFixture(field) });
+      assert.equal(result.status, 1, `${field}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    }
+
     const legacy = [
       '# API', '', '## Items', '', '### GET `/items`', '',
       '**Implements:** REQ-API-001', '',
