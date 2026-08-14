@@ -16,7 +16,7 @@ it gets there" content. Memory-system specifics live in
 - [Artifact Inventory and Sources](#artifact-inventory-and-sources)
 - [Runtime Delivery Pipeline](#runtime-delivery-pipeline)
 - [Agent-Specific Projection](#agent-specific-projection)
-- [Graphify Toolchain](#graphify-toolchain-req-agent-023)
+- [Graphify Toolchain](#graphify-req-agent-023)
 - [SDD Bootstrap Contract](#sdd-bootstrap-contract)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [Image-Baked Delivery Alias](#image-baked-delivery-alias)
@@ -712,7 +712,9 @@ provider to measure the complete first-turn input, including active schemas and 
 | Grep | grep | search_file_content | search | search | grep |
 | Glob | glob | glob | search | glob | find |
 
-**Runtime parity:** Claude Code and Pi receive the same supported workflow families, with intentional differences in commands, transport, PDF handling, provider tools, and transformed exclusions. Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
+**Runtime parity:** Claude Code and Pi receive the same supported workflow families, with intentional differences in commands, transport, PDF handling, provider tools, and transformed exclusions.
+
+Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
 always-on rule kernel, progressively disclosed adapted skills/agents, and native TypeScript
 extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
 and review enforcement. High-frequency proactive skills stay in Pi's startup catalog;
