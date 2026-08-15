@@ -588,7 +588,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - The Pi package enables the pinned host's `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant` proposals, and declares panel/editor participant locations.
-- Code OSS 1.132 filters ordinary participant text from editor Inline Chat and waits for host-owned edit transactions. Because unrestricted Pi writes directly and cannot safely replay those effects as host edits, editor submissions use the pinned `inlineChat2.continueInChat` path before inference; Codeflare does not patch the host or pretend direct side effects are transactional.
+- Editor submissions continue into panel Chat before Pi inference; Codeflare neither patches the host nor replays direct Pi effects as host transactions.
 - The hidden, non-selectable `copilot` fallback preserves the pinned extension host's absent-request-model lookup; it is panel-default only and has no tool-calling capability.
 - The distinct `codeflare` vendor keeps the selectable model outside the host's Copilot entitlement/setup path; tool-calling metadata remains pinned-host eligibility metadata, not a second inference path.
 - Pi settings disable the duplicate `~/.claude/agents` source while retaining Code OSS discovery from `~/.copilot/agents` and Pi discovery from `~/.pi/agent/agents`.
@@ -622,7 +622,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- The fixed local `pi --mode rpc --no-session --no-themes` runtime retains normal tools, extensions, root access, external interceptors, and bounded generation cleanup without a command sandbox; it is separate from terminal Pi, selection is context rather than confinement, and direct effects carry no host Keep/Undo promise.
+- The fixed local `pi --mode rpc --no-session --no-themes` runtime retains normal tools, extensions, root access, external interceptors, and bounded generation cleanup without a command sandbox; it remains separate from terminal Pi, and direct effects carry no host Keep/Undo promise.
 
 **Priority:** P1
 
@@ -642,14 +642,14 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Pi disables Code OSS's unrelated built-in AI setup through managed settings and marks that setup hidden before refreshing its account-free models; Claude and unsupported inventories retain the same managed disablement. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1: Pi native Chat settings suppress Copilot and retain one personal agent source) -->
+1. Pi sessions hide unrelated built-in AI setup while retaining account-free Codeflare models. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1: Pi native Chat settings suppress Copilot and retain one personal agent source) -->
 2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
 3. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
 4. Pi, Claude, and unsupported inventories omit Code OSS's Chat title-bar sign-in affordance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021: base settings remove workspace and account setup chrome) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
-- Codeflare does not attempt to seed `chat.statusBarEntry` through server-side `User/State/storage.json`: Code OSS 1.132 owns status-entry visibility in browser IndexedDB. Pi disables Copilot setup through managed settings and reasserts the supported hidden workbench context before model refresh while its registered participant keeps Chat available; Claude and unsupported inventories retain their managed disablement.
+- Server-side `User/State/storage.json` does not own Code OSS status-entry visibility.
 - The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; authentication APIs, credentials, unrelated status entries, and UI-snapshot contents remain outside these bounded context, profile, and User-setting mutations.
 
 **Priority:** P1

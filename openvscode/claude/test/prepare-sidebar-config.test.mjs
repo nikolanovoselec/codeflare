@@ -195,6 +195,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "chat.titleBar.signIn.enabled": false,
+    "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
