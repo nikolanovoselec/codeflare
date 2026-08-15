@@ -70,7 +70,7 @@ The Worker's deployment/account-management token never enters a session containe
 
 Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
 
-Enterprise Cloudflare Browser Rendering, GitHub, and model-provider interception withhold supported real credentials and inject them only for configured account, organization, repository, or model-routing boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+Enterprise interception withholds supported real credentials and injects them only at the configured Cloudflare account boundary, the session-bound GitHub host and identity boundary, or the model-routing boundary. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 A compromised container can still exercise any legitimate capability represented by a credential or boundary interceptor. Prompt isolation is not authorization; provider scope and branch/deployment policy remain necessary.
 
@@ -101,7 +101,7 @@ The deployment token creates/manages resources but never enters containers. Cont
 
 When `ENCRYPTION_KEY` is configured, protected KV values use AES-256-GCM with key-specific additional authenticated data. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 
-R2 uses SSE-C unless the bucket's governed-mode policy disables it. <!-- @impl: entrypoint.sh::sse_customer_key_base64 -->
+When `ENCRYPTION_KEY` is configured, R2 uses SSE-C unless the bucket's governed-mode policy disables it. <!-- @impl: entrypoint.sh::sse_customer_key_base64 -->
 
 Vault derives a bucket-specific browser key through HKDF. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey -->
 
