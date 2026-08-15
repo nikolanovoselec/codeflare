@@ -14,6 +14,7 @@ import {
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
+  injectVaultBootstrapHopHtml,
   injectVaultPrewarmBridge,
   injectVaultPrewarmFocusGuard,
   getVaultPrewarmRedirectSearch,
@@ -144,6 +145,25 @@ describe('CF-045: vault-html direct unit tests', () => {
       const html = await result.text();
 
       expect(html.split(VAULT_PREWARM_FOCUS_GUARD_MARKER).length - 1).toBe(1);
+    });
+  });
+
+  describe('injectVaultBootstrapHopHtml', () => {
+    it('keeps a hostile encryption key inside the single generated script boundary', async () => {
+      const hostileKey = '</script><script>globalThis.compromised=true</script>';
+      const html = injectVaultBootstrapHopHtml(
+        '0123456789abcdef0123456789abcdef',
+        hostileKey,
+        '?codeflarePrewarm=1&prewarmId=warm-1',
+      );
+      let scriptCount = 0;
+      await new HTMLRewriter()
+        .on('script', { element() { scriptCount += 1; } })
+        .transform(new Response(html))
+        .text();
+
+      expect(scriptCount).toBe(1);
+      expect(html).not.toContain(hostileKey);
     });
   });
 
