@@ -86,14 +86,17 @@ const REVIEWED_FINDINGS = [
   },
   // Integration deployment 31889621501 at head 4e9ac2e built the latest
   // upstream releases (gh 2.97.0 and lazygit 0.64.1), but those binaries still
-  // embed Go 1.26.5 and 1.25.12. The patched Go releases exist while no rebuilt
-  // CLI release does. gh and lazygit are outbound, single-tenant developer CLIs:
-  // they expose no HTTP/2 or TLS server, render no HTML, and consume only trusted
-  // API responses plus the user's own repositories, paths, remotes, and config.
-  // The recursive protobuf/XML, DNS, IDNA, template, path, and handshake findings
-  // can therefore only stop or misdirect that user's own CLI process. Bind every
-  // accepted identity to its scanner target/version/PURL and remove the batch as
-  // soon as either upstream release embeds Go 1.25.13 or 1.26.6.
+  // embed Go 1.26.5 and 1.25.12. Patched Go releases exist while no rebuilt CLI
+  // release does. CVE-2026-56853/56862 are server-only HTTP/2/TLS exhaustion
+  // paths and CVE-2026-56858 requires HTML rendering; neither CLI exposes those
+  // surfaces. CVE-2026-33818/39821/46600/56859/56860 may receive hostile cert,
+  // DNS, URL, XML, repository, remote, path, or API metadata. Their residual risk
+  // is a crash/resource exhaustion or URL/authority confusion in that user's own
+  // process, including possible misrouting of that user's CLI credentials; they
+  // do not cross the Worker auth, control-plane identity, or container-isolation
+  // boundaries. Accept that temporary single-user risk rather than claim trusted
+  // input. Bind every identity to its scanner target/version/PURL and remove the
+  // batch when either upstream release embeds Go 1.25.13 or 1.26.6.
   ...reviewedGoStdlibFindings('usr/bin/gh', 'v1.26.5', Object.keys(GO_STDLIB_FIXED_VERSIONS)),
   ...reviewedGoStdlibFindings(
     'usr/local/bin/lazygit',

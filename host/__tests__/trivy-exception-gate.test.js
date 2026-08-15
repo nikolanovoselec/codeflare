@@ -12,6 +12,12 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
+// Minimized from the exact unexpected-finding identities emitted by integration
+// run 31889621501. PkgPath is absent because Trivy reported it as unavailable.
+const DEPLOYMENT_STDLIB_FIXTURE = JSON.parse(readFileSync(
+  join(ROOT, 'host', '__tests__', 'fixtures', 'trivy-run-31889621501-go-stdlib.json'),
+  'utf8',
+));
 
 function vulnerability(overrides = {}) {
   return {
@@ -57,33 +63,6 @@ function undiciVulnerability(installedVersion, overrides = {}) {
   };
 }
 
-const GO_STDLIB_FIXED_VERSIONS = Object.freeze({
-  'CVE-2026-33818': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-39821': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-46600': '1.26.6, 1.27.0-rc.3',
-  'CVE-2026-56853': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-56858': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-56859': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-56860': '1.25.13, 1.26.6, 1.27.0-rc.3',
-  'CVE-2026-56862': '1.25.13, 1.26.6, 1.27.0-rc.3',
-});
-const GH_STDLIB_FINDINGS = Object.freeze(Object.keys(GO_STDLIB_FIXED_VERSIONS));
-const LAZYGIT_STDLIB_FINDINGS = Object.freeze(GH_STDLIB_FINDINGS.filter((id) => id !== 'CVE-2026-46600'));
-
-function goStdlibResult(target, installedVersion, vulnerabilityIds) {
-  return {
-    Target: target,
-    Vulnerabilities: vulnerabilityIds.map((vulnerabilityId) => ({
-      VulnerabilityID: vulnerabilityId,
-      PkgName: 'stdlib',
-      InstalledVersion: installedVersion,
-      FixedVersion: GO_STDLIB_FIXED_VERSIONS[vulnerabilityId],
-      Severity: 'HIGH',
-      PkgIdentifier: { PURL: `pkg:golang/stdlib@${installedVersion}` },
-    })),
-  };
-}
-
 function report(results = [
   {
     Target: 'Node.js',
@@ -106,8 +85,7 @@ function report(results = [
       }),
     ],
   },
-  goStdlibResult('usr/bin/gh', 'v1.26.5', GH_STDLIB_FINDINGS),
-  goStdlibResult('usr/local/bin/lazygit', 'v1.25.12', LAZYGIT_STDLIB_FINDINGS),
+  ...structuredClone(DEPLOYMENT_STDLIB_FIXTURE.Results),
 ]) {
   return { Results: results };
 }
@@ -134,6 +112,29 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     ));
   });
 
+  it('rejects drift from every deployment-derived Go binary identity field', () => {
+    const mutations = [
+      (result) => { result.Target = 'usr/bin/gh-drift'; },
+      (result) => { result.Vulnerabilities[0].VulnerabilityID = 'CVE-2026-drift'; },
+      (result) => { result.Vulnerabilities[0].PkgName = 'stdlib-drift'; },
+      (result) => { result.Vulnerabilities[0].PkgPath = 'unexpected/path'; },
+      (result) => { result.Vulnerabilities[0].PkgIdentifier.PURL = 'pkg:golang/stdlib@drift'; },
+      (result) => { result.Vulnerabilities[0].InstalledVersion = 'v1.26.6'; },
+      (result) => { result.Vulnerabilities[0].FixedVersion = '1.26.7'; },
+      (result) => { result.Vulnerabilities[0].Severity = 'CRITICAL'; },
+    ];
+
+    for (const mutate of mutations) {
+      const input = report();
+      const ghResult = input.Results.find((result) => result.Target === 'usr/bin/gh');
+      mutate(ghResult);
+      assert.throws(
+        () => validateTrivyResult(input),
+        /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s,
+      );
+    }
+  });
+
   it('emits scanner identities for every accepted occurrence', () => {
     const directory = mkdtempSync(join(tmpdir(), 'trivy-gate-'));
     try {
@@ -149,8 +150,10 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
-        ...GH_STDLIB_FINDINGS.map((id) => `${prefix}${id} stdlib v1.26.5 at usr/bin/gh [path=<unavailable>; purl=pkg:golang/stdlib@v1.26.5]`),
-        ...LAZYGIT_STDLIB_FINDINGS.map((id) => `${prefix}${id} stdlib v1.25.12 at usr/local/bin/lazygit [path=<unavailable>; purl=pkg:golang/stdlib@v1.25.12]`),
+        ...DEPLOYMENT_STDLIB_FIXTURE.Results.flatMap((result) =>
+          result.Vulnerabilities.map((finding) =>
+            `${prefix}${finding.VulnerabilityID} ${finding.PkgName} ${finding.InstalledVersion} at ${result.Target} `
+            + `[path=${finding.PkgPath ?? '<unavailable>'}; purl=${finding.PkgIdentifier?.PURL ?? '<unavailable>'}]`)),
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

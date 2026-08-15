@@ -217,6 +217,12 @@ The executable validator accepts only exact reviewed vulnerability/package/path/
 
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 
+Integration run `31889621501` found that the latest available `gh` 2.97.0 and `lazygit` 0.64.1 binaries still embed Go 1.26.5 and 1.25.12. Their temporary exceptions are bound to the scanner target, PURL, installed version, fixed-version set, severity, and explicit unavailable package-path marker. A different target or identity fails closed.
+
+CVE-2026-56853 and CVE-2026-56862 require HTTP/2 or TLS server behavior, and CVE-2026-56858 requires HTML rendering; neither CLI exposes those surfaces. CVE-2026-33818, CVE-2026-39821, CVE-2026-46600, CVE-2026-56859, and CVE-2026-56860 may instead encounter attacker-influenced certificates, DNS, URLs, XML, repositories, remotes, paths, or API metadata.
+
+The reachable residual risk is crash or resource exhaustion in one user's CLI process, plus possible URL/authority confusion that misroutes that user's CLI credentials. It does not cross Worker authentication, control-plane identity, or container isolation, but it can affect that user's availability or credentials. Remove the exact exceptions when upstream binaries embed Go 1.25.13 or 1.26.6.
+
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias
 
@@ -235,6 +241,7 @@ Eligibility, deterministic archives, checksums, Sigstore bundles, and provenance
 | General rate-limit KV failure may degrade open | Resource/cost exposure, not authentication bypass | Owning route/Billing |
 | Concurrent session cap is best effort | Nominal limit can overrun | Billing/Operations; issue #880 tracks Enterprise simplification |
 | Scanner/advisory coverage incomplete | Layered checks plus exact reviewed exceptions | CI/Security review on new findings |
+| Latest `gh`/`lazygit` embed pre-fix Go stdlib | Temporary exact-identity acceptance; reachable impact is confined to one user's CLI process and credentials | Remove when upstream embeds Go 1.25.13 or 1.26.6 |
 
 <a id="static-analyzer-false-positives"></a>
 Static-analysis dispositions require a concrete source boundary and rationale. Suppressions remain adjacent to the finding and must be revisited when the guarded code or analyzer rule changes; historical alert counts are not current policy.

@@ -1,0 +1,134 @@
+{
+  "Results": [
+    {
+      "Target": "usr/bin/gh",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-33818",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-39821",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-46600",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56853",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56858",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56859",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56860",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56862",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.26.5",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.26.5" }
+        }
+      ]
+    },
+    {
+      "Target": "usr/local/bin/lazygit",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-33818",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-39821",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56853",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56858",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56859",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56860",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-56862",
+          "PkgName": "stdlib",
+          "InstalledVersion": "v1.25.12",
+          "FixedVersion": "1.25.13, 1.26.6, 1.27.0-rc.3",
+          "Severity": "HIGH",
+          "PkgIdentifier": { "PURL": "pkg:golang/stdlib@v1.25.12" }
+        }
+      ]
+    }
+  ]
+}
