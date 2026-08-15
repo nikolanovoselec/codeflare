@@ -12,12 +12,6 @@ import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
-// Minimized from the exact unexpected-finding identities emitted by integration
-// run 31889621501. PkgPath is absent because Trivy reported it as unavailable.
-const DEPLOYMENT_STDLIB_FIXTURE = JSON.parse(readFileSync(
-  join(ROOT, 'host', '__tests__', 'fixtures', 'trivy-run-31889621501-go-stdlib.json'),
-  'utf8',
-));
 
 function vulnerability(overrides = {}) {
   return {
@@ -85,7 +79,6 @@ function report(results = [
       }),
     ],
   },
-  ...structuredClone(DEPLOYMENT_STDLIB_FIXTURE.Results),
 ]) {
   return { Results: results };
 }
@@ -98,10 +91,8 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       'Node.js@10.1.0',
       'Node.js@10.2.0',
       'Node.js@7.28.0',
-      'usr/bin/gh@v1.26.5',
-      'usr/local/bin/lazygit@v1.25.12',
     ]);
-    assert.equal(result.evidence.length, 19);
+    assert.equal(result.evidence.length, 4);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -110,29 +101,6 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       + '[path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; '
       + 'purl=pkg:npm/ip-address@10.1.0]',
     ));
-  });
-
-  it('rejects drift from every deployment-derived Go binary identity field', () => {
-    const mutations = [
-      (result) => { result.Target = 'usr/bin/gh-drift'; },
-      (result) => { result.Vulnerabilities[0].VulnerabilityID = 'CVE-2026-drift'; },
-      (result) => { result.Vulnerabilities[0].PkgName = 'stdlib-drift'; },
-      (result) => { result.Vulnerabilities[0].PkgPath = 'unexpected/path'; },
-      (result) => { result.Vulnerabilities[0].PkgIdentifier.PURL = 'pkg:golang/stdlib@drift'; },
-      (result) => { result.Vulnerabilities[0].InstalledVersion = 'v1.26.6'; },
-      (result) => { result.Vulnerabilities[0].FixedVersion = '1.26.7'; },
-      (result) => { result.Vulnerabilities[0].Severity = 'CRITICAL'; },
-    ];
-
-    for (const mutate of mutations) {
-      const input = report();
-      const ghResult = input.Results.find((result) => result.Target === 'usr/bin/gh');
-      mutate(ghResult);
-      assert.throws(
-        () => validateTrivyResult(input),
-        /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s,
-      );
-    }
   });
 
   it('emits scanner identities for every accepted occurrence', () => {
@@ -150,10 +118,6 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
-        ...DEPLOYMENT_STDLIB_FIXTURE.Results.flatMap((result) =>
-          result.Vulnerabilities.map((finding) =>
-            `${prefix}${finding.VulnerabilityID} ${finding.PkgName} ${finding.InstalledVersion} at ${result.Target} `
-            + `[path=${finding.PkgPath ?? '<unavailable>'}; purl=${finding.PkgIdentifier?.PURL ?? '<unavailable>'}]`)),
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

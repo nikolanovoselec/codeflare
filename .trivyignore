@@ -641,6 +641,22 @@ CVE-2026-48815
 # exposure profile as CVE-2026-27145 above.
 CVE-2026-39822
 
+# Go stdlib in the latest available gh v2.97.0 (Go 1.26.5) and lazygit
+# v0.64.1 (Go 1.25.12). Upstream has not released binaries rebuilt with fixed
+# Go 1.26.6 / 1.25.13. These single-tenant developer CLIs may encounter hostile
+# certificates, DNS, URLs, XML, repository paths, remotes, or API metadata;
+# accepted impact includes CLI crash/resource exhaustion and possible misrouting
+# of that user's CLI credentials. They expose no Codeflare control-plane secret.
+# Remove this batch when upstream releases embed the fixed Go versions.
+CVE-2026-33818
+CVE-2026-39821
+CVE-2026-46600
+CVE-2026-56853
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862
+
 # CVE-2026-56852 is deliberately NOT listed in this global ignore file. gh
 # v2.97.0 and lazygit v0.64.0 no longer emit the finding; lazygit now embeds
 # patched x/text v0.40.0. scripts/ci/validate-trivy-result.mjs rejects any

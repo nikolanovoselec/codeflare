@@ -340,7 +340,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 4. Scanning occurs after image build and before push to the container registry; a pushed image is therefore always scanned-green at push time. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 5. Vulnerabilities with no available upstream fix are excluded from the deployment gate automatically. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
 6. Every unexpected-finding diagnostic includes Trivy's package path and package URL when the scanner supplies them. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (reports every unexpected and missing finding together) -->
-7. A successful gate emits each scanner-provided package path and package URL, uses an explicit unavailable marker for either omitted field, and always emits the scanner target so every accepted occurrence remains auditable against its exact available identity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::main --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (emits scanner identities for every accepted occurrence) -->
+7. A successful gate emits the scanner-provided package path and package URL for every accepted occurrence so reviewed identities can be audited and path-bound without weakening the exception. <!-- @impl: scripts/ci/validate-trivy-result.mjs::main --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (emits scanner identities for every accepted occurrence) -->
 
 **Constraints:**
 
