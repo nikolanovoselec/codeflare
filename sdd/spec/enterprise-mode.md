@@ -266,31 +266,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
-**Intent:** Each deployment shows only applicable frontend controls: billing and quota actions are SaaS-only, personal consumption remains visible everywhere, and enterprise hides incompatible self-service and user-administration surfaces.
+**Intent:** Each deployment shows only applicable billing, quota, routing, and user-administration surfaces.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The "Manage Subscriptions" entry in Settings → Administration renders only when `SAAS_MODE` is active (hidden in enterprise, onboarding, and default). The "Manage Users" entry renders in every mode except enterprise (hidden only when `ENTERPRISE_MODE` is set). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel) -->
-2. The username dropdown in both the Header menu and the Dashboard menu renders Usage in every deployment mode. Subscription remains `SAAS_MODE`-only; enterprise opens a Usage-only dropdown while continuing to suppress Guided Setup and Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC2: Header username dropdown) -->
-3. The Standard/Pro session-mode selector renders only when `SAAS_MODE` is active; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding / default deployments have no Standard/Pro plans. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC3: SessionSection mode selector) -->
-4. The monthly-quota warning banners and their "Upgrade" calls-to-action render only when `SAAS_MODE` is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (REQ-ENTERPRISE-008 AC4: quota banners render only in SaaS mode) -->
-5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (redirects /app/subscribe to /app/ in a non-SaaS (enterprise) deployment, never rendering the checkout flow) -->
-6. Three-mode parity: SaaS renders every surface in AC1–AC4; onboarding/default suppress SaaS billing and quota surfaces while retaining Usage and Manage Users; enterprise suppresses those billing, quota, user-administration, Guided Setup, and Logout surfaces while retaining a Usage-only account menu. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC2: Header username dropdown) -->
+1. The "Manage Subscriptions" entry in Settings → Administration renders only in SaaS mode. The "Manage Users" entry renders in every mode except enterprise. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel) -->
+2. The Standard/Pro session-mode selector renders only in SaaS mode; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding/default deployments have no Standard/Pro plans. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC3: SessionSection mode selector) -->
+3. The monthly-quota warning banners and their "Upgrade" calls-to-action render only in SaaS mode. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (REQ-ENTERPRISE-008 AC4: quota banners render only in SaaS mode) -->
+4. In enterprise mode, a first-time auto-provisioned user is routed to the application home instead of `/app/subscribe` or the self-serve onboarding/waitlist flow. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (redirects /app/subscribe to /app/ in a non-SaaS (enterprise) deployment, never rendering the checkout flow) -->
 
 **Constraints:**
 
-- SaaS billing and quota surfaces use deploy-time `saasMode`; personal Usage is mode-independent; admin and routing surfaces use `enterpriseMode`, never user tier or role ([REQ-ENTERPRISE-015](#req-enterprise-015-enterprise-mode-admin-and-dropdown-suppressions)).
+- Billing and quota surfaces depend on SaaS mode; admin and routing surfaces depend on enterprise mode, never user tier or role ([REQ-ENTERPRISE-015](#req-enterprise-015-enterprise-setup-user-administration-suppression)).
+- Personal usage data and account actions are governed separately by [REQ-SUB-022](subscription.md#req-sub-022-cross-mode-personal-usage-data) and [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 - `GET /api/user` exposes both signals to `sessionStore`; `GET /api/auth/status` also exposes `saasMode` for `SubscribeGuard`.
 - Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
 - Visibility only: this REQ adds the client `SubscribeGuard` saasMode redirect plus the admin-button, mode-selector, quota-banner, and first-login-routing surfaces; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
 
 **Priority:** P2
 
-**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions)
 
-**Verification:** Automated test ([enterprise-surface-suppression](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6, REQ-ENTERPRISE-015 AC2); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/REQ-ENTERPRISE-015 AC2/REQ-ENTERPRISE-015 AC3))
+**Verification:** Automated tests ([enterprise-surface-suppression](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx), [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx), and [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx))
 
 **Status:** Implemented
 
@@ -504,25 +503,24 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
+### REQ-ENTERPRISE-015: Enterprise Setup User-Administration Suppression
 
-**Intent:** When ENTERPRISE_MODE is set, in-product user administration and incompatible account actions are suppressed while the account menu retains personal Usage.
+**Intent:** Enterprise setup omits the regular-user administration surface because Cloudflare Access provisions regular users on first sign-in.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
-2. When `ENTERPRISE_MODE` is set, the Header and Dashboard username dropdowns open with the read-only Usage action and no Subscription, Guided Setup, or Logout action. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
-3. The username dropdown's "Logout" entry is treated as enterprise-suppressed. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+1. In enterprise mode, the setup wizard's "Regular Users" section is not rendered. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
+2. Outside enterprise mode, the setup wizard's "Regular Users" section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 
-**Constraints:** None.
+**Constraints:** Enterprise setup still configures Admin Users and the optional Cloudflare Access group per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning). Account-menu actions are owned by [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 
 **Priority:** P2
 
-**Dependencies:** [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression)
+**Dependencies:** [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** Automated test ([ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1); [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC2 — also covers REQ-ENTERPRISE-008 AC1–AC3, AC6); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2))
+**Verification:** Automated test ([ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
 
 **Status:** Implemented
 

@@ -628,6 +628,7 @@ describe('optimized documentation lane shapes', () => {
       '| [AD2](#ad2-new-choice) | New choice; one clause amended by [AD3](#ad3-amendment) | Architecture, partially superseded |', '',
       '## Decisions', '', '### AD1: Old choice', '',
       '**Status:** Superseded by [AD2](#ad2-new-choice)', '',
+      '**Context:** Original constraint.', '', '**Decision:** Original choice.', '', '**Consequences:** Historical effect.', '',
       '### AD2: New choice', '', '**Status:** Partially superseded by [AD3](#ad3-amendment): retry timing only.',
     ].join('\n');
     const result = runFixture({ 'documentation/decisions/README.md': fixture });
@@ -654,9 +655,48 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(result.status, 1, result.stdout);
     assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-redirect-label-ambiguous');
 
-    const corrected = fixture.replace('(redirect)', 'Redirect anchor');
+    const corrected = fixture
+      .replace('(redirect)', 'Redirect anchor')
+      .replace('`documentation/lanes/configuration.md`', '[Configuration](../lanes/configuration.md)');
     const accepted = runFixture({ 'documentation/decisions/README.md': corrected });
     assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  });
+
+  it('requires ADR index/section pairing and retained superseded history', () => {
+    const missingSection = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-missing) | Missing section | Active |', '', '## Decisions',
+    ].join('\n');
+    const unpaired = runFixture({ 'documentation/decisions/README.md': missingSection });
+    assert.equal(unpaired.status, 1, unpaired.stdout);
+    assert.equal(JSON.parse(unpaired.stdout).findings[0].rule, 'adr-index-section-missing');
+
+    const missingHistory = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | Superseded |', '',
+      '## Decisions', '', '### AD1: Old', '', '**Status:** Superseded by [AD2](#ad2-new)',
+    ].join('\n');
+    const history = runFixture({ 'documentation/decisions/README.md': missingHistory });
+    assert.equal(history.status, 1, history.stdout);
+    assert.equal(JSON.parse(history.stdout).findings[0].rule, 'adr-superseded-history-missing');
+  });
+
+  it('keeps partial ADRs unstruck and requires a linked successor with clause detail', () => {
+    const fixture = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| ~~[AD1](#ad1-active)~~ | ~~Active remainder~~ | Partially superseded |', '',
+      '## Decisions', '', '### AD1: Active remainder', '',
+      '**Status:** Partially superseded',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(
+      JSON.parse(result.stdout).findings.map(({ rule }) => rule).sort(),
+      ['adr-partial-is-struck', 'adr-partial-successor-detail-missing'],
+    );
   });
 
   it('requires linked AD references and rejects vague SDD labels in security source maps', () => {
@@ -664,17 +704,19 @@ describe('optimized documentation lane shapes', () => {
       '# Security', '', '## Verification and Source Map', '',
       '| Control family | Requirements / decisions | Implementation | Evidence |',
       '|---|---|---|---|',
-      '| Encryption | [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005), AD32 | crypto | tests |',
+      '| Encryption | REQ-SEC-005, CON-SEC-001, AD32 | crypto | tests |',
       '| Supply chain | Operations SDD | workflows | CI |',
     ].join('\n');
     const result = runFixture({ 'security.md': fixture });
     assert.equal(result.status, 1, result.stdout);
     assert.deepEqual(
       JSON.parse(result.stdout).findings.map(({ rule }) => rule).sort(),
-      ['security-source-map-ad-not-linked', 'security-source-map-vague-reference'],
+      ['security-source-map-ad-not-linked', 'security-source-map-requirement-not-linked', 'security-source-map-requirement-not-linked', 'security-source-map-vague-reference'],
     );
 
     const corrected = fixture
+      .replace('REQ-SEC-005', '[REQ-SEC-005](../../sdd/spec/security.md#req-sec-005)')
+      .replace('CON-SEC-001', '[CON-SEC-001](../../sdd/spec/security.md#con-sec-001)')
       .replace('AD32', '[AD32](../decisions/README.md#ad32-encryption-key-is-optional)')
       .replace('Operations SDD', '[Operations requirements](../../sdd/spec/operations.md)');
     const accepted = runFixture({ 'security.md': corrected });

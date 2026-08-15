@@ -204,7 +204,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 | Behavior | interactive | auto | unleashed |
 |---|---|---|---|
 | Where work lands | Current branch | Current branch | Current branch |
-| SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
+| SAFE fixes (strip non-ADR-index strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
 | `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |

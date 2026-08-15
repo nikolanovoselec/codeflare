@@ -321,6 +321,16 @@ function scanTables(lines, kind, file, findings) {
             missing: [bareAd[0]],
           });
         }
+        for (const bareRequirement of unlinkedText.matchAll(/\b(?:REQ|CON)-[A-Z]+-\d+\b/g)) {
+          findings.push({
+            rule: 'security-source-map-requirement-not-linked',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: bareRequirement[0],
+            missing: [bareRequirement[0]],
+          });
+        }
         const vagueReference = unlinkedText.match(/\b[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*\s+SDD\b/);
         if (vagueReference) {
           findings.push({
@@ -477,53 +487,121 @@ function scanDeploymentSections(lines, file, findings) {
 
 function scanDecisions(lines, file, findings) {
   const indexRows = new Map();
-  for (let index = 0; index < lines.length; index += 1) {
+  const indexStart = lines.findIndex((line) => /^##\s+Decision Index\s*$/.test(line));
+  const indexEnd = indexStart === -1
+    ? -1
+    : lines.findIndex((line, index) => index > indexStart && /^##\s+/.test(line));
+  const boundedEnd = indexEnd === -1 ? lines.length : indexEnd;
+
+  for (let index = indexStart + 1; index < boundedEnd; index += 1) {
     const cells = rawMarkdownCells(lines[index]);
     const id = cells[0]?.match(/\bAD\d+\b/)?.[0];
     if (!id || cells.length < 3) continue;
     indexRows.set(id, { cells, line: index + 1 });
+    if (!new RegExp(`\\[${id}\\]\\(#[^)]+\\)`).test(cells[0])) {
+      findings.push({
+        rule: 'adr-index-id-not-linked', file, line: index + 1,
+        collection: 'decision-index', item: id, missing: ['linked ID'],
+      });
+    }
     if (cells.some((cell) => /^\(?redirect(?:ed)?\)?$/i.test(plain(cell)))) {
       findings.push({
-        rule: 'adr-redirect-label-ambiguous',
-        file,
-        line: index + 1,
-        collection: 'decision-index',
-        item: id,
-        missing: ['Redirect anchor'],
+        rule: 'adr-redirect-label-ambiguous', file, line: index + 1,
+        collection: 'decision-index', item: id, missing: ['Redirect anchor'],
       });
     }
   }
 
-  let currentId = null;
+  const starts = [];
   for (let index = 0; index < lines.length; index += 1) {
     const heading = lines[index].match(/^###\s+(AD\d+):/);
-    if (heading) currentId = heading[1];
-    if (!currentId || !/^\*\*Status:\*\*/.test(lines[index])) continue;
-    const row = indexRows.get(currentId);
-    if (!row) continue;
-    if (/^\*\*Status:\*\*\s+Superseded\b/i.test(lines[index])) {
+    if (heading) starts.push({ id: heading[1], start: index, line: index + 1 });
+  }
+  const sections = new Map(starts.map((section, index) => [section.id, {
+    ...section,
+    end: starts[index + 1]?.start ?? lines.length,
+  }]));
+
+  for (const [id, row] of indexRows) {
+    if (!sections.has(id)) {
+      findings.push({
+        rule: 'adr-index-section-missing', file, line: row.line,
+        collection: 'decision-index', item: id, missing: ['ADR section'],
+      });
+    }
+  }
+  for (const [id, section] of sections) {
+    const row = indexRows.get(id);
+    if (!row) {
+      findings.push({
+        rule: 'adr-section-index-missing', file, line: section.line,
+        collection: 'decision-index', item: id, missing: ['index row'],
+      });
+      continue;
+    }
+
+    const bodyLines = lines.slice(section.start + 1, section.end);
+    const status = bodyLines.find((line) => /^\*\*Status:\*\*/.test(line));
+    if (!status) {
+      findings.push({
+        rule: 'adr-status-missing', file, line: section.line,
+        collection: 'decision-index', item: id, missing: ['Status'],
+      });
+      continue;
+    }
+
+    if (/^\*\*Status:\*\*\s+Superseded\b/i.test(status)) {
       const [idCell, decisionCell] = row.cells;
       if (!/^~~[\s\S]+~~$/.test(idCell) || !/^~~[\s\S]+~~$/.test(decisionCell)) {
         findings.push({
-          rule: 'adr-superseded-not-struck',
-          file,
-          line: row.line,
-          collection: 'decision-index',
-          item: currentId,
+          rule: 'adr-superseded-not-struck', file, line: row.line,
+          collection: 'decision-index', item: id,
           missing: ['struck ID', 'struck decision'],
         });
       }
+      const hasHistoricalBody = bodyLines.some((line) =>
+        /^\*\*(?:Context|Decision|Consequences):\*\*\s+\S/.test(line));
+      if (!hasHistoricalBody) {
+        findings.push({
+          rule: 'adr-superseded-history-missing', file, line: section.line,
+          collection: 'decision-index', item: id, missing: ['historical body'],
+        });
+      }
     }
-    if (/^\*\*Status:\*\*\s+(?:Reclassified|Merged)\b/i.test(lines[index])
-        && !row.cells.some((cell) => plain(cell) === 'Redirect anchor')) {
-      findings.push({
-        rule: 'adr-redirect-label-ambiguous',
-        file,
-        line: row.line,
-        collection: 'decision-index',
-        item: currentId,
-        missing: ['Redirect anchor'],
-      });
+
+    if (/^\*\*Status:\*\*\s+Partially superseded\b/i.test(status)) {
+      const [idCell, decisionCell] = row.cells;
+      if (/^~~[\s\S]+~~$/.test(idCell) || /^~~[\s\S]+~~$/.test(decisionCell)) {
+        findings.push({
+          rule: 'adr-partial-is-struck', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['unstruck ID', 'unstruck decision'],
+        });
+      }
+      const successor = status.match(/\[[^\]]+\]\([^)]+\)/)?.[0];
+      const detail = successor ? status.slice(status.indexOf(successor) + successor.length)
+        .replace(/^\s*(?:\([^)]*\))?\s*[:.—-]?\s*/, '') : '';
+      if (!successor || detail.length < 12) {
+        findings.push({
+          rule: 'adr-partial-successor-detail-missing', file, line: section.line,
+          collection: 'decision-index', item: id,
+          missing: [...(!successor ? ['linked successor'] : []), ...(detail.length < 12 ? ['replaced clause'] : [])],
+        });
+      }
+    }
+
+    if (/^\*\*Status:\*\*\s+(?:Reclassified|Merged)\b/i.test(status)) {
+      if (!row.cells.some((cell) => plain(cell) === 'Redirect anchor')) {
+        findings.push({
+          rule: 'adr-redirect-label-ambiguous', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['Redirect anchor'],
+        });
+      }
+      if (!/\[[^\]]+\]\([^)]+\)/.test(status)) {
+        findings.push({
+          rule: 'adr-redirect-destination-not-linked', file, line: section.line,
+          collection: 'decision-index', item: id, missing: ['linked destination'],
+        });
+      }
     }
   }
 }

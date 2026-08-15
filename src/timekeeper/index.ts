@@ -370,35 +370,37 @@ export class Timekeeper {
       }
     }
 
-    // Usage accumulates in every mode; quota and trial enforcement remain a
-    // SaaS billing concern.
+    // Usage accumulates in every mode. Read the durable monthly baseline before
+    // deciding whether this deployment also owns SaaS quota/trial enforcement.
     let quotaExceeded = false;
     let totalMonthlySeconds = this.lastFlushedMonthlyTotal + this.pendingSeconds;
-    if (isSaasModeActive(this.env.SAAS_MODE)) {
+    let usageReadSucceeded = false;
+    try {
+      const kvRecord = await this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json');
+      const currentMonth = getUtcMonthString(new Date());
+      const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
+        ? kvRecord.thisMonth.seconds
+        : 0;
+      totalMonthlySeconds = kvMonthly + this.pendingSeconds;
+      this.lastFlushedMonthlyTotal = kvMonthly;
+      usageReadSucceeded = true;
+      void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
+    } catch {
+      // Keep the last durable baseline already restored into DO storage.
+    }
+
+    if (isSaasModeActive(this.env.SAAS_MODE) && usageReadSucceeded) {
       try {
-        const [kvRecord, tiers, userRaw] = await Promise.all([
-          this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json'),
+        const [tiers, userRaw] = await Promise.all([
           getTierConfig(this.env.KV),
           getCachedUserRecord(this.email!, this.env.KV),
         ]);
-
         const userData = userRaw ? JSON.parse(userRaw) : {};
         const effectiveTierValue = getEffectiveTier(
           userData.subscriptionTier, userData.accessTier, userData.billingStatus,
           userData.billingPeriodEnd, this.env,
         );
         const tier = getUserTier(effectiveTierValue, tiers);
-
-        // Calculate real monthly total
-        const now = new Date();
-        const currentMonth = getUtcMonthString(now);
-        const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
-          ? kvRecord.thisMonth.seconds
-          : 0;
-        totalMonthlySeconds = kvMonthly + this.pendingSeconds;
-        this.lastFlushedMonthlyTotal = kvMonthly;
-        // Persist so crash recovery has accurate flushed total
-        void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
 
         // Trial enforcement: if subscription is trialing, use trialQuotaHours as the cap.
         // When trial quota is hit, end the Stripe trial early to trigger first charge.
@@ -428,7 +430,7 @@ export class Timekeeper {
           quotaExceeded = true;
         }
       } catch {
-        // Fail open - don't block on KV errors
+        // Fail open - don't block on tier or billing-state errors.
       }
     }
 

@@ -218,7 +218,7 @@ Tiers, billing, usage tracking, and quotas.
 2. The comparison is skipped for tiers with no compute cap (unlimited). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 3. When usage exceeds the allotment, the handler returns a 402 response with a machine-readable quota-exceeded code. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 4. The frontend recognizes the quota-exceeded code and surfaces an upgrade call-to-action instead of a generic error. <!-- @impl: web-ui/src/stores/session-usage.ts::isAtUsageQuota --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-5. Enforcement is skipped in non-billed deployment modes and in stress-test mode even though consumption continues to accumulate. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5: accumulates the same usage without enforcing quota outside SaaS) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response) -->
+5. Quota enforcement is skipped in non-billed deployment modes and in stress-test mode. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5: accumulates the same usage without enforcing quota outside SaaS) -->
 6. Enforcement fails open on durable-storage errors so a transient backing-store outage does not lock all users out. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 
 **Constraints:**
@@ -533,21 +533,20 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-018: Usage dashboard page
 
-**Intent:** Users in every deployment mode can see their own compute consumption; users with a SaaS quota can also see utilization against that quota.
+**Intent:** Users with a billed compute quota can see current utilization and actionable threshold warnings.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The usage page shows stat cards for today and this month in every deployment mode; the monthly quota stat and progress bar render only when the response carries a SaaS quota. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 (usage ring + stat cards)) -->
-2. The page polls the usage endpoint for real-time data from Timekeeper with a durable-store fallback when Timekeeper is unavailable, and non-SaaS responses carry usage with a null billing quota. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) -->
+1. When the usage response carries a monthly quota, the page renders the quota stat and progress bar. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 (usage ring + stat cards)) -->
+2. The page polls the usage endpoint for real-time Timekeeper data and accepts the endpoint's durable-store fallback. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) -->
 3. Layout-level warning banners surface at the 80%, 95%, and 100% utilization thresholds. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 4. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets. <!-- @impl: web-ui/src/stores/session-usage.ts::setDismissedQuotaLevel --> <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)) -->
 5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 6. The 100% (quota-exceeded) banner is not dismissible because it explains why new sessions cannot start. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-7. Header and Dashboard account menus expose Usage in SaaS, onboarding/default, and enterprise modes; Subscription remains SaaS-only, while enterprise continues to suppress Guided Setup and Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
 
-**Constraints:** None.
+**Constraints:** Non-SaaS personal usage visibility is owned by [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data); account-menu actions are owned by [REQ-SUB-023](#req-sub-023-deployment-mode-account-actions).
 
 **Priority:** P2
 
@@ -635,6 +634,59 @@ Tiers, billing, usage tracking, and quotas.
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-022: Cross-Mode Personal Usage Data
+
+**Intent:** Each user can see accurate personal compute consumption regardless of whether the deployment bills or enforces quotas.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Timekeeper reports the current month's durable total plus pending usage in every deployment mode. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5: accumulates the same usage without enforcing quota outside SaaS) -->
+2. The usage endpoint returns personal usage statistics in every deployment mode. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (returns usage with no billing quota outside SaaS mode) -->
+3. A non-SaaS usage response carries `null` instead of a billing quota. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (returns usage with no billing quota outside SaaS mode) -->
+4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (renders personal usage without quota UI outside SaaS) -->
+
+**Constraints:** Usage recording and display do not authorize quota, trial, or billing enforcement outside SaaS mode.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
+
+**Verification:** Automated tests ([Timekeeper](../../src/__tests__/timekeeper/index.test.ts), [usage API](../../src/__tests__/routes/usage.test.ts), and [Usage page](../../web-ui/src/__tests__/components/UsagePage.test.tsx))
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-023: Deployment-Mode Account Actions
+
+**Intent:** Account menus expose only actions supported by the active deployment mode while personal usage remains reachable everywhere.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Header account menu exposes Usage in SaaS, onboarding/default, and enterprise modes. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
+2. The Dashboard account menu exposes Usage in SaaS, onboarding/default, and enterprise modes. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
+3. Subscription appears only in SaaS account menus. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+4. Guided Setup is absent from enterprise account menus. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
+5. Logout is absent from enterprise account menus. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
+6. Guided Setup remains available in SaaS and onboarding/default account menus. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+7. Logout remains available in SaaS and onboarding/default account menus. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+
+**Constraints:** Deployment-mode gating changes the available actions, not the user's recorded usage.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data)
+
+**Verification:** Automated tests ([Header](../../web-ui/src/__tests__/components/Header.test.tsx) and [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx))
 
 **Status:** Implemented
 

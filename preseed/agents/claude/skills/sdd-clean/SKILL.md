@@ -115,7 +115,7 @@ Before any documentation rewrite, account for every paragraph, table row, list i
 
 ### Per-category mechanics
 
-- **Strikethrough text** → stripped (git history is the strikethrough).
+- **Strikethrough text** → stripped (git history is the strikethrough), except the ID and decision cells of a fully superseded ADR index row.
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).

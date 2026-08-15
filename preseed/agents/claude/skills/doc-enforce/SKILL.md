@@ -112,7 +112,7 @@ Auto-fix in `auto`/`unleashed`: add each missing file to the README — lane fil
 | Implementation rationale told as story | ADR (`documentation/decisions/`) |
 | Long regex internals inline | Source-code docstring at the regex site |
 | Magic-constant prose | Source-code comment, OR an ADR |
-| Strikethrough text | Delete. Git history is the strikethrough. |
+| Strikethrough text | Delete, except the ID and decision cells of a fully superseded ADR index row. Git history remains the record everywhere else. |
 | TODO bullets, "coming soon", "planned but not built" | GitHub issue or `pending.md` |
 | Future-tense roadmap items | `sdd/{domain}.md` as `Status: Planned` REQs |
 | Any content that duplicates a REQ instead of cross-referencing | Backlink to REQ ID; never copy-paste |
