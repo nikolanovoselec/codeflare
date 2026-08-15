@@ -151,6 +151,7 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + RE
   ]);
   assert.deepEqual(manifest.enabledApiProposals, [
     'chatParticipantAdditions',
+    'chatParticipantPrivate',
     'chatProvider',
     'defaultChatParticipant',
   ]);

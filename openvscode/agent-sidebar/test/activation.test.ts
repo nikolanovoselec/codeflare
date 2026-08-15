@@ -9,8 +9,9 @@ const host = vi.hoisted(() => ({
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>) | undefined,
+  continueInline: undefined as (() => Promise<void>) | undefined,
   modelProviders: new Map<string, Record<string, (...args: unknown[]) => unknown>>(),
-  modelChanges: [] as string[],
+  modelChanges: [] as Array<{ vendor: string; contextValues: Array<{ key: string; value: unknown }> }>,
   warnings: [] as string[],
 }));
 
@@ -60,6 +61,7 @@ vi.mock('vscode', () => ({
         return;
       }
       host.executedCommand = { id, options: args[0] as Record<string, unknown> };
+      if (id === 'inlineChat2.continueInChat') await host.continueInline?.();
     },
     registerCommand: (id: string, handler: (resource?: unknown) => Promise<void>) => {
       host.commandId = id;
@@ -81,7 +83,10 @@ vi.mock('vscode', () => ({
   lm: {
     registerLanguageModelChatProvider: (vendor: string, provider: Record<string, (...args: unknown[]) => unknown>) => {
       host.modelProviders.set(vendor, provider);
-      provider.onDidChangeLanguageModelChatInformation?.(() => host.modelChanges.push(vendor));
+      provider.onDidChangeLanguageModelChatInformation?.(() => host.modelChanges.push({
+        vendor,
+        contextValues: [...host.contextValues],
+      }));
       return { dispose() {} };
     },
   },
@@ -110,6 +115,7 @@ afterEach(async () => {
   host.contextValues = [];
   host.participantId = undefined;
   host.participantHandler = undefined;
+  host.continueInline = undefined;
   host.modelProviders.clear();
   host.modelChanges = [];
   nativeChat.runNativePiChat.mockReset();
@@ -118,15 +124,21 @@ afterEach(async () => {
 
 test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions,
   } as never);
 
   assert.equal(host.participantId, 'codeflare.pi');
-  assert.deepEqual(host.contextValues, [{ key: 'chatSetupCompleted', value: true }]);
+  assert.deepEqual(host.contextValues, [
+    { key: 'chatSetupHidden', value: true },
+    { key: 'chatSetupCompleted', value: true },
+  ]);
   assert.deepEqual([...host.modelProviders.keys()], ['copilot', 'codeflare']);
-  assert.deepEqual(host.modelChanges, ['copilot', 'codeflare']);
+  assert.deepEqual(host.modelChanges, [
+    { vendor: 'copilot', contextValues: host.contextValues },
+    { vendor: 'codeflare', contextValues: host.contextValues },
+  ]);
   const fallbackProvider = host.modelProviders.get('copilot');
   const visibleProvider = host.modelProviders.get('codeflare');
   assert.ok(fallbackProvider);
@@ -165,14 +177,14 @@ test('REQ-IDE-019 AC7: participant requests run the local Pi backend without pro
     assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
     return 'completed';
   });
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);
 
   assert.ok(host.participantHandler);
   await host.participantHandler(
-    { prompt: 'Refactor this selection', references: [] },
+    { location: 1, prompt: 'Refactor this selection', references: [] },
     { history: [] },
     { markdown() {}, progress() {} },
     { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
@@ -181,8 +193,81 @@ test('REQ-IDE-019 AC7: participant requests run the local Pi backend without pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
+test('REQ-IDE-019: an inline-first request transfers to panel before Pi streams one visible answer', async () => {
+  const panelMarkdown: string[] = [];
+  const inlineMarkdown: string[] = [];
+  nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
+    input: { prompt: string };
+    response: { markdown(value: string): void };
+  }) => {
+    options.response.markdown(`answer:${options.input.prompt}`);
+    return 'completed';
+  });
+  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+
+  assert.ok(host.participantHandler);
+  host.continueInline = () => host.participantHandler!(
+    { location: 1, prompt: 'inline first', references: [] },
+    { history: [] },
+    { markdown: (value: string) => panelMarkdown.push(value), progress() {} },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+  );
+  await host.participantHandler(
+    { location: 4, prompt: 'inline first', references: [] },
+    { history: [] },
+    { markdown: (value: string) => inlineMarkdown.push(value), progress() {} },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+  );
+
+  assert.equal(host.executedCommand?.id, 'inlineChat2.continueInChat');
+  assert.deepEqual(inlineMarkdown, []);
+  assert.deepEqual(panelMarkdown, ['answer:inline first']);
+  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
+});
+
+test('REQ-IDE-020: panel-first then inline reuses one runtime and transfers the follow-up visibly', async () => {
+  const backends: unknown[] = [];
+  const answers: string[] = [];
+  nativeChat.runNativePiChat.mockImplementation(async (options: {
+    input: { prompt: string };
+    response: { markdown(value: string): void };
+    backend: unknown;
+  }) => {
+    backends.push(options.backend);
+    options.response.markdown(`answer:${options.input.prompt}`);
+    return 'completed';
+  });
+  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+
+  assert.ok(host.participantHandler);
+  const response = { markdown: (value: string) => answers.push(value), progress() {} };
+  const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
+  await host.participantHandler(
+    { location: 1, prompt: 'panel first', references: [] },
+    { history: [] },
+    response,
+    cancellation,
+  );
+  host.continueInline = () => host.participantHandler!(
+    { location: 1, prompt: 'inline follow-up', references: [] },
+    { history: [] },
+    response,
+    cancellation,
+  );
+  await host.participantHandler(
+    { location: 4, prompt: 'inline follow-up', references: [] },
+    { history: [] },
+    { markdown: () => assert.fail('inline response must transfer before Pi runs'), progress() {} },
+    cancellation,
+  );
+
+  assert.deepEqual(answers, ['answer:panel first', 'answer:inline follow-up']);
+  assert.equal(backends.length, 2);
+  assert.equal(backends[0], backends[1]);
+});
+
 test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode', async () => {
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);
@@ -201,7 +286,7 @@ test('REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codefla
 });
 
 test('REQ-IDE-014 AC3+AC4: editor review attaches the active file and submits Codeflare ask mode', async () => {
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);
@@ -218,7 +303,7 @@ test('REQ-IDE-014 AC3+AC4: editor review attaches the active file and submits Co
 });
 
 test('REQ-IDE-014 AC2: editor review ignores a malformed command argument and uses the active file', async () => {
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);
@@ -233,7 +318,7 @@ test('REQ-IDE-014 AC2: editor review ignores a malformed command argument and us
 });
 
 test('REQ-IDE-011 AC4: explorer review rejects resources outside the workspace', async () => {
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);
@@ -246,7 +331,7 @@ test('REQ-IDE-011 AC4: explorer review rejects resources outside the workspace',
 });
 
 test('REQ-IDE-011 AC5: explorer review rejects a symlink alias before opening native Chat', async () => {
-  activate({
+  await activate({
     extensionUri: { fsPath: '/extension' },
     subscriptions: [],
   } as never);

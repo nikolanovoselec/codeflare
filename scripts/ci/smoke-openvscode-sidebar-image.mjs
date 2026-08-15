@@ -55,7 +55,7 @@ export function createVscodeSmokeApi(api) {
   });
 }
 
-export function activateExtensionWithVscode(extensionMain, vscode, context) {
+export async function activateExtensionWithVscode(extensionMain, vscode, context) {
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
@@ -65,7 +65,7 @@ export function activateExtensionWithVscode(extensionMain, vscode, context) {
       return originalLoad.call(this, request, parent, isMain);
     };
     const extension = require(extensionMain);
-    extension.activate(context);
+    await extension.activate(context);
     return extension;
   } finally {
     Module._load = originalLoad;
@@ -352,6 +352,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.enabledApiProposals, [
     'chatParticipantAdditions',
+    'chatParticipantPrivate',
     'chatProvider',
     'defaultChatParticipant',
   ]);
@@ -450,12 +451,13 @@ async function verifyPackagedNativeChat(extensionRoot) {
 
   try {
     const subscriptions = [];
-    extension = activateExtensionWithVscode(
+    extension = await activateExtensionWithVscode(
       join(extensionRoot, String(manifest.main).replace(/^\.\//, '')),
       vscode,
       { extensionUri: uri(extensionRoot), subscriptions },
     );
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(contextValues.get('chatSetupHidden'), true, 'packaged Pi inventory did not suppress Code OSS Copilot setup chrome');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
     assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
     const fallbackProvider = hostModelProviders.get('copilot');
@@ -567,6 +569,7 @@ async function verifyOpenVscodeSettings() {
     await preparation.prepareBaseOpenVscodeSettings(piDataRoot);
     const piSettings = JSON.parse(await readFile(join(piDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(piSettings, managed.buildPiOpenVscodeSettings());
+    assert.equal(piSettings['chat.disableAIFeatures'], true);
     assert.deepEqual(piSettings['chat.agentFilesLocations'], { '~/.claude/agents': false });
 
     const unsupportedDataRoot = join(root, 'unsupported-data');
@@ -576,7 +579,7 @@ async function verifyOpenVscodeSettings() {
 
     for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
       const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'State', 'storage.json'), 'utf8'));
-      assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
+      assert.equal(profileState['workbench.statusbar.hidden'], undefined);
       assert.equal(profileState['workbench.activity.showAccounts'], 'false');
     }
   } finally {

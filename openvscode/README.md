@@ -12,13 +12,13 @@ The directory name is a retained private migration identifier. The selected IDE 
 
 | Tab 1 | Immutable inventory | IDE experience |
 |---|---|---|
-| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | **Codeflare** is the default participant in panel Chat and editor Inline Chat |
+| Exact `pi` | `/opt/codeflare/openvscode/extensions/pi` | **Codeflare** is the default panel participant and editor Inline Chat entry point; editor submissions continue into visible panel Chat before unrestricted Pi inference |
 | Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | Anthropic's official Claude Code panel in the right sidebar |
 | Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | No agent extension |
 
 An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty inventory. Classification never executes or rewrites the terminal command.
 
-Every inventory opens the separate owned Codeflare welcome editor. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface.
+Every inventory opens the separate owned Codeflare welcome editor with self-contained nonce-bound HTML. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface or external content.
 
 ## Package map
 
@@ -33,9 +33,11 @@ Every inventory opens the separate owned Codeflare welcome editor. It establishe
 
 ## Native Pi Chat
 
-The owned extension registers stable participant ID `codeflare.pi`, visibly named **Codeflare**, in panel Chat and the pinned editor Inline Chat surface. Its hidden fallback and visible account-free model exist only to satisfy the pinned host's eligibility and model lookup; neither performs inference or requests authorization. Pi RPC remains the inference path and does not use VS Code Authentication or Copilot.
+The owned extension registers stable participant ID `codeflare.pi`, visibly named **Codeflare**, in panel Chat and the pinned editor Inline Chat surface. Its hidden fallback and visible account-free model exist only to satisfy the pinned host's eligibility and model lookup; neither performs inference or requests authorization. The private request-location proposal distinguishes editor submissions. Because Code OSS 1.132 Inline Chat filters ordinary participant text and expects host-owned edit transactions, the extension invokes its native `inlineChat2.continueInChat` command before Pi inference rather than hiding output or replaying unrestricted direct writes as transactional edits. Pi RPC remains the inference path and does not use VS Code Authentication or Copilot.
 
-The first request lazily starts one IDE-owned `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. Panel and editor share its FIFO in-memory conversation, separate from terminal Pi. Accepted turns retain it; active cancellation, failure, exit, or deactivation boundedly reap it before replacement. The package captures bounded canonical-workspace editor context and rejects external paths, symbolic aliases, and malformed references.
+Pi disables the host's unrelated built-in AI setup through managed settings and reasserts that setup hidden before refreshing its account-free models, so the bottom-right status does not compete with Codeflare; the registered participant remains available, while provider generation and VS Code Authentication stay outside Pi inference.
+
+The first owning panel request lazily starts one IDE-owned `/usr/local/bin/pi --mode rpc --no-session --no-themes` process. Panel turns and editor-originated continuations share its FIFO in-memory conversation, separate from terminal Pi. Accepted turns retain it; active cancellation, failure, exit, or deactivation boundedly reap it before replacement. The package captures bounded canonical-workspace editor context and rejects external paths, symbolic aliases, and malformed references.
 
 Native `select` and `input` requests use bounded VS Code dialogs. Unknown or malformed blocking requests fail closed. Pi retains direct tools and can change files or run commands beyond an editor selection; those effects are not transactional host edits and Inline Chat Keep/Undo is not a rollback guarantee.
 

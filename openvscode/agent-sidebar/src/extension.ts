@@ -25,6 +25,7 @@ import {
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
 const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
+const CONTINUE_INLINE_CHAT_COMMAND = 'inlineChat2.continueInChat';
 // The pinned extension host still resolves an absent request model only from
 // its reserved Copilot vendor. Keep that fallback hidden, and expose a distinct
 // Codeflare vendor so the visible picker bypasses Copilot entitlement/setup.
@@ -82,11 +83,13 @@ const hostCompatibilityProvider = (
 });
 let activeRuntime: NativePiRuntime | undefined;
 
-export function activate(context: ExtensionContext): void {
-  // Code OSS contributes account-backed setup actions (including "Code Review")
-  // only while chat setup is incomplete. Codeflare owns an account-free native
-  // participant, so mark that compatibility setup complete without disabling Chat.
-  void commands.executeCommand('setContext', 'chatSetupCompleted', true);
+export async function activate(context: ExtensionContext): Promise<void> {
+  // Code OSS contributes Copilot setup/status chrome while Chat setup remains
+  // visible. Hiding that upstream setup state keeps the account-free Codeflare
+  // participant available while removing the unrelated Sign In affordance;
+  // completion still suppresses the remaining setup actions.
+  await commands.executeCommand('setContext', 'chatSetupHidden', true);
+  await commands.executeCommand('setContext', 'chatSetupCompleted', true);
   const runtime = new NativePiRuntime(createBackend, runNativePiChat);
   const modelChanges = new EventEmitter<void>();
   const hostFallbackProvider = lm.registerLanguageModelChatProvider(
@@ -103,14 +106,25 @@ export function activate(context: ExtensionContext): void {
   modelChanges.fire();
   const participant = chat.createChatParticipant(
     PARTICIPANT_ID,
-    (request, chatContext, response, cancellation) => runtime.handle({
-      input: collectNativePiPromptInput(request, chatContext),
-      response: {
-        markdown: (value) => response.markdown(value),
-        progress: (value) => response.progress(value),
-      },
-      cancellation,
-    }),
+    async (request, chatContext, response, cancellation) => {
+      if ('location' in request && request.location === CHAT_LOCATION_EDITOR) {
+        if (cancellation.isCancellationRequested) return;
+        // Code OSS 1.132 Inline Chat displays host-owned edit transactions and
+        // filters ordinary participant text. Pi edits directly with unrestricted
+        // tools, so use the host's native continuation path before inference
+        // instead of running a turn against a response stream the user cannot see.
+        await commands.executeCommand(CONTINUE_INLINE_CHAT_COMMAND);
+        return;
+      }
+      await runtime.handle({
+        input: collectNativePiPromptInput(request, chatContext),
+        response: {
+          markdown: (value) => response.markdown(value),
+          progress: (value) => response.progress(value),
+        },
+        cancellation,
+      });
+    },
   );
   const reviewFile = commands.registerCommand(
     REVIEW_FILE_COMMAND,

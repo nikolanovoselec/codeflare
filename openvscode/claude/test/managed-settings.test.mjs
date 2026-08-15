@@ -67,12 +67,13 @@ test("REQ-IDE-009 + REQ-IDE-021: base settings remove workspace and account setu
   });
 });
 
-test("REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source", () => {
+test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1: Pi native Chat settings suppress Copilot and retain one personal agent source", () => {
   const settings = buildPiOpenVscodeSettings();
   assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "chat.titleBar.signIn.enabled": false,
+    "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {

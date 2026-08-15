@@ -230,7 +230,7 @@ test("REQ-IDE-002: malformed restored settings cannot prevent managed settings r
   );
 });
 
-test("REQ-IDE-021: every prepared inventory hides account login chrome", async () => {
+test("REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome", async () => {
   const preparations = [
     async (root) => prepareBaseOpenVscodeSettings(root),
     async (root) => prepareUnsupportedOpenVscodeSettings(root),
@@ -257,7 +257,7 @@ test("REQ-IDE-021: every prepared inventory hides account login chrome", async (
       JSON.parse(await readFile(join(storageDirectory, "storage.json"), "utf8")),
       {
         unrelated: "preserved",
-        "workbench.statusbar.hidden": '["other.status.entry","chat.statusBarEntry"]',
+        "workbench.statusbar.hidden": '["other.status.entry"]',
         "workbench.activity.showAccounts": "false",
       },
     );
@@ -273,7 +273,6 @@ test("REQ-IDE-021: malformed profile storage recovers and redirected storage fai
   await writeFile(storagePath, "not json");
   await prepareBaseOpenVscodeSettings(serverDataRoot);
   assert.deepEqual(JSON.parse(await readFile(storagePath, "utf8")), {
-    "workbench.statusbar.hidden": '["chat.statusBarEntry"]',
     "workbench.activity.showAccounts": "false",
   });
 

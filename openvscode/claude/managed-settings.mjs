@@ -17,6 +17,7 @@ export function buildBaseOpenVscodeSettings() {
 export function buildPiOpenVscodeSettings() {
   return {
     ...buildBaseOpenVscodeSettings(),
+    "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
