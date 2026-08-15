@@ -90,26 +90,46 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
   });
 
-  it('shows 5 coding agent cards with correct names', async () => {
+  it('renders the six installable coding agents and replaces Gemini with Antigravity', async () => {
     render(() => <OnboardingPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('onboarding-agent-claude-code')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-codex')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-gemini')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-github-copilot')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-opencode')).toBeInTheDocument();
+      const cards = document.querySelectorAll('.onboarding-agent-card');
+      expect(cards).toHaveLength(6);
+      for (const id of ['claude-code', 'codex', 'antigravity', 'github-copilot', 'opencode', 'pi']) {
+        expect(screen.getByTestId(`onboarding-agent-${id}`)).toBeInTheDocument();
+      }
+      expect(screen.queryByTestId('onboarding-agent-gemini')).not.toBeInTheDocument();
     });
   });
 
-  it('coding agent cards link to correct signup URLs', async () => {
+  it('coding agent cards link to their current provider or subscription guidance', async () => {
     render(() => <OnboardingPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('onboarding-agent-claude-code')).toHaveAttribute('href', 'https://console.anthropic.com/');
-      expect(screen.getByTestId('onboarding-agent-codex')).toHaveAttribute('href', 'https://platform.openai.com/signup');
-      expect(screen.getByTestId('onboarding-agent-gemini')).toHaveAttribute('href', 'https://aistudio.google.com/');
+      expect(screen.getByTestId('onboarding-agent-claude-code')).toHaveAttribute('href', 'https://claude.ai/upgrade');
+      expect(screen.getByTestId('onboarding-agent-codex')).toHaveAttribute('href', 'https://chatgpt.com/pricing/');
+      expect(screen.getByTestId('onboarding-agent-antigravity')).toHaveAttribute('href', 'https://antigravity.google/');
       expect(screen.getByTestId('onboarding-agent-github-copilot')).toHaveAttribute('href', 'https://github.com/features/copilot');
-      expect(screen.getByTestId('onboarding-agent-opencode')).toHaveAttribute('href', 'https://opencode.ai/');
+      expect(screen.getByTestId('onboarding-agent-opencode')).toHaveAttribute('href', 'https://opencode.ai/docs/providers/');
+      expect(screen.getByTestId('onboarding-agent-pi')).toHaveAttribute('href', 'https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/providers.md');
     });
+  });
+
+  it('shows provider-family subscription support on every coding agent card', async () => {
+    render(() => <OnboardingPage />);
+    await waitFor(() => expect(screen.getByTestId('onboarding-agent-pi-providers')).toBeInTheDocument());
+
+    const expected = {
+      'claude-code': ['Anthropic'],
+      codex: ['OpenAI'],
+      antigravity: ['Google'],
+      'github-copilot': ['Microsoft / GitHub'],
+      opencode: ['OpenAI', 'Microsoft / GitHub', 'GitLab', 'OpenCode'],
+      pi: ['Anthropic', 'OpenAI', 'Microsoft / GitHub', 'xAI', 'OpenRouter', 'Radius'],
+    };
+    for (const [agent, providers] of Object.entries(expected)) {
+      const group = screen.getByTestId(`onboarding-agent-${agent}-providers`);
+      expect(Array.from(group.querySelectorAll('[data-provider]')).map((badge) => badge.textContent)).toEqual(providers);
+    }
   });
 
   it('has skip button that navigates to /app/', async () => {

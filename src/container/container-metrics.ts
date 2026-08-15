@@ -1268,10 +1268,10 @@ export async function collectMetrics(
     return;
   }
 
-  // Timekeeper usage ping (SaaS mode only). A tick scheduled after a complete
-  // transport failure is a 5-second confirmation, not another billable minute.
+  // Timekeeper records per-user compute consumption in every deployment mode.
+  // A tick scheduled after a complete transport failure is a 5-second
+  // confirmation, not another usage minute.
   if (transportReconciliation.recordUsage
-      && isSaasModeActive(env.SAAS_MODE)
       && state._bucketName
       && state._userEmail
       && env.TIMEKEEPER) {
@@ -1306,7 +1306,7 @@ export async function collectMetrics(
 
       if (pingRes?.ok) {
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
-        if (quotaExceeded) {
+        if (quotaExceeded && isSaasModeActive(env.SAAS_MODE)) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });
           // Drain a final R2 sync while the container is still alive
           // (REQ-SESSION-011), then stop. Best-effort, bounded.

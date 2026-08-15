@@ -41,6 +41,7 @@ Return findings and any permitted clean actions. Populate:
 | `deployment.md` | H2 runbook carrying at least two runbook fields | `When`, `Action`, `Verify`, `Rollback` |
 | `observability.md` | Table carrying `Signal` | `Signal`, `Meaning / non-evidence`, `Observed at`, `Escalate when`, `Runbook` |
 | `troubleshooting.md` | H3 recipe under `Common Issues`, `Recipes`, or `Troubleshooting Recipes` | `Symptom`, `Cause`, `Fix`; canonical detailed recipes also include `Diagnose`, `Verify`, and `Escalate` |
+| `decisions/README.md` | ADR index row paired with its stable `ADN` section | Linked stable ID, explicit state rendering, retained history for full supersession, successor detail for partial supersession, and linked destinations for redirects |
 | project lane | File indexed by `documentation/README.md` | `Audience`, `Owns`, navigation, requirement/source map, and related links; add `Does not own` when an adjacent ownership boundary could be confused; its subject-specific body follows its natural axis |
 
 Architecture state, flow, failure, observability, security, and decision collections have their own tables or diagrams. They are not component records. Configuration permission or binding tables are not variable records. Security control prose is not a threat-table row. Deployment aliases and development references are not runbooks unless their fields begin a runbook record.
@@ -109,8 +110,20 @@ Contents blocks contain navigation only. REQ and CON identifiers belong beside g
 - Every first-level project lane is linked from `documentation/README.md`.
 - Every linked lane exists.
 - ADR and `*-index.md` ID cells link to their targets.
+- In a Security `Verification and Source Map`, every `ADN`, `REQ-*`, and `CON-*` token links to its exact anchor; domain references link the exact requirement file, and vague labels such as `Operations SDD` or `Browser IDE SDD` are findings.
 - Every REQ or CON token in an `Implements` table cell links to the corresponding specification anchor.
 - `TBD` in an `Implements` cell is a finding, not an auto-guessed requirement.
+
+## Decision ledger state rendering
+
+Decision history must be readable without interpreting parenthetical jargon:
+
+- **Active** rows render normally.
+- **Superseded** sections retain their full historical body and stable anchor, while both the ID and decision cells in the index are wrapped in Markdown strikethrough and the category/state says `Superseded`.
+- **Partially superseded** records stay unstruck because their remaining decision still governs; the section status names the exact replaced clause and links its successor.
+- **Redirect anchor** means a stable historical AD identifier whose content was merged into another ADR or reclassified into a canonical lane. Use that exact label and link the destination; bare `(redirect)` or `(redirected)` is ambiguous and invalid.
+
+Clean may add deterministic links, labels, or strikethrough. It never deletes a superseded body, removes its heading, or guesses whether a record is fully versus partially superseded.
 
 ## Severity
 

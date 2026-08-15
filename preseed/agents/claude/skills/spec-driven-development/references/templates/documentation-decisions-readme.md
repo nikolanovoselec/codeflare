@@ -1,4 +1,4 @@
-<!-- doc-discipline: never delete entries (replace with Status: Reclassified or Status: Merged into AD-X stubs); one ADR per architectural decision; each ADR Context block carries an inline @impl source-anchor -->
+<!-- doc-discipline: never delete entries; superseded index entries are struck through; reclassified/merged entries become explicit Redirect anchor stubs; one ADR per architectural decision; each ADR Context block carries an inline @impl source-anchor -->
 
 # Architecture Decision Records
 
@@ -21,15 +21,22 @@ ADRs document choices between **real alternatives** where the chosen path has co
 
 The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. Runtime-neutral classification and reclassification rules live in `doc-enforce-lanes` under `Dual-narrative ADRs` and run during documentation lane enforcement.
 
-When an existing ADR is reclassified to a canonical home, preserve its `### AD-N:` heading as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references in the codebase keep resolving. Same shape applies to merged ADRs (`Status: Merged into AD-X`). Never delete entries outright — content is moved, anchors stay.
+When an existing ADR is reclassified to a canonical home, preserve its numbered heading as a `Status: Reclassified on YYYY-MM-DD` stub so inbound references keep resolving. The same rule applies to merged ADRs. Label both as `Redirect anchor` and link the destination; never use unexplained `(redirect)` or `(redirected)` shorthand.
+
+State rendering is explicit:
+
+- **Active:** normal index row.
+- **Superseded:** strike through both the linked ID and decision cells, set State to `Superseded`, link the successor, and retain the complete historical section.
+- **Partially superseded:** keep the row unstruck, set State to `Partially superseded`, and name only the replaced clause plus successor.
+- **Redirect anchor:** keep the row unstruck, set State to `Redirect anchor`, and link the merged or reclassified destination.
 
 ---
 
 ## Decision Index
 
-| ID | Decision | Category | Date |
-|----|----------|----------|------|
-| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
+| ID | Decision | Category | State | Date |
+|----|----------|----------|-------|------|
+| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | Active | YYYY-MM-DD |
 
 ---
 

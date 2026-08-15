@@ -73,7 +73,10 @@ describe('optimized SDD documentation templates', () => {
         ]);
 
         const lanePaths = result.lanes.map((relativePath) => join(outputDir, relativePath));
-        assert.deepEqual(await checkDocuments(lanePaths), { ok: true, findings: [] });
+        assert.deepEqual(
+          await checkDocuments([...lanePaths, join(outputDir, 'decisions', 'README.md')]),
+          { ok: true, findings: [] },
+        );
 
         const index = readFileSync(join(outputDir, 'README.md'), 'utf8');
         for (const relativePath of result.lanes) assert.match(index, new RegExp(relativePath.replace('.', '\\.')));

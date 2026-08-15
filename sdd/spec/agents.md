@@ -3777,3 +3777,55 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-142: Unambiguous Documentation Decision History
+
+**Intent:** SDD-generated and cleaned decision ledgers must make historical state understandable while preserving stable references and useful history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every decision-index identifier links to a matching stable ADR section, and every ADR section has an index row. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires ADR index/section pairing and retained superseded history) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked ADR IDs to target their matching section anchors) -->
+2. A fully superseded ADR retains substantive historical content beyond its status in the stable section. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires ADR index/section pairing and retained superseded history) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (does not use later unrelated sections as superseded ADR history) -->
+3. A fully superseded ADR has both its linked ID and decision cells visibly struck through in the decision index. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires superseded ADR index entries to be visibly struck through) -->
+4. A partially superseded ADR remains unstruck in the decision index. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (keeps partial ADRs unstruck and requires a linked successor with clause detail) -->
+5. A partially superseded ADR names the replaced clause and links its successor in the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (keeps partial ADRs unstruck and requires a linked successor with clause detail) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (independently requires partial clause detail and redirect destinations) -->
+6. A merged or reclassified ADR uses the explicit `Redirect anchor` state instead of parenthetical redirect shorthand. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects ambiguous redirect category labels in ADR indexes) -->
+7. A merged or reclassified ADR links its destination from the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (independently requires partial clause detail and redirect destinations) -->
+
+**Constraints:** Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded. Existing inbound AD anchors remain stable. Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-143: Resolvable Documentation Evidence References
+
+**Intent:** Documentation evidence maps must resolve each requirement and decision reference without forcing readers to interpret shorthand.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every ADR identifier in a Security verification/source map links directly to its decision anchor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+2. Every REQ or CON identifier in a Security verification/source map links directly to its specification anchor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+3. Requirement-domain references in a Security verification/source map link the exact specification file instead of using unexplained `SDD` labels. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+
+**Constraints:** The reusable checker recognizes reference syntax and contains no product-specific decision or requirement inventory.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Implemented
+
+---

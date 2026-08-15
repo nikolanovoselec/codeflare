@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +93,7 @@ function laneKind(file) {
   if (name === 'deployment.md') return 'deployment';
   if (name === 'observability.md') return 'observability';
   if (/^api-reference.*\.md$/.test(name)) return 'api';
+  if (name === 'README.md' && path.basename(path.dirname(file)) === 'decisions') return 'decisions';
   if (path.basename(path.dirname(file)) === 'lanes' && name.endsWith('.md')) return 'project';
   return null;
 }
@@ -224,14 +226,118 @@ function plain(value) {
     .trim();
 }
 
-function markdownCells(line) {
+function isHtmlLikeOpener(value, index) {
+  const candidate = value.slice(index);
+  return candidate.startsWith('<!--')
+    || /^<\/?[A-Za-z][A-Za-z0-9-]*(?=$|[\s/><])/.test(candidate);
+}
+
+function htmlLikeSegmentEnd(value, start) {
+  let depth = 0;
+  let quote = null;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if ((character === '"' || character === "'") && depth > 0) {
+      quote = character;
+    } else if (character === '<' && isHtmlLikeOpener(value, index)) {
+      depth += 1;
+    } else if (character === '>' && depth > 0) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function removeHtmlLikeSegments(value) {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '<' && isHtmlLikeOpener(value, index)) {
+      const end = htmlLikeSegmentEnd(value, index);
+      if (end !== -1) {
+        index = end;
+        continue;
+      }
+    }
+    result += value[index];
+  }
+  return result;
+}
+
+function githubHeadingAnchor(heading) {
+  return removeHtmlLikeSegments(heading)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[`*~]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+}
+
+const referenceTargetCache = new Map();
+
+function readLocalReferenceTarget(file, relativePath) {
+  const targetPath = path.resolve(path.dirname(file), relativePath);
+  let target = referenceTargetCache.get(targetPath);
+  if (target === undefined) {
+    try {
+      target = readFileSync(targetPath, 'utf8');
+    } catch {
+      target = null;
+    }
+    referenceTargetCache.set(targetPath, target);
+  }
+  return { target, targetPath };
+}
+
+function localReferenceResolves(file, href, identifier) {
+  const hashIndex = href.indexOf('#');
+  if (hashIndex <= 0 || hashIndex === href.length - 1) return false;
+  const relativePath = href.slice(0, hashIndex).split('?')[0];
+  let fragment;
+  try {
+    fragment = decodeURIComponent(href.slice(hashIndex + 1));
+  } catch {
+    return false;
+  }
+  const { target } = readLocalReferenceTarget(file, relativePath);
+  if (target === null) return false;
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const heading = target.split(/\r?\n/).find((line) =>
+    new RegExp(`^#{1,6}\\s+${escaped}(?::|\\s|$)`, 'i').test(line));
+  if (!heading) return false;
+  return fragment === githubHeadingAnchor(heading.replace(/^#{1,6}\s+/, '').replace(/\s+#+\s*$/, ''));
+}
+
+function domainReferenceResolves(file, href, label) {
+  const relativePath = href.split(/[?#]/)[0];
+  const { target, targetPath } = readLocalReferenceTarget(file, relativePath);
+  if (target === null || !targetPath.includes(`${path.sep}sdd${path.sep}spec${path.sep}`)) return false;
+  const title = target.match(/^#\s+(.+)$/m)?.[1] ?? '';
+  const normalize = (value) => value
+    .toLowerCase()
+    .replace(/\brequirements?\b|\bmode\b|\bdomain\b|\bspecification\b/g, '')
+    .replace(/\b([a-z]+)s\b/g, '$1')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return normalize(label) === normalize(title);
+}
+
+function rawMarkdownCells(line) {
   const trimmed = line.trim();
   if (!trimmed.startsWith('|')) return [];
   return trimmed
     .replace(/^\|/, '')
     .replace(/\|$/, '')
     .split('|')
-    .map((cell) => plain(cell));
+    .map((cell) => cell.trim());
+}
+
+function markdownCells(line) {
+  return rawMarkdownCells(line).map((cell) => plain(cell));
 }
 
 function isSeparator(line) {
@@ -300,7 +406,71 @@ function scanTables(lines, kind, file, findings) {
     }
 
     let row = index + 2;
-    while (row < lines.length && lines[row].trim().startsWith('|')) row += 1;
+    while (row < lines.length && lines[row].trim().startsWith('|')) {
+      if (profile.id === 'security-verification') {
+        const referenceColumn = headers.indexOf('Requirements / decisions');
+        const referenceCell = rawMarkdownCells(lines[row])[referenceColumn] ?? '';
+        for (const link of referenceCell.matchAll(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+          for (const identifier of link[1].matchAll(/\b(?:AD\d+|(?:REQ|CON)-[A-Z]+-\d+)\b/g)) {
+            if (!localReferenceResolves(file, link[2], identifier[0])) {
+              findings.push({
+                rule: 'security-source-map-reference-target-invalid',
+                file,
+                line: row + 1,
+                collection: profile.id,
+                item: identifier[0],
+                missing: ['resolving local target'],
+              });
+            }
+          }
+          if (/\brequirements?\b/i.test(link[1])
+              && !domainReferenceResolves(file, link[2], link[1])) {
+            findings.push({
+              rule: 'security-source-map-reference-target-invalid',
+              file,
+              line: row + 1,
+              collection: profile.id,
+              item: link[1],
+              missing: ['matching requirement domain'],
+            });
+          }
+        }
+        const unlinkedText = referenceCell.replace(/\[[^\]]+\]\([^)]*\)/g, '');
+        const bareAd = unlinkedText.match(/\bAD\d+\b/);
+        if (bareAd) {
+          findings.push({
+            rule: 'security-source-map-ad-not-linked',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: bareAd[0],
+            missing: [bareAd[0]],
+          });
+        }
+        for (const bareRequirement of unlinkedText.matchAll(/\b(?:REQ|CON)-[A-Z]+-\d+\b/g)) {
+          findings.push({
+            rule: 'security-source-map-requirement-not-linked',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: bareRequirement[0],
+            missing: [bareRequirement[0]],
+          });
+        }
+        const vagueReference = unlinkedText.match(/\b[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*\s+SDD\b/);
+        if (vagueReference) {
+          findings.push({
+            rule: 'security-source-map-vague-reference',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: vagueReference[0],
+            missing: [vagueReference[0]],
+          });
+        }
+      }
+      row += 1;
+    }
     index = row - 1;
   }
 }
@@ -441,6 +611,139 @@ function scanDeploymentSections(lines, file, findings) {
   }
 }
 
+function scanDecisions(lines, file, findings) {
+  const indexRows = new Map();
+  const indexStart = lines.findIndex((line) => /^##\s+Decision Index\s*$/.test(line));
+  const indexEnd = indexStart === -1
+    ? -1
+    : lines.findIndex((line, index) => index > indexStart && /^##\s+/.test(line));
+  const boundedEnd = indexEnd === -1 ? lines.length : indexEnd;
+
+  for (let index = indexStart + 1; index < boundedEnd; index += 1) {
+    const cells = rawMarkdownCells(lines[index]);
+    const id = cells[0]?.match(/\bAD\d+\b/)?.[0];
+    if (!id || cells.length < 3) continue;
+    const idLink = cells[0].match(new RegExp(`\\[${id}\\]\\((#[^)]+)\\)`));
+    indexRows.set(id, { cells, line: index + 1, href: idLink?.[1] ?? null });
+    if (!idLink) {
+      findings.push({
+        rule: 'adr-index-id-not-linked', file, line: index + 1,
+        collection: 'decision-index', item: id, missing: ['linked ID'],
+      });
+    }
+    if (cells.some((cell) => /^\(?redirect(?:ed)?\)?$/i.test(plain(cell)))) {
+      findings.push({
+        rule: 'adr-redirect-label-ambiguous', file, line: index + 1,
+        collection: 'decision-index', item: id, missing: ['Redirect anchor'],
+      });
+    }
+  }
+
+  const starts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^###\s+(AD\d+):/);
+    if (heading) starts.push({ id: heading[1], start: index, line: index + 1 });
+  }
+  const sections = new Map(starts.map((section) => {
+    const nextBoundary = lines.findIndex((line, index) =>
+      index > section.start && /^#{1,3}\s+/.test(line));
+    return [section.id, {
+      ...section,
+      anchor: githubHeadingAnchor(lines[section.start].replace(/^###\s+/, '')),
+      end: nextBoundary === -1 ? lines.length : nextBoundary,
+    }];
+  }));
+
+  for (const [id, row] of indexRows) {
+    const section = sections.get(id);
+    if (!section) {
+      findings.push({
+        rule: 'adr-index-section-missing', file, line: row.line,
+        collection: 'decision-index', item: id, missing: ['ADR section'],
+      });
+    } else if (row.href && row.href !== `#${section.anchor}`) {
+      findings.push({
+        rule: 'adr-index-anchor-mismatch', file, line: row.line,
+        collection: 'decision-index', item: id, missing: [`#${section.anchor}`],
+      });
+    }
+  }
+  for (const [id, section] of sections) {
+    const row = indexRows.get(id);
+    if (!row) {
+      findings.push({
+        rule: 'adr-section-index-missing', file, line: section.line,
+        collection: 'decision-index', item: id, missing: ['index row'],
+      });
+      continue;
+    }
+
+    const bodyLines = lines.slice(section.start + 1, section.end);
+    const status = bodyLines.find((line) => /^\*\*Status:\*\*/.test(line));
+    if (!status) {
+      findings.push({
+        rule: 'adr-status-missing', file, line: section.line,
+        collection: 'decision-index', item: id, missing: ['Status'],
+      });
+      continue;
+    }
+
+    if (/^\*\*Status:\*\*\s+Superseded\b/i.test(status)) {
+      const [idCell, decisionCell] = row.cells;
+      if (!/^~~[\s\S]+~~$/.test(idCell) || !/^~~[\s\S]+~~$/.test(decisionCell)) {
+        findings.push({
+          rule: 'adr-superseded-not-struck', file, line: row.line,
+          collection: 'decision-index', item: id,
+          missing: ['struck ID', 'struck decision'],
+        });
+      }
+      const hasHistoricalBody = bodyLines.some((line) =>
+        /^\*\*(?:Context|Decision|Consequences):\*\*\s+\S/.test(line));
+      if (!hasHistoricalBody) {
+        findings.push({
+          rule: 'adr-superseded-history-missing', file, line: section.line,
+          collection: 'decision-index', item: id, missing: ['historical body'],
+        });
+      }
+    }
+
+    if (/^\*\*Status:\*\*\s+Partially superseded\b/i.test(status)) {
+      const [idCell, decisionCell] = row.cells;
+      if (/^~~[\s\S]+~~$/.test(idCell) || /^~~[\s\S]+~~$/.test(decisionCell)) {
+        findings.push({
+          rule: 'adr-partial-is-struck', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['unstruck ID', 'unstruck decision'],
+        });
+      }
+      const successor = status.match(/\[[^\]]+\]\([^)]+\)/)?.[0];
+      const detail = successor ? status.slice(status.indexOf(successor) + successor.length)
+        .replace(/^\s*(?:\([^)]*\))?\s*[:.—-]?\s*/, '') : '';
+      if (!successor || detail.length < 12) {
+        findings.push({
+          rule: 'adr-partial-successor-detail-missing', file, line: section.line,
+          collection: 'decision-index', item: id,
+          missing: [...(!successor ? ['linked successor'] : []), ...(detail.length < 12 ? ['replaced clause'] : [])],
+        });
+      }
+    }
+
+    if (/^\*\*Status:\*\*\s+(?:Reclassified|Merged)\b/i.test(status)) {
+      if (!row.cells.some((cell) => plain(cell) === 'Redirect anchor')) {
+        findings.push({
+          rule: 'adr-redirect-label-ambiguous', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['Redirect anchor'],
+        });
+      }
+      if (!/\[[^\]]+\]\([^)]+\)/.test(status)) {
+        findings.push({
+          rule: 'adr-redirect-destination-not-linked', file, line: section.line,
+          collection: 'decision-index', item: id, missing: ['linked destination'],
+        });
+      }
+    }
+  }
+}
+
 function scanProjectLane(lines, file, findings) {
   const firstSection = lines.findIndex((line) => /^##\s+/.test(line));
   const preamble = lines.slice(0, firstSection === -1 ? lines.length : firstSection).join('\n');
@@ -481,6 +784,7 @@ export async function checkDocuments(files) {
     scanTables(maskFencedLines(lines), kind, file, findings);
     scanSections(lines, kind, file, findings);
     if (kind === 'deployment') scanDeploymentSections(maskFencedLines(lines), file, findings);
+    if (kind === 'decisions') scanDecisions(maskFencedLines(lines), file, findings);
     if (kind === 'project') scanProjectLane(maskFencedLines(lines), file, findings);
   }
 

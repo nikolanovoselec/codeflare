@@ -219,14 +219,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     return instance;
   };
 
-  const enableTimekeeper = async () => {
+  const enableTimekeeper = async ({ saasMode = true, quotaExceeded = false } = {}) => {
     testState.storedUserEmail = 'quota@example.com';
     containerInstance = createContainerInstance();
     const timekeeperStub = {
-      fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
+      fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded }), { status: 200 })),
     };
     const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
-    instanceEnv.SAAS_MODE = 'active';
+    if (saasMode) instanceEnv.SAAS_MODE = 'active';
     instanceEnv.TIMEKEEPER = {
       idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
       get: vi.fn(() => timekeeperStub),
@@ -1521,6 +1521,17 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
       });
       expect(stoppedWrite).toBeUndefined();
+    });
+
+    it('REQ-SUB-006 AC2 + REQ-SUB-007 AC5: records usage outside SaaS without enforcing a quota response', async () => {
+      const timekeeperStub = await enableTimekeeper({ saasMode: false, quotaExceeded: true });
+      const stopSpy = vi.spyOn(containerInstance, 'stop');
+
+      await containerInstance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
+      expect(stopSpy).not.toHaveBeenCalled();
     });
 
     it('should handle fetch failure gracefully without crashing', async () => {

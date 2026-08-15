@@ -141,30 +141,32 @@ app.get('/batch-status', async (c) => {
   const storageStatsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null;
   const storageStats = storageStatsCached || undefined;
 
-  // Include usage data when SaaS mode is active
+  // Include per-user consumption in every deployment mode. Only SaaS exposes
+  // billing quota and derives the session cap from subscription entitlements.
   let usage: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string } | undefined;
-  if (isSaasModeActive(c.env.SAAS_MODE)) {
-    try {
-      const [record, tiers] = await Promise.all([
-        c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
-        getTierConfig(c.env.KV),
-      ]);
-      const entitlements = getEffectiveTierForUser(user, tiers, c.env);
-      // REQ-SUB-013 AC4: the returned cap is the effective-tier cap in SaaS
-      // mode (role-based cap stays the default outside SaaS mode).
+  const saasMode = isSaasModeActive(c.env.SAAS_MODE);
+  try {
+    const [record, tiers] = await Promise.all([
+      c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
+      getTierConfig(c.env.KV),
+    ]);
+    const entitlements = getEffectiveTierForUser(user, tiers, c.env);
+    if (saasMode) {
+      // REQ-SUB-013 AC4: SaaS uses the effective-tier cap; role-based limits
+      // remain authoritative in onboarding/default/enterprise deployments.
       maxSessions = entitlements.maxSessions;
-      const now = new Date();
-      const currentMonth = getUtcMonthString(now);
-      const currentDate = getUtcDateString(now);
-      usage = {
-        dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
-        monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
-        monthlyQuotaSeconds: entitlements.monthlyQuotaSeconds,
-        tier: entitlements.effectiveTier,
-      };
-    } catch {
-      // Non-fatal - usage display is best-effort
     }
+    const now = new Date();
+    const currentMonth = getUtcMonthString(now);
+    const currentDate = getUtcDateString(now);
+    usage = {
+      dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
+      monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
+      monthlyQuotaSeconds: saasMode ? entitlements.monthlyQuotaSeconds : null,
+      tier: entitlements.effectiveTier,
+    };
+  } catch {
+    // Non-fatal - usage display is best-effort
   }
 
   // REQ-AGENT-049: preseed upgrade check (initial load only, not 5s polls)

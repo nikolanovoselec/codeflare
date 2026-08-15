@@ -488,6 +488,33 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
+  describe('REQ-SUB-006 AC2: usage visibility outside SaaS mode', () => {
+    it('returns accumulated usage without a billing quota in onboarding/default mode', async () => {
+      const now = new Date();
+      const record: UsageRecord = {
+        today: { date: getUtcDateString(now), seconds: 75 },
+        thisWeek: { weekStart: getUtcDateString(now), seconds: 450 },
+        thisMonth: { month: getUtcMonthString(now), seconds: 1800 },
+        thisYear: { year: String(now.getUTCFullYear()), seconds: 3600 },
+        allTime: { seconds: 7200 },
+        lastUpdatedAt: now.toISOString(),
+      };
+      mockKV._set(getTimekeeperKey('test-bucket'), record);
+      const app = createApp();
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null };
+      };
+      expect(body.usage).toEqual(expect.objectContaining({
+        dailySeconds: 75,
+        monthlySeconds: 1800,
+        monthlyQuotaSeconds: null,
+      }));
+    });
+  });
+
   // CF-041 // CF-071
   // REQ-SUB-013 AC4: in SaaS mode batch-status returns the effective-tier cap
   // (entitlements.maxSessions), not the role-based getMaxSessions() cap, and

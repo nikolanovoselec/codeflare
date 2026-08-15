@@ -108,33 +108,31 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 // ---------------------------------------------------------------------------
-// AC2 — Header username dropdown
+// REQ-SUB-023 — Header username dropdown
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
-  it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
+describe('REQ-SUB-023 AC1/AC3-AC7: Header username dropdown', () => {
+  it('opens a Usage-only dropdown in enterprise mode', () => {
     sessionStoreState.enterpriseMode = true;
     render(() => <Header {...headerProps} />);
-    // Avatar/username trigger stays rendered so the user sees their identity.
     expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
-    // Every per-user dropdown entry is gated away in enterprise (Usage 0-reports,
-    // Subscription is SaaS billing, Guided Setup + Logout are admin/SSO concerns),
-    // so clicking the avatar is inert — no dropdown opens.
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
   });
 
-  it('hides Usage and Subscription in onboarding/default mode (not enterprise, not SaaS)', () => {
+  it('shows Usage but hides Subscription in onboarding/default mode', () => {
     render(() => <Header {...headerProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
     expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-    // Non-billing items remain.
     expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
     expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
-  it('renders Usage and Subscription in SaaS mode (AC6)', () => {
+  it('renders Usage and Subscription in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <Header {...headerProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
@@ -144,9 +142,9 @@ describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 + AC3 — SettingsPanel Administration + session-mode selector
+// AC1–AC3 — SettingsPanel Administration + session-mode selector
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel', () => {
+describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
   const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
 
   it('hides Manage Users, Manage Subscriptions, and the mode selector in enterprise mode', () => {
@@ -167,7 +165,7 @@ describe('REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel', () => {
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 
-  it('renders all admin surfaces and the mode selector in SaaS mode (AC6)', () => {
+  it('renders all admin surfaces and the mode selector in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <SettingsPanel {...panelProps} />);
     expect(screen.getByText('Manage Users')).toBeInTheDocument();

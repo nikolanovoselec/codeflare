@@ -430,6 +430,8 @@ None.
 2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 15m-4h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options) -->
 3. First-time users are auto-redirected to onboarding. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
 4. Once onboarding has been completed, the user is not redirected there again. <!-- @test: web-ui/src/__tests__/components/auth-007-app-redirect.test.tsx (REQ-AUTH-007 AC5: first-time active user redirected to onboarding) --> <!-- @manual -->
+5. The agent-subscription step mirrors the six installable agents: Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, and Pi. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (renders the six installable coding agents and replaces Gemini with Antigravity) -->
+6. Every agent card identifies the provider families whose subscriptions the agent can use. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::CODING_AGENTS --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (shows provider-family subscription support on every coding agent card) -->
 
 **Constraints:**
 
@@ -453,13 +455,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. The visible account identity opens a dropdown with Subscription, Usage, Guided Setup, and Logout in SaaS, Guided Setup and Logout in onboarding/default, and an inert trigger in enterprise. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (shows Guided Setup and Logout outside enterprise mode) -->
-2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+1. The visible account identity opens an account-action dropdown. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) -->
+2. The available account actions follow the deployment-mode contract in [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions). <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription/Usage gating) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (opens a Usage-only dropdown in enterprise mode) -->
+3. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+4. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
 
 **Constraints:**
 
-- In Enterprise Mode the dropdown does not open—the avatar/username stays visible but its click is inert—per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; AC1 restates that exception only to make the complete mode matrix explicit.
+- Deployment mode controls only the action set; the dropdown interaction and responsive presentation remain shared.
 
 **Priority:** P2
 

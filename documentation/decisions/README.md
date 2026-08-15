@@ -1,7 +1,14 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD14](#ad14-never-auto---resync-on-bisync-failure) by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery); [AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each active record documents a real choice between alternatives and preserves its rationale, trade-offs, and consequences. AD identifiers remain stable because requirements, source, and historical documents link to them.
+
+## How to read this ledger
+
+- **Active:** the decision still governs the system.
+- **Superseded:** a newer linked decision or requirement replaced the whole record. Superseded entries are struck through in the index, while their original sections remain readable as history.
+- **Partially superseded:** only the explicitly named clause was replaced; the record remains active for everything else.
+- **Redirect anchor:** the numbered heading is retained so inbound links keep working, but the content was either merged into another ADR or reclassified into its canonical documentation lane because it was not a genuine architectural decision. Follow the destination named in the index and section status.
 
 **Audience:** Developers
 
@@ -14,53 +21,53 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD1](#ad1-one-container-per-session) | One container per session | Architecture |
 | [AD2](#ad2-container-id-format) | Container ID format | Architecture |
 | [AD3](#ad3-per-user-r2-buckets) | Per-user R2 buckets | Architecture |
-| [AD4](#ad4-periodic-rclone-bisync) | _superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget)_ | (superseded) |
+| ~~[AD4](#ad4-periodic-rclone-bisync)~~ | ~~Superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence) and [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget)~~ | Superseded |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
-| [AD7](#ad7-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup public endpoints_ | Security |
+| [AD7](#ad7-merged-into-ad10) | Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup public endpoints | Redirect anchor |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
-| [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
+| [AD9](#ad9-ressource_tier-spelling) | Reclassified into [Configuration](../lanes/configuration.md) — `RESSOURCE_TIER` spelling compatibility | Redirect anchor |
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Suffix-pattern CORS with credentials | Security |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | KV-based setup lock (non-atomic) | Security |
 | [AD13](#ad13-per-user-scoped-r2-tokens) | Per-user scoped R2 tokens | Security |
-| [AD14](#ad14-never-auto---resync-on-bisync-failure) | _superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery)_ | (superseded) |
+| ~~[AD14](#ad14-never-auto---resync-on-bisync-failure)~~ | ~~Superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery)~~ | Superseded |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) - `collectMetrics` atomicity_ | Architecture |
+| [AD17](#ad17-merged-into-ad6) | Merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) — `collectMetrics` atomicity | Redirect anchor |
 | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
-| [AD19](#ad19-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
+| [AD19](#ad19-merged-into-ad18) | Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — `splash-cursor-logic.ts` casts | Redirect anchor |
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
-| [AD23](#ad23-cors-origin-pattern-validation) | _reclassified - CORS admin-trust moved to inline + security.md_ | (redirect) |
-| [AD24](#ad24-predictable-session-ids) | _reclassified - session ID rationale moved to inline + security.md_ | (redirect) |
-| [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
+| [AD23](#ad23-cors-origin-pattern-validation) | Reclassified into [Security](../lanes/security.md) and inline source evidence — CORS administrator trust | Redirect anchor |
+| [AD24](#ad24-predictable-session-ids) | Reclassified into [Security](../lanes/security.md) and inline source evidence — session ID rationale | Redirect anchor |
+| [AD25](#ad25-e2e-service-email-hardcoded) | Reclassified into [Security](../lanes/security.md) and inline test evidence — E2E fixture identity | Redirect anchor |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-merged-into-ad26) | _merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) - integration-only environment scoping_ | Security |
+| [AD28](#ad28-merged-into-ad26) | Merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) — integration-only environment scoping | Redirect anchor |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
-| [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
+| [AD31](#ad31-root-container-is-intentional) | Reclassified into [Security](../lanes/security.md) and inline source evidence — root-container rationale | Redirect anchor |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup CSRF risk_ | Security |
+| [AD33](#ad33-merged-into-ad10) | Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup CSRF risk | Redirect anchor |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
+| [AD35](#ad35-merged-into-ad18) | Merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — legacy `splash-cursor-logic.ts` constructor | Redirect anchor |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
 | [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
-| [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
+| [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode _(OAuth state clause superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token))_ | Billing, partially superseded |
 | [AD39](#ad39-max-users-capacity-cap-counts-paid-slots-only) | Max users capacity cap counts paid slots only | Billing |
 | [AD40](#ad40-webhook-route-order-publicstripe-before-public) | Webhook route order (`/public/stripe` before `/public`) | Billing |
 | [AD41](#ad41-custom-tier-uses-contact-flow-not-self-service-checkout) | Custom tier uses contact flow (not self-service checkout) | Billing |
 | [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
-| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- override mechanism ripped out_ | (superseded) |
+| ~~[AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list)~~ | ~~Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) — override mechanism removed~~ | Superseded |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
-| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- doc-allow-large hatch ripped out_ | (superseded) |
+| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Unified ADR file _(the `doc-allow-large` escape hatch was superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features))_ | Process, partially superseded |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
@@ -74,7 +81,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
 | [AD63](#ad63-pi-safe-graphify-updatesh-is-a-thin-bounded-upstream-update-wrapper) | Pi `safe-graphify-update.sh` is a thin bounded upstream-update wrapper | Architecture |
-| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | _superseded by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) -- lanes now run as detached headless Pi processes_ | (superseded) |
+| ~~[AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)~~ | ~~Superseded by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) — lanes moved to detached headless processes~~ | Superseded |
 | [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) _(no-preseed-lane clause superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored))_ | Architecture |
 | [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Security-sensitive rate limiters fail closed on KV outage | Security |
 | [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Antigravity reads the Gemini CLI config tree; preseed lane restored | Architecture |
@@ -86,14 +93,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
-| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
+| ~~[AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes)~~ | ~~Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)~~ | Superseded |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
 | [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers), amended by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) for Pi execution | Agents |
 | [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
-| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
+| ~~[AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)~~ | ~~Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)~~ | Superseded |
 | [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
 | [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Visible terminal panes own WebSockets, and MultiView is virtual | Architecture, UI/Frontend |
-| [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) | _superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) — vault IndexedDB IS now persisted across sessions, via a bucket-stable URL + HKDF key (not a key-only change)_ | Architecture |
+| ~~[AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket)~~ | ~~Superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) — Vault IndexedDB now persists through a bucket-stable URL and HKDF key~~ | Superseded |
 | [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) | Retain the vault SW encryption key in memory (neuter the proactive flush) and open a green Vault button directly | Architecture |
 | [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (wizard-toggled, default OFF) | Architecture, Security |
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Platform-native Cloudflare primitives bypass strict Gateway egress (only direct-internet egress takes cf1:network) | Architecture, Security |
@@ -107,14 +114,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore) | Storage |
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
-| [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
+| ~~[AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk)~~ | ~~Keep OpenVSCode upstream-clean and accept known vulnerability risk — superseded by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy)~~ | Superseded |
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
 | [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned after opt-in; in-process subagents use native transports | Agents, Architecture |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
-| [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
+| ~~[AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming)~~ | ~~Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming — superseded by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)~~ | Superseded |
 | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
 | [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification; test-anchor cardinality amended by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Process, Agents |
 | [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
@@ -123,7 +130,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Terminal scrolling is buffer-authoritative on every route; held output ring-drops | Architecture |
 | [AD111](#ad111-synchronized-output-frames-are-delivered-atomically-at-the-write-boundary) | Synchronized-output frames are delivered atomically at the write boundary | Architecture, Reliability |
 | [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images | Architecture, Operations |
-| [AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) | One owned Browser IDE extension uses Pi RPC and a Claude PTY (superseded by AD114) | Architecture, Security |
+| ~~[AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty)~~ | ~~One owned Browser IDE extension uses Pi RPC and a Claude PTY — superseded by [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)~~ | Superseded |
 | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Native Pi Chat and the official Claude extension own editor integration | Architecture, Security, Supply Chain |
 | [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Claude PR-boundary review lanes run as headless `claude -p` subprocesses | Architecture, Cost |
 | [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Review-lane Phase 0 is computed deterministically and handed to the lane | Architecture, Cost |
@@ -252,7 +259,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 ### AD7: Merged into AD10
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -284,7 +291,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 ### AD9: RESSOURCE_TIER spelling
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -443,7 +450,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD17: Merged into AD6
 
-**Category:** Architecture
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -481,7 +488,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD19: Merged into AD18
 
-**Category:** UI/Frontend
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -547,7 +554,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD23: CORS origin pattern validation
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -562,7 +569,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD24: Predictable session IDs
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -577,7 +584,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD25: E2E service email hardcoded
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -628,7 +635,7 @@ Frontend folder deletion was subject to API rate limits (30/min browse, 20/min d
 
 ### AD28: Merged into AD26
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -677,7 +684,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ### AD31: Root container is intentional
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -710,7 +717,7 @@ When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API t
 
 ### AD33: Merged into AD10
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -742,7 +749,7 @@ WebSocket upgrades must be intercepted before the Hono middleware chain (documen
 
 ### AD35: Merged into AD18
 
-**Category:** UI/Frontend
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -795,7 +802,7 @@ Previous design had 6 webhook handlers incrementally patching KV fields, causing
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
-**Status:** Superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09) - oauth_state mechanism replaced
+**Status:** Partially superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09): only the `oauth_state` cookie mechanism was replaced; GitHub OIDC and the session-cookie decision remain active.
 
 **Decision:** CF Access costs $3/user/month beyond 50 users -- GitHub OIDC is free.
 
@@ -980,7 +987,7 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
-**Category:** (superseded)
+**Category:** Superseded
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -1276,11 +1283,11 @@ without the shim, `ctx_execute` and `ctx_batch_execute` fail on every dynamic `r
 **Consequences:** The original compact ADR did not record a separate consequences field.
 ### AD50: Unified ADR file with structural doc-allow-large exemption
 
-**Category:** (superseded)
+**Category:** Process, partially superseded
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
-**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
+**Status:** Partially superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` escape hatch was removed; the unified ADR ledger and stable-anchor decision remain active.
 
 **Decision:** (still in effect) All ADRs live in a single `decisions/README.md`. AD-N identifiers are referenced throughout the codebase, so splitting into one file per ADR would mean rewriting every inbound `README.md#ad-N` anchor for no product value. The file-size overage is an accepted, known LOW the operator defers; per-ADR budget enforcement still applies, so any new ADR over the per-ADR cap is split or compressed. Only the `<!-- doc-allow-large -->` hatch-exemption machinery was superseded ([AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)).
 

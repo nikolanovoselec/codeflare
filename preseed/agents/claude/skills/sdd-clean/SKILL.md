@@ -109,13 +109,13 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 
 Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors, every AC carries a `@test` anchor (when `enforce_tdd: true`), and every test already mentions its REQ IDs they are both inert no-ops.
 
-**Documentation normalization is collection-scoped.** Architecture component dossiers, API registers, configuration variables, security registers, deployment runbooks, observability signals, and troubleshooting recipes normalize toward the same templates `/sdd init` emits. Do not apply one dominant shape to an entire file. Preambles, narrative sections, diagrams, aliases, requirement/source maps, and project-lane subject matter remain intact. Existing `Command`/`Verifies` deployment fields are readable aliases for canonical `Action`/`Verify`; translate only by moving values byte-for-byte.
+**Documentation normalization is collection-scoped.** Architecture component dossiers, API registers, configuration variables, security registers, deployment runbooks, observability signals, troubleshooting recipes, and ADR index/state records normalize toward the same templates `/sdd init` emits. Do not apply one dominant shape to an entire file. Preambles, narrative sections, diagrams, aliases, requirement/source maps, and project-lane subject matter remain intact. Existing `Command`/`Verifies` deployment fields are readable aliases for canonical `Action`/`Verify`; translate only by moving values byte-for-byte. Superseded ADR index entries are struck through without deleting their sections; partially superseded entries remain unstruck; merged or reclassified tombstones use the explicit `Redirect anchor` label and keep their destination links.
 
 Before any documentation rewrite, account for every paragraph, table row, list item, diagram, link, compatibility fragment, REQ/ADR reference, and source anchor in the affected collection. If a destination is ambiguous or two facts conflict, emit a finding and leave the collection unchanged. `/sdd clean` never creates a baseline suppression or deletes content to satisfy shape.
 
 ### Per-category mechanics
 
-- **Strikethrough text** → stripped (git history is the strikethrough).
+- **Strikethrough text** → stripped (git history is the strikethrough), except the ID and decision cells of a fully superseded ADR index row.
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).

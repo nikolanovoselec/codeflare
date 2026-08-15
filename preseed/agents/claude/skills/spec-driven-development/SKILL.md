@@ -204,7 +204,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 | Behavior | interactive | auto | unleashed |
 |---|---|---|---|
 | Where work lands | Current branch | Current branch | Current branch |
-| SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
+| SAFE fixes (strip non-ADR-index strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
 | `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |
@@ -359,4 +359,5 @@ Templates follow `documentation-discipline.md` from the first commit. Convention
 - **No file-level line budget.** Lane size follows evidenced project complexity; per-element budgets and collection shape remain authoritative.
 - **REQ backlinks pre-wired** in `Implements` columns using nested-layout links into `../../sdd/spec/{domain}.md`; flat legacy links remain readable during `/sdd clean` migration.
 - **Lane-correct content placeholders.** `architecture.md` template never has an "API endpoints" section (that's `api-reference.md`'s lane).
-- **ADR template carries the "What is NOT an ADR" guardrail.** `documentation-decisions-readme.md` opens with the four-shape table (SAST false positive / naming-compat / risk acceptance with no alternative / implementation note framed as a decision). The AD1 example includes `Alternatives considered:` and `Consequences:` — both load-bearing.
+- **ADR template carries the "What is NOT an ADR" guardrail and explicit state rendering.** `documentation-decisions-readme.md` distinguishes Active, Superseded, Partially superseded, and Redirect anchor records. Fully superseded index IDs and decisions are struck through while their sections remain; redirect anchors name and link their merged or reclassified destination instead of using ambiguous parenthetical shorthand. Every active ADR retains `Alternatives considered:` and `Consequences:`.
+- **Security source maps use resolvable references.** Every decision identifier and requirement-domain reference links directly to its ADR anchor or specification file; shorthand such as `Operations SDD` is not emitted.

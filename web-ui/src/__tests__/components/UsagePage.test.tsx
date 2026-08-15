@@ -37,7 +37,7 @@ vi.mock('../../components/ScrambleText', () => ({
 
 import UsagePage from '../../components/UsagePage';
 
-describe('UsagePage / REQ-SUB-018 AC1 (usage ring + stat cards)', () => {
+describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetUsageRejects = false;
@@ -87,13 +87,15 @@ describe('UsagePage / REQ-SUB-018 AC1 (usage ring + stat cards)', () => {
     expect(byLabel['Quota']).toBe('40h');
   });
 
-  it('omits the quota stat card and ring when there is no quota (null monthlyQuotaSeconds)', async () => {
+  it('REQ-SUB-022 AC4: renders personal usage stat cards without quota UI when monthly quota is null', async () => {
     mockUsage = { ...mockUsage, monthlyQuotaSeconds: null };
 
     render(() => <UsagePage />);
 
-    // Today + This month render; the quota-gated card is absent.
     await waitFor(() => expect(document.querySelectorAll('.usage-panel-stat').length).toBe(2));
+    const labels = Array.from(document.querySelectorAll('.usage-panel-stat-label'))
+      .map((label) => label.textContent);
+    expect(labels).toEqual(['Today', 'This month']);
     expect(document.querySelector('.usage-bar-fill')).not.toBeInTheDocument();
     expect(document.querySelector('.usage-panel-percent')).not.toBeInTheDocument();
   });

@@ -70,7 +70,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 2. **Always-runs rows** (Pass 1, 13, 14, 16 actively; Pass 2 always reports `inert (file-level cap removed)` as a manifest-stability stub): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion. Pass 16 is a mandated *command*, not a judgment — run it verbatim and treat its output as the finding set.
 3. **Conditional invocations**:
    - For every doc file touched in diff: invoke `doc-enforce-lanes` (covers Pass 3 + Pass 4).
-   - IF any first-level lane file indexed by `documentation/README.md` is touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7). This includes canonical lanes, `api-reference-*` siblings, and indexed project lanes.
+   - IF any first-level lane file indexed by `documentation/README.md` or `documentation/decisions/README.md` is touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7). This includes canonical lanes, `api-reference-*` siblings, indexed project lanes, and ADR index/state rendering.
    - **Always invoke `doc-enforce-truth` Pass 15** for every lane file or `decisions/README.md` in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) in the diff, OR scope=all. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged lane files — Pass 15 must re-validate. Source-anchor truth-check is never gated. The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
 4. **Aggregate** findings from sub-skill invocations into the unified manifest.
 5. **Apply mode** (`purpose=clean` only; `purpose=review` returns findings without editing):
@@ -112,7 +112,7 @@ Auto-fix in `auto`/`unleashed`: add each missing file to the README — lane fil
 | Implementation rationale told as story | ADR (`documentation/decisions/`) |
 | Long regex internals inline | Source-code docstring at the regex site |
 | Magic-constant prose | Source-code comment, OR an ADR |
-| Strikethrough text | Delete. Git history is the strikethrough. |
+| Strikethrough text | Delete, except the ID and decision cells of a fully superseded ADR index row. Git history remains the record everywhere else. |
 | TODO bullets, "coming soon", "planned but not built" | GitHub issue or `pending.md` |
 | Future-tense roadmap items | `sdd/{domain}.md` as `Status: Planned` REQs |
 | Any content that duplicates a REQ instead of cross-referencing | Backlink to REQ ID; never copy-paste |
