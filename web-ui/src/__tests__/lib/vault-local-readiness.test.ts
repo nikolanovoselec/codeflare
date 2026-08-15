@@ -204,6 +204,17 @@ describe('checkVaultLocalReadiness', () => {
     expect(result.ready).toBe(false);
     expect(result.reason).toBe('missing-service-worker');
   });
+
+  it('accepts an activating current worker during update but rejects a redundant worker', async () => {
+    const run = (state: ServiceWorkerState) => checkVaultLocalReadiness('session-1', {
+      localStorageRef: createReadyStorage(),
+      indexedDbRef: createIndexedDb(['sb_data_abc', 'sb_files_def']),
+      serviceWorkerRef: createServiceWorker(true, [{ scope: CURRENT_SCOPE, active: { state } }]),
+    });
+
+    await expect(run('activating')).resolves.toMatchObject({ ready: true, serviceWorkerState: 'activating' });
+    await expect(run('redundant')).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
+  });
 });
 
 describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {

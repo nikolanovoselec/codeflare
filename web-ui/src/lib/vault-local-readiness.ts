@@ -155,7 +155,7 @@ export async function checkVaultLocalReadiness(
   if (!serviceWorkerRef) return { ...base(), reason: 'missing-service-worker' };
   const registration = await findVaultServiceWorker(serviceWorkerRef, expectedScope);
   const active = registration?.active ?? null;
-  if (!active) return { ...base(), reason: 'missing-service-worker' };
+  if (!active || active.state === 'redundant') return { ...base(), reason: 'missing-service-worker' };
 
   if (hasIndexedDbDatabasesApi) {
     try {
