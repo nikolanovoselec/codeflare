@@ -15,6 +15,7 @@ import {
   inferOriginValidated,
   injectVaultEncryptionConfig,
   injectVaultPrewarmBridge,
+  injectVaultPrewarmFocusGuard,
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
@@ -229,6 +230,15 @@ describe('CF-045: vault-html direct unit tests', () => {
       const rewritten = injectVaultPrewarmBridge(html);
 
       expect(await countPrewarmBridgeScripts(rewritten)).toBe(1);
+    });
+
+    it('injects one idempotent focus guard for a valid prewarm token', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const once = injectVaultPrewarmFocusGuard(html, 'warm-1');
+      const twice = injectVaultPrewarmFocusGuard(once, 'warm-1');
+
+      expect(await countPrewarmFocusGuardScripts(once)).toBe(1);
+      expect(await countPrewarmFocusGuardScripts(twice)).toBe(1);
     });
 
   });

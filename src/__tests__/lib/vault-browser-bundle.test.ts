@@ -19,15 +19,30 @@ type VaultInjectors = {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 let injectors: VaultInjectors;
 
+function scriptBodyAt(html: string, openAt: number): string {
+  const bodyStart = html.indexOf('>', openAt);
+  if (bodyStart === -1) throw new Error('unterminated generated script start tag');
+  const bodyEnd = html.indexOf('</script>', bodyStart + 1);
+  if (bodyEnd === -1) throw new Error('missing generated script end tag');
+  return html.slice(bodyStart + 1, bodyEnd);
+}
+
 function scriptBodies(html: string): string[] {
-  return [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map((match) => match[1]);
+  const bodies: string[] = [];
+  let cursor = 0;
+  while (true) {
+    const openAt = html.indexOf('<script', cursor);
+    if (openAt === -1) return bodies;
+    bodies.push(scriptBodyAt(html, openAt));
+    const closeAt = html.indexOf('</script>', openAt);
+    cursor = closeAt + '</script>'.length;
+  }
 }
 
 function markedScript(html: string, marker: string): string {
-  const pattern = new RegExp(`<script\\s+${marker}="1">([\\s\\S]*?)<\\/script>`, 'i');
-  const match = pattern.exec(html);
-  if (!match) throw new Error(`missing ${marker} browser script`);
-  return match[1];
+  const openAt = html.indexOf(`<script ${marker}="1">`);
+  if (openAt === -1) throw new Error(`missing ${marker} browser script`);
+  return scriptBodyAt(html, openAt);
 }
 
 beforeAll(async () => {
@@ -54,6 +69,8 @@ beforeAll(async () => {
     Headers,
     TextEncoder,
     TextDecoder,
+    btoa: globalThis.btoa,
+    atob: globalThis.atob,
   });
   const output = result.outputFiles?.[0];
   if (!output) throw new Error('esbuild emitted no Vault browser bundle');
@@ -66,25 +83,42 @@ describe('production-bundled Vault browser scripts', () => {
   it('removes stale workers, registers the canonical worker, persists encryption, and redirects', async () => {
     const token = '0123456789abcdef0123456789abcdef';
     const scope = `https://codeflare.test/api/vault/${token}/`;
+    const workerEvents: string[] = [];
+    const completionEvents: string[] = [];
     const canonical = { scope, unregister: vi.fn(async () => true) };
     const stale = { scope: 'https://codeflare.test/api/vault/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/', unregister: vi.fn(async () => true) };
     const crossOrigin = { scope: 'https://other.test/api/vault/legacy/', unregister: vi.fn(async () => true) };
     const unrelated = { scope: 'https://codeflare.test/application/', unregister: vi.fn(async () => true) };
     let stalePresent = true;
-    stale.unregister.mockImplementation(async () => { stalePresent = false; return true; });
+    stale.unregister.mockImplementation(async () => {
+      workerEvents.push('unregister');
+      stalePresent = false;
+      return true;
+    });
     const activeWorker = { state: 'activated', postMessage: vi.fn() };
     const registration: any = { active: activeWorker, installing: null, waiting: null };
     registration.update = vi.fn(async () => registration);
-    const register = vi.fn(async () => registration);
+    const register = vi.fn(async () => {
+      workerEvents.push('register');
+      return registration;
+    });
     const serviceWorker = {
       getRegistrations: vi.fn(async () => stalePresent
         ? [canonical, stale, crossOrigin, unrelated]
         : [canonical, crossOrigin, unrelated]),
       register,
     };
-    const storage = { setItem: vi.fn() };
-    const documentRef = { getElementById: vi.fn(() => ({ textContent: '' })), cookie: '' };
-    const locationRef = { origin: 'https://codeflare.test', replace: vi.fn() };
+    const storage = { setItem: vi.fn(() => { completionEvents.push('storage'); }) };
+    let cookie = '';
+    const documentRef = {
+      getElementById: vi.fn(() => ({ textContent: '' })),
+      get cookie() { return cookie; },
+      set cookie(value: string) { completionEvents.push('cookie'); cookie = value; },
+    };
+    const locationRef = {
+      origin: 'https://codeflare.test',
+      replace: vi.fn(() => { completionEvents.push('redirect'); }),
+    };
     const html = injectors.injectVaultBootstrapHopHtml(token, 'secret-key', '?codeflarePrewarm=1&prewarmId=warm-1');
     const [script] = scriptBodies(html);
 
@@ -101,13 +135,15 @@ describe('production-bundled Vault browser scripts', () => {
     await completion;
 
     expect(stale.unregister).toHaveBeenCalledOnce();
+    expect(workerEvents).toEqual(['unregister', 'register']);
+    expect(completionEvents).toEqual(['storage', 'cookie', 'redirect']);
     expect(canonical.unregister).not.toHaveBeenCalled();
     expect(crossOrigin.unregister).not.toHaveBeenCalled();
     expect(unrelated.unregister).not.toHaveBeenCalled();
     expect(register).toHaveBeenCalledWith(`/api/vault/${token}/service_worker.js`, { scope: `/api/vault/${token}/` });
     expect(activeWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: 'secret-key' });
     expect(storage.setItem).toHaveBeenCalledWith('enableEncryption', 'true');
-    expect(documentRef.cookie).toBe(`codeflare_vault_bootstrap=1; Path=/api/vault/${token}/; SameSite=Lax; Secure`);
+    expect(cookie).toBe(`codeflare_vault_bootstrap=1; Path=/api/vault/${token}/; SameSite=Lax; Secure`);
     expect(locationRef.replace).toHaveBeenCalledWith(`/api/vault/${token}/?codeflarePrewarm=1&prewarmId=warm-1`);
   });
 
@@ -160,18 +196,25 @@ describe('production-bundled Vault browser scripts', () => {
   });
 
   it('installs the focus guard from the bundled injected bytes', () => {
-    class Element { focus() {} }
-    class Input extends Element { select() {} }
-    class Textarea extends Element { select() {} }
+    let htmlFocusCount = 0;
+    let svgFocusCount = 0;
+    let inputSelectCount = 0;
+    let textareaSelectCount = 0;
+    let windowFocusCount = 0;
+    let blurCount = 0;
+    class HtmlElement { focus() { htmlFocusCount += 1; } }
+    class SvgElement { focus() { svgFocusCount += 1; } }
+    class Input extends HtmlElement { select() { inputSelectCount += 1; } }
+    class Textarea extends HtmlElement { select() { textareaSelectCount += 1; } }
     const documentRef = { addEventListener: vi.fn() };
     const windowRef: any = {
       location: { search: '?codeflarePrewarm=1&prewarmId=warm-1' },
       URLSearchParams,
-      HTMLElement: Element,
-      SVGElement: Element,
+      HTMLElement: HtmlElement,
+      SVGElement: SvgElement,
       HTMLInputElement: Input,
       HTMLTextAreaElement: Textarea,
-      focus() {},
+      focus() { windowFocusCount += 1; },
     };
     const html = injectors.injectVaultPrewarmFocusGuard('<html><head></head><body></body></html>', 'warm-1');
     vm.runInNewContext(markedScript(html, 'data-codeflare-vault-prewarm-focus-guard'), {
@@ -181,8 +224,25 @@ describe('production-bundled Vault browser scripts', () => {
       Object,
     });
 
+    new HtmlElement().focus();
+    new SvgElement().focus();
+    new Input().select();
+    new Textarea().select();
+    windowRef.focus();
+    const focusListener = documentRef.addEventListener.mock.calls[0]?.[1] as ((event: { target: { blur(): void } }) => void) | undefined;
+    expect(focusListener).toBeTypeOf('function');
+    focusListener!({ target: { blur() { blurCount += 1; } } });
+
     expect(windowRef.__codeflareVaultPrewarmNoFocus).toBe(true);
     expect(documentRef.addEventListener).toHaveBeenCalledWith('focusin', expect.any(Function), true);
+    expect({ htmlFocusCount, svgFocusCount, inputSelectCount, textareaSelectCount, windowFocusCount, blurCount }).toEqual({
+      htmlFocusCount: 0,
+      svgFocusCount: 0,
+      inputSelectCount: 0,
+      textareaSelectCount: 0,
+      windowFocusCount: 0,
+      blurCount: 1,
+    });
   });
 
   it('leaves generic non-prewarm focus and select behavior unchanged', () => {
@@ -270,6 +330,68 @@ describe('production-bundled Vault browser scripts', () => {
       status: 'ready',
       proof: expect.objectContaining({ scope, contentReady: true, indexReady: true }),
     }), 'https://codeflare.test');
+  });
+
+  it('withholds bundled ready proof when any acceptance-critical gate is incomplete', async () => {
+    const scope = 'https://codeflare.test/api/vault/0123456789abcdef0123456789abcdef/';
+    const scenarios: Array<{
+      name: string;
+      mutate(windowRef: any, response: { ok: boolean; listing: unknown }): void;
+    }> = [
+      { name: 'runtime', mutate: (windowRef) => { windowRef.sbRuntime.ready = false; } },
+      { name: 'sync', mutate: (windowRef) => { windowRef.client.fullSyncCompleted = false; } },
+      { name: 'system', mutate: (windowRef) => { windowRef.client.systemReady = false; } },
+      { name: 'pages', mutate: (windowRef) => { windowRef.client.pageListLoaded = false; } },
+      { name: 'scripts', mutate: (windowRef) => { windowRef.client.clientSystem.scriptsLoaded = false; } },
+      { name: 'index API', mutate: (windowRef) => { windowRef.client.objectIndex = {}; } },
+      { name: 'queue', mutate: (windowRef) => { windowRef.client.mq.getQueueStats = async () => ({ queued: 1, processing: 0, dlq: 0 }); } },
+      { name: 'index completion', mutate: (windowRef) => { windowRef.client.objectIndex.hasFullIndexCompleted = async () => false; } },
+      { name: 'listing response', mutate: (_windowRef, response) => { response.ok = false; } },
+      { name: 'listing shape', mutate: (_windowRef, response) => { response.listing = {}; } },
+      { name: 'required files', mutate: (_windowRef, response) => { response.listing = [{ name: 'CONFIG.md' }, { name: 'Index.md' }]; } },
+    ];
+
+    for (const scenario of scenarios) {
+      let poll: (() => Promise<void>) | undefined;
+      const parent = { postMessage: vi.fn() };
+      const windowRef: any = {
+        location: { origin: 'https://codeflare.test', search: '' },
+        parent,
+        sbRuntime: { ready: true },
+        client: {
+          fullSyncCompleted: true,
+          systemReady: true,
+          pageListLoaded: true,
+          clientSystem: { scriptsLoaded: true },
+          objectIndex: { hasFullIndexCompleted: async () => true },
+          mq: { getQueueStats: async () => ({ queued: 0, processing: 0, dlq: 0 }) },
+        },
+        setInterval(callback: () => Promise<void>) { poll = callback; return 17; },
+        clearInterval: vi.fn(),
+      };
+      const response = {
+        ok: true,
+        listing: ['CONFIG.md', 'Index.md', 'STYLES.md'].map((name) => ({ name })) as unknown,
+      };
+      scenario.mutate(windowRef, response);
+      const fetchRef = vi.fn(async () => ({ ok: response.ok, json: async () => response.listing }));
+      const html = injectors.injectVaultPrewarmBridge('<html><head></head><body></body></html>', 'warm-1');
+      vm.runInNewContext(markedScript(html, 'data-codeflare-vault-prewarm-bridge'), {
+        window: windowRef,
+        document: { baseURI: scope },
+        navigator: { serviceWorker: { addEventListener: vi.fn() } },
+        fetch: fetchRef,
+        URL,
+        URLSearchParams,
+        Set,
+        Error,
+      });
+
+      expect(poll, scenario.name).toBeTypeOf('function');
+      await poll!();
+      await poll!();
+      expect(parent.postMessage, scenario.name).not.toHaveBeenCalled();
+    }
   });
 
   it('performs the exact-scope one-shot reload from bundled injected bytes', async () => {
