@@ -9,7 +9,7 @@ const host = vi.hoisted(() => ({
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>) | undefined,
-  continueInline: undefined as (() => Promise<void>) | undefined,
+  openPanel: undefined as ((options: Record<string, unknown>) => Promise<void>) | undefined,
   modelProviders: new Map<string, Record<string, (...args: unknown[]) => unknown>>(),
   modelChanges: [] as Array<{ vendor: string; contextValues: Array<{ key: string; value: unknown }> }>,
   warnings: [] as string[],
@@ -61,7 +61,9 @@ vi.mock('vscode', () => ({
         return;
       }
       host.executedCommand = { id, options: args[0] as Record<string, unknown> };
-      if (id === 'inlineChat2.continueInChat') await host.continueInline?.();
+      if (id === 'workbench.action.chat.open') {
+        await host.openPanel?.(args[0] as Record<string, unknown>);
+      }
     },
     registerCommand: (id: string, handler: (resource?: unknown) => Promise<void>) => {
       host.commandId = id;
@@ -115,7 +117,7 @@ afterEach(async () => {
   host.contextValues = [];
   host.participantId = undefined;
   host.participantHandler = undefined;
-  host.continueInline = undefined;
+  host.openPanel = undefined;
   host.modelProviders.clear();
   host.modelChanges = [];
   nativeChat.runNativePiChat.mockReset();
@@ -206,12 +208,19 @@ test('REQ-IDE-019: an inline-first request transfers to panel before Pi streams 
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
 
   assert.ok(host.participantHandler);
-  host.continueInline = () => host.participantHandler!(
-    { location: 1, prompt: 'inline first', references: [] },
-    { history: [] },
-    { markdown: (value: string) => panelMarkdown.push(value), progress() {} },
-    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
-  );
+  host.openPanel = (options) => {
+    assert.deepEqual(options, {
+      query: 'inline first',
+      mode: 'ask',
+      modelSelector: { vendor: 'codeflare' },
+    });
+    return host.participantHandler!(
+      { location: 1, prompt: String(options.query), references: [] },
+      { history: [] },
+      { markdown: (value: string) => panelMarkdown.push(value), progress() {} },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+    );
+  };
   await host.participantHandler(
     { location: 4, prompt: 'inline first', references: [] },
     { history: [] },
@@ -219,7 +228,7 @@ test('REQ-IDE-019: an inline-first request transfers to panel before Pi streams 
     { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
   );
 
-  assert.equal(host.executedCommand?.id, 'inlineChat2.continueInChat');
+  assert.equal(host.executedCommand?.id, 'workbench.action.chat.open');
   assert.deepEqual(inlineMarkdown, []);
   assert.deepEqual(panelMarkdown, ['answer:inline first']);
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
@@ -248,12 +257,19 @@ test('REQ-IDE-020: panel-first then inline reuses one runtime and transfers the 
     response,
     cancellation,
   );
-  host.continueInline = () => host.participantHandler!(
-    { location: 1, prompt: 'inline follow-up', references: [] },
-    { history: [] },
-    response,
-    cancellation,
-  );
+  host.openPanel = (options) => {
+    assert.deepEqual(options, {
+      query: 'inline follow-up',
+      mode: 'ask',
+      modelSelector: { vendor: 'codeflare' },
+    });
+    return host.participantHandler!(
+      { location: 1, prompt: String(options.query), references: [] },
+      { history: [] },
+      response,
+      cancellation,
+    );
+  };
   await host.participantHandler(
     { location: 4, prompt: 'inline follow-up', references: [] },
     { history: [] },

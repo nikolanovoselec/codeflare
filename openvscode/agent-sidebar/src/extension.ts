@@ -25,7 +25,6 @@ import {
 const PARTICIPANT_ID = 'codeflare.pi';
 const REVIEW_FILE_COMMAND = 'codeflare.pi.reviewFile';
 const OPEN_CHAT_COMMAND = 'workbench.action.chat.open';
-const CONTINUE_INLINE_CHAT_COMMAND = 'inlineChat2.continueInChat';
 // The pinned extension host still resolves an absent request model only from
 // its reserved Copilot vendor. Keep that fallback hidden, and expose a distinct
 // Codeflare vendor so the visible picker bypasses Copilot entitlement/setup.
@@ -109,11 +108,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
     async (request, chatContext, response, cancellation) => {
       if ('location' in request && request.location === CHAT_LOCATION_EDITOR) {
         if (cancellation.isCancellationRequested) return;
-        // Code OSS 1.132 Inline Chat displays host-owned edit transactions and
-        // filters ordinary participant text. Pi edits directly with unrestricted
-        // tools, so use the host's native continuation path before inference
-        // instead of running a turn against a response stream the user cannot see.
-        await commands.executeCommand(CONTINUE_INLINE_CHAT_COMMAND);
+        // Code OSS 1.132 filters ordinary participant text, while its native
+        // continue action is enabled only after an inline session terminates.
+        // Submit the untouched prompt to the visible panel before Pi inference;
+        // the resulting panel invocation owns the shared runtime and response.
+        await commands.executeCommand(OPEN_CHAT_COMMAND, {
+          query: request.prompt,
+          mode: 'ask',
+          modelSelector: { vendor: HOST_VISIBLE_VENDOR },
+        });
         return;
       }
       await runtime.handle({

@@ -494,6 +494,20 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.match(executedCommand?.options.query, /^@codeflare\b/);
     assert.equal(executedCommand?.options.mode, 'ask');
     await handler(
+      { location: 4, prompt: 'inline smoke', references: [] },
+      { history: [] },
+      { markdown: () => assert.fail('inline request emitted hidden markdown'), progress: () => assert.fail('inline request emitted hidden progress') },
+      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
+    );
+    assert.deepEqual(executedCommand, {
+      id: 'workbench.action.chat.open',
+      options: {
+        query: 'inline smoke',
+        mode: 'ask',
+        modelSelector: { vendor: 'codeflare' },
+      },
+    });
+    await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },
       { markdown: () => assert.fail('cancelled request emitted markdown'), progress: () => assert.fail('cancelled request emitted progress') },
