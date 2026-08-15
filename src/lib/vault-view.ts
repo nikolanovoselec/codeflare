@@ -526,7 +526,7 @@ export function injectVaultControlledReload(html: string): string {
  * Implements REQ-VAULT-024 AC1/AC2.
  */
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
-export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
+const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
 export async function unregisterStaleVaultServiceWorkers(
   serviceWorkerRef: any,

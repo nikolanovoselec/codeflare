@@ -79,14 +79,12 @@ export {
   isServiceWorkerRegistration,
   isServiceWorkerContextFetch,
   injectVaultEncryptionConfig,
-  injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
   VAULT_BOOTSTRAP_COOKIE,
-  VAULT_SW_ACTIVATION_TIMEOUT_MS,
 } from '../../lib/vault-view';
 export {
   VAULT_NATIVE_SERVICE_WORKER_JS,
@@ -109,7 +107,7 @@ const logger = createLogger('vault');
  */
 
 /**
- * REQ-VAULT-024 AC1: the bootstrap-hop is a one-time, GET-only page. Any other
+ * REQ-VAULT-024 AC7: the bootstrap-hop is a one-time, GET-only page. Any other
  * method (or a WebSocket upgrade) must fall through to the proxy so the
  * encryption-key-bearing hop HTML is never rendered on an unexpected method.
  */

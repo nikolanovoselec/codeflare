@@ -14,6 +14,7 @@ import {
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
+  isBootstrapHopRequest,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
 } from '../../routes/vault';
@@ -448,6 +449,15 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
 
     it('throws if key is empty (vaultEncryptionKey must be a non-empty string)', () => {
       expect(() => injectVaultEncryptionConfig('{}', '')).toThrow();
+    });
+  });
+
+  describe('REQ-VAULT-024 AC7: only GET enters bootstrap completion', () => {
+    it('accepts only a non-WebSocket GET for the exact bootstrap path', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'GET')).toBe(true);
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'POST')).toBe(false);
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', true, 'GET')).toBe(false);
+      expect(isBootstrapHopRequest('/other', false, 'GET')).toBe(false);
     });
   });
 
