@@ -1,5 +1,3 @@
-import type { VaultLocalReadinessResult } from './vault-local-readiness';
-
 export const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 export const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_SOURCE = 'codeflare-vault-prewarm';
@@ -14,7 +12,8 @@ export const FOCUS_RECLAIM_POLL_MS = 250;
 
 export type VaultPrewarmStatus = 'idle' | 'prewarming' | 'ready' | 'timeout' | 'error';
 
-export type VaultPrewarmProof = VaultLocalReadinessResult & {
+export type VaultPrewarmProof = {
+  scope: string;
   contentReady: true;
   spaceSyncCompleted: true;
   indexReady: true;
@@ -87,9 +86,7 @@ export function buildVaultPrewarmUrl(sessionId: string, prewarmId: string): stri
 function isVaultPrewarmProof(value: unknown): value is VaultPrewarmProof {
   if (value == null || typeof value !== 'object') return false;
   const candidate = value as Partial<VaultPrewarmProof>;
-  return candidate.ready === true
-    && Array.isArray(candidate.recordedDbs)
-    && typeof candidate.hasIndexedDbDatabasesApi === 'boolean'
+  return typeof candidate.scope === 'string'
     && candidate.contentReady === true
     && candidate.spaceSyncCompleted === true
     && candidate.indexReady === true
@@ -231,9 +228,22 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
 
   function onMessage(event: MessageEvent) {
     if (event.origin !== windowRef.location.origin) return;
+    if (event.source !== iframe.contentWindow) return;
     if (!isVaultPrewarmMessage(event.data)) return;
     if (event.data.prewarmId !== prewarmId) return;
     if (event.data.status === 'ready') {
+      try {
+        const reportedScope = new URL(event.data.proof.scope);
+        const frameBaseUri = iframe.contentDocument?.baseURI;
+        if (!frameBaseUri) return;
+        const frameScope = new URL('.', frameBaseUri);
+        if (reportedScope.href !== frameScope.href
+          || reportedScope.origin !== windowRef.location.origin
+          || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(reportedScope.pathname)
+          || reportedScope.search || reportedScope.hash) return;
+      } catch {
+        return;
+      }
       finishReady(event.data.proof);
       return;
     }

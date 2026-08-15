@@ -2464,7 +2464,9 @@ Persistence is deferred. The actual drivers of the per-session terminal/keyboard
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`.
+**Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`; readiness-marker residual superseded by the v3 clean cutover in [REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety).
+
+**2026-08 clean-cutover addendum:** The deferred bucket-keyed marker design was not adopted. SilverBullet precaches its shell, so shell-embedded session readiness metadata is the wrong authority regardless of marker key. The v3 release instead removes stale Vault service workers on the user's explicit first click, installs one permanent canonical scope, and arms only from current runtime/sync/index/required-file proof. Persistent reload auto-arming and background retry are removed; each fresh dashboard load keeps the white → click-one accent → green → click-two open lifecycle. Historical IndexedDB databases remain untouched orphan caches.
 
 **Decision:** Two coupled changes to the vault open path. (1) The native-SW graft NEUTERS SilverBullet's proactive "no window clients" key flush — the `setInterval` that wiped the in-memory AES key `y` 5s after the last client disconnected — keeping its no-client log but dropping the `y=void 0` wipe, so the key is retained for the worker's natural lifetime; `__cfRecover` (re-fetch from the auth-gated `/.vault-key`) is kept only for a genuinely idle-terminated worker. (2) `handleVaultOpen` opens a green (`pw === 'ready'`) Vault button DIRECTLY via the bootstrap-hop, dropping the per-open re-verify of local readiness + key recoverability and its re-prewarm fallback.
 
@@ -2490,9 +2492,7 @@ Key `vault-session-*-idbs`/`-prewarmed` by the bucket token (like the bucket-sta
 - The cold-open `.auth` bounce and the in-session "re-index on every click" are both resolved; a green button opens immediately and identically on mobile/tablet/desktop.
 - The two changes are COUPLED: opening a green button directly is only safe because the key is retained (no flush race), so they ship together.
 - Forward secrecy is marginally relaxed (the key lives in SW memory until idle-termination — tens of seconds — instead of 5s after close); accepted because the key is re-derivable from `/.vault-key` regardless.
-- KNOWN RESIDUAL:
-
-the marker-key divergence still false-negatives the reload-skip auto-green, so a returning session's button does not auto-green and needs one on-demand click; the durable fix (bucket-key the marker) is deferred. The residual service-proxy-error `.auth` path is also unpatched (flagged residual-risk).
+- The former marker-key divergence and reload-skip residual are superseded by the v3 clean cutover: no persistent readiness marker auto-arms a fresh dashboard load. The residual service-proxy-error `.auth` path remains unpatched because authentication failure is not encryption-key recovery.
 
 **Related:** [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing), [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [Troubleshooting lane — vault rows](../lanes/troubleshooting.md).
 

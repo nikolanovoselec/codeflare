@@ -154,16 +154,13 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
   });
 });
 
-// REQ-VAULT-022 AC2: the durable full-prewarm marker lets a reload skip remounting
-// the bootstrap iframe. It lives under the same `vault-session-*` namespace the
-// cache sweep manages, so the sweep MUST treat `<sid>-prewarmed` as belonging to
-// `<sid>` (preserve it for active sessions, drop it for orphans/deletes) instead
-// of mistaking it for a bogus orphan session and erasing it on every Layout mount.
-describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed) lifecycle', () => {
+// Pre-v3 builds wrote full-prewarm markers. Current readiness never consumes
+// them, but best-effort session bookkeeping still groups and removes them safely.
+describe('legacy full-prewarm marker cleanup', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
-  it('preserves the prewarmed marker for an ACTIVE session during an orphan sweep', async () => {
+  it('preserves a legacy marker for an active session during an orphan sweep', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-active01-prewarmed', '1');
     store.set('vault-session-active01-idbs', JSON.stringify(['sb_data_a', 'sb_files_b']));
@@ -174,7 +171,7 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed)
     expect(store.has('vault-session-active01-prewarmed')).toBe(true);
   });
 
-  it('removes the prewarmed marker for an ORPHAN session during a sweep', async () => {
+  it('removes a legacy marker for an orphan session during a sweep', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-orphan9-prewarmed', '1');
 
@@ -184,7 +181,7 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed)
     expect(store.has('vault-session-orphan9-prewarmed')).toBe(false);
   });
 
-  it('removes the prewarmed marker on session DELETE', async () => {
+  it('removes a legacy marker on session delete', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-deadbeef-prewarmed', '1');
 

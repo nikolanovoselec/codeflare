@@ -9,8 +9,7 @@
  *   - isServiceWorkerRegistration / isServiceWorkerContextFetch: the
  *     SW-registration and SW-context request selectors. The worker bytes
  *     served for registration live in src/routes/vault/native-sw.ts (AD69).
- *   - injectVaultEncryptionConfig / injectVaultBootScript /
- *     injectVaultIdbRecorder: BootConfig + shell-HTML injectors.
+ *   - injectVaultEncryptionConfig: authenticated BootConfig rewriting.
  *   - injectVaultBootstrapHopHtml + VAULT_BOOTSTRAP_COOKIE helpers.
  *   - rewriteVaultBaseHref / rewriteVaultHtmlResponse: base-href adapter.
  *   - filterVaultFsListing: /.fs listing filter.
@@ -237,174 +236,12 @@ export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncrypt
   return JSON.stringify(merged);
 }
 
-/**
- * Inject a tiny codeflare bootstrap script into the SilverBullet shell
- * HTML, immediately before `</head>`. The script exposes a single global
- * `window.__codeflareVaultBoot = { sessionId }` that the recorder
- * (injected separately by `injectVaultIdbRecorder`) reads to scope its
- * localStorage entries per session. The encryption key is NOT injected
- * into the page window - it travels through the bootstrap-hop page →
- * service-worker channel instead, which keeps it off the DOM where any
- * SB plug could read it.
- *
- * Idempotent via `VAULT_BOOT_MARKER`. Returns the input unchanged when
- * `</head>` is missing (SB error pages and 404 HTML have no head and
- * must not be mutilated).
- *
- * Implements REQ-VAULT-015 AC3 plumbing (the sid handoff that the
- * IDB recorder consumes).
- */
-export interface VaultBootConfig {
-  sessionId: string;
-}
-
-const VAULT_BOOT_MARKER = 'window.__codeflareVaultBoot';
-
-// Defence-in-depth cap on the serialised payload size. The payload today
-// is one short session id; the cap exists so a future field addition
-// does not silently grow the inline script past sensible limits.
-const VAULT_BOOT_CONFIG_MAX_BYTES = 1024;
-
-export function injectVaultBootScript(html: string, config: VaultBootConfig): string {
-  if (!config.sessionId) {
-    throw new Error('injectVaultBootScript: sessionId must be non-empty');
-  }
-  if (!isValidVaultUrlSegment(config.sessionId)) {
-    throw new Error('injectVaultBootScript: sessionId must match SESSION_ID_PATTERN');
-  }
-  if (html.includes(VAULT_BOOT_MARKER)) {
-    return html;
-  }
-  if (!html.includes('</head>')) {
-    return html;
-  }
-  // Defence-in-depth escapes for JSON-in-script-tag boundary:
-  //   </ -> <\/   (defang literal </script> break-out)
-  //   <!-- -> <\!--  (HTML5 script-data-double-escape-start)
-  //   line separators U+2028 and U+2029 are escaped (legal in JSON, illegal as
-  //     bare JS string literals in older runtimes)
-  const serialised = JSON.stringify(config)
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  if (serialised.length > VAULT_BOOT_CONFIG_MAX_BYTES) {
-    throw new Error(
-      `injectVaultBootScript: serialised config exceeds ${VAULT_BOOT_CONFIG_MAX_BYTES}-byte safety cap`
-    );
-  }
-  const tag = `<script>${VAULT_BOOT_MARKER} = ${serialised};</script>`;
-  return html.replace('</head>', `${tag}</head>`);
-}
-
-/**
- * Inject a SilverBullet IDB-name recorder into the shell HTML. The
- * recorder lands before `</head>` AFTER the boot-config script (so
- * `window.__codeflareVaultBoot.sessionId` is defined when it runs).
- *
- * It wraps page-context `indexedDB.open` and listens for matching
- * `codeflare-vault-idb-open` messages from the native service worker to
- * capture every database name SilverBullet opens that starts with `sb_`.
- * It persists the names into `localStorage["vault-session-<sid>-idbs"]`
- * as a JSON array (keyed by the REAL session id, which the Worker injects
- * into the boot config as `sessionId` even though the served URL carries the
- * bucket token - REQ-VAULT-021). The dashboard's `checkVaultLocalReadiness`
- * reads that array to confirm the SB stores exist before opening.
- *
- * NOTE (REQ-VAULT-023): the recorded names are NO LONGER used to delete IDBs.
- * The SB stores are now bucket-stable (one set per user, shared across
- * sessions), so `cleanupSessionVaultCache` / `sweepOrphanVaultCaches` remove
- * only the localStorage markers and never call `indexedDB.deleteDatabase` -
- * deleting the shared store would defeat cross-session persistence.
- *
- * Idempotent via `VAULT_IDB_RECORDER_MARKER`. Returns the input
- * unchanged when `</head>` is missing or the script is already present.
- *
- * Why record at boot instead of compute the name in the dashboard:
- * SilverBullet's `deriveDbName` depends on `spaceFolderPath`,
- * `document.baseURI`, AND the encryption key. The dashboard could
- * reproduce the formula, but the recorder is resilient to any future
- * upstream change in that formula - we work from observed reality, not
- * a derivation that may drift.
- */
-export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
 const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
 export const VAULT_PREWARM_FOCUS_GUARD_MARKER = 'data-codeflare-vault-prewarm-focus-guard';
 export const VAULT_CONTROLLED_RELOAD_MARKER = 'data-codeflare-vault-controlled-reload';
 export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
-
-export function installVaultIdbRecorder(
-  windowRef: any,
-  navigatorRef: any,
-  indexedDbRef: any,
-  storageRef: any,
-): void {
-  try {
-    const boot = windowRef.__codeflareVaultBoot;
-    if (!boot || typeof boot.sessionId !== 'string') return;
-    const sid = boot.sessionId;
-    if (!/^[a-z0-9]{8,24}$/.test(sid)) return;
-
-    const scopeUrl = new URL('.', windowRef.document.baseURI);
-    if (scopeUrl.origin !== windowRef.location.origin
-      || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(scopeUrl.pathname)) return;
-    const scope = scopeUrl.href;
-    const key = `vault-session-${sid}-idbs`;
-    const scopeKey = `vault-session-${sid}-scope`;
-    const prewarmedKey = `vault-session-${sid}-prewarmed`;
-
-    if (storageRef.getItem(scopeKey) !== scope) {
-      // Cut over readiness metadata only. Historical SW registrations and
-      // SilverBullet databases remain untouched and orphaned by design.
-      storageRef.setItem(key, '[]');
-      storageRef.removeItem(prewarmedKey);
-      storageRef.setItem(scopeKey, scope);
-    }
-
-    function record(name: unknown): void {
-      if (typeof name !== 'string' || !name.startsWith('sb_')) return;
-      try {
-        const parsed = JSON.parse(storageRef.getItem(key) || '[]');
-        const recorded = Array.isArray(parsed)
-          ? parsed.filter((entry): entry is string => typeof entry === 'string')
-          : [];
-        if (!recorded.includes(name)) {
-          storageRef.setItem(key, JSON.stringify([...recorded, name]));
-        }
-      } catch {
-        // Storage unavailable/full: local readiness remains safely false.
-      }
-    }
-
-    const originalOpen = indexedDbRef.open.bind(indexedDbRef);
-    indexedDbRef.open = function open(name: string, version?: number) {
-      record(name);
-      return originalOpen(name, version);
-    };
-    if (navigatorRef.serviceWorker
-      && typeof navigatorRef.serviceWorker.addEventListener === 'function') {
-      navigatorRef.serviceWorker.addEventListener('message', function onMessage(event: any) {
-        const data = event.data;
-        if (data && data.type === 'codeflare-vault-idb-open') record(data.name);
-      });
-    }
-  } catch {
-    // Recorder installation is best-effort; readiness fails closed without it.
-  }
-}
-
-export function injectVaultIdbRecorder(html: string): string {
-  if (html.includes(VAULT_IDB_RECORDER_MARKER)) return html;
-  if (!html.includes('</head>')) return html;
-  const installerSource = installVaultIdbRecorder.toString()
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (match) => `\\u${match.charCodeAt(0).toString(16)}`);
-  const script = '<script>' + VAULT_IDB_RECORDER_MARKER + '(function () {(' +
-    installerSource + ')(window, navigator, indexedDB, localStorage);})();</script>';
-  return html.replace('</head>', `${script}</head>`);
-}
 
 function readVaultPrewarmId(request: Request): string | null {
   const url = new URL(request.url);
@@ -488,90 +325,6 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
   return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
-export async function findExactVaultRegistration(
-  serviceWorkerRef: any,
-  expectedScope: string,
-): Promise<any | null> {
-  try {
-    const registration = await serviceWorkerRef.getRegistration(expectedScope);
-    return registration?.scope === expectedScope ? registration : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function checkVaultBridgeLocalReadiness(
-  windowRef: any,
-  navigatorRef: any,
-  expectedScope: string,
-  sid: string,
-  findRegistrationRef: (serviceWorker: any, scope: string) => Promise<any | null>,
-): Promise<any> {
-  let storage = null;
-  try { storage = windowRef.localStorage || null; } catch {}
-  let idb = null;
-  try { idb = windowRef.indexedDB || null; } catch {}
-  const hasDbApi = !!(idb && typeof idb.databases === 'function');
-  const proof = (recordedDbs: string[], reason: string | null, swState?: string) => ({
-    ready: !reason,
-    reason: reason || undefined,
-    recordedDbs,
-    hasIndexedDbDatabasesApi: hasDbApi,
-    serviceWorkerState: swState,
-  });
-  const recordedDbs = (() => {
-    if (!storage) return [];
-    try {
-      const parsed = JSON.parse(storage.getItem(`vault-session-${sid}-idbs`) || '[]');
-      return Array.isArray(parsed)
-        ? parsed.filter((entry): entry is string => typeof entry === 'string')
-        : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  if (!storage) return proof(recordedDbs, 'no-local-storage');
-  if (!idb) return proof(recordedDbs, 'no-indexeddb');
-  try {
-    if (storage.getItem(`vault-session-${sid}-scope`) !== expectedScope) {
-      return proof(recordedDbs, 'missing-service-worker-scope');
-    }
-  } catch {
-    return proof(recordedDbs, 'missing-service-worker-scope');
-  }
-  if (recordedDbs.length === 0) return proof(recordedDbs, 'no-recorder');
-  if (!recordedDbs.some((name) => name.startsWith('sb_data_'))) {
-    return proof(recordedDbs, 'missing-sb-data');
-  }
-  if (!recordedDbs.some((name) => name.startsWith('sb_files_'))) {
-    return proof(recordedDbs, 'missing-sb-files');
-  }
-
-  const registration = navigatorRef.serviceWorker
-    ? await findRegistrationRef(navigatorRef.serviceWorker, expectedScope)
-    : null;
-  const active = registration?.active ?? null;
-  if (!active || active.state === 'redundant') {
-    return proof(recordedDbs, 'missing-service-worker');
-  }
-
-  if (hasDbApi) {
-    try {
-      const databases = await idb.databases();
-      const names = new Set(
-        databases.map((db: any) => db?.name).filter((name: unknown): name is string => typeof name === 'string'),
-      );
-      const hasData = recordedDbs.some((name) => name.startsWith('sb_data_') && names.has(name));
-      const hasFiles = recordedDbs.some((name) => name.startsWith('sb_files_') && names.has(name));
-      if (!hasData || !hasFiles) return proof(recordedDbs, 'missing-idb-database', active.state);
-    } catch {
-      return proof(recordedDbs, 'missing-idb-database', active.state);
-    }
-  }
-  return proof(recordedDbs, null, active.state);
-}
-
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
   if (html.includes(VAULT_PREWARM_BRIDGE_MARKER)) return html;
   if (!html.includes('</head>')) return html;
@@ -584,21 +337,10 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<\//g, '<\\/')
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const exactRegistrationSource = findExactVaultRegistration.toString()
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const localReadinessSource = checkVaultBridgeLocalReadiness.toString()
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
-    'var findExactRegistration = ' + exactRegistrationSource + ';' +
-    'var checkLocalReadiness = ' + localReadinessSource + ';' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
-    'var sid = null;' +
     'var expectedScope = null;' +
     'var requiredFiles = ' + requiredFilesJson + ';' +
     'var spaceSyncCompleted = false;' +
@@ -608,9 +350,6 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (params.get("codeflarePrewarm") === "1") prewarmId = params.get("prewarmId");' +
     '}' +
     'if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;' +
-    'var boot = window.__codeflareVaultBoot;' +
-    'sid = boot && typeof boot.sessionId === "string" ? boot.sessionId : null;' +
-    'if (!sid || !/^[a-z0-9]{8,24}$/.test(sid)) return;' +
     'expectedScope = new URL(".", document.baseURI).href;' +
     'var expected = new URL(expectedScope);' +
     'if (expected.origin !== window.location.origin || !/^\\/api\\/vault\\/[0-9a-f]{32}\\/$/.test(expected.pathname)) return;' +
@@ -656,7 +395,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var names = {};' +
     'list.forEach(function (entry) { if (entry && typeof entry.name === "string") names[entry.name] = true; });' +
     'for (var i = 0; i < requiredFiles.length; i++) { if (!names[requiredFiles[i]]) return null; }' +
-    'return { contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
+    'return { scope: expectedScope, contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
     '} catch (_) { return null; }' +
     '}' +
     'var inFlight = false;' +
@@ -674,18 +413,12 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'inFlight = true;' +
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
-    'var localProof = await checkLocalReadiness(window, navigator, expectedScope, sid, findExactRegistration);' +
-    'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
-    'if (localProof.ready === true && contentProof) {' +
+    'var contentProof = await checkContentReadiness();' +
+    'if (contentProof) {' +
     'readyStreak++;' +
     'if (readyStreak >= requiredReadyStreak) {' +
-    'localProof.contentReady = contentProof.contentReady;' +
-    'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
-    'localProof.indexReady = contentProof.indexReady;' +
-    'localProof.requiredFiles = contentProof.requiredFiles;' +
-    'localProof.listedFileCount = contentProof.listedFileCount;' +
     'window.clearInterval(timer);' +
-    'post("ready", null, localProof);' +
+    'post("ready", null, contentProof);' +
     '}' +
     '} else { readyStreak = 0; }' +
     '} else { readyStreak = 0; }' +
@@ -783,6 +516,34 @@ export function injectVaultControlledReload(html: string): string {
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
+export async function unregisterStaleVaultServiceWorkers(
+  serviceWorkerRef: any,
+  expectedScope: string,
+): Promise<number> {
+  if (!serviceWorkerRef || typeof serviceWorkerRef.getRegistrations !== 'function') {
+    throw new Error('service worker registration enumeration is unavailable');
+  }
+  const expected = new URL(expectedScope);
+  const isStaleVaultScope = (scopeValue: unknown) => {
+    if (typeof scopeValue !== 'string' || scopeValue === expected.href) return false;
+    try {
+      const scope = new URL(scopeValue);
+      return scope.origin === expected.origin
+        && scope.pathname.startsWith('/api/vault/');
+    } catch {
+      return false;
+    }
+  };
+  const registrations = await serviceWorkerRef.getRegistrations();
+  const stale = registrations.filter((registration: any) => isStaleVaultScope(registration?.scope));
+  await Promise.all(stale.map((registration: any) => registration.unregister()));
+  const remaining = await serviceWorkerRef.getRegistrations();
+  if (remaining.some((registration: any) => isStaleVaultScope(registration?.scope))) {
+    throw new Error('stale Vault service worker remains after unregister');
+  }
+  return stale.length;
+}
+
 /** Persist the encryption gate before marking the bootstrap complete. */
 export function completeVaultBootstrap(
   storageRef: Pick<Storage, 'setItem'>,
@@ -808,7 +569,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     throw new Error('injectVaultBootstrapHopHtml: redirectSearch must be a sanitized prewarm query');
   }
   // Defence-in-depth escapes for the JS-string-literal boundary inside
-  // <script>...</script>. The same escapes used by injectVaultBootScript.
+  // <script>...</script>; keep the embedded values within JSON string literals.
   const escape = (s: string): string =>
     JSON.stringify(s)
       .replace(/<\//g, '<\\/')
@@ -819,6 +580,10 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   const escapedCookie = escape(VAULT_BOOTSTRAP_COOKIE);
   const escapedRedirectSearch = escape(redirectSearch);
   const completeBootstrapSource = completeVaultBootstrap.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const unregisterStaleWorkersSource = unregisterStaleVaultServiceWorkers.toString()
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
@@ -841,6 +606,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'var cookieName = ' + escapedCookie + ';' +
     'var scope = "/api/vault/" + sid + "/";' +
     'var completeBootstrap = ' + completeBootstrapSource + ';' +
+    'var unregisterStaleWorkers = ' + unregisterStaleWorkersSource + ';' +
     'var el = document.getElementById("status");' +
     'function fail(msg) {' +
     'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
@@ -849,6 +615,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'function step(msg) { if (el) el.textContent = msg; console.log("vault-hop:", msg); }' +
     'if (!navigator.serviceWorker) { fail("browser does not support service workers"); return; }' +
     'try {' +
+    'step("Removing old service workers...");' +
+    'await unregisterStaleWorkers(navigator.serviceWorker, new URL(scope, location.origin).href);' +
     'step("Registering service worker...");' +
     'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'try { reg = await reg.update(); } catch (_) {}' +
@@ -1019,13 +787,6 @@ export async function rewriteVaultHtmlResponse(
   contentType: string,
   logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
   request?: Request,
-  // REQ-VAULT-021: on the bucket-stable serving path `urlSegment` is the bucket
-  // token (what every SB URL builder + the CSRF cookie path must use) while the
-  // recorder/prewarm bridge must key their localStorage markers by the REAL
-  // session id (what the dashboard reads). They differ only on the token path;
-  // when omitted (session-keyed callers, unit tests) the boot sid defaults to
-  // the segment so behaviour is unchanged.
-  bootSessionId: string = urlSegment,
 ): Promise<Response> {
   const body = await response.text();
   const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, urlSegment);
@@ -1034,8 +795,6 @@ export async function rewriteVaultHtmlResponse(
   const isShellPath = remainingPath === '/' || remainingPath === '/index.html';
   if (response.status === 200 && isShellPath) {
     try {
-      rewritten = injectVaultBootScript(rewritten, { sessionId: bootSessionId });
-      rewritten = injectVaultIdbRecorder(rewritten);
       const prewarmId = request ? readVaultPrewarmId(request) ?? undefined : undefined;
       rewritten = injectVaultPrewarmFocusGuard(rewritten, prewarmId);
       rewritten = injectVaultPrewarmBridge(rewritten, prewarmId);

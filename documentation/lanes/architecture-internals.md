@@ -92,7 +92,7 @@ For a live repository tree, run `tree -L 2 -I node_modules` rather than relying 
 - `access.ts`: `assertSessionOwnership` ownership gate
 - `crypto.ts`: `getVaultEncryptionKey` key resolution
 - `native-sw.ts`: vendored native service worker source + graft transform (AD69)
-- `src/lib/vault-view.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `injectVaultIdbRecorder`, `filterVaultFsListing`) — the vault view/templating layer, housed in `lib/` so route/auth churn and template churn stay separate
+- `src/lib/vault-view.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `unregisterStaleVaultServiceWorkers`, `filterVaultFsListing`) — the vault view/templating layer, housed in `lib/` so route/auth churn and template churn stay separate
 - `index.ts`: `handleVaultRequest` orchestration wiring the chain origin -> authenticate -> tier -> ownership
 
 **Container lifecycle route extraction:** `src/routes/container/lifecycle.ts` split into focused modules (`lifecycle.ts` re-exports the helpers for existing importers):

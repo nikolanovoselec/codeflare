@@ -14,13 +14,10 @@ import {
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
-  injectVaultBootScript,
+  injectVaultBootstrapHopHtml,
   injectVaultPrewarmBridge,
-  findExactVaultRegistration,
-  checkVaultBridgeLocalReadiness,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
-  installVaultIdbRecorder,
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
@@ -28,6 +25,7 @@ import {
   VAULT_PREWARM_REQUIRED_FILES,
   injectVaultControlledReload,
   completeVaultBootstrap,
+  unregisterStaleVaultServiceWorkers,
   installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../lib/vault-view';
@@ -147,6 +145,54 @@ describe('CF-045: vault-html direct unit tests', () => {
     it('returns false when the cookie has a non-1 value', () => {
       const req = new Request('https://x/', { headers: { Cookie: `${VAULT_BOOTSTRAP_COOKIE}=0` } });
       expect(hasVaultBootstrapCookie(req)).toBe(false);
+    });
+  });
+
+  describe('REQ-VAULT-029 clean worker cutover', () => {
+    it('unregisters every old Vault scope and preserves only the new canonical scope', async () => {
+      const currentScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const registrations = [
+        { scope: currentScope, unregister: vi.fn(async () => true) },
+        { scope: 'https://x/api/vault/abcdef12/', unregister: vi.fn(async () => true) },
+        { scope: 'https://x/api/vault/fedcba9876543210fedcba9876543210/', unregister: vi.fn(async () => true) },
+        { scope: 'https://x/api/vault/pre-token-scope/legacy/', unregister: vi.fn(async () => true) },
+        { scope: 'https://other.example/api/vault/abcdef12/', unregister: vi.fn(async () => true) },
+        { scope: 'https://x/other/', unregister: vi.fn(async () => true) },
+      ];
+      const serviceWorker = {
+        getRegistrations: vi.fn(async () => registrations.filter((registration) =>
+          registration.scope === currentScope
+          || registration.scope === 'https://other.example/api/vault/abcdef12/'
+          || registration.scope === 'https://x/other/'
+          || registration.unregister.mock.calls.length === 0)),
+      };
+
+      await expect(unregisterStaleVaultServiceWorkers(serviceWorker, currentScope)).resolves.toBe(3);
+      expect(registrations[0].unregister).not.toHaveBeenCalled();
+      expect(registrations[1].unregister).toHaveBeenCalledTimes(1);
+      expect(registrations[2].unregister).toHaveBeenCalledTimes(1);
+      expect(registrations[3].unregister).toHaveBeenCalledTimes(1);
+      expect(registrations[4].unregister).not.toHaveBeenCalled();
+      expect(registrations[5].unregister).not.toHaveBeenCalled();
+    });
+
+    it('runs stale-worker cleanup before canonical registration in the bootstrap hop', () => {
+      const html = injectVaultBootstrapHopHtml('0123456789abcdef0123456789abcdef', 'vault-key');
+
+      expect(html).toContain('unregisterStaleWorkers');
+      expect(html.indexOf('await unregisterStaleWorkers')).toBeLessThan(
+        html.indexOf('navigator.serviceWorker.register'),
+      );
+    });
+
+    it('fails closed when an old Vault registration remains after unregister', async () => {
+      const stale = { scope: 'https://x/api/vault/abcdef12/', unregister: vi.fn(async () => false) };
+      const serviceWorker = { getRegistrations: vi.fn(async () => [stale]) };
+
+      await expect(unregisterStaleVaultServiceWorkers(
+        serviceWorker,
+        'https://x/api/vault/0123456789abcdef0123456789abcdef/',
+      )).rejects.toThrow('stale Vault service worker remains');
     });
   });
 
@@ -389,39 +435,14 @@ describe('CF-045: vault-html direct unit tests', () => {
       );
     });
 
-    it('binds the complete local-readiness decision to the exact current Vault scope', async () => {
-      const expectedScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
-      const sid = 'aabbccdd';
-      const current = { scope: expectedScope, active: { state: 'activated' } };
-      const orphan = { scope: 'https://x/api/vault/abcdef12/', active: { state: 'activated' } };
-      const entries = new Map([
-        [`vault-session-${sid}-scope`, expectedScope],
-        [`vault-session-${sid}-idbs`, JSON.stringify(['sb_data_current', 'sb_files_current'])],
-      ]);
-      const windowRef = {
-        localStorage: { getItem: (key: string) => entries.get(key) ?? null },
-        indexedDB: { databases: async () => [{ name: 'sb_data_current' }, { name: 'sb_files_current' }] },
-      };
-      const run = (getRegistration: (_scope: string) => Promise<any>) => checkVaultBridgeLocalReadiness(
-        windowRef,
-        { serviceWorker: { getRegistration } },
-        expectedScope,
-        sid,
-        findExactVaultRegistration,
-      );
-      const exactLookup = vi.fn(async (_scope: string) => current);
-
-      await expect(run(exactLookup)).resolves.toMatchObject({ ready: true, serviceWorkerState: 'activated' });
-      await expect(run(vi.fn(async (_scope: string) => orphan))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
-      await expect(run(vi.fn(async (_scope: string) => { throw new Error('unavailable'); }))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
-      await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: null })))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
-      await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: { state: 'activating' } })))).resolves.toMatchObject({ ready: true, serviceWorkerState: 'activating' });
-      await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: { state: 'redundant' } })))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
-      expect(exactLookup).toHaveBeenCalledWith(expectedScope);
-
+    it('reports only canonical-scope runtime/content proof after the new worker completes', async () => {
       const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-      expect(script).toContain('var checkLocalReadiness = ');
-      expect(script).toContain('checkLocalReadiness(window, navigator, expectedScope, sid, findExactRegistration)');
+
+      expect(script).toContain('scope: expectedScope');
+      expect(script).toContain('contentProof = await checkContentReadiness()');
+      expect(script).toContain('post("ready", null, contentProof)');
+      expect(script).not.toContain('checkLocalReadiness');
+      expect(script).not.toContain('getRegistration');
       expect(script).not.toContain('getRegistrations()');
     });
 
@@ -441,68 +462,7 @@ describe('CF-045: vault-html direct unit tests', () => {
     });
   });
 
-  describe('installVaultIdbRecorder (REQ-VAULT-021 v2 scope cutover)', () => {
-    const SID = 'aabbccdd';
-    const CURRENT_SCOPE = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
-    const IDB_KEY = `vault-session-${SID}-idbs`;
-    const SCOPE_KEY = `vault-session-${SID}-scope`;
-    const PREWARMED_KEY = `vault-session-${SID}-prewarmed`;
-
-    function runRecorder(entries: Record<string, string>) {
-      const store = new Map(Object.entries(entries));
-      const storage = {
-        getItem: vi.fn((key: string) => store.get(key) ?? null),
-        setItem: vi.fn((key: string, value: string) => { store.set(key, value); }),
-        removeItem: vi.fn((key: string) => { store.delete(key); }),
-      };
-      const deleteDatabase = vi.fn();
-      const unregister = vi.fn(async () => true);
-      const getRegistrations = vi.fn(async () => [{ scope: 'https://x/api/vault/abcdef12/', unregister }]);
-      const open = vi.fn((_name: string, _version?: number) => ({ result: null }));
-      const indexedDb = { open, deleteDatabase };
-      const navigatorRef = { serviceWorker: { addEventListener: vi.fn(), getRegistrations } };
-      const windowRef = {
-        __codeflareVaultBoot: { sessionId: SID },
-        document: { baseURI: CURRENT_SCOPE },
-        location: { origin: 'https://x' },
-      };
-
-      installVaultIdbRecorder(windowRef, navigatorRef, indexedDb, storage);
-      return { store, storage, indexedDb, open, deleteDatabase, getRegistrations, unregister };
-    }
-
-    it('invalidates only readiness markers when the canonical scope changes, then records fresh DB names', () => {
-      const result = runRecorder({
-        [IDB_KEY]: JSON.stringify(['sb_data_old', 'sb_files_old']),
-        [PREWARMED_KEY]: '1',
-      });
-
-      expect(result.store.get(SCOPE_KEY)).toBe(CURRENT_SCOPE);
-      expect(result.store.get(IDB_KEY)).toBe('[]');
-      expect(result.store.has(PREWARMED_KEY)).toBe(false);
-      expect(result.deleteDatabase).not.toHaveBeenCalled();
-      expect(result.getRegistrations).not.toHaveBeenCalled();
-      expect(result.unregister).not.toHaveBeenCalled();
-
-      result.indexedDb.open('sb_data_new');
-      result.indexedDb.open('sb_files_new');
-      expect(JSON.parse(result.store.get(IDB_KEY)!)).toEqual(['sb_data_new', 'sb_files_new']);
-    });
-
-    it('preserves the current readiness proof and DB record when the scope is unchanged', () => {
-      const result = runRecorder({
-        [IDB_KEY]: JSON.stringify(['sb_data_current', 'sb_files_current']),
-        [SCOPE_KEY]: CURRENT_SCOPE,
-        [PREWARMED_KEY]: '1',
-      });
-
-      expect(JSON.parse(result.store.get(IDB_KEY)!)).toEqual(['sb_data_current', 'sb_files_current']);
-      expect(result.store.get(PREWARMED_KEY)).toBe('1');
-      expect(result.deleteDatabase).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('injectVaultControlledReload (REQ-VAULT-018 open-path safety net)', () => {
+describe('injectVaultControlledReload (REQ-VAULT-018 open-path safety net)', () => {
     // Call the exported installer directly (workerd blocks new Function); it is the
     // single source of truth that injectVaultControlledReload .toString()-injects.
     async function runControlledReload(opts: {
@@ -595,26 +555,4 @@ describe('CF-045: vault-html direct unit tests', () => {
     });
   });
 
-  describe('injectVaultBootScript', () => {
-    it('injects the boot marker before </head> for a valid sessionId', () => {
-      const out = injectVaultBootScript('<head></head>', { sessionId: 'aabbccdd11223344' });
-      expect(out).toContain('window.__codeflareVaultBoot');
-      expect(out.indexOf('window.__codeflareVaultBoot')).toBeLessThan(out.indexOf('</head>'));
-    });
-
-    it('is idempotent (does not double-inject the boot marker)', () => {
-      const once = injectVaultBootScript('<head></head>', { sessionId: 'aabbccdd11223344' });
-      const twice = injectVaultBootScript(once, { sessionId: 'aabbccdd11223344' });
-      expect(twice).toBe(once);
-    });
-
-    it('returns the input unchanged when there is no </head>', () => {
-      const html = '<body>no head</body>';
-      expect(injectVaultBootScript(html, { sessionId: 'aabbccdd11223344' })).toBe(html);
-    });
-
-    it('throws on a sessionId that fails SESSION_ID_PATTERN', () => {
-      expect(() => injectVaultBootScript('<head></head>', { sessionId: 'BAD ID!' })).toThrow();
-    });
-  });
 });
