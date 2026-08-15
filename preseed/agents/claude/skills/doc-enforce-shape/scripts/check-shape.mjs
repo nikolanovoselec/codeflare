@@ -226,17 +226,44 @@ function plain(value) {
     .trim();
 }
 
-function removeHtmlLikeSegments(value) {
+function isHtmlLikeOpener(value, index) {
+  const candidate = value.slice(index);
+  return candidate.startsWith('<!--')
+    || /^<\/?[A-Za-z][A-Za-z0-9-]*(?=$|[\s/><])/.test(candidate);
+}
+
+function htmlLikeSegmentEnd(value, start) {
   let depth = 0;
-  let result = '';
-  for (const character of value) {
-    if (character === '<') {
+  let quote = null;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if ((character === '"' || character === "'") && depth > 0) {
+      quote = character;
+    } else if (character === '<' && isHtmlLikeOpener(value, index)) {
       depth += 1;
     } else if (character === '>' && depth > 0) {
       depth -= 1;
-    } else if (depth === 0) {
-      result += character;
+      if (depth === 0) return index;
     }
+  }
+  return -1;
+}
+
+function removeHtmlLikeSegments(value) {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '<' && isHtmlLikeOpener(value, index)) {
+      const end = htmlLikeSegmentEnd(value, index);
+      if (end !== -1) {
+        index = end;
+        continue;
+      }
+    }
+    result += value[index];
   }
   return result;
 }

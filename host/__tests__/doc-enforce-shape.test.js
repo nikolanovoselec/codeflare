@@ -706,6 +706,19 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
+  it('preserves literal comparisons and unmatched angle brackets in heading anchors', () => {
+    const fixture = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-a--b--c) | Comparison | Active |',
+      '| [AD2](#ad2-value--limit) | Unmatched comparison | Active |', '',
+      '## Decisions', '', '### AD1: A < B > C', '', '**Status:** Active', '',
+      '### AD2: Value < limit', '', '**Status:** Active',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
   it('reports independently malformed ADR links, indexes, and statuses', () => {
     const unlinkedId = [
       '# Decisions', '', '## Decision Index', '',
