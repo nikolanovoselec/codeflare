@@ -5,6 +5,23 @@ import { getVaultBucketToken, VAULT_BUCKET_TOKEN_PATTERN } from '../../lib/vault
 // deterministic, opaque, per-bucket value so the served vault URL — and therefore
 // SilverBullet's IndexedDB names — are identical across sessions for one user.
 describe('getVaultBucketToken (REQ-VAULT-021)', () => {
+  it('cuts over from the legacy and v2 scopes while remaining deterministic for v3', async () => {
+    const bucket = 'codeflare-user-example-com';
+    const legacyBytes = new TextEncoder().encode(`codeflare-vault-bucket-token:${bucket}`);
+    const legacyDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', legacyBytes));
+    const legacyToken = Array.from(legacyDigest.slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+    const v2Bytes = new TextEncoder().encode(`codeflare-vault-bucket-token-v2:${bucket}`);
+    const v2Digest = new Uint8Array(await crypto.subtle.digest('SHA-256', v2Bytes));
+    const v2Token = Array.from(v2Digest.slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const current = await getVaultBucketToken(bucket);
+
+    expect(current).not.toBe(legacyToken);
+    expect(current).not.toBe(v2Token);
+    expect(current).toBe('63aec0a5bb7f381822c22b9a37968be4');
+    expect(await getVaultBucketToken(bucket)).toBe(current);
+  });
+
   it('is deterministic for the same bucket (stable across sessions)', async () => {
     const a = await getVaultBucketToken('codeflare-user-example-com');
     const b = await getVaultBucketToken('codeflare-user-example-com');

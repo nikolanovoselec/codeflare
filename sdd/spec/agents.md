@@ -321,6 +321,31 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-144: Review-owned Goal pause command compatibility
+
+**Intent:** Trusted review control must preserve pi-goal's native pause behavior without aborting unrelated Pi work.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A trusted review-owned pause does not abort the current Pi turn. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+2. A trusted review-owned pause cancels pending Goal continuation work. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+3. A trusted review-owned pause transitions the active Goal to paused. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+4. A manual Goal pause retains pi-goal's current-turn abort behavior. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+
+**Constraints:** Only the trusted session-local review-control channel may select the non-aborting pause path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-114](#req-agent-114-review-owned-goal-continuation), [REQ-AGENT-117](#req-agent-117-non-disruptive-review-owned-goal-control)
+
+**Verification:** pi-goal compatibility-transform behavioral tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-118: Enterprise consult-LLM unavailability
 
 **Intent:** Enterprise users must use managed AI Gateway routes without receiving the per-user LLM-key or consult-LLM surface.

@@ -6,7 +6,7 @@ import { createLogger } from './logger';
 import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
-import { getBucketOwnerKey, listAllKvKeys, SETUP_KEYS } from './kv-keys';
+import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('access');
 
@@ -393,11 +393,6 @@ export function getBucketName(email: string, workerName?: string): string {
   return trimTrailingHyphens(`${prefix}${truncated}`);
 }
 
-interface BucketOwnerRecord {
-  email: string;
-  version: 1 | 2;
-}
-
 type BucketClaimResult = 'owned' | 'conflict' | 'ambiguous';
 interface BucketOwnerStub {
   claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<BucketClaimResult>;
@@ -410,10 +405,6 @@ async function getVersionedBucketName(email: string, workerName?: string): Promi
   return `${trimTrailingHyphens(legacy.substring(0, 63 - suffix.length))}${suffix}`;
 }
 
-async function writeBucketOwner(kv: KVNamespace, bucketName: string, owner: BucketOwnerRecord): Promise<void> {
-  await kv.put(getBucketOwnerKey(bucketName), JSON.stringify(owner));
-}
-
 function getBucketOwnerStub(env: Env, bucketName: string): BucketOwnerStub {
   const id = env.CONTAINER.idFromName(`bucket-owner:${bucketName}`);
   return env.CONTAINER.get(id) as unknown as BucketOwnerStub;
@@ -423,13 +414,13 @@ async function claimVersionedBucket(env: Env, email: string, workerName?: string
   const versioned = await getVersionedBucketName(email, workerName);
   const result = await getBucketOwnerStub(env, versioned).claimBucketOwner(email, true);
   if (result !== 'owned') throw new ForbiddenError('Bucket ownership conflict');
-  await writeBucketOwner(env.KV, versioned, { email, version: 2 });
   return versioned;
 }
 
 /**
  * Resolve a collision-safe bucket identity. Durable Object storage is the
- * authoritative serialization point; the KV owner entry is observability only.
+ * authoritative serialization point. Ownership is not projected into the request-path
+ * KV namespace: same-key projection writes are rate-limited and are not authoritative.
  */
 export async function resolveBucketName(env: Env, email: string, workerName = env.CLOUDFLARE_WORKER_NAME): Promise<string> {
   const normalizedEmail = normalizeEmail(email);
@@ -438,7 +429,6 @@ export async function resolveBucketName(env: Env, email: string, workerName = en
   const existingClaim = await legacyStub.claimBucketOwner(normalizedEmail, false);
 
   if (existingClaim === 'owned') {
-    await writeBucketOwner(env.KV, legacy, { email: normalizedEmail, version: 1 });
     return legacy;
   }
   if (existingClaim === 'conflict') {
@@ -459,7 +449,6 @@ export async function resolveBucketName(env: Env, email: string, workerName = en
     if (legacyClaim !== 'owned') {
       throw new ForbiddenError('Ambiguous legacy bucket ownership');
     }
-    await writeBucketOwner(env.KV, legacy, { email: existingIdentity, version: 1 });
     return claimVersionedBucket(env, normalizedEmail, workerName);
   }
 
@@ -467,7 +456,6 @@ export async function resolveBucketName(env: Env, email: string, workerName = en
   if (claim === 'conflict') return claimVersionedBucket(env, normalizedEmail, workerName);
   if (claim !== 'owned') throw new ForbiddenError('Ambiguous legacy bucket ownership');
 
-  await writeBucketOwner(env.KV, legacy, { email: normalizedEmail, version: 1 });
   return legacy;
 }
 

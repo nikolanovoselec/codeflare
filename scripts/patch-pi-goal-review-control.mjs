@@ -53,7 +53,7 @@ const CONTROL_BLOCK = `
 \t\t\t}
 \t\t\ttry { request.accepted?.(); } catch {}
 \t\t\ttry {
-\t\t\t\tcommands.pauseGoal(ctx);
+\t\t\t\tcommands.pauseGoal(ctx, { abortTurn: false });
 \t\t\t\tconst paused = runtime.activeGoal;
 \t\t\t\trespond(paused?.id === goal.id && paused.status === "paused", goal.id, paused?.status ?? "missing");
 \t\t\t} catch {
@@ -222,12 +222,37 @@ export function patchPiGoalCommandsSource(source) {
     isCompleteMarkedPatch(
       source,
       COMMANDS_PATCH_MARKER,
-      ['options: { sendPrompt?: boolean } = {}', 'options.sendPrompt === false || await'],
+      [
+        'options: { abortTurn?: boolean } = {}',
+        'if (options.abortTurn !== false) abortCurrentTurn(ctx);',
+        'options: { sendPrompt?: boolean } = {}',
+        'options.sendPrompt === false || await',
+      ],
       'resume command',
     )
   ) return source;
   let patched = replaceOnce(
     source,
+    '\tpauseGoal(ctx: StatusContext) {',
+    '\tpauseGoal(ctx: StatusContext, options: { abortTurn?: boolean } = {}) {',
+    'pause command signature',
+  );
+  patched = replaceOnce(
+    patched,
+    [
+      '\t\tthis.runtime.blockStaleGoalToolCalls();',
+      '\t\tabortCurrentTurn(ctx);',
+      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+    ].join('\n'),
+    [
+      '\t\tthis.runtime.blockStaleGoalToolCalls();',
+      '\t\tif (options.abortTurn !== false) abortCurrentTurn(ctx);',
+      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+    ].join('\n'),
+    'pause command turn abort',
+  );
+  patched = replaceOnce(
+    patched,
     '\tasync resumeGoal(ctx: StatusContext) {',
     `\tasync resumeGoal(ctx: StatusContext, options: { sendPrompt?: boolean } = {}) { // ${COMMANDS_PATCH_MARKER}`,
     'resume command signature',

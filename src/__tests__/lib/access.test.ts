@@ -225,10 +225,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       const result = await resolveBucketName(makeEnv(), 'ab@example.com');
 
       expect(result).toBe('codeflare-ab-example-com');
-      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
-        email: 'ab@example.com',
-        version: 1,
-      });
+      expect([...mockKV._store.keys()].filter((key) => key.startsWith('bucket-owner:'))).toEqual([]);
     });
 
     it('uses a digest-suffixed bucket for a later identity that collides with an owned legacy bucket', async () => {
@@ -240,10 +237,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
       expect(versioned).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
       expect(versioned).not.toBe('codeflare-ab-example-com');
-      expect(JSON.parse(mockKV._store.get(`bucket-owner:${versioned}`)!)).toEqual({
-        email: 'a+b@example.com',
-        version: 2,
-      });
+      expect([...mockKV._store.keys()].filter((key) => key.startsWith('bucket-owner:'))).toEqual([]);
     });
 
     it('REQ-AUTH-006 AC3: keeps the legacy bucket for a pre-existing colliding identity when the requester resolves first', async () => {
@@ -254,10 +248,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
       expect(requesterBucket).toMatch(/^codeflare-ab-example-com-v2-[a-f0-9]{20}$/);
       expect(existingBucket).toBe('codeflare-ab-example-com');
-      expect(JSON.parse(mockKV._store.get('bucket-owner:codeflare-ab-example-com')!)).toEqual({
-        email: 'ab@example.com',
-        version: 1,
-      });
+      expect([...mockKV._store.keys()].filter((key) => key.startsWith('bucket-owner:'))).toEqual([]);
     });
 
     it('serializes concurrent claims so colliding identities never share the legacy bucket', async () => {
@@ -270,6 +261,17 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
 
       expect(new Set([first, second]).size).toBe(2);
       expect([first, second].filter((name) => name === 'codeflare-ab-example-com')).toHaveLength(1);
+    });
+
+    it('does not project ownership into a same-key KV hot path during a 52-request burst', async () => {
+      mockKV._set('user:ab@example.com', { role: 'user' });
+
+      const resolved = await Promise.all(
+        Array.from({ length: 52 }, () => resolveBucketName(makeEnv(), 'ab@example.com')),
+      );
+
+      expect(new Set(resolved)).toEqual(new Set(['codeflare-ab-example-com']));
+      expect(mockKV.put.mock.calls.filter(([key]) => String(key).startsWith('bucket-owner:'))).toEqual([]);
     });
 
     it('denies access when multiple legacy identities collide before ownership is known', async () => {

@@ -59,6 +59,23 @@ describe('VaultButton', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['timeout', 'error'] as const)('%s never retries in the background and one user click starts exactly one retry', (status) => {
+    vi.useFakeTimers();
+    try {
+      const onOpen = vi.fn();
+      render(() => <VaultButton status={status} onOpen={onOpen} />);
+
+      expect(btn().getAttribute('aria-disabled')).toBe('false');
+      expect(btn().getAttribute('title')).toBe('Retry Vault preparation');
+      vi.advanceTimersByTime(60_000);
+      expect(onOpen).not.toHaveBeenCalled();
+      fireEvent.click(btn());
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preparing auto-surfaces the status region without a click and wires aria-describedby', () => {
     render(() => <VaultButton status="preparing" onOpen={vi.fn()} />);
     // The focus-loss warning appears on its own the moment the button breathes.
@@ -83,10 +100,9 @@ describe('VaultButton', () => {
     }
   });
 
-  it('a fresh already-armed mount (warm reload / return from the vault tab) does NOT re-pop the ready tooltip', () => {
+  it('a fresh already-armed remount does not re-pop the ready tooltip', () => {
     // No preparing->armed transition happened in this mount, so the confirmation
-    // stays hidden — this is what stops the tooltip re-popping on every mobile PWA
-    // reload while the button is permanently green once ready.
+    // stays hidden when returning from the Vault tab within this dashboard lifetime.
     render(() => <VaultButton status="armed" onOpen={vi.fn()} />);
     expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
     // Still green and openable on a single click.

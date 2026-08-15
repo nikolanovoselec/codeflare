@@ -51,14 +51,14 @@ const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: str
     enabled: true,
   },
   timeout: {
-    title: 'Vault preparation is still running',
-    message: 'Vault preparation is still running on this device. Retrying…',
-    enabled: false,
+    title: 'Retry Vault preparation',
+    message: 'Vault preparation timed out on this device. Click to retry.',
+    enabled: true,
   },
   error: {
-    title: 'Vault preparation failed',
-    message: 'Vault preparation failed on this device. Retrying…',
-    enabled: false,
+    title: 'Retry Vault preparation',
+    message: 'Vault preparation failed on this device. Click to retry.',
+    enabled: true,
   },
 };
 

@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
+import { checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -96,9 +96,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // the button disables itself and the warmup chain restarts.
   const WARMUP_INTERVAL_MS = 5000;
   const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
-  const VAULT_PREWARM_RETRY_INTERVAL_MS = 10000;
   const VAULT_KEY_POLL_INTERVAL_MS = 2000; // cadence for re-checking key recoverability while preparing
-  const VAULT_LOCAL_READINESS_PROBE_TIMEOUT_MS = 2000; // bound the reload skip-eligibility probe before falling back to the iframe
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
   const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
@@ -179,26 +177,6 @@ const Layout: Component<LayoutProps> = (props) => {
     });
     onCleanup(cancel);
   });
-  // Race a full local-readiness proof against a short timeout, so a hung local
-  // query (e.g. a wedged indexedDB.databases()) falls back to "not ready" instead
-  // of stalling the reload-skip decision.
-  const eligibleToSkipPrewarm = async (sid: string): Promise<boolean> => {
-    if (!hasVaultFullyPrewarmed(sid)) return false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        checkVaultLocalReadiness(sid).then((proof) => proof.ready === true),
-        new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), VAULT_LOCAL_READINESS_PROBE_TIMEOUT_MS);
-        }),
-      ]);
-    } catch {
-      return false;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-    }
-  };
-
   // Best-effort, once per session: ask the browser to keep the Vault cache from
   // being evicted. Triggered on the first prewarm (click 1), not on idle mount.
   const requestVaultStoragePersistenceOnce = (sid: string) => {
@@ -213,24 +191,6 @@ const Layout: Component<LayoutProps> = (props) => {
       error: err instanceof Error ? err.message : String(err),
     }));
   };
-
-  // Reload-skip (REQ-VAULT-022 AC2): a browser that already completed the full
-  // prewarm proof for this session AND still has live local stores resolves
-  // straight to ready — the button shows green WITHOUT a click and WITHOUT
-  // remounting the bootstrap iframe (no focus contention with the terminal). A
-  // session this browser never prewarmed stays 'available' until the user clicks.
-  createEffect(() => {
-    const sid = activeRunningSid();
-    if (!sid || vaultReadyBySession()[sid] !== true) return;
-    if (untrack(vaultPrewarmBySession)[sid]) return; // already has a status
-    if (!hasVaultFullyPrewarmed(sid)) return;        // never prewarmed here -> needs click 1
-    let cancelled = false;
-    void eligibleToSkipPrewarm(sid).then((skip) => {
-      if (cancelled || untrack(vaultPrewarmBySession)[sid]) return;
-      if (skip) setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
-    });
-    onCleanup(() => { cancelled = true; });
-  });
 
   // On-demand prewarm (REQ-VAULT-018 / REQ-VAULT-020): the bootstrap iframe is
   // mounted ONLY after the user requests the vault (click 1 -> open-intent
@@ -250,55 +210,19 @@ const Layout: Component<LayoutProps> = (props) => {
     requestVaultStoragePersistenceOnce(sid);
 
     let handle: ReturnType<typeof startVaultPrewarm> = null;
-    let cancelled = false;
     const mountPrewarm = () => {
       handle = startVaultPrewarm({
         sessionId: sid,
         timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
-        onReady: (proof) => {
-          if (!proof.ready) {
-            setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
-            return;
-          }
-          // Record that THIS browser completed the full prewarm proof (runtime +
-          // space sync + index + file listing), so a later reload skips the iframe.
-          markVaultFullyPrewarmed(sid);
-          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
-        },
+        onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
       });
     };
-    // Even on an explicit request, skip the iframe if this browser is already fully
-    // warm with live stores — opening will be instant and a remount only churns the
-    // terminal focus. Otherwise mount it to build the index.
-    void eligibleToSkipPrewarm(sid).then((skip) => {
-      if (cancelled) return;
-      if (skip) {
-        setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
-        return;
-      }
-      mountPrewarm();
-    });
+    mountPrewarm();
     onCleanup(() => {
-      cancelled = true;
       handle?.cancel();
       setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
     });
-  });
-
-  // A prewarm that times out / errors while requested bumps the retry nonce to
-  // remount. Gated on the open-intent so a torn-down idle session never retries.
-  createEffect(() => {
-    const sid = activeRunningSid();
-    if (!sid || vaultReadyBySession()[sid] !== true) return;
-    if (vaultOpenIntentBySession()[sid] !== 'preparing') return;
-    const status = vaultPrewarmBySession()[sid];
-    if (status !== 'timeout' && status !== 'error') return;
-
-    const retryTimer = setTimeout(() => {
-      setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
-    }, VAULT_PREWARM_RETRY_INTERVAL_MS);
-    onCleanup(() => clearTimeout(retryTimer));
   });
 
   // Button lifecycle: idle (SB server not ready) -> available (neutral; server
@@ -322,7 +246,7 @@ const Layout: Component<LayoutProps> = (props) => {
       return 'preparing';
     }
     // No open-intent: green (and openable on a single click) once the vault is
-    // ready — warm/reload-skip or returned-from-the-vault-tab — and it stays green.
+    // ready in this dashboard lifetime, including return from the Vault tab.
     if (pw === 'ready') return 'armed';
     return 'available';
   });
@@ -363,11 +287,18 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = sessionStore.activeSessionId;
     if (!sid || untrack(vaultReadyBySession)[sid] !== true) return;
     const intent = untrack(vaultOpenIntentBySession)[sid];
-    // Mid-prepare clicks are no-ops while the button breathes accent.
-    if (intent === 'preparing') return;
+    // Mid-prepare clicks are no-ops while work is active. A visible timeout or
+    // error retries only on the user's next click; there is no hidden retry loop.
+    if (intent === 'preparing') {
+      const status = untrack(vaultPrewarmBySession)[sid];
+      if (status === 'timeout' || status === 'error') {
+        setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
+      }
+      return;
+    }
     // Green == ready == open. Both the cold-path armed intent (click 2 after a fresh
-    // prewarm) and a steady pw==='ready' (returned-from-the-vault-tab in-session, OR a
-    // reload-skip from a prior session) open immediately via the bootstrap-hop. The hop
+    // prewarm) and a steady pw==='ready' after returning from the Vault tab in this
+    // dashboard lifetime open immediately via the bootstrap-hop. The hop
     // re-posts the AES key to the service worker and waits for activation before
     // redirecting to the editor, and the worker no longer flushes the key mid-transition
     // (REQ-VAULT-024 AC4), so opening directly never races a wiped key into a `.auth`

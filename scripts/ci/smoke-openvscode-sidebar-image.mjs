@@ -29,6 +29,49 @@ const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'opencode', directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
 ]);
 
+export class VscodeEventEmitter {
+  #listeners = new Set();
+
+  event = (listener) => {
+    this.#listeners.add(listener);
+    return { dispose: () => this.#listeners.delete(listener) };
+  };
+
+  fire(value) {
+    for (const listener of this.#listeners) listener(value);
+  }
+
+  dispose() {
+    this.#listeners.clear();
+  }
+}
+
+export function createVscodeSmokeApi(api) {
+  return new Proxy({ EventEmitter: VscodeEventEmitter, ...api }, {
+    get(target, property, receiver) {
+      assert.notEqual(property, 'authentication');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+export function activateExtensionWithVscode(extensionMain, vscode, context) {
+  const require = createRequire(import.meta.url);
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  try {
+    Module._load = function load(request, parent, isMain) {
+      if (request === 'vscode') return vscode;
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    const extension = require(extensionMain);
+    extension.activate(context);
+    return extension;
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
 export async function verifySelectedAgentLaunchers(
   selection,
   { commands, hasCodingAgent, inspectPath = lstat, run = execFileSync },
@@ -343,9 +386,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
   }]);
   assert.equal(manifest.contributes?.views, undefined);
 
-  const require = createRequire(import.meta.url);
-  const Module = require('node:module');
-  const originalLoad = Module._load;
   let activeEditorUri;
   let executedCommand;
   const contextValues = new Map();
@@ -354,7 +394,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let reviewFile;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
-  const vscode = new Proxy({
+  const vscode = createVscodeSmokeApi({
     Uri: {
       file: (path) => uri(path),
       joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)),
@@ -402,11 +442,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
       textDocuments: [],
       openTextDocument: async () => ({}),
     },
-  }, {
-    get(target, property, receiver) {
-      assert.notEqual(property, 'authentication');
-      return Reflect.get(target, property, receiver);
-    },
   });
   let extension;
   const reviewPath = '/home/user/workspace/codeflare-review-smoke.ts';
@@ -414,13 +449,12 @@ async function verifyPackagedNativeChat(extensionRoot) {
   await writeFile(reviewPath, 'export const reviewSmoke = true;\n');
 
   try {
-    Module._load = function load(request, parent, isMain) {
-      if (request === 'vscode') return vscode;
-      return originalLoad.call(this, request, parent, isMain);
-    };
-    extension = require(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')));
     const subscriptions = [];
-    extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
+    extension = activateExtensionWithVscode(
+      join(extensionRoot, String(manifest.main).replace(/^\.\//, '')),
+      vscode,
+      { extensionUri: uri(extensionRoot), subscriptions },
+    );
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
     assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
@@ -466,7 +500,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
     return 'DEFAULT_NATIVE_PI_OK';
   } finally {
     await extension?.deactivate?.();
-    Module._load = originalLoad;
     await rm(reviewPath, { force: true });
   }
 }

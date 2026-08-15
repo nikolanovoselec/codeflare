@@ -75,12 +75,14 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
     expect(unregister).not.toHaveBeenCalled();
   });
 
-  it('removes the vault-session-<sid>-idbs mapping', async () => {
+  it('removes the per-session IDB and exact-scope readiness mappings', async () => {
     const sid = 'abcdef12';
     const { fake, store } = installFakeLocalStorage();
     store.set(`vault-session-${sid}-idbs`, JSON.stringify(['sb_data_xxx']));
+    store.set(`vault-session-${sid}-scope`, 'https://codeflare.ch/api/vault/0123456789abcdef0123456789abcdef/');
     await cleanupSessionVaultCache(sid);
     expect(fake.removeItem).toHaveBeenCalledWith(`vault-session-${sid}-idbs`);
+    expect(fake.removeItem).toHaveBeenCalledWith(`vault-session-${sid}-scope`);
   });
 
   it('removes the vault-session-<sid> marker and leaves other sessions intact', async () => {
@@ -118,15 +120,19 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
     expect(deleteDatabase).not.toHaveBeenCalled();
   });
 
-  it('removes vault-session-<sid> and -idbs markers for orphan sessions, preserving active', async () => {
+  it('removes vault-session-<sid> readiness markers for orphan sessions, preserving active', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-active1', '1');
+    store.set('vault-session-active1-scope', 'https://codeflare.ch/api/vault/0123456789abcdef0123456789abcdef/');
     store.set('vault-session-orphan', '1');
     store.set('vault-session-orphan-idbs', JSON.stringify(['sb_files_orphan']));
+    store.set('vault-session-orphan-scope', 'https://codeflare.ch/api/vault/fedcba9876543210fedcba9876543210/');
     await sweepOrphanVaultCaches(['active1']);
     expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan');
     expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan-idbs');
+    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan-scope');
     expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active1');
+    expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active1-scope');
   });
 
   it('is a no-op when every marker matches an active session', async () => {
@@ -148,16 +154,13 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
   });
 });
 
-// REQ-VAULT-022 AC2: the durable full-prewarm marker lets a reload skip remounting
-// the bootstrap iframe. It lives under the same `vault-session-*` namespace the
-// cache sweep manages, so the sweep MUST treat `<sid>-prewarmed` as belonging to
-// `<sid>` (preserve it for active sessions, drop it for orphans/deletes) instead
-// of mistaking it for a bogus orphan session and erasing it on every Layout mount.
-describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed) lifecycle', () => {
+// Pre-v3 builds wrote full-prewarm markers. Current readiness never consumes
+// them, but best-effort session bookkeeping still groups and removes them safely.
+describe('legacy full-prewarm marker cleanup', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
-  it('preserves the prewarmed marker for an ACTIVE session during an orphan sweep', async () => {
+  it('preserves a legacy marker for an active session during an orphan sweep', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-active01-prewarmed', '1');
     store.set('vault-session-active01-idbs', JSON.stringify(['sb_data_a', 'sb_files_b']));
@@ -168,7 +171,7 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed)
     expect(store.has('vault-session-active01-prewarmed')).toBe(true);
   });
 
-  it('removes the prewarmed marker for an ORPHAN session during a sweep', async () => {
+  it('removes a legacy marker for an orphan session during a sweep', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-orphan9-prewarmed', '1');
 
@@ -178,7 +181,7 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed)
     expect(store.has('vault-session-orphan9-prewarmed')).toBe(false);
   });
 
-  it('removes the prewarmed marker on session DELETE', async () => {
+  it('removes a legacy marker on session delete', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-deadbeef-prewarmed', '1');
 

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
 import {
+  activateExtensionWithVscode,
+  createVscodeSmokeApi,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -51,6 +54,31 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(selected.dependencies['@github/copilot'], undefined);
     assert.equal(selected.dependencies['opencode-ai'], undefined);
     assert.equal(manifest.dependencies['@github/copilot'], originalCopilotVersion, 'the source manifest must not be mutated');
+  });
+
+  it('REQ-OPS-002 AC7: packaged-image smoke activates an extension through its VS Code EventEmitter shim', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'sidebar-smoke-activation-'));
+    try {
+      const extensionMain = join(fixture, 'extension.cjs');
+      writeFileSync(extensionMain, [
+        "const vscode = require('vscode');",
+        'exports.activate = (context) => {',
+        '  const emitter = new vscode.EventEmitter();',
+        '  emitter.event((value) => context.observed.push(value));',
+        "  emitter.fire('ready');",
+        '  context.subscriptions.push(emitter);',
+        '};',
+        '',
+      ].join('\n'));
+      const context = { observed: [], subscriptions: [] };
+
+      activateExtensionWithVscode(extensionMain, createVscodeSmokeApi({}), context);
+
+      assert.deepEqual(context.observed, ['ready']);
+      assert.equal(context.subscriptions.length, 1);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {

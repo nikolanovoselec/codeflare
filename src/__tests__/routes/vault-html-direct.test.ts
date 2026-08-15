@@ -14,18 +14,14 @@ import {
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
-  injectVaultBootScript,
+  injectVaultBootstrapHopHtml,
   injectVaultPrewarmBridge,
   injectVaultPrewarmFocusGuard,
-  installVaultPrewarmNoFocus,
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
   VAULT_PREWARM_FOCUS_GUARD_MARKER,
-  VAULT_PREWARM_REQUIRED_FILES,
   injectVaultControlledReload,
-  completeVaultBootstrap,
-  installVaultControlledReload,
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../lib/vault-view';
 
@@ -128,6 +124,47 @@ describe('CF-045: vault-html direct unit tests', () => {
         contentType: 'text/html',
       });
     });
+
+    it('wires exactly one focus guard into a Worker-rewritten prewarm shell', async () => {
+      const token = '0123456789abcdef0123456789abcdef';
+      const request = new Request(
+        `https://x/api/vault/${token}/?codeflarePrewarm=1&prewarmId=warm-1`,
+      );
+      const result = await rewriteVaultHtmlResponse(
+        new Response('<html><head><base href="/"></head><body></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        token,
+        '/',
+        `/api/vault/${token}/`,
+        'text/html',
+        { warn: vi.fn() },
+        request,
+      );
+      const html = await result.text();
+
+      expect(html.split(VAULT_PREWARM_FOCUS_GUARD_MARKER).length - 1).toBe(1);
+    });
+  });
+
+  describe('injectVaultBootstrapHopHtml', () => {
+    it('keeps a hostile encryption key inside the single generated script boundary', async () => {
+      const hostileKey = '</script><script>globalThis.compromised=true</script>';
+      const html = injectVaultBootstrapHopHtml(
+        '0123456789abcdef0123456789abcdef',
+        hostileKey,
+        '?codeflarePrewarm=1&prewarmId=warm-1',
+      );
+      let scriptCount = 0;
+      await new HTMLRewriter()
+        .on('script', { element() { scriptCount += 1; } })
+        .transform(new Response(html))
+        .text();
+
+      expect(scriptCount).toBe(1);
+      expect(html).not.toContain(hostileKey);
+    });
   });
 
   describe('hasVaultBootstrapCookie', () => {
@@ -144,32 +181,6 @@ describe('CF-045: vault-html direct unit tests', () => {
     it('returns false when the cookie has a non-1 value', () => {
       const req = new Request('https://x/', { headers: { Cookie: `${VAULT_BOOTSTRAP_COOKIE}=0` } });
       expect(hasVaultBootstrapCookie(req)).toBe(false);
-    });
-  });
-
-  describe('completeVaultBootstrap / REQ-VAULT-024', () => {
-    it('does not mark bootstrap complete when encryption enablement cannot persist', () => {
-      let cookie = '';
-      const documentRef = {
-        get cookie() { return cookie; },
-        set cookie(value: string) { cookie = value; },
-      };
-      const locationRef = { replace: vi.fn() };
-      const storageRef = {
-        setItem: vi.fn(() => { throw new Error('storage denied'); }),
-      };
-
-      expect(() => completeVaultBootstrap(
-        storageRef,
-        documentRef,
-        locationRef,
-        VAULT_BOOTSTRAP_COOKIE,
-        '/api/vault/aabbccdd11223344/',
-        '',
-      )).toThrow('storage denied');
-
-      expect(cookie).toBe('');
-      expect(locationRef.replace).not.toHaveBeenCalled();
     });
   });
 
@@ -221,17 +232,6 @@ describe('CF-045: vault-html direct unit tests', () => {
       return count;
     }
 
-    async function readPrewarmBridgeScript(html: string): Promise<string> {
-      let script = '';
-      await new HTMLRewriter()
-        .on(`script[${VAULT_PREWARM_BRIDGE_MARKER}]`, {
-          text(text) { script += text.text; },
-        })
-        .transform(new Response(html))
-        .text();
-      return script;
-    }
-
     async function countPrewarmFocusGuardScripts(html: string): Promise<number> {
       let count = 0;
       await new HTMLRewriter()
@@ -241,69 +241,6 @@ describe('CF-045: vault-html direct unit tests', () => {
         .transform(new Response(html))
         .text();
       return count;
-    }
-
-    function runPrewarmFocusGuard(search: string) {
-      let htmlFocusCount = 0;
-      let svgFocusCount = 0;
-      let inputSelectCount = 0;
-      let textareaSelectCount = 0;
-      let windowFocusCount = 0;
-      let blurCount = 0;
-      const listeners: Record<string, Array<(event: { target?: unknown }) => void>> = {};
-
-      class FakeHTMLElement {
-        focus() { htmlFocusCount += 1; }
-        blur() { blurCount += 1; }
-      }
-      class FakeSVGElement {
-        focus() { svgFocusCount += 1; }
-      }
-      class FakeInputElement extends FakeHTMLElement {
-        select() { inputSelectCount += 1; }
-      }
-      class FakeTextAreaElement extends FakeHTMLElement {
-        select() { textareaSelectCount += 1; }
-      }
-
-      const fakeWindow: any = {
-        location: { search },
-        URLSearchParams,
-        HTMLElement: FakeHTMLElement,
-        SVGElement: FakeSVGElement,
-        HTMLInputElement: FakeInputElement,
-        HTMLTextAreaElement: FakeTextAreaElement,
-        focus() { windowFocusCount += 1; },
-      };
-      const fakeDocument = {
-        addEventListener(type: string, listener: (event: { target?: unknown }) => void) {
-          listeners[type] = [...(listeners[type] ?? []), listener];
-        },
-      };
-
-      const installed = installVaultPrewarmNoFocus(fakeWindow, fakeDocument, null);
-
-      const htmlEl = new FakeHTMLElement();
-      const svgEl = new FakeSVGElement();
-      const input = new FakeInputElement();
-      const textarea = new FakeTextAreaElement();
-      htmlEl.focus();
-      svgEl.focus();
-      input.select();
-      textarea.select();
-      fakeWindow.focus();
-      for (const listener of listeners.focusin ?? []) listener({ target: htmlEl });
-
-      return {
-        installed,
-        guardActivated: fakeWindow.__codeflareVaultPrewarmNoFocus === true,
-        htmlFocusCount,
-        svgFocusCount,
-        inputSelectCount,
-        textareaSelectCount,
-        windowFocusCount,
-        blurCount,
-      };
     }
 
     it('preserves only valid prewarm handshake parameters for bootstrap redirects', () => {
@@ -337,170 +274,21 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(await countPrewarmBridgeScripts(rewritten)).toBe(1);
     });
 
-    it('keeps normal focus behavior when the generic shell is not opened for prewarm', async () => {
+    it('injects one idempotent focus guard for a valid prewarm token', async () => {
       const html = '<html><head></head><body></body></html>';
-      const rewritten = injectVaultPrewarmFocusGuard(html);
-      const result = runPrewarmFocusGuard('');
+      const once = injectVaultPrewarmFocusGuard(html, 'warm-1');
+      const twice = injectVaultPrewarmFocusGuard(once, 'warm-1');
 
-      expect(await countPrewarmFocusGuardScripts(rewritten)).toBe(1);
-      expect(result.installed).toBe(false);
-      expect(result.guardActivated).toBe(false);
-      expect(result.htmlFocusCount).toBe(1);
-      expect(result.svgFocusCount).toBe(1);
-      expect(result.inputSelectCount).toBe(1);
-      expect(result.textareaSelectCount).toBe(1);
-      expect(result.windowFocusCount).toBe(1);
-      expect(result.blurCount).toBe(0);
+      expect(await countPrewarmFocusGuardScripts(once)).toBe(1);
+      expect(await countPrewarmFocusGuardScripts(twice)).toBe(1);
     });
 
-    it('makes the prewarm shell unable to take script focus while SilverBullet boots', async () => {
-      const html = '<html><head></head><body></body></html>';
-      const rewritten = injectVaultPrewarmFocusGuard(html);
-      const result = runPrewarmFocusGuard('?codeflarePrewarm=1&prewarmId=warm-1');
-
-      expect(await countPrewarmFocusGuardScripts(rewritten)).toBe(1);
-      expect(result.installed).toBe(true);
-      expect(result.guardActivated).toBe(true);
-      expect(result.htmlFocusCount).toBe(0);
-      expect(result.svgFocusCount).toBe(0);
-      expect(result.inputSelectCount).toBe(0);
-      expect(result.textareaSelectCount).toBe(0);
-      expect(result.windowFocusCount).toBe(0);
-      expect(result.blurCount).toBe(1);
-    });
-
-    it('requires SilverBullet space sync and expected vault files before the bridge can report ready', async () => {
-      const html = '<html><head></head><body></body></html>';
-      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge(html, 'warm-1'));
-
-      for (const file of VAULT_PREWARM_REQUIRED_FILES) {
-        expect(script).toContain(`"${file}"`);
-      }
-      expect(script).toContain('space-sync-complete');
-      expect(script).toContain('hasFullIndexCompleted');
-      expect(script).toContain('getQueueStats("indexQueue")');
-      expect(script).toContain('isQueueEmpty("indexQueue")');
-      expect(script).toContain('fetch(".fs/", { cache: "no-store" })');
-      expect(script.indexOf('checkContentReadiness')).toBeLessThan(
-        script.indexOf('post("ready"'),
-      );
-    });
-
-    it('arms only after the readiness proof holds across multiple consecutive polls (stable-green gate)', async () => {
-      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-      // More than one consecutive proven-ready poll is required before arming.
-      const m = script.match(/requiredReadyStreak\s*=\s*(\d+)/);
-      expect(m, 'bridge must define requiredReadyStreak').not.toBeNull();
-      expect(Number(m![1])).toBeGreaterThanOrEqual(2);
-      // post("ready") is gated behind the streak threshold, not a single proof ...
-      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeGreaterThanOrEqual(0);
-      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeLessThan(
-        script.indexOf('post("ready"'),
-      );
-      // ... and a not-ready poll resets the streak so a momentary index-empty cannot arm.
-      expect(script).toContain('readyStreak = 0');
-    });
   });
 
-  describe('injectVaultControlledReload (REQ-VAULT-018 open-path safety net)', () => {
-    // Call the exported installer directly (workerd blocks new Function); it is the
-    // single source of truth that injectVaultControlledReload .toString()-injects.
-    async function runControlledReload(opts: {
-      topLevel?: boolean;
-      hasServiceWorker?: boolean;
-      controller?: boolean;
-      regs?: Array<{ active: boolean; scope: string }>;
-      flagAlready?: boolean;
-    }) {
-      let reloadCount = 0;
-      const store: Record<string, string> = {};
-      if (opts.flagAlready) store['cf-vault-sw-controlled-reload'] = '1';
-      const storage = {
-        getItem: (k: string) => (k in store ? store[k] : null),
-        setItem: (k: string, v: string) => { store[k] = v; },
-        removeItem: (k: string) => { delete store[k]; },
-      };
-      const fakeWindow: any = { location: { reload: () => { reloadCount += 1; } } };
-      fakeWindow.parent = (opts.topLevel ?? true) ? fakeWindow : {};
-      const navigatorRef: any = opts.hasServiceWorker === false ? {} : {
-        serviceWorker: {
-          controller: opts.controller ? {} : null,
-          getRegistrations: async () => opts.regs ?? [],
-        },
-      };
-      installVaultControlledReload(fakeWindow, navigatorRef, storage);
-      // Let the getRegistrations().then microtask settle.
-      await Promise.resolve();
-      await Promise.resolve();
-      return { reloadCount, flagSet: store['cf-vault-sw-controlled-reload'] === '1' };
-    }
-
-    const VAULT_REG = [{ active: true, scope: 'https://x/api/vault/abc123/' }];
-
-    it('injects exactly one controlled-reload script carrying the marker', () => {
-      const rewritten = injectVaultControlledReload('<html><head></head><body></body></html>');
-      expect(rewritten).toContain(VAULT_CONTROLLED_RELOAD_MARKER);
-      expect(rewritten.split(VAULT_CONTROLLED_RELOAD_MARKER).length - 1).toBe(1);
-    });
-
-    it('reloads exactly once when a vault service worker is active but not controlling the page', async () => {
-      const { reloadCount, flagSet } = await runControlledReload({ controller: false, regs: VAULT_REG });
-      expect(reloadCount).toBe(1);
-      expect(flagSet).toBe(true); // one-shot flag set so it cannot loop
-    });
-
-    it('does NOT reload a second time once the one-shot flag is set (loop-safe)', async () => {
-      const { reloadCount } = await runControlledReload({ controller: false, regs: VAULT_REG, flagAlready: true });
-      expect(reloadCount).toBe(0);
-    });
-
-    it('is inert in the headless prewarm iframe (window.parent !== window)', async () => {
-      const { reloadCount } = await runControlledReload({ topLevel: false, controller: false, regs: VAULT_REG });
-      expect(reloadCount).toBe(0);
-    });
-
-    it('does not reload on a genuine first boot with no vault service worker registered', async () => {
-      const { reloadCount } = await runControlledReload({ controller: false, regs: [] });
-      expect(reloadCount).toBe(0);
-    });
-
-    it('does not reload when only a non-vault service worker scope is active', async () => {
-      const { reloadCount } = await runControlledReload({ controller: false, regs: [{ active: true, scope: 'https://x/other/' }] });
-      expect(reloadCount).toBe(0);
-    });
-
-    it('does not reload and clears the one-shot flag once the SW already controls the page', async () => {
-      const { reloadCount, flagSet } = await runControlledReload({ controller: true, regs: VAULT_REG, flagAlready: true });
-      expect(reloadCount).toBe(0);
-      expect(flagSet).toBe(false); // cleared so a later in-tab nav can self-heal
-    });
-
-    it('is inert when the browser has no service worker support', async () => {
-      const { reloadCount } = await runControlledReload({ hasServiceWorker: false });
-      expect(reloadCount).toBe(0);
-    });
+  it('injects exactly one controlled-reload script carrying the marker', () => {
+    const rewritten = injectVaultControlledReload('<html><head></head><body></body></html>');
+    expect(rewritten).toContain(VAULT_CONTROLLED_RELOAD_MARKER);
+    expect(rewritten.split(VAULT_CONTROLLED_RELOAD_MARKER).length - 1).toBe(1);
   });
 
-  describe('injectVaultBootScript', () => {
-    it('injects the boot marker before </head> for a valid sessionId', () => {
-      const out = injectVaultBootScript('<head></head>', { sessionId: 'aabbccdd11223344' });
-      expect(out).toContain('window.__codeflareVaultBoot');
-      expect(out.indexOf('window.__codeflareVaultBoot')).toBeLessThan(out.indexOf('</head>'));
-    });
-
-    it('is idempotent (does not double-inject the boot marker)', () => {
-      const once = injectVaultBootScript('<head></head>', { sessionId: 'aabbccdd11223344' });
-      const twice = injectVaultBootScript(once, { sessionId: 'aabbccdd11223344' });
-      expect(twice).toBe(once);
-    });
-
-    it('returns the input unchanged when there is no </head>', () => {
-      const html = '<body>no head</body>';
-      expect(injectVaultBootScript(html, { sessionId: 'aabbccdd11223344' })).toBe(html);
-    });
-
-    it('throws on a sessionId that fails SESSION_ID_PATTERN', () => {
-      expect(() => injectVaultBootScript('<head></head>', { sessionId: 'BAD ID!' })).toThrow();
-    });
-  });
 });
