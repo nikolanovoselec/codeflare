@@ -213,7 +213,9 @@ Governed dependencies/actions/images are pinned through their owning lock/manife
 
 Fresh images are scanned for HIGH/CRITICAL findings. <!-- @impl: .github/workflows/container-image.yml::trivy-action -->
 
-The executable validator accepts only exact reviewed vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Reviewed exceptions are bounded acceptances, not wildcard ignores; dated scan occurrences belong to CI evidence rather than this current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
+Fixable findings have two reviewed exception paths. Trivy first applies CVE-level suppressions from [`.trivyignore`](../../.trivyignore); each matches that CVE across scanner targets and carries adjacent scope, impact, and removal rationale. <!-- @impl: .github/workflows/container-image.yml::trivy-action -->
+
+The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 
@@ -234,7 +236,7 @@ Eligibility, deterministic archives, checksums, Sigstore bundles, and provenance
 | `PROTECTED_PATHS` empty | Bucket authority is the isolation boundary | Storage/security review if in-container trust changes |
 | General rate-limit KV failure may degrade open | Resource/cost exposure, not authentication bypass | Owning route/Billing |
 | Concurrent session cap is best effort | Nominal limit can overrun | Billing/Operations; issue #880 tracks Enterprise simplification |
-| Scanner/advisory coverage incomplete | Layered checks plus exact reviewed exceptions | CI/Security review on new findings |
+| Scanner/advisory coverage incomplete | Layered checks plus reviewed CVE-level and exact-tuple exceptions | CI/Security review on new findings |
 
 <a id="static-analyzer-false-positives"></a>
 Static-analysis dispositions require a concrete source boundary and rationale. Suppressions remain adjacent to the finding and must be revisited when the guarded code or analyzer rule changes; historical alert counts are not current policy.
