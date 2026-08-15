@@ -325,71 +325,100 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
   return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
-export function advanceVaultReadyStreak(
-  currentStreak: number,
-  proofReady: boolean,
-  requiredStreak: number,
-): { streak: number; shouldArm: boolean } {
-  const streak = proofReady ? currentStreak + 1 : 0;
-  return { streak, shouldArm: proofReady && streak >= requiredStreak };
-}
-
-export function postVaultPrewarmMessage(
-  parentRef: any,
+export function installVaultPrewarmBridgeRuntime(
   windowRef: any,
-  origin: string,
-  source: string,
-  prewarmId: string,
-  status: string,
-  message?: string,
-  proof?: Record<string, unknown>,
-): void {
-  if (!parentRef || parentRef === windowRef) return;
-  const payload: Record<string, unknown> = { source, prewarmId, status };
-  if (message) payload.message = message;
-  if (proof) payload.proof = proof;
-  parentRef.postMessage(payload, origin);
-}
-
-export async function buildVaultPrewarmContentProof(
-  windowRef: any,
-  spaceSyncCompleted: boolean,
-  expectedScope: string,
-  requiredFiles: readonly string[],
+  documentRef: any,
+  navigatorRef: any,
   fetchRef: typeof fetch,
-): Promise<Record<string, unknown> | null> {
+  suppliedPrewarmId: string | null,
+  requiredFiles: readonly string[],
+): void {
+  let prewarmId = suppliedPrewarmId;
+  let expectedScope: string;
+  let spaceSyncCompleted = false;
   try {
-    const client = windowRef.client;
-    if (!spaceSyncCompleted && client?.fullSyncCompleted !== true) return null;
-    if (!client || client.systemReady !== true || client.pageListLoaded !== true) return null;
-    if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return null;
-    if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== 'function') return null;
-    if (client.mq && typeof client.mq.getQueueStats === 'function') {
-      const stats = await client.mq.getQueueStats('indexQueue');
-      if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return null;
-    } else if (client.mq && typeof client.mq.isQueueEmpty === 'function'
-      && !(await client.mq.isQueueEmpty('indexQueue'))) return null;
-    if (!(await client.objectIndex.hasFullIndexCompleted())) return null;
-
-    const response = await fetchRef('.fs/', { cache: 'no-store' });
-    if (!response?.ok) return null;
-    const listing = await response.json();
-    if (!Array.isArray(listing)) return null;
-    const names = new Set(
-      listing.map((entry: any) => entry?.name).filter((name: unknown): name is string => typeof name === 'string'),
-    );
-    if (requiredFiles.some((name) => !names.has(name))) return null;
-    return {
-      scope: expectedScope,
-      contentReady: true,
-      spaceSyncCompleted: true,
-      indexReady: true,
-      requiredFiles: [...requiredFiles],
-      listedFileCount: listing.length,
-    };
+    if (!prewarmId) {
+      const params = new URLSearchParams(windowRef.location.search);
+      if (params.get('codeflarePrewarm') === '1') prewarmId = params.get('prewarmId');
+    }
+    if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;
+    expectedScope = new URL('.', documentRef.baseURI).href;
+    const expected = new URL(expectedScope);
+    if (expected.origin !== windowRef.location.origin || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(expected.pathname)) return;
+    windowRef.sbRuntime = windowRef.sbRuntime || {};
+    windowRef.sbRuntime.headless = true;
   } catch {
-    return null;
+    return;
   }
+
+  const post = (status: string, message?: string, proof?: Record<string, unknown>) => {
+    if (!windowRef.parent || windowRef.parent === windowRef) return;
+    const payload: Record<string, unknown> = { source: 'codeflare-vault-prewarm', prewarmId, status };
+    if (message) payload.message = message;
+    if (proof) payload.proof = proof;
+    windowRef.parent.postMessage(payload, windowRef.location.origin);
+  };
+  const serviceWorker = navigatorRef.serviceWorker;
+  if (serviceWorker && typeof serviceWorker.addEventListener === 'function') {
+    serviceWorker.addEventListener('message', (event: any) => {
+      if (event.data?.type === 'space-sync-complete') spaceSyncCompleted = true;
+    });
+  }
+
+  const buildContentProof = async (): Promise<Record<string, unknown> | null> => {
+    try {
+      const client = windowRef.client;
+      if (!spaceSyncCompleted && client?.fullSyncCompleted !== true) return null;
+      if (!client || client.systemReady !== true || client.pageListLoaded !== true) return null;
+      if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return null;
+      if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== 'function') return null;
+      if (client.mq && typeof client.mq.getQueueStats === 'function') {
+        const stats = await client.mq.getQueueStats('indexQueue');
+        if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return null;
+      } else if (client.mq && typeof client.mq.isQueueEmpty === 'function'
+        && !(await client.mq.isQueueEmpty('indexQueue'))) return null;
+      if (!(await client.objectIndex.hasFullIndexCompleted())) return null;
+      const response = await fetchRef('.fs/', { cache: 'no-store' });
+      if (!response?.ok) return null;
+      const listing = await response.json();
+      if (!Array.isArray(listing)) return null;
+      const names = new Set(
+        listing.map((entry: any) => entry?.name).filter((name: unknown): name is string => typeof name === 'string'),
+      );
+      if (requiredFiles.some((name) => !names.has(name))) return null;
+      return {
+        scope: expectedScope,
+        contentReady: true,
+        spaceSyncCompleted: true,
+        indexReady: true,
+        requiredFiles: [...requiredFiles],
+        listedFileCount: listing.length,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  let inFlight = false;
+  let readyStreak = 0;
+  const requiredReadyStreak = 2;
+  const timer = windowRef.setInterval(async () => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const proof = windowRef.sbRuntime?.ready === true ? await buildContentProof() : null;
+      readyStreak = proof ? readyStreak + 1 : 0;
+      if (proof && readyStreak >= requiredReadyStreak) {
+        windowRef.clearInterval(timer);
+        post('ready', undefined, proof);
+      }
+    } catch (error) {
+      windowRef.clearInterval(timer);
+      post('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      inFlight = false;
+    }
+  }, 250);
 }
 
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
@@ -405,76 +434,12 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
-  const readyStreakSource = advanceVaultReadyStreak.toString()
+  const runtimeSource = installVaultPrewarmBridgeRuntime.toString()
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const contentProofSource = buildVaultPrewarmContentProof.toString()
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const postMessageSource = postVaultPrewarmMessage.toString()
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
-    'var advanceReadyStreak = ' + readyStreakSource + ';' +
-    'var buildContentProof = ' + contentProofSource + ';' +
-    'var postMessageToParent = ' + postMessageSource + ';' +
-    'var prewarmId = ' + escapedId + ';' +
-    'var source = "codeflare-vault-prewarm";' +
-    'var expectedScope = null;' +
-    'var requiredFiles = ' + requiredFilesJson + ';' +
-    'var spaceSyncCompleted = false;' +
-    'try {' +
-    'if (!prewarmId) {' +
-    'var params = new URLSearchParams(window.location.search);' +
-    'if (params.get("codeflarePrewarm") === "1") prewarmId = params.get("prewarmId");' +
-    '}' +
-    'if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;' +
-    'expectedScope = new URL(".", document.baseURI).href;' +
-    'var expected = new URL(expectedScope);' +
-    'if (expected.origin !== window.location.origin || !/^\\/api\\/vault\\/[0-9a-f]{32}\\/$/.test(expected.pathname)) return;' +
-    'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
-    '} catch (_) { return; }' +
-    'function post(status, message, proof) {' +
-    'postMessageToParent(window.parent, window, window.location.origin, source, prewarmId, status, message, proof);' +
-    '}' +
-    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
-    'navigator.serviceWorker.addEventListener("message", function (event) {' +
-    'var data = event.data;' +
-    'if (data && data.type === "space-sync-complete") spaceSyncCompleted = true;' +
-    '});' +
-    '}' +
-    'var inFlight = false;' +
-    'var readyStreak = 0;' +
-    // REQ-VAULT-018: require the full readiness proof to hold across this many
-    // consecutive polls before arming, so a momentary index-queue-empty (mid-sync)
-    // cannot arm the control while SilverBullet is still settling. Each poll also
-    // awaits async readiness work, so even 2 spans several hundred ms of
-    // continuously-proven ready — enough to reject a single transient without the
-    // ~1s+ tax (and churn-induced streak resets) that 3 added to the "slow to
-    // clickable" complaint now that the 2nd-start conflict churn is fixed at source.
-    'var requiredReadyStreak = 2;' +
-    'var timer = window.setInterval(async function () {' +
-    'if (inFlight) return;' +
-    'inFlight = true;' +
-    'try {' +
-    'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
-    'var contentProof = await buildContentProof(window, spaceSyncCompleted, expectedScope, requiredFiles, fetch);' +
-    'var transition = advanceReadyStreak(readyStreak, !!contentProof, requiredReadyStreak);' +
-    'readyStreak = transition.streak;' +
-    'if (transition.shouldArm) {' +
-    'window.clearInterval(timer);' +
-    'post("ready", null, contentProof);' +
-    '}' +
-    '} else { readyStreak = advanceReadyStreak(readyStreak, false, requiredReadyStreak).streak; }' +
-    '} catch (e) {' +
-    'window.clearInterval(timer);' +
-    'post("error", e && e.message ? e.message : String(e));' +
-    '} finally { inFlight = false; }' +
-    '}, 250);' +
-    '})();</script>';
+  const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {(' +
+    runtimeSource + ')(window, document, navigator, fetch, ' + escapedId + ', ' + requiredFilesJson + ');})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
 

@@ -15,9 +15,7 @@ import {
   inferOriginValidated,
   injectVaultEncryptionConfig,
   injectVaultPrewarmBridge,
-  advanceVaultReadyStreak,
-  buildVaultPrewarmContentProof,
-  postVaultPrewarmMessage,
+  installVaultPrewarmBridgeRuntime,
   registerCanonicalVaultServiceWorker,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
@@ -223,6 +221,31 @@ describe('CF-045: vault-html direct unit tests', () => {
   });
 
   describe('completeVaultBootstrap / REQ-VAULT-024', () => {
+    it('persists encryption completion before redirecting to the editor', () => {
+      const events: string[] = [];
+      let cookie = '';
+      const storageRef = { setItem: vi.fn(() => { events.push('storage'); }) };
+      const cookieDocument = {
+        get cookie() { return cookie; },
+        set cookie(value: string) { events.push('cookie'); cookie = value; },
+      };
+      const locationRef = { replace: vi.fn(() => { events.push('redirect'); }) };
+
+      completeVaultBootstrap(
+        storageRef,
+        cookieDocument,
+        locationRef,
+        VAULT_BOOTSTRAP_COOKIE,
+        '/api/vault/aabbccdd11223344/',
+        '',
+      );
+
+      expect(events).toEqual(['storage', 'cookie', 'redirect']);
+      expect(storageRef.setItem).toHaveBeenCalledWith('enableEncryption', 'true');
+      expect(cookieDocument.cookie).toContain(`${VAULT_BOOTSTRAP_COOKIE}=1`);
+      expect(locationRef.replace).toHaveBeenCalledWith('/api/vault/aabbccdd11223344/');
+    });
+
     it('does not mark bootstrap complete when encryption enablement cannot persist', () => {
       let cookie = '';
       const documentRef = {
@@ -294,17 +317,6 @@ describe('CF-045: vault-html direct unit tests', () => {
         .transform(new Response(html))
         .text();
       return count;
-    }
-
-    async function readPrewarmBridgeScript(html: string): Promise<string> {
-      let script = '';
-      await new HTMLRewriter()
-        .on(`script[${VAULT_PREWARM_BRIDGE_MARKER}]`, {
-          text(text) { script += text.text; },
-        })
-        .transform(new Response(html))
-        .text();
-      return script;
     }
 
     async function countPrewarmFocusGuardScripts(html: string): Promise<number> {
@@ -444,79 +456,76 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(result.blurCount).toBe(1);
     });
 
-    it('builds canonical-scope proof only after sync, index, queue, and required-file readiness', async () => {
+    it('posts ready only after two consecutive complete polls and resets after incomplete evidence', async () => {
       const scope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
-      const runtime = {
+      let poll: (() => Promise<void>) | undefined;
+      let queueReady = true;
+      const parent = { postMessage: vi.fn() };
+      const windowRef: any = {
+        location: { origin: 'https://x', search: '' },
+        parent,
+        sbRuntime: { ready: true },
         client: {
           fullSyncCompleted: false,
           systemReady: true,
           pageListLoaded: true,
           clientSystem: { scriptsLoaded: true },
           objectIndex: { hasFullIndexCompleted: vi.fn(async () => true) },
-          mq: { getQueueStats: vi.fn(async () => ({ queued: 0, processing: 0, dlq: 0 })) },
+          mq: {
+            getQueueStats: vi.fn(async () => queueReady
+              ? { queued: 0, processing: 0, dlq: 0 }
+              : { queued: 1, processing: 0, dlq: 0 }),
+          },
         },
+        setInterval: vi.fn((callback: () => Promise<void>) => { poll = callback; return 17; }),
+        clearInterval: vi.fn(),
       };
+      const navigatorRef = { serviceWorker: { addEventListener: vi.fn() } };
       const fetchRef = vi.fn(async () => ({
         ok: true,
         json: async () => [...VAULT_PREWARM_REQUIRED_FILES.map((name) => ({ name })), { name: 'Notes.md' }],
       })) as unknown as typeof fetch;
 
-      const proof = await buildVaultPrewarmContentProof(
-        runtime,
-        true,
-        scope,
-        VAULT_PREWARM_REQUIRED_FILES,
+      installVaultPrewarmBridgeRuntime(
+        windowRef,
+        { baseURI: scope },
+        navigatorRef,
         fetchRef,
+        'warm-1',
+        VAULT_PREWARM_REQUIRED_FILES,
       );
-      expect(proof).toEqual({
-        scope,
-        contentReady: true,
-        spaceSyncCompleted: true,
-        indexReady: true,
-        requiredFiles: [...VAULT_PREWARM_REQUIRED_FILES],
-        listedFileCount: 4,
-      });
-      const parent = { postMessage: vi.fn() };
-      postVaultPrewarmMessage(parent, {}, 'https://x', 'codeflare-vault-prewarm', 'warm-1', 'ready', undefined, proof!);
+      expect(poll).toBeTypeOf('function');
+
+      await poll!(); // no completed sync: no proof and no streak
+      expect(fetchRef).not.toHaveBeenCalled();
+      expect(parent.postMessage).not.toHaveBeenCalled();
+
+      windowRef.client.fullSyncCompleted = true;
+      await poll!(); // first complete proof
+      expect(parent.postMessage).not.toHaveBeenCalled();
+
+      queueReady = false;
+      await poll!(); // incomplete proof resets the streak
+      queueReady = true;
+      await poll!(); // first complete proof after reset
+      expect(parent.postMessage).not.toHaveBeenCalled();
+
+      await poll!(); // second consecutive complete proof
+      expect(windowRef.clearInterval).toHaveBeenCalledWith(17);
+      expect(parent.postMessage).toHaveBeenCalledTimes(1);
       expect(parent.postMessage).toHaveBeenCalledWith({
         source: 'codeflare-vault-prewarm',
         prewarmId: 'warm-1',
         status: 'ready',
-        proof,
+        proof: {
+          scope,
+          contentReady: true,
+          spaceSyncCompleted: true,
+          indexReady: true,
+          requiredFiles: [...VAULT_PREWARM_REQUIRED_FILES],
+          listedFileCount: 4,
+        },
       }, 'https://x');
-      expect(fetchRef).toHaveBeenCalledWith('.fs/', { cache: 'no-store' });
-
-      await expect(buildVaultPrewarmContentProof(
-        runtime,
-        false,
-        scope,
-        VAULT_PREWARM_REQUIRED_FILES,
-        fetchRef,
-      )).resolves.toBeNull();
-      runtime.client.fullSyncCompleted = true;
-      runtime.client.mq.getQueueStats.mockResolvedValueOnce({ queued: 1, processing: 0, dlq: 0 });
-      await expect(buildVaultPrewarmContentProof(
-        runtime,
-        false,
-        scope,
-        VAULT_PREWARM_REQUIRED_FILES,
-        fetchRef,
-      )).resolves.toBeNull();
-    });
-
-    it('arms only after two consecutive ready polls and resets after a failed poll', () => {
-      const first = advanceVaultReadyStreak(0, true, 2);
-      expect(first).toEqual({ streak: 1, shouldArm: false });
-
-      const reset = advanceVaultReadyStreak(first.streak, false, 2);
-      expect(reset).toEqual({ streak: 0, shouldArm: false });
-
-      const restarted = advanceVaultReadyStreak(reset.streak, true, 2);
-      expect(restarted).toEqual({ streak: 1, shouldArm: false });
-      expect(advanceVaultReadyStreak(restarted.streak, true, 2)).toEqual({
-        streak: 2,
-        shouldArm: true,
-      });
     });
   });
 
