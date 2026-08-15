@@ -143,6 +143,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | The Claude fix directive owns delivery; Pi leaves it to standing rules | Architecture, Cost |
 | [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Bounded re-delivery replaces the memory-capture hard block | Architecture, Cost, Agents |
 | [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) | Bounded automatic resync after exhausted recovery | Storage |
+| [AD126](#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions) | Vault browser-realm scripts are authored source, never serialized Worker functions | Architecture, Security, Storage |
 
 ---
 
@@ -3601,3 +3602,19 @@ The cost is that a capture can be skipped six times and then dropped, where the 
 **Alternatives rejected:** Never rebuilding automatically, because a session with absent or irrecoverable listings would keep running without persistence; rebuilding on the first ordinary failure, because that spends the deletion-safety trade-off before resilient recovery has had a chance to work; deleting suspected R2 objects, because corruption was not established and user data is not disposable recovery state.
 
 **Consequences:** Baseline reconstruction can resurrect a deletion that existed on only one side. The runtime accepts that bounded risk to restore a functioning persistence loop after ordinary recovery is exhausted. Logs and sync health expose the fallback and its outcome. Startup continues to establish a baseline after one-way restore, while healthy steady-state cycles never invoke `--resync`.
+
+### AD126: Vault browser-realm scripts are authored source, never serialized Worker functions
+
+**Category:** Architecture, Security, Storage
+
+**Status:** Accepted (2026-08-15)
+
+**Context:** Vault bootstrap, stale-worker removal, registration, readiness, focus, and reload logic originates in the Cloudflare Worker bundle but executes in a separate browser realm after HTML injection. A v3 refactor serialized bundled Worker functions with `Function.prototype.toString()`. Wrangler's esbuild `keepNames` transform added calls to the bundle-local `__name` helper inside four serialized functions, but `toString()` copied only each function body into the page. Integration therefore stopped at `Codeflare vault bootstrap: __name is not defined` before canonical service-worker registration, IndexedDB creation, sync, indexing, or readiness. Source-level helper tests passed because they did not exercise the production-bundled bytes. This boundary is independent of [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing)'s native-worker decision and [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly)'s encryption-key lifecycle.
+
+**Decision:** Every Vault script injected from the Worker into a browser page is maintained as explicit, self-contained authored source in `src/lib/vault-browser-scripts.ts`. Browser-realm source must not be produced by `Function.prototype.toString()`, by serializing any callable transformed by the Worker bundler, or by post-processing compiled output. It may not depend on Worker-module bindings or bundler-only helpers. Dynamic values cross the boundary only as JSON-encoded arguments escaped for an HTML script context.
+
+The executable contract is the production-like bundle test: bundle the real injector with esbuild `keepNames`, extract the exact generated scripts, and execute them in isolated VM realms. The test must retain observable coverage of stale/canonical/unrelated worker handling, cleanup-before-registration ordering, focus behavior, readiness rejection and convergence, exact encryption-key transport, persistence-before-redirect ordering, and controlled reload. A source refactor that bypasses this boundary or tests only pre-bundle helpers is incomplete even when its TypeScript tests pass.
+
+**Alternatives rejected:** `Function.prototype.toString()` for functions that happen not to contain transformed nested callables, because a later local refactor can silently reintroduce bundle-only dependencies; injecting an `__name` shim, because it couples browser behavior to an undocumented bundler implementation detail and does not cover other possible helpers; disabling `keepNames`, because Worker diagnostics and unrelated bundled code own that setting; regex-stripping or rewriting compiled output, because it is syntax-fragile and cannot prove semantic self-containment.
+
+**Consequences:** Browser-realm code has an explicit source representation rather than inheriting TypeScript function bodies, so changes must keep the authored script and its production-bundle behavioral test aligned. That small duplication is intentional: the realm boundary is visible, reviewable, and independent of Wrangler's current transform strategy. Future cleanup may reorganize or generate the authored source only if the emitted browser bytes remain self-contained and the same production-bundle execution contract stays authoritative; converting the boundary back to serialized Worker functions is not a behavior-preserving refactor.

@@ -93,7 +93,7 @@ For a live repository tree, run `tree -L 2 -I node_modules` rather than relying 
 - `crypto.ts`: `getVaultEncryptionKey` key resolution
 - `native-sw.ts`: vendored native service worker source + graft transform (AD69)
 - `src/lib/vault-view.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `injectVaultPrewarmBridge`, `filterVaultFsListing`) — the vault view/templating layer, housed in `lib/` so route/auth churn and template churn stay separate
-- `src/lib/vault-browser-scripts.ts`: authored browser-realm bootstrap, worker-cutover, prewarm, focus, and reload source bytes; kept separate from bundled Worker functions so injected pages cannot inherit bundler-only helpers
+- `src/lib/vault-browser-scripts.ts`: authored browser-realm bootstrap, worker-cutover, prewarm, focus, and reload source bytes; kept separate from bundled Worker functions so injected pages cannot inherit bundler-only helpers ([AD126](../decisions/README.md#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions))
 - `index.ts`: `handleVaultRequest` orchestration wiring the chain origin -> authenticate -> tier -> ownership
 
 **Container lifecycle route extraction:** `src/routes/container/lifecycle.ts` split into focused modules (`lifecycle.ts` re-exports the helpers for existing importers):

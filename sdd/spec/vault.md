@@ -780,12 +780,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - User-initiated cutover removes only same-origin `/api/vault/` workers; it never migrates or deletes IndexedDB, adds compatibility/background retry, or widens client-asset authentication.
+- Worker-to-browser Vault scripts remain explicit, self-contained authored source under [AD126](../../documentation/decisions/README.md#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions). They are never produced with `Function.prototype.toString()`, serialized from Worker-bundled callables, or allowed to depend on bundle-only helpers; production-like bundle execution is the authoritative cross-realm verification.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)
 
-**Verification:** Automated tests ([ownership burst](../../src/__tests__/lib/access.test.ts), [token cutover](../../src/__tests__/lib/vault-bucket-token.test.ts), [route burst](../../src/__tests__/routes/vault-auth-chain.test.ts), [scope cleanup](../../src/__tests__/routes/vault-html-direct.test.ts), [prewarm proof](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [control lifecycle](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated tests ([ownership burst](../../src/__tests__/lib/access.test.ts), [token cutover](../../src/__tests__/lib/vault-bucket-token.test.ts), [route burst](../../src/__tests__/routes/vault-auth-chain.test.ts), [scope cleanup](../../src/__tests__/routes/vault-html-direct.test.ts), [production-bundled browser scripts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [prewarm proof](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [control lifecycle](../../web-ui/src/__tests__/components/Layout.test.tsx))
 
 **Status:** Implemented
 
