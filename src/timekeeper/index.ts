@@ -4,7 +4,7 @@
  * One Timekeeper DO per user. Container DOs ping it with monotonic totalSeconds
  * per session. Timekeeper computes deltas, accumulates pendingSeconds, and
  * periodically flushes to KV via alarm. Also serves real-time usage queries
- * and performs quota checks on each ping.
+ * in every deployment mode and performs quota checks on SaaS pings.
  *
  * KV key: timekeeper:{bucketName}
  * See UsageRecord in src/types.ts for the KV value shape.
@@ -25,6 +25,7 @@ import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
 import { sendWelcomeEmail } from '../lib/email';
 import { parseUserRecord } from '../lib/user-record';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const logger = createLogger('timekeeper');
 
@@ -369,63 +370,66 @@ export class Timekeeper {
       }
     }
 
-    // Quota check (fail-open)
+    // Usage accumulates in every mode; quota and trial enforcement remain a
+    // SaaS billing concern.
     let quotaExceeded = false;
     let totalMonthlySeconds = this.lastFlushedMonthlyTotal + this.pendingSeconds;
-    try {
-      const [kvRecord, tiers, userRaw] = await Promise.all([
-        this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json'),
-        getTierConfig(this.env.KV),
-        getCachedUserRecord(this.email!, this.env.KV),
-      ]);
+    if (isSaasModeActive(this.env.SAAS_MODE)) {
+      try {
+        const [kvRecord, tiers, userRaw] = await Promise.all([
+          this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json'),
+          getTierConfig(this.env.KV),
+          getCachedUserRecord(this.email!, this.env.KV),
+        ]);
 
-      const userData = userRaw ? JSON.parse(userRaw) : {};
-      const effectiveTierValue = getEffectiveTier(
-        userData.subscriptionTier, userData.accessTier, userData.billingStatus,
-        userData.billingPeriodEnd, this.env,
-      );
-      const tier = getUserTier(effectiveTierValue, tiers);
+        const userData = userRaw ? JSON.parse(userRaw) : {};
+        const effectiveTierValue = getEffectiveTier(
+          userData.subscriptionTier, userData.accessTier, userData.billingStatus,
+          userData.billingPeriodEnd, this.env,
+        );
+        const tier = getUserTier(effectiveTierValue, tiers);
 
-      // Calculate real monthly total
-      const now = new Date();
-      const currentMonth = getUtcMonthString(now);
-      const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
-        ? kvRecord.thisMonth.seconds
-        : 0;
-      totalMonthlySeconds = kvMonthly + this.pendingSeconds;
-      this.lastFlushedMonthlyTotal = kvMonthly;
-      // Persist so crash recovery has accurate flushed total
-      void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
+        // Calculate real monthly total
+        const now = new Date();
+        const currentMonth = getUtcMonthString(now);
+        const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
+          ? kvRecord.thisMonth.seconds
+          : 0;
+        totalMonthlySeconds = kvMonthly + this.pendingSeconds;
+        this.lastFlushedMonthlyTotal = kvMonthly;
+        // Persist so crash recovery has accurate flushed total
+        void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
 
-      // Trial enforcement: if subscription is trialing, use trialQuotaHours as the cap.
-      // When trial quota is hit, end the Stripe trial early to trigger first charge.
-      const isTrialing = userData.billingStatus === BILLING_STATUS.TRIALING;
-      const trialQuotaSeconds = (tier.trialQuotaHours ?? 0) * 3600;
+        // Trial enforcement: if subscription is trialing, use trialQuotaHours as the cap.
+        // When trial quota is hit, end the Stripe trial early to trigger first charge.
+        const isTrialing = userData.billingStatus === BILLING_STATUS.TRIALING;
+        const trialQuotaSeconds = (tier.trialQuotaHours ?? 0) * 3600;
 
-      if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {
-        quotaExceeded = true;
-        // End Stripe trial → triggers first charge. Guard against repeated calls
-        // (this fires every 60s per container - only call Stripe once).
-        const trialEnded = await this.ctx.storage.get<boolean>('trialEnded');
-        if (!trialEnded && this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
-          try {
-            await endTrialNow(userData.stripeSubscriptionId, this.env.STRIPE_SECRET_KEY);
-            await this.ctx.storage.put('trialEnded', true);
-            logger.info('Trial ended early - quota consumed', {
-              email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
-            });
-          } catch (err) {
-            logger.error('Failed to end Stripe trial', toError(err));
+        if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {
+          quotaExceeded = true;
+          // End Stripe trial → triggers first charge. Guard against repeated calls
+          // (this fires every 60s per container - only call Stripe once).
+          const trialEnded = await this.ctx.storage.get<boolean>('trialEnded');
+          if (!trialEnded && this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
+            try {
+              await endTrialNow(userData.stripeSubscriptionId, this.env.STRIPE_SECRET_KEY);
+              await this.ctx.storage.put('trialEnded', true);
+              logger.info('Trial ended early - quota consumed', {
+                email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
+              });
+            } catch (err) {
+              logger.error('Failed to end Stripe trial', toError(err));
+            }
           }
+        } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds && !isEnterpriseMode(this.env)) {
+          // Enterprise users are unlimited with no time limit — the monthly compute
+          // quota is never enforced for them (backstops the unlimited-tier resolution
+          // above). No-op when ENTERPRISE_MODE is unset.
+          quotaExceeded = true;
         }
-      } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds && !isEnterpriseMode(this.env)) {
-        // Enterprise users are unlimited with no time limit — the monthly compute
-        // quota is never enforced for them (backstops the unlimited-tier resolution
-        // above). No-op when ENTERPRISE_MODE is unset.
-        quotaExceeded = true;
+      } catch {
+        // Fail open - don't block on KV errors
       }
-    } catch {
-      // Fail open - don't block on KV errors
     }
 
     return Response.json({ quotaExceeded, totalMonthlySeconds });

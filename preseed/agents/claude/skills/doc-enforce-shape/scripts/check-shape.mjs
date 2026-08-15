@@ -92,6 +92,7 @@ function laneKind(file) {
   if (name === 'deployment.md') return 'deployment';
   if (name === 'observability.md') return 'observability';
   if (/^api-reference.*\.md$/.test(name)) return 'api';
+  if (name === 'README.md' && path.basename(path.dirname(file)) === 'decisions') return 'decisions';
   if (path.basename(path.dirname(file)) === 'lanes' && name.endsWith('.md')) return 'project';
   return null;
 }
@@ -224,14 +225,18 @@ function plain(value) {
     .trim();
 }
 
-function markdownCells(line) {
+function rawMarkdownCells(line) {
   const trimmed = line.trim();
   if (!trimmed.startsWith('|')) return [];
   return trimmed
     .replace(/^\|/, '')
     .replace(/\|$/, '')
     .split('|')
-    .map((cell) => plain(cell));
+    .map((cell) => cell.trim());
+}
+
+function markdownCells(line) {
+  return rawMarkdownCells(line).map((cell) => plain(cell));
 }
 
 function isSeparator(line) {
@@ -300,7 +305,36 @@ function scanTables(lines, kind, file, findings) {
     }
 
     let row = index + 2;
-    while (row < lines.length && lines[row].trim().startsWith('|')) row += 1;
+    while (row < lines.length && lines[row].trim().startsWith('|')) {
+      if (profile.id === 'security-verification') {
+        const referenceColumn = headers.indexOf('Requirements / decisions');
+        const referenceCell = rawMarkdownCells(lines[row])[referenceColumn] ?? '';
+        const unlinkedText = referenceCell.replace(/\[[^\]]+\]\([^)]*\)/g, '');
+        const bareAd = unlinkedText.match(/\bAD\d+\b/);
+        if (bareAd) {
+          findings.push({
+            rule: 'security-source-map-ad-not-linked',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: bareAd[0],
+            missing: [bareAd[0]],
+          });
+        }
+        const vagueReference = unlinkedText.match(/\b[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*\s+SDD\b/);
+        if (vagueReference) {
+          findings.push({
+            rule: 'security-source-map-vague-reference',
+            file,
+            line: row + 1,
+            collection: profile.id,
+            item: vagueReference[0],
+            missing: [vagueReference[0]],
+          });
+        }
+      }
+      row += 1;
+    }
     index = row - 1;
   }
 }
@@ -441,6 +475,59 @@ function scanDeploymentSections(lines, file, findings) {
   }
 }
 
+function scanDecisions(lines, file, findings) {
+  const indexRows = new Map();
+  for (let index = 0; index < lines.length; index += 1) {
+    const cells = rawMarkdownCells(lines[index]);
+    const id = cells[0]?.match(/\bAD\d+\b/)?.[0];
+    if (!id || cells.length < 3) continue;
+    indexRows.set(id, { cells, line: index + 1 });
+    if (cells.some((cell) => /^\(?redirect(?:ed)?\)?$/i.test(plain(cell)))) {
+      findings.push({
+        rule: 'adr-redirect-label-ambiguous',
+        file,
+        line: index + 1,
+        collection: 'decision-index',
+        item: id,
+        missing: ['Redirect anchor'],
+      });
+    }
+  }
+
+  let currentId = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^###\s+(AD\d+):/);
+    if (heading) currentId = heading[1];
+    if (!currentId || !/^\*\*Status:\*\*/.test(lines[index])) continue;
+    const row = indexRows.get(currentId);
+    if (!row) continue;
+    if (/^\*\*Status:\*\*\s+Superseded\b/i.test(lines[index])) {
+      const [idCell, decisionCell] = row.cells;
+      if (!/^~~[\s\S]+~~$/.test(idCell) || !/^~~[\s\S]+~~$/.test(decisionCell)) {
+        findings.push({
+          rule: 'adr-superseded-not-struck',
+          file,
+          line: row.line,
+          collection: 'decision-index',
+          item: currentId,
+          missing: ['struck ID', 'struck decision'],
+        });
+      }
+    }
+    if (/^\*\*Status:\*\*\s+(?:Reclassified|Merged)\b/i.test(lines[index])
+        && !row.cells.some((cell) => plain(cell) === 'Redirect anchor')) {
+      findings.push({
+        rule: 'adr-redirect-label-ambiguous',
+        file,
+        line: row.line,
+        collection: 'decision-index',
+        item: currentId,
+        missing: ['Redirect anchor'],
+      });
+    }
+  }
+}
+
 function scanProjectLane(lines, file, findings) {
   const firstSection = lines.findIndex((line) => /^##\s+/.test(line));
   const preamble = lines.slice(0, firstSection === -1 ? lines.length : firstSection).join('\n');
@@ -481,6 +568,7 @@ export async function checkDocuments(files) {
     scanTables(maskFencedLines(lines), kind, file, findings);
     scanSections(lines, kind, file, findings);
     if (kind === 'deployment') scanDeploymentSections(maskFencedLines(lines), file, findings);
+    if (kind === 'decisions') scanDecisions(maskFencedLines(lines), file, findings);
     if (kind === 'project') scanProjectLane(maskFencedLines(lines), file, findings);
   }
 

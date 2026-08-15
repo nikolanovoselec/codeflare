@@ -340,9 +340,8 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   });
 
   describe('Usage Dropdown Item', () => {
-    // The Usage dropdown item is a SaaS-billing surface (REQ-ENTERPRISE-008 AC2),
-    // so it renders only in SaaS mode.
-    beforeEach(() => { sessionStoreState.saasMode = true; });
+    // Usage is a per-user consumption surface in every deployment mode; only
+    // quota and subscription actions remain SaaS-specific.
 
     it('should show formatted spent time when usage data is available', () => {
       // 2h 15m = 8100 seconds, quota = 10h = 36000 seconds
@@ -446,10 +445,8 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
-  // REQ-ENTERPRISE-008 AC2: Subscription (SaaS billing) and Usage (consumption)
-  // are both gated on saasMode — shown only in SaaS, hidden in onboarding/default.
-  // In enterprise the dropdown never opens (see 'enterprise user menu' below), so
-  // neither entry can appear.
+  // REQ-ENTERPRISE-008 AC2: Subscription remains SaaS-only while Usage is
+  // available in every deployment mode.
   describe('Subscription/Usage gating', () => {
     it('shows the Subscription menu item in SaaS mode', () => {
       sessionStoreState.saasMode = true;
@@ -460,28 +457,21 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
     });
 
-    it('hides the Subscription and Usage menu items in onboarding/default mode (not SaaS)', () => {
+    it('shows Usage but hides Subscription in onboarding/default mode', () => {
       render(() => <Header {...defaultSessionProps} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-      // Non-billing items remain present (Guided Setup shown outside enterprise).
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
       expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
   });
 
-  // REQ-ENTERPRISE-002 AC1: when ENTERPRISE_MODE is set, the subscription/billing
-  // surfaces are hidden in the frontend — here the whole user dropdown is inert, so
-  // the Subscription and Usage entries are unreachable.
-  // REQ-ENTERPRISE-008 AC8: in enterprise the avatar/username stays visible (users
-  // always see their identity) but every dropdown entry is gated away — admin-
-  // configured via Setup (Guided Setup), ineffective under SSO (Logout), SaaS-only
-  // (Subscription), or a broken 0-reporting surface (Usage). With nothing to show,
-  // clicking the avatar opens no dropdown.
+  // REQ-ENTERPRISE-008 AC2: enterprise keeps the read-only Usage action while
+  // Subscription, Guided Setup, and Logout remain suppressed.
   describe('enterprise user menu', () => {
     it('shows Guided Setup and Logout outside enterprise mode', () => {
       render(() => <Header {...defaultSessionProps} />);
@@ -490,15 +480,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
-    it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
+    it('opens a Usage-only dropdown in enterprise mode', () => {
       sessionStoreState.enterpriseMode = true;
       render(() => <Header {...defaultSessionProps} />);
-      // Avatar/username trigger stays rendered so the user sees their identity.
       expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
-      // Clicking it is inert — no dropdown opens.
       fireEvent.click(screen.getByTestId('header-user-menu'));
-      expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
     });
   });
 });

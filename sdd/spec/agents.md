@@ -3777,3 +3777,29 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-142: Unambiguous Documentation History and Evidence References
+
+**Intent:** SDD-generated and cleaned documentation must make historical decision state and cross-document evidence understandable without unexplained shorthand.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A fully superseded ADR keeps its historical section and stable anchor while its ID and decision cells are visibly struck through in the decision index. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires superseded ADR index entries to be visibly struck through) -->
+2. A partially superseded ADR remains unstruck and names the exact replaced clause and successor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires superseded ADR index entries to be visibly struck through) -->
+3. Merged or reclassified ADR tombstones use the explicit `Redirect anchor` state and link their destination instead of using `(redirect)` or `(redirected)`. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects ambiguous redirect category labels in ADR indexes) -->
+4. Every ADR identifier in a Security verification/source map links directly to its decision anchor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) -->
+5. Security verification/source maps link requirement domains directly and do not use unexplained labels such as `Operations SDD` or `Browser IDE SDD`. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) -->
+
+**Constraints:** Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded. Existing inbound AD anchors remain stable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Implemented
+
+---

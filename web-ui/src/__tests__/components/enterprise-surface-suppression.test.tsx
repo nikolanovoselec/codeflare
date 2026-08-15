@@ -111,25 +111,23 @@ afterEach(() => cleanup());
 // AC2 — Header username dropdown
 // ---------------------------------------------------------------------------
 describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
-  it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
+  it('opens a Usage-only dropdown in enterprise mode', () => {
     sessionStoreState.enterpriseMode = true;
     render(() => <Header {...headerProps} />);
-    // Avatar/username trigger stays rendered so the user sees their identity.
     expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
-    // Every per-user dropdown entry is gated away in enterprise (Usage 0-reports,
-    // Subscription is SaaS billing, Guided Setup + Logout are admin/SSO concerns),
-    // so clicking the avatar is inert — no dropdown opens.
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
   });
 
-  it('hides Usage and Subscription in onboarding/default mode (not enterprise, not SaaS)', () => {
+  it('shows Usage but hides Subscription in onboarding/default mode', () => {
     render(() => <Header {...headerProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
     expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-    // Non-billing items remain.
     expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
     expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });

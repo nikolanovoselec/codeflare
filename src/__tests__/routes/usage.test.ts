@@ -65,7 +65,7 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
       idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
       get: vi.fn(() => tkStub),
     };
-    const { app } = createApp({ TIMEKEEPER } as unknown as Partial<Env>);
+    const { app } = createApp({ TIMEKEEPER, SAAS_MODE: 'active' } as unknown as Partial<Env>);
 
     const res = await app.request('/usage', { method: 'GET' });
     expect(res.status).toBe(200);
@@ -80,6 +80,28 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
     expect(tkStub.fetch).toHaveBeenCalledTimes(1);
     // Tier monthlySeconds must come from tier config (not from live response)
     expect(body.monthlyQuotaSeconds).toBeGreaterThan(0);
+  });
+
+  it('returns live usage with no billing quota outside SaaS mode', async () => {
+    const tkStub = {
+      fetch: vi.fn(async () => Response.json({ dailySeconds: 321, monthlySeconds: 654 })),
+    };
+    const TIMEKEEPER = {
+      idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+      get: vi.fn(() => tkStub),
+    };
+    const { app } = createApp({ TIMEKEEPER } as unknown as Partial<Env>);
+
+    const res = await app.request('/usage', { method: 'GET' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      dailySeconds: number;
+      monthlySeconds: number;
+      monthlyQuotaSeconds: number | null;
+    };
+    expect(body.dailySeconds).toBe(321);
+    expect(body.monthlySeconds).toBe(654);
+    expect(body.monthlyQuotaSeconds).toBeNull();
   });
 
   it('falls back to KV record when Timekeeper DO returns non-200', async () => {
@@ -172,7 +194,7 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
       c.set('bucketName', 'canceled-bucket');
       return next();
     });
-    const { app } = createApp({});
+    const { app } = createApp({ SAAS_MODE: 'active' });
     const res = await app.request('/usage', { method: 'GET' });
     expect(res.status).toBe(200);
     const body = await res.json() as { tier: string };

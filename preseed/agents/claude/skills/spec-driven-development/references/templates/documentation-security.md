@@ -37,6 +37,8 @@ Explain controls by security concern. Link implementation and behavioral evidenc
 
 ## Verification and Source Map
 
+Link every requirement file and every decision identifier directly. Do not use unresolved shorthand such as `Operations SDD`, `Browser IDE SDD`, or bare decision identifiers.
+
 | Control family | Requirements / decisions | Implementation | Evidence |
 |---|---|---|---|
 | {CONTROL_FAMILY} | {REQUIREMENT_LINK} | `{PATH}::{SYMBOL}` | `{TEST_PATH}` |

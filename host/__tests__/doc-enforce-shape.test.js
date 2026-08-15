@@ -598,9 +598,12 @@ describe('optimized documentation lane shapes', () => {
 
   it('accepts the current indexed Codeflare lane corpus without product inventory names', () => {
     const lanesDir = join(ROOT, 'documentation', 'lanes');
-    const files = readdirSync(lanesDir)
-      .filter((name) => name.endsWith('.md'))
-      .map((name) => join(lanesDir, name));
+    const files = [
+      ...readdirSync(lanesDir)
+        .filter((name) => name.endsWith('.md'))
+        .map((name) => join(lanesDir, name)),
+      join(ROOT, 'documentation', 'decisions', 'README.md'),
+    ];
     const result = spawnSync(process.execPath, [CHECKER, ...files], {
       cwd: ROOT,
       encoding: 'utf8',
@@ -615,5 +618,66 @@ describe('optimized documentation lane shapes', () => {
       'observability.md': '# Observability\n\n## Vendors\n\n| Vendor | Product |\n|---|---|\n| Example | Logs |\n',
     });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('requires superseded ADR index entries to be visibly struck through', () => {
+    const fixture = [
+      '# Architecture Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-old-choice) | Old choice | Architecture |',
+      '| [AD2](#ad2-new-choice) | New choice; one clause amended by [AD3](#ad3-amendment) | Architecture, partially superseded |', '',
+      '## Decisions', '', '### AD1: Old choice', '',
+      '**Status:** Superseded by [AD2](#ad2-new-choice)', '',
+      '### AD2: New choice', '', '**Status:** Partially superseded by [AD3](#ad3-amendment): retry timing only.',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-superseded-not-struck');
+
+    const corrected = fixture.replace(
+      '| [AD1](#ad1-old-choice) | Old choice | Architecture |',
+      '| ~~[AD1](#ad1-old-choice)~~ | ~~Old choice — superseded by [AD2](#ad2-new-choice)~~ | Superseded |',
+    );
+    const accepted = runFixture({ 'documentation/decisions/README.md': corrected });
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  });
+
+  it('rejects ambiguous redirect category labels in ADR indexes', () => {
+    const fixture = [
+      '# Architecture Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD9](#ad9-redirect) | Reclassified into Configuration | (redirect) |', '',
+      '## Decisions', '', '### AD9: Redirect', '',
+      '**Status:** Reclassified into `documentation/lanes/configuration.md`',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-redirect-label-ambiguous');
+
+    const corrected = fixture.replace('(redirect)', 'Redirect anchor');
+    const accepted = runFixture({ 'documentation/decisions/README.md': corrected });
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  });
+
+  it('requires linked AD references and rejects vague SDD labels in security source maps', () => {
+    const fixture = [
+      '# Security', '', '## Verification and Source Map', '',
+      '| Control family | Requirements / decisions | Implementation | Evidence |',
+      '|---|---|---|---|',
+      '| Encryption | [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005), AD32 | crypto | tests |',
+      '| Supply chain | Operations SDD | workflows | CI |',
+    ].join('\n');
+    const result = runFixture({ 'security.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(
+      JSON.parse(result.stdout).findings.map(({ rule }) => rule).sort(),
+      ['security-source-map-ad-not-linked', 'security-source-map-vague-reference'],
+    );
+
+    const corrected = fixture
+      .replace('AD32', '[AD32](../decisions/README.md#ad32-encryption-key-is-optional)')
+      .replace('Operations SDD', '[Operations requirements](../../sdd/spec/operations.md)');
+    const accepted = runFixture({ 'security.md': corrected });
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
   });
 });

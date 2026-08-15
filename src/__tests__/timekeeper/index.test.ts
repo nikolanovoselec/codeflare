@@ -34,9 +34,9 @@ const THIS_YEAR = String(NOW.getUTCFullYear());
 const THIS_WEEK_START = getIsoWeekStart(NOW);
 const YESTERDAY = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() - 1)).toISOString();
 
-function createTimekeeper(): Timekeeper {
+function createTimekeeper(envOverrides: Record<string, unknown> = {}): Timekeeper {
   const ctx = { storage: mockStorage, waitUntil: vi.fn() } as any;
-  const env = { KV: mockKV } as any;
+  const env = { KV: mockKV, SAAS_MODE: 'active', ...envOverrides } as any;
   // Bypass blockConcurrencyWhile — mock returns immediately
   ctx.blockConcurrencyWhile = vi.fn(async (fn: () => Promise<void>) => fn());
   return new Timekeeper(ctx, env);
@@ -88,7 +88,7 @@ function createBillingTimekeeper(initialUser: Record<string, unknown>) {
   } as any;
 
   return {
-    timekeeper: new Timekeeper(ctx, { KV: kv } as any),
+    timekeeper: new Timekeeper(ctx, { KV: kv, SAAS_MODE: 'active' } as any),
     readUser: () => JSON.parse(userRecords.get('user:alice@example.com') ?? '{}') as Record<string, unknown>,
   };
 }
@@ -246,6 +246,33 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       }));
       const body = await res.json() as { quotaExceeded: boolean };
       expect(body.quotaExceeded).toBe(true);
+    });
+
+    it('REQ-SUB-007 AC5: accumulates the same usage without enforcing quota outside SaaS', async () => {
+      const usageRecord = {
+        today: { date: TODAY, seconds: 0 },
+        thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
+        thisMonth: { month: THIS_MONTH, seconds: 14300 },
+        thisYear: { year: THIS_YEAR, seconds: 14300 },
+        allTime: { seconds: 14300 },
+        lastUpdatedAt: YESTERDAY,
+      };
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key === 'tiers:config') return null;
+        if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free', role: 'user' });
+        if (key.startsWith('timekeeper:')) return type === 'json' ? usageRecord : JSON.stringify(usageRecord);
+        return null;
+      });
+      const tk = createTimekeeper({ SAAS_MODE: undefined });
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice',
+        sessionId: 'sess1',
+        totalSeconds: 200,
+        email: 'alice@example.com',
+      }));
+      const body = await res.json() as { quotaExceeded: boolean; totalMonthlySeconds: number };
+      expect(body.totalMonthlySeconds).toBe(14500);
+      expect(body.quotaExceeded).toBe(false);
     });
 
     it('fails open when KV read fails', async () => {

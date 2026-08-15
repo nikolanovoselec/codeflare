@@ -142,17 +142,16 @@ const Header: Component<HeaderProps> = (props) => {
           </button>
         </Show>
 
-        {/* The avatar/username stays visible in every mode. In enterprise the
-            dropdown has no entries (Subscription/Usage SaaS-only, Guided
-            Setup/Logout hidden under SSO), so the avatar's click is inert —
-            it opens nothing rather than an empty dropdown. */}
+        {/* The account menu is available in every mode. Enterprise keeps the
+            read-only Usage action while self-service billing, onboarding, and
+            logout remain suppressed. */}
         <div class="header-user-wrapper" ref={userMenuRef}>
           <button
             type="button"
             class="header-user-menu"
             data-testid="header-user-menu"
             title="User menu"
-            onClick={() => { if (!sessionStore.enterpriseMode) setShowUserMenu(!showUserMenu()); }}
+            onClick={() => setShowUserMenu(!showUserMenu())}
           >
             <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
               <img
@@ -181,40 +180,34 @@ const Header: Component<HeaderProps> = (props) => {
                   <span>Subscription</span>
                 </a>
               </Show>
-              {/* Usage is SaaS-only — the enterprise usage view is disabled for
-                  now (it always reports 0; fix deferred). */}
-              <Show when={sessionStore.saasMode}>
-                <a
-                  href="/app/usage"
-                  class="header-user-dropdown-item"
-                  data-testid="header-user-dropdown-usage"
-                >
-                  <Icon path={mdiChartBar} size={16} />
-                  <span>Usage</span>
-                  <UsageInlineBadge />
-                </a>
-              </Show>
-              {/* Guided Setup + Logout are not per-item enterprise-gated: the
-                  dropdown only opens outside enterprise (the avatar's onClick is
-                  inert in enterprise, REQ-ENTERPRISE-008 AC8/AC9), so reaching here
-                  already implies non-enterprise. */}
               <a
-                href="/app/onboarding"
+                href="/app/usage"
                 class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-onboarding"
+                data-testid="header-user-dropdown-usage"
               >
-                <Icon path={mdiRocketLaunchOutline} size={16} />
-                <span>Guided Setup</span>
+                <Icon path={mdiChartBar} size={16} />
+                <span>Usage</span>
+                <UsageInlineBadge />
               </a>
-              <button
-                type="button"
-                class="header-user-dropdown-item header-user-dropdown-item--danger"
-                data-testid="header-user-dropdown-logout"
-                onClick={() => { window.location.href = '/auth/logout'; }}
-              >
-                <Icon path={mdiLogout} size={16} />
-                <span>Logout</span>
-              </button>
+              <Show when={!sessionStore.enterpriseMode}>
+                <a
+                  href="/app/onboarding"
+                  class="header-user-dropdown-item"
+                  data-testid="header-user-dropdown-onboarding"
+                >
+                  <Icon path={mdiRocketLaunchOutline} size={16} />
+                  <span>Guided Setup</span>
+                </a>
+                <button
+                  type="button"
+                  class="header-user-dropdown-item header-user-dropdown-item--danger"
+                  data-testid="header-user-dropdown-logout"
+                  onClick={() => { window.location.href = '/auth/logout'; }}
+                >
+                  <Icon path={mdiLogout} size={16} />
+                  <span>Logout</span>
+                </button>
+              </Show>
             </div>
           </Show>
         </div>
