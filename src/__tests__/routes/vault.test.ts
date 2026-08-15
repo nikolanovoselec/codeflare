@@ -10,13 +10,10 @@ import {
   VAULT_NATIVE_SW_SHA256,
   graftVaultKeyRecovery,
   VAULT_BOOTSTRAP_COOKIE,
-  VAULT_SW_ACTIVATION_TIMEOUT_MS,
   injectVaultEncryptionConfig,
-  injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
-  isBootstrapHopRequest,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
 } from '../../routes/vault';

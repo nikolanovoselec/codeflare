@@ -15,6 +15,7 @@ import {
   inferOriginValidated,
   injectVaultEncryptionConfig,
   injectVaultPrewarmBridge,
+  advanceVaultReadyStreak,
   buildVaultPrewarmContentProof,
   postVaultPrewarmMessage,
   registerCanonicalVaultServiceWorker,
@@ -503,19 +504,19 @@ describe('CF-045: vault-html direct unit tests', () => {
       )).resolves.toBeNull();
     });
 
-    it('arms only after the readiness proof holds across multiple consecutive polls (stable-green gate)', async () => {
-      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-      // More than one consecutive proven-ready poll is required before arming.
-      const m = script.match(/requiredReadyStreak\s*=\s*(\d+)/);
-      expect(m, 'bridge must define requiredReadyStreak').not.toBeNull();
-      expect(Number(m![1])).toBeGreaterThanOrEqual(2);
-      // post("ready") is gated behind the streak threshold, not a single proof ...
-      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeGreaterThanOrEqual(0);
-      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeLessThan(
-        script.indexOf('post("ready"'),
-      );
-      // ... and a not-ready poll resets the streak so a momentary index-empty cannot arm.
-      expect(script).toContain('readyStreak = 0');
+    it('arms only after two consecutive ready polls and resets after a failed poll', () => {
+      const first = advanceVaultReadyStreak(0, true, 2);
+      expect(first).toEqual({ streak: 1, shouldArm: false });
+
+      const reset = advanceVaultReadyStreak(first.streak, false, 2);
+      expect(reset).toEqual({ streak: 0, shouldArm: false });
+
+      const restarted = advanceVaultReadyStreak(reset.streak, true, 2);
+      expect(restarted).toEqual({ streak: 1, shouldArm: false });
+      expect(advanceVaultReadyStreak(restarted.streak, true, 2)).toEqual({
+        streak: 2,
+        shouldArm: true,
+      });
     });
   });
 

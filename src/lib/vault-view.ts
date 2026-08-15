@@ -325,6 +325,15 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
   return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
+export function advanceVaultReadyStreak(
+  currentStreak: number,
+  proofReady: boolean,
+  requiredStreak: number,
+): { streak: number; shouldArm: boolean } {
+  const streak = proofReady ? currentStreak + 1 : 0;
+  return { streak, shouldArm: proofReady && streak >= requiredStreak };
+}
+
 export function postVaultPrewarmMessage(
   parentRef: any,
   windowRef: any,
@@ -396,6 +405,10 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
+  const readyStreakSource = advanceVaultReadyStreak.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const contentProofSource = buildVaultPrewarmContentProof.toString()
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
@@ -405,6 +418,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
+    'var advanceReadyStreak = ' + readyStreakSource + ';' +
     'var buildContentProof = ' + contentProofSource + ';' +
     'var postMessageToParent = ' + postMessageSource + ';' +
     'var prewarmId = ' + escapedId + ';' +
@@ -448,14 +462,13 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
     'var contentProof = await buildContentProof(window, spaceSyncCompleted, expectedScope, requiredFiles, fetch);' +
-    'if (contentProof) {' +
-    'readyStreak++;' +
-    'if (readyStreak >= requiredReadyStreak) {' +
+    'var transition = advanceReadyStreak(readyStreak, !!contentProof, requiredReadyStreak);' +
+    'readyStreak = transition.streak;' +
+    'if (transition.shouldArm) {' +
     'window.clearInterval(timer);' +
     'post("ready", null, contentProof);' +
     '}' +
-    '} else { readyStreak = 0; }' +
-    '} else { readyStreak = 0; }' +
+    '} else { readyStreak = advanceReadyStreak(readyStreak, false, requiredReadyStreak).streak; }' +
     '} catch (e) {' +
     'window.clearInterval(timer);' +
     'post("error", e && e.message ? e.message : String(e));' +

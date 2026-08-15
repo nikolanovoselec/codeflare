@@ -615,15 +615,13 @@ The coercion graft was added for the runtime non-array crash described in the ro
 (1) DevTools → Application → Cookies: confirm the `cf_vault_sid` HttpOnly cookie is set after visiting `/api/vault/<sid>/`. (2) Confirm the redirect lands on `/api/vault/<token>/` where `<token>` is the same 32-hex value across sessions for the same user (it is `SHA-256(salt+bucketName)` — deterministic per bucket). (3) If `ENCRYPTION_KEY` was rotated, the `getVaultEncryptionKey` HKDF output changes and the persisted local cache can no longer decrypt — a one-time re-index after a rotation is expected. Otherwise redeploy the Worker.
 
 <a id="vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr"></a>
-#### Vault preparation repeatedly breathes without reaching green, or an old Vault worker remains after v3
+#### Vault button "re-indexes" on every click, returns green, but does not open (historical); v3 preparation does not converge
 
-**Cause detail:**
+**Historical cause and fix:** Older builds embedded a session id in SilverBullet's precached shell and used session-keyed localStorage markers as readiness proof. A later session could read proof for another shell generation and re-run preparation despite a healthy store. The direct-green open fix removed that per-click re-verification; v3 removes shell session metadata entirely.
 
-Older builds embedded a session id in SilverBullet's precached shell and used session-keyed localStorage markers as readiness proof. A later session could therefore read proof for a different shell generation and loop. The v3 clean cutover removes that dependency: the explicit first click unregisters every stale same-origin Vault worker, verifies none remains, and installs the permanent canonical scope; readiness then comes only from current runtime, sync, index, required-file, and file-list evidence ([REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)).
+**Current timeout/error case:** A bounded preparation attempt failed; it never retries in the background. Read the visible timeout/error, correct the reported network, storage, or server-readiness failure, then click Vault once to start exactly one new attempt. Verify that the button breathes accent during the attempt, turns green only after sync/index/content proof, and opens on the following click.
 
-**Fix detail:**
-
-After deploying v3, reload the dashboard and click Vault once. The button should breathe accent while the bootstrap removes old registrations and prepares the canonical worker, then breathe green; click again to open. If it never greens, inspect DevTools → Application → Service Workers: only the current 32-hex `/api/vault/<token>/` scope should remain. A stale scope means cleanup failed closed; unrelated workers should remain. Historical IndexedDB databases may remain and require no manual deletion. Timeout/error attempts do not retry in the background — click again after correcting the reported failure.
+**Current stale-worker case:** The first v3 prepare unregisters every stale same-origin `/api/vault/` worker and fails before canonical registration when re-enumeration still finds one ([REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) AC3/AC7). In DevTools → Application → Service Workers, confirm whether an old Vault scope remains. Close tabs still using that scope, unregister the stale Vault worker, reload the dashboard, and click Vault once; do not delete IndexedDB. Verify that only the current 32-hex Vault scope remains, unrelated workers are unchanged, preparation reaches green, and the second click opens.
 
 <a id="enterprise-governed-mode-after-flipping-the-r2-sse-c-toggle-r2-sync-fa"></a>
 #### Enterprise Governed Mode: after flipping the R2 SSE-C toggle, R2 sync fails and the vault never becomes ready (some objects 400 on read)
