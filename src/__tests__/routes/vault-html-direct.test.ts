@@ -123,6 +123,28 @@ describe('CF-045: vault-html direct unit tests', () => {
         contentType: 'text/html',
       });
     });
+
+    it('wires exactly one focus guard into a Worker-rewritten prewarm shell', async () => {
+      const token = '0123456789abcdef0123456789abcdef';
+      const request = new Request(
+        `https://x/api/vault/${token}/?codeflarePrewarm=1&prewarmId=warm-1`,
+      );
+      const result = await rewriteVaultHtmlResponse(
+        new Response('<html><head><base href="/"></head><body></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        token,
+        '/',
+        `/api/vault/${token}/`,
+        'text/html',
+        { warn: vi.fn() },
+        request,
+      );
+      const html = await result.text();
+
+      expect(html.split(VAULT_PREWARM_FOCUS_GUARD_MARKER).length - 1).toBe(1);
+    });
   });
 
   describe('hasVaultBootstrapCookie', () => {
