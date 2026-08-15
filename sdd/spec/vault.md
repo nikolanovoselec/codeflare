@@ -780,7 +780,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - User-initiated cutover removes only same-origin `/api/vault/` workers; it never migrates or deletes IndexedDB, adds compatibility/background retry, or widens client-asset authentication.
-- Worker-to-browser Vault scripts remain explicit, self-contained authored source under [AD126](../../documentation/decisions/README.md#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions). They are never produced with `Function.prototype.toString()`, serialized from Worker-bundled callables, or allowed to depend on bundle-only helpers; production-like bundle execution is the authoritative cross-realm verification.
+- Worker-to-browser Vault scripts remain explicit, self-contained authored source under [AD126](../../documentation/decisions/README.md#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions). They are never produced with `Function.prototype.toString()`, serialized from Worker-bundled callables, or allowed to depend on bundle-only helpers.
 
 **Priority:** P0
 
