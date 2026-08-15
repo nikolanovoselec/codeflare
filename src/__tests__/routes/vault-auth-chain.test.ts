@@ -179,6 +179,42 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(mockCtx.waitUntil).not.toHaveBeenCalled();
   });
 
+  it('persists unrelated activity while the parallel precache consumes no same-key write budget', async () => {
+    const originalPut = mockKV.put.getMockImplementation()!;
+    let sessionWrites = 0;
+    mockKV.put.mockImplementation(async (...args) => {
+      if (args[0] === SESSION_KEY) {
+        sessionWrites += 1;
+        if (sessionWrites > 1) throw new Error('KV PUT failed: 429 Too Many Requests');
+      }
+      await originalPut(...args);
+    });
+    const deferred: Promise<unknown>[] = [];
+    vi.mocked(mockCtx.waitUntil).mockImplementation((promise) => {
+      deferred.push(Promise.resolve(promise));
+    });
+    const precache = [
+      tokenRequest('/?v=cache-1785242408248', { 'Sec-Fetch-Mode': 'no-cors' }),
+      ...Array.from({ length: 51 }, (_, index) =>
+        tokenRequest(`/.client/asset-${index}.js?v=cache-1785242408248`, {
+          'Sec-Fetch-Mode': 'no-cors',
+        })),
+    ];
+    const unrelated = tokenRequest('/notes/current.md?v=cache-1785242408248', {
+      'Sec-Fetch-Mode': 'no-cors',
+    });
+
+    const responses = await Promise.all(
+      [...precache, unrelated].map((request) => handleVaultRequest(request, mockEnv, mockCtx, route(request))),
+    );
+    await Promise.all(deferred);
+    const persisted = await mockKV.get(SESSION_KEY, 'json') as Session;
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(sessionWrites).toBe(1);
+    expect(persisted.lastAccessedAt).not.toBe('2026-01-01T00:00:00.000Z');
+  });
+
   it('still records activity for unrelated or navigation GETs with a cache-version query', async () => {
     const requests = [
       tokenRequest('/notes/foo.md?v=cache-1785242408248', { 'Sec-Fetch-Mode': 'no-cors' }),

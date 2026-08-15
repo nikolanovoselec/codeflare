@@ -17,6 +17,7 @@ import {
   injectVaultBootScript,
   injectVaultPrewarmBridge,
   findExactVaultRegistration,
+  checkVaultBridgeLocalReadiness,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
   installVaultIdbRecorder,
@@ -388,21 +389,37 @@ describe('CF-045: vault-html direct unit tests', () => {
       );
     });
 
-    it('binds readiness behavior to the exact current Vault scope', async () => {
+    it('binds the complete local-readiness decision to the exact current Vault scope', async () => {
       const expectedScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const sid = 'aabbccdd';
       const current = { scope: expectedScope, active: { state: 'activated' } };
       const orphan = { scope: 'https://x/api/vault/abcdef12/', active: { state: 'activated' } };
-      const exactLookup = { getRegistration: vi.fn(async () => current) };
-      const orphanLookup = { getRegistration: vi.fn(async () => orphan) };
-      const failingLookup = { getRegistration: vi.fn(async () => { throw new Error('unavailable'); }) };
+      const entries = new Map([
+        [`vault-session-${sid}-scope`, expectedScope],
+        [`vault-session-${sid}-idbs`, JSON.stringify(['sb_data_current', 'sb_files_current'])],
+      ]);
+      const windowRef = {
+        localStorage: { getItem: (key: string) => entries.get(key) ?? null },
+        indexedDB: { databases: async () => [{ name: 'sb_data_current' }, { name: 'sb_files_current' }] },
+      };
+      const run = (getRegistration: (_scope: string) => Promise<any>) => checkVaultBridgeLocalReadiness(
+        windowRef,
+        { serviceWorker: { getRegistration } },
+        expectedScope,
+        sid,
+        findExactVaultRegistration,
+      );
+      const exactLookup = vi.fn(async (_scope: string) => current);
 
-      await expect(findExactVaultRegistration(exactLookup, expectedScope)).resolves.toBe(current);
-      await expect(findExactVaultRegistration(orphanLookup, expectedScope)).resolves.toBeNull();
-      await expect(findExactVaultRegistration(failingLookup, expectedScope)).resolves.toBeNull();
-      expect(exactLookup.getRegistration).toHaveBeenCalledWith(expectedScope);
+      await expect(run(exactLookup)).resolves.toMatchObject({ ready: true, serviceWorkerState: 'activated' });
+      await expect(run(vi.fn(async (_scope: string) => orphan))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
+      await expect(run(vi.fn(async (_scope: string) => { throw new Error('unavailable'); }))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
+      await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: null })))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
+      expect(exactLookup).toHaveBeenCalledWith(expectedScope);
 
       const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-      expect(script).toContain('findExactRegistration(navigator.serviceWorker, expectedScope)');
+      expect(script).toContain('var checkLocalReadiness = ');
+      expect(script).toContain('checkLocalReadiness(window, navigator, expectedScope, sid, findExactRegistration)');
       expect(script).not.toContain('getRegistrations()');
     });
 

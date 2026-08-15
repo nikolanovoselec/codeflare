@@ -500,6 +500,76 @@ export async function findExactVaultRegistration(
   }
 }
 
+export async function checkVaultBridgeLocalReadiness(
+  windowRef: any,
+  navigatorRef: any,
+  expectedScope: string,
+  sid: string,
+  findRegistrationRef: (serviceWorker: any, scope: string) => Promise<any | null>,
+): Promise<any> {
+  let storage = null;
+  try { storage = windowRef.localStorage || null; } catch {}
+  let idb = null;
+  try { idb = windowRef.indexedDB || null; } catch {}
+  const hasDbApi = !!(idb && typeof idb.databases === 'function');
+  const proof = (recordedDbs: string[], reason: string | null, swState?: string) => ({
+    ready: !reason,
+    reason: reason || undefined,
+    recordedDbs,
+    hasIndexedDbDatabasesApi: hasDbApi,
+    serviceWorkerState: swState,
+  });
+  const recordedDbs = (() => {
+    if (!storage) return [];
+    try {
+      const parsed = JSON.parse(storage.getItem(`vault-session-${sid}-idbs`) || '[]');
+      return Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  if (!storage) return proof(recordedDbs, 'no-local-storage');
+  if (!idb) return proof(recordedDbs, 'no-indexeddb');
+  try {
+    if (storage.getItem(`vault-session-${sid}-scope`) !== expectedScope) {
+      return proof(recordedDbs, 'missing-service-worker-scope');
+    }
+  } catch {
+    return proof(recordedDbs, 'missing-service-worker-scope');
+  }
+  if (recordedDbs.length === 0) return proof(recordedDbs, 'no-recorder');
+  if (!recordedDbs.some((name) => name.startsWith('sb_data_'))) {
+    return proof(recordedDbs, 'missing-sb-data');
+  }
+  if (!recordedDbs.some((name) => name.startsWith('sb_files_'))) {
+    return proof(recordedDbs, 'missing-sb-files');
+  }
+
+  const registration = navigatorRef.serviceWorker
+    ? await findRegistrationRef(navigatorRef.serviceWorker, expectedScope)
+    : null;
+  const active = registration?.active ?? null;
+  if (!active) return proof(recordedDbs, 'missing-service-worker');
+
+  if (hasDbApi) {
+    try {
+      const databases = await idb.databases();
+      const names = new Set(
+        databases.map((db: any) => db?.name).filter((name: unknown): name is string => typeof name === 'string'),
+      );
+      const hasData = recordedDbs.some((name) => name.startsWith('sb_data_') && names.has(name));
+      const hasFiles = recordedDbs.some((name) => name.startsWith('sb_files_') && names.has(name));
+      if (!hasData || !hasFiles) return proof(recordedDbs, 'missing-idb-database', active.state);
+    } catch {
+      return proof(recordedDbs, 'missing-idb-database', active.state);
+    }
+  }
+  return proof(recordedDbs, null, active.state);
+}
+
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
   if (html.includes(VAULT_PREWARM_BRIDGE_MARKER)) return html;
   if (!html.includes('</head>')) return html;
@@ -516,9 +586,14 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const localReadinessSource = checkVaultBridgeLocalReadiness.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
     'var findExactRegistration = ' + exactRegistrationSource + ';' +
+    'var checkLocalReadiness = ' + localReadinessSource + ';' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
     'var sid = null;' +
@@ -545,9 +620,6 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (message) payload.message = message;' +
     'if (proof) payload.proof = proof;' +
     'window.parent.postMessage(payload, window.location.origin);' +
-    '}' +
-    'function proof(recordedDbs, hasDbApi, reason, swState) {' +
-    'return { ready: !reason, reason: reason, recordedDbs: recordedDbs, hasIndexedDbDatabasesApi: hasDbApi, serviceWorkerState: swState };' +
     '}' +
     'function hasSpaceSyncCompleted() {' +
     'if (spaceSyncCompleted) return true;' +
@@ -585,53 +657,6 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'return { contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
     '} catch (_) { return null; }' +
     '}' +
-    'function readRecorded(storage, sid) {' +
-    'try {' +
-    'var raw = storage.getItem("vault-session-" + sid + "-idbs");' +
-    'if (!raw) return [];' +
-    'var parsed = JSON.parse(raw);' +
-    'if (!Array.isArray(parsed)) return [];' +
-    'return parsed.filter(function (entry) { return typeof entry === "string"; });' +
-    '} catch (_) { return []; }' +
-    '}' +
-    'function readRecordedScope(storage, sid) {' +
-    'try { return storage.getItem("vault-session-" + sid + "-scope"); } catch (_) { return null; }' +
-    '}' +
-    'function hasPrefix(recordedDbs, prefix) {' +
-    'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
-    '}' +
-    'async function findRegistration() {' +
-    'if (!navigator.serviceWorker || !expectedScope) return null;' +
-    'return await findExactRegistration(navigator.serviceWorker, expectedScope);' +
-    '}' +
-    'async function checkLocalReadiness(sid) {' +
-    'var storage = null;' +
-    'try { storage = window.localStorage || null; } catch (_) {}' +
-    'var idb = null;' +
-    'try { idb = window.indexedDB || null; } catch (_) {}' +
-    'var hasDbApi = !!(idb && typeof idb.databases === "function");' +
-    'var recordedDbs = storage ? readRecorded(storage, sid) : [];' +
-    'if (!storage) return proof(recordedDbs, hasDbApi, "no-local-storage");' +
-    'if (!idb) return proof(recordedDbs, hasDbApi, "no-indexeddb");' +
-    'if (readRecordedScope(storage, sid) !== expectedScope) return proof(recordedDbs, hasDbApi, "missing-service-worker-scope");' +
-    'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
-    'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
-    'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
-    'var reg = await findRegistration();' +
-    'var active = reg && reg.active ? reg.active : null;' +
-    'if (!active) return proof(recordedDbs, hasDbApi, "missing-service-worker");' +
-    'if (hasDbApi) {' +
-    'try {' +
-    'var dbs = await idb.databases();' +
-    'var names = {};' +
-    'dbs.forEach(function (db) { if (db && typeof db.name === "string") names[db.name] = true; });' +
-    'var hasExistingDataDb = recordedDbs.some(function (name) { return name.indexOf("sb_data_") === 0 && names[name]; });' +
-    'var hasExistingFilesDb = recordedDbs.some(function (name) { return name.indexOf("sb_files_") === 0 && names[name]; });' +
-    'if (!hasExistingDataDb || !hasExistingFilesDb) return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state);' +
-    '} catch (_) { return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state); }' +
-    '}' +
-    'return proof(recordedDbs, hasDbApi, null, active.state);' +
-    '}' +
     'var inFlight = false;' +
     'var readyStreak = 0;' +
     // REQ-VAULT-018: require the full readiness proof to hold across this many
@@ -647,7 +672,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'inFlight = true;' +
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
-    'var localProof = await checkLocalReadiness(sid);' +
+    'var localProof = await checkLocalReadiness(window, navigator, expectedScope, sid, findExactRegistration);' +
     'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
     'if (localProof.ready === true && contentProof) {' +
     'readyStreak++;' +

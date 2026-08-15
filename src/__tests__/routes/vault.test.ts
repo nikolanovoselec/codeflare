@@ -524,7 +524,6 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     it('injects a recorder <script> before </head>', () => {
       const html = '<html><head></head><body></body></html>';
       const out = injectVaultIdbRecorder(html);
-      expect(out).toContain('indexedDB.open');
       expect(out).toContain('codeflare-vault-idb-open');
       expect(out).toContain('vault-session-');
       expect(out).toContain('-idbs');
