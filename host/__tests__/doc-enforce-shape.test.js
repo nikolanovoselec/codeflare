@@ -695,6 +695,17 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-index-anchor-mismatch');
   });
 
+  it('normalizes nested HTML-like heading tags without leaving tag fragments', () => {
+    const fixture = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-choice) | Choice | Active |', '',
+      '## Decisions', '', '### AD1: <scr<script>ipt>Choice', '', '**Status:** Active',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
   it('reports independently malformed ADR links, indexes, and statuses', () => {
     const unlinkedId = [
       '# Decisions', '', '## Decision Index', '',

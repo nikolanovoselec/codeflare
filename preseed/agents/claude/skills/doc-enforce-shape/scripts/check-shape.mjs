@@ -226,9 +226,23 @@ function plain(value) {
     .trim();
 }
 
+function removeHtmlLikeSegments(value) {
+  let depth = 0;
+  let result = '';
+  for (const character of value) {
+    if (character === '<') {
+      depth += 1;
+    } else if (character === '>' && depth > 0) {
+      depth -= 1;
+    } else if (depth === 0) {
+      result += character;
+    }
+  }
+  return result;
+}
+
 function githubHeadingAnchor(heading) {
-  return heading
-    .replace(/<[^>]*>/g, '')
+  return removeHtmlLikeSegments(heading)
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/[`*~]/g, '')
     .toLowerCase()

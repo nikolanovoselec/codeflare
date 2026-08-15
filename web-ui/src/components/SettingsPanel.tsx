@@ -428,7 +428,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     label="Setup Wizard"
                     onClick={() => { window.location.href = '/setup'; }}
                   />
-                  {/* REQ-ENTERPRISE-008 AC1: user administration is delegated to
+                  {/* REQ-ENTERPRISE-008 AC2: user administration is delegated to
                       Cloudflare Access in enterprise mode — hide the entry. */}
                   <Show when={!props.enterpriseMode}>
                     <AdminActionButton
