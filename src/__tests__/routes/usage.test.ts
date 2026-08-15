@@ -82,7 +82,7 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
     expect(body.monthlyQuotaSeconds).toBeGreaterThan(0);
   });
 
-  it('returns live usage with no billing quota outside SaaS mode', async () => {
+  it('REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode', async () => {
     const tkStub = {
       fetch: vi.fn(async () => Response.json({ dailySeconds: 321, monthlySeconds: 654 })),
     };

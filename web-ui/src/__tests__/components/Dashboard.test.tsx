@@ -240,7 +240,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     mockMultiView = null;
   });
 
-  // === Enterprise dropdown gating (REQ-ENTERPRISE-008 AC2) ===
+  // === Deployment-mode account actions (REQ-SUB-023 AC2-AC7) ===
 
   it('shows Usage, Guided Setup, and Logout outside enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(false);

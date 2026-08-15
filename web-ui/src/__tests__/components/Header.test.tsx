@@ -445,8 +445,8 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
-  // REQ-ENTERPRISE-008 AC2: Subscription remains SaaS-only while Usage is
-  // available in every deployment mode.
+  // REQ-SUB-023 AC1/AC3/AC6/AC7: Subscription remains SaaS-only while Usage
+  // and supported self-service actions stay available outside enterprise.
   describe('Subscription/Usage gating', () => {
     it('shows the Subscription menu item in SaaS mode', () => {
       sessionStoreState.saasMode = true;
@@ -470,7 +470,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
   });
 
-  // REQ-ENTERPRISE-008 AC2: enterprise keeps the read-only Usage action while
+  // REQ-SUB-023 AC1/AC3-AC5: enterprise keeps the read-only Usage action while
   // Subscription, Guided Setup, and Logout remain suppressed.
   describe('enterprise user menu', () => {
     it('shows Guided Setup and Logout outside enterprise mode', () => {

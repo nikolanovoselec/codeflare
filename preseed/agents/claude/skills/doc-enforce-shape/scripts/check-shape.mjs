@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -225,6 +226,65 @@ function plain(value) {
     .trim();
 }
 
+function githubHeadingAnchor(heading) {
+  return heading
+    .replace(/<[^>]*>/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[`*~]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+}
+
+const referenceTargetCache = new Map();
+
+function readLocalReferenceTarget(file, relativePath) {
+  const targetPath = path.resolve(path.dirname(file), relativePath);
+  let target = referenceTargetCache.get(targetPath);
+  if (target === undefined) {
+    try {
+      target = readFileSync(targetPath, 'utf8');
+    } catch {
+      target = null;
+    }
+    referenceTargetCache.set(targetPath, target);
+  }
+  return { target, targetPath };
+}
+
+function localReferenceResolves(file, href, identifier) {
+  const hashIndex = href.indexOf('#');
+  if (hashIndex <= 0 || hashIndex === href.length - 1) return false;
+  const relativePath = href.slice(0, hashIndex).split('?')[0];
+  let fragment;
+  try {
+    fragment = decodeURIComponent(href.slice(hashIndex + 1));
+  } catch {
+    return false;
+  }
+  const { target } = readLocalReferenceTarget(file, relativePath);
+  if (target === null) return false;
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const heading = target.split(/\r?\n/).find((line) =>
+    new RegExp(`^#{1,6}\\s+${escaped}(?::|\\s|$)`, 'i').test(line));
+  if (!heading) return false;
+  return fragment === githubHeadingAnchor(heading.replace(/^#{1,6}\s+/, '').replace(/\s+#+\s*$/, ''));
+}
+
+function domainReferenceResolves(file, href, label) {
+  const relativePath = href.split(/[?#]/)[0];
+  const { target, targetPath } = readLocalReferenceTarget(file, relativePath);
+  if (target === null || !targetPath.includes(`${path.sep}sdd${path.sep}spec${path.sep}`)) return false;
+  const title = target.match(/^#\s+(.+)$/m)?.[1] ?? '';
+  const normalize = (value) => value
+    .toLowerCase()
+    .replace(/\brequirements?\b|\bmode\b|\bdomain\b|\bspecification\b/g, '')
+    .replace(/\b([a-z]+)s\b/g, '$1')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return normalize(label) === normalize(title);
+}
+
 function rawMarkdownCells(line) {
   const trimmed = line.trim();
   if (!trimmed.startsWith('|')) return [];
@@ -309,6 +369,31 @@ function scanTables(lines, kind, file, findings) {
       if (profile.id === 'security-verification') {
         const referenceColumn = headers.indexOf('Requirements / decisions');
         const referenceCell = rawMarkdownCells(lines[row])[referenceColumn] ?? '';
+        for (const link of referenceCell.matchAll(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+          for (const identifier of link[1].matchAll(/\b(?:AD\d+|(?:REQ|CON)-[A-Z]+-\d+)\b/g)) {
+            if (!localReferenceResolves(file, link[2], identifier[0])) {
+              findings.push({
+                rule: 'security-source-map-reference-target-invalid',
+                file,
+                line: row + 1,
+                collection: profile.id,
+                item: identifier[0],
+                missing: ['resolving local target'],
+              });
+            }
+          }
+          if (/\brequirements?\b/i.test(link[1])
+              && !domainReferenceResolves(file, link[2], link[1])) {
+            findings.push({
+              rule: 'security-source-map-reference-target-invalid',
+              file,
+              line: row + 1,
+              collection: profile.id,
+              item: link[1],
+              missing: ['matching requirement domain'],
+            });
+          }
+        }
         const unlinkedText = referenceCell.replace(/\[[^\]]+\]\([^)]*\)/g, '');
         const bareAd = unlinkedText.match(/\bAD\d+\b/);
         if (bareAd) {
@@ -497,8 +582,9 @@ function scanDecisions(lines, file, findings) {
     const cells = rawMarkdownCells(lines[index]);
     const id = cells[0]?.match(/\bAD\d+\b/)?.[0];
     if (!id || cells.length < 3) continue;
-    indexRows.set(id, { cells, line: index + 1 });
-    if (!new RegExp(`\\[${id}\\]\\(#[^)]+\\)`).test(cells[0])) {
+    const idLink = cells[0].match(new RegExp(`\\[${id}\\]\\((#[^)]+)\\)`));
+    indexRows.set(id, { cells, line: index + 1, href: idLink?.[1] ?? null });
+    if (!idLink) {
       findings.push({
         rule: 'adr-index-id-not-linked', file, line: index + 1,
         collection: 'decision-index', item: id, missing: ['linked ID'],
@@ -517,16 +603,27 @@ function scanDecisions(lines, file, findings) {
     const heading = lines[index].match(/^###\s+(AD\d+):/);
     if (heading) starts.push({ id: heading[1], start: index, line: index + 1 });
   }
-  const sections = new Map(starts.map((section, index) => [section.id, {
-    ...section,
-    end: starts[index + 1]?.start ?? lines.length,
-  }]));
+  const sections = new Map(starts.map((section) => {
+    const nextBoundary = lines.findIndex((line, index) =>
+      index > section.start && /^#{1,3}\s+/.test(line));
+    return [section.id, {
+      ...section,
+      anchor: githubHeadingAnchor(lines[section.start].replace(/^###\s+/, '')),
+      end: nextBoundary === -1 ? lines.length : nextBoundary,
+    }];
+  }));
 
   for (const [id, row] of indexRows) {
-    if (!sections.has(id)) {
+    const section = sections.get(id);
+    if (!section) {
       findings.push({
         rule: 'adr-index-section-missing', file, line: row.line,
         collection: 'decision-index', item: id, missing: ['ADR section'],
+      });
+    } else if (row.href && row.href !== `#${section.anchor}`) {
+      findings.push({
+        rule: 'adr-index-anchor-mismatch', file, line: row.line,
+        collection: 'decision-index', item: id, missing: [`#${section.anchor}`],
       });
     }
   }

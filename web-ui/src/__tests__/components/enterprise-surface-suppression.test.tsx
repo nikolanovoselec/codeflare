@@ -108,9 +108,9 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 // ---------------------------------------------------------------------------
-// AC2 — Header username dropdown
+// REQ-SUB-023 — Header username dropdown
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
+describe('REQ-SUB-023 AC1/AC3-AC7: Header username dropdown', () => {
   it('opens a Usage-only dropdown in enterprise mode', () => {
     sessionStoreState.enterpriseMode = true;
     render(() => <Header {...headerProps} />);
@@ -132,7 +132,7 @@ describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
     expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
-  it('renders Usage and Subscription in SaaS mode (AC6)', () => {
+  it('renders Usage and Subscription in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <Header {...headerProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
@@ -142,9 +142,9 @@ describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 + AC3 — SettingsPanel Administration + session-mode selector
+// AC1–AC3 — SettingsPanel Administration + session-mode selector
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel', () => {
+describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
   const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
 
   it('hides Manage Users, Manage Subscriptions, and the mode selector in enterprise mode', () => {
@@ -165,7 +165,7 @@ describe('REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel', () => {
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 
-  it('renders all admin surfaces and the mode selector in SaaS mode (AC6)', () => {
+  it('renders all admin surfaces and the mode selector in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <SettingsPanel {...panelProps} />);
     expect(screen.getByText('Manage Users')).toBeInTheDocument();

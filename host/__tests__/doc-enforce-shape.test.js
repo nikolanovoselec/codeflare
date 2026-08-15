@@ -683,11 +683,59 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(JSON.parse(history.stdout).findings[0].rule, 'adr-superseded-history-missing');
   });
 
+  it('requires linked ADR IDs to target their matching section anchors', () => {
+    const fixture = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#wrong-target) | Choice | Active |', '',
+      '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-index-anchor-mismatch');
+  });
+
+  it('reports independently malformed ADR links, indexes, and statuses', () => {
+    const unlinkedId = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|', '| AD1 | Choice | Active |', '',
+      '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
+    ].join('\n');
+    assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': unlinkedId }).stdout).findings[0].rule, 'adr-index-id-not-linked');
+
+    const missingIndex = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|', '',
+      '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
+    ].join('\n');
+    assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': missingIndex }).stdout).findings[0].rule, 'adr-section-index-missing');
+
+    const missingStatus = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|', '| [AD1](#ad1-choice) | Choice | Active |', '',
+      '## Decisions', '', '### AD1: Choice', '', '**Context:** Decision context.',
+    ].join('\n');
+    assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': missingStatus }).stdout).findings[0].rule, 'adr-status-missing');
+  });
+
+  it('does not use later unrelated sections as superseded ADR history', () => {
+    const fixture = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | Superseded |', '',
+      '## Decisions', '', '### AD1: Old', '', '**Status:** Superseded by [AD2](#ad2-new)', '',
+      '## Appendix', '', '**Context:** Unrelated context.',
+    ].join('\n');
+    const result = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-superseded-history-missing');
+  });
+
   it('keeps partial ADRs unstruck and requires a linked successor with clause detail', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
       '| ID | Decision | Category |', '|---|---|---|',
-      '| ~~[AD1](#ad1-active)~~ | ~~Active remainder~~ | Partially superseded |', '',
+      '| ~~[AD1](#ad1-active-remainder)~~ | ~~Active remainder~~ | Partially superseded |', '',
       '## Decisions', '', '### AD1: Active remainder', '',
       '**Status:** Partially superseded',
     ].join('\n');
@@ -697,6 +745,29 @@ describe('optimized documentation lane shapes', () => {
       JSON.parse(result.stdout).findings.map(({ rule }) => rule).sort(),
       ['adr-partial-is-struck', 'adr-partial-successor-detail-missing'],
     );
+  });
+
+  it('independently requires partial clause detail and redirect destinations', () => {
+    const partial = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-active-remainder) | Active remainder | Partially superseded |', '',
+      '## Decisions', '', '### AD1: Active remainder', '',
+      '**Status:** Partially superseded by [AD2](#ad2-successor)',
+    ].join('\n');
+    const partialResult = runFixture({ 'documentation/decisions/README.md': partial });
+    assert.equal(partialResult.status, 1, partialResult.stdout);
+    assert.equal(JSON.parse(partialResult.stdout).findings[0].rule, 'adr-partial-successor-detail-missing');
+
+    const redirect = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Category |', '|---|---|---|',
+      '| [AD1](#ad1-redirect) | Reclassified decision | Redirect anchor |', '',
+      '## Decisions', '', '### AD1: Redirect', '', '**Status:** Reclassified into the configuration lane.',
+    ].join('\n');
+    const redirectResult = runFixture({ 'documentation/decisions/README.md': redirect });
+    assert.equal(redirectResult.status, 1, redirectResult.stdout);
+    assert.equal(JSON.parse(redirectResult.stdout).findings[0].rule, 'adr-redirect-destination-not-linked');
   });
 
   it('requires linked AD references and rejects vague SDD labels in security source maps', () => {
@@ -715,11 +786,35 @@ describe('optimized documentation lane shapes', () => {
     );
 
     const corrected = fixture
-      .replace('REQ-SEC-005', '[REQ-SEC-005](../../sdd/spec/security.md#req-sec-005)')
-      .replace('CON-SEC-001', '[CON-SEC-001](../../sdd/spec/security.md#con-sec-001)')
+      .replace('REQ-SEC-005', '[REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-encryption)')
+      .replace('CON-SEC-001', '[CON-SEC-001](../../sdd/spec/security.md#con-sec-001-boundary)')
       .replace('AD32', '[AD32](../decisions/README.md#ad32-encryption-key-is-optional)')
       .replace('Operations SDD', '[Operations requirements](../../sdd/spec/operations.md)');
-    const accepted = runFixture({ 'security.md': corrected });
+    const accepted = runFixture({
+      'documentation/lanes/security.md': corrected,
+      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Category |\n|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Encryption key is optional | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
+      'sdd/spec/security.md': '# Security\n\n### REQ-SEC-005: Encryption\n\n### CON-SEC-001: Boundary\n',
+      'sdd/spec/operations.md': '# Operations Requirements\n',
+    });
     assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+  });
+
+  it('rejects Security source-map links with wrong files or anchors', () => {
+    const fixture = [
+      '# Security', '', '## Verification and Source Map', '',
+      '| Control family | Requirements / decisions | Implementation | Evidence |',
+      '|---|---|---|---|',
+      '| Encryption | [REQ-SEC-005](../../sdd/spec/other.md#req-sec-005-encryption), [AD32](../decisions/README.md#wrong-anchor), [Operations requirements](../../sdd/spec/other.md) | crypto | tests |',
+    ].join('\n');
+    const result = runFixture({
+      'documentation/lanes/security.md': fixture,
+      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Category |\n|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Encryption key is optional | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
+      'sdd/spec/other.md': '# Other\n\n### REQ-OTHER-001: Other\n',
+    });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(
+      JSON.parse(result.stdout).findings.map(({ rule }) => rule),
+      ['security-source-map-reference-target-invalid', 'security-source-map-reference-target-invalid', 'security-source-map-reference-target-invalid'],
+    );
   });
 });

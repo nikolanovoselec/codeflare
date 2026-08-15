@@ -248,7 +248,7 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       expect(body.quotaExceeded).toBe(true);
     });
 
-    it('REQ-SUB-007 AC5: accumulates the same usage without enforcing quota outside SaaS', async () => {
+    it('REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS', async () => {
       const usageRecord = {
         today: { date: TODAY, seconds: 0 },
         thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
