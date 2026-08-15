@@ -415,6 +415,7 @@ describe('CF-045: vault-html direct unit tests', () => {
       await expect(run(vi.fn(async (_scope: string) => orphan))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
       await expect(run(vi.fn(async (_scope: string) => { throw new Error('unavailable'); }))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
       await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: null })))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
+      await expect(run(vi.fn(async (_scope: string) => ({ ...current, active: { state: 'activating' } })))).resolves.toMatchObject({ ready: false, reason: 'missing-service-worker' });
       expect(exactLookup).toHaveBeenCalledWith(expectedScope);
 
       const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));

@@ -552,7 +552,9 @@ export async function checkVaultBridgeLocalReadiness(
     ? await findRegistrationRef(navigatorRef.serviceWorker, expectedScope)
     : null;
   const active = registration?.active ?? null;
-  if (!active) return proof(recordedDbs, 'missing-service-worker');
+  if (!active || active.state !== 'activated') {
+    return proof(recordedDbs, 'missing-service-worker');
+  }
 
   if (hasDbApi) {
     try {
