@@ -1,40 +1,55 @@
-<!-- doc-discipline: one-line table cells (≤50 words), env var entries only — no API contracts, no deploy commands. Long descriptions go in body paragraphs below the variables table. Each row carries an inline @impl source-anchor naming the consuming symbol. -->
+# {PROJECT_NAME} Configuration
 
-# Configuration
+**Audience:** Developers and operators configuring a deployment.
 
-**Audience:** Operators, Developers
+**Owns:** Configuration sources, precedence, defaults, consumers, and security consequences.
 
-Environment variables, secrets, and platform bindings required to run the system.
+**Does not own:** Deployment procedures or secret values.
 
----
+## Contents
 
-## Environment Variables
+- [Configuration Sources and Precedence](#configuration-sources-and-precedence)
+- [Runtime Variables](#runtime-variables)
+- [Secrets](#secrets)
+- [Platform Bindings](#platform-bindings)
+- [Configuration Files](#configuration-files)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
-| Variable | Required | Default | Description |
+## Configuration Sources and Precedence
+
+| Source | Scope | Change mechanism | Precedence / authority |
 |---|---|---|---|
-| `{NAME}` | yes/no | `{default}` | {description} |
+| {SOURCE} | {SCOPE} | {CHANGE_MECHANISM} | {AUTHORITY} |
+
+## Runtime Variables
+
+| Variable | Purpose | Default | Required | Consumed by | Implements |
+|---|---|---|---|---|---|
+| `{VARIABLE}` | {PURPOSE} | `{DEFAULT}` | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | {REQUIREMENT_LINK} |
 
 ## Secrets
 
-| Secret | Storage | Description |
-|---|---|---|
-| `{NAME}` | wrangler secret / env / vault | {description} |
+Document secret names, consumers, rotation boundaries, and fail-closed behavior. Never include secret values.
 
 ## Platform Bindings
 
-| Binding | Type | Purpose |
-|---|---|---|
-| `{NAME}` | D1 / R2 / KV / Durable Object | {what it stores or does} |
+| Binding | Purpose | Required | Consumed by | Implements |
+|---|---|---|---|---|
+| `{BINDING}` | {PURPOSE} | {REQUIRED_STATE} | `{PATH}::{SYMBOL}` | {REQUIREMENT_LINK} |
 
 ## Configuration Files
 
-| File | Purpose |
-|---|---|
-| `{path}` | {description} |
+| File | Purpose | Consumer | Source of truth |
+|---|---|---|---|
+| `{PATH}` | {PURPOSE} | `{CONSUMER}` | {AUTHORITY} |
 
----
+## Requirement and Source Map
+
+| Configuration concern | Source owner | Requirements | Specialist owner |
+|---|---|---|---|
+| {CONCERN} | `{PATH}` | {REQUIREMENT_LINK} | {SPECIALIST_OWNER} |
 
 ## Related Documentation
 
-- [Deployment](deployment.md) — How to set these up in dev and prod
-- [Architecture](architecture.md) — Where these bindings are used
+{RELATED_DOCUMENTATION}

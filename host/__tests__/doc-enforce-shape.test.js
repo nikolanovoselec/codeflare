@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ const CHECKER = join(
   'preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs',
 );
 
-function runFixture(files, { inventory = false } = {}) {
+function runFixture(files) {
   const cwd = mkdtempSync(join(tmpdir(), 'doc-shape-'));
   try {
     const paths = Object.entries(files).map(([name, content]) => {
@@ -22,7 +22,7 @@ function runFixture(files, { inventory = false } = {}) {
       writeFileSync(path, content);
       return path;
     });
-    return spawnSync(process.execPath, [CHECKER, ...(inventory ? ['--inventory'] : []), ...paths], {
+    return spawnSync(process.execPath, [CHECKER, ...paths], {
       cwd,
       encoding: 'utf8',
     });
@@ -48,67 +48,6 @@ const fields = {
 function perItemFixture(kind, body = fields[kind]) {
   const area = kind === 'architecture' ? 'System Components' : 'Common Issues';
   return `# Guide\n\nPreamble without template fields.\n\n## Contents\n\n- [${area}](#${area.toLowerCase().replaceAll(' ', '-')})\n\n## ${area}\n\nArea introduction without template fields.\n\n### Example Item\n\n${body.join('\n\n')}\n\n## Unrelated Area\n\n### Background Detail\n\nThis unrelated heading is not an item collection.\n`;
-}
-
-function inventoryFixture() {
-  const architecture = [
-    '# Architecture',
-    '',
-    '## System Components',
-    '',
-    ...[
-      'Worker',
-      'Container DO',
-      'LlmInterceptor',
-      'EgressController',
-      'CloudflareBrowserInterceptor',
-      'GitHub Integration',
-      'Terminal Server',
-      'Landing',
-    ].flatMap((name) => [`### ${name}`, '', ...fields.architecture, '']),
-  ].join('\n');
-
-  const troubleshooting = [
-    '# Troubleshooting',
-    '',
-    '## Common Issues',
-    '',
-    ...[
-      '/api/* Returns HTML',
-      '/setup Shows Access Denied',
-      'Auth Error After Access Login',
-      'HTTP 500 After Login',
-      'Access Application Not Found',
-      'Container Stuck Waiting for Services',
-      'Secrets Lost After Worker Deletion',
-      'Chrome in CI',
-    ].flatMap((name) => [`### ${name}`, '', ...fields.troubleshooting, '']),
-  ].join('\n');
-
-  const api = [
-    '# API Reference',
-    '',
-    '## Preferences',
-    '',
-    '| Method | Path | Auth | Implements | Description |',
-    '|---|---|---|---|---|',
-    '| GET | `/api/preferences` | Session cookie | REQ-MEM-011 | Read preferences |',
-    '| PATCH | `/api/preferences` | Session cookie | REQ-MEM-011 | Update preferences |',
-    '',
-    '## LLM API Keys',
-    '',
-    '| Method | Path | Auth | Implements | Description |',
-    '|---|---|---|---|---|',
-    '| GET | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Read masked keys |',
-    '| PUT | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Update keys |',
-    '| DELETE | `/api/llm-keys` | Session cookie | REQ-AGENT-009 | Delete keys |',
-  ].join('\n');
-
-  return {
-    'documentation/lanes/architecture.md': architecture,
-    'documentation/lanes/troubleshooting.md': troubleshooting,
-    'documentation/lanes/api-reference.md': api,
-  };
 }
 
 // CF-017 / DOCS-002
@@ -337,57 +276,344 @@ describe('doc-enforce shape item traversal', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
-  it('fails when any one of the exact 21 inventory items disappears', () => {
-    const complete = inventoryFixture();
-    const baseline = runFixture(complete, { inventory: true });
-    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`);
+});
 
-    const identities = [
-      ['architecture.md', '### Worker'],
-      ['architecture.md', '### Container DO'],
-      ['architecture.md', '### LlmInterceptor'],
-      ['architecture.md', '### EgressController'],
-      ['architecture.md', '### CloudflareBrowserInterceptor'],
-      ['architecture.md', '### GitHub Integration'],
-      ['architecture.md', '### Terminal Server'],
-      ['architecture.md', '### Landing'],
-      ['troubleshooting.md', '### /api/* Returns HTML'],
-      ['troubleshooting.md', '### /setup Shows Access Denied'],
-      ['troubleshooting.md', '### Auth Error After Access Login'],
-      ['troubleshooting.md', '### HTTP 500 After Login'],
-      ['troubleshooting.md', '### Access Application Not Found'],
-      ['troubleshooting.md', '### Container Stuck Waiting for Services'],
-      ['troubleshooting.md', '### Secrets Lost After Worker Deletion'],
-      ['troubleshooting.md', '### Chrome in CI'],
-      ['api-reference.md', '| GET | `/api/preferences`'],
-      ['api-reference.md', '| PATCH | `/api/preferences`'],
-      ['api-reference.md', '| GET | `/api/llm-keys`'],
-      ['api-reference.md', '| PUT | `/api/llm-keys`'],
-      ['api-reference.md', '| DELETE | `/api/llm-keys`'],
-    ];
+// REQ-AGENT-140 AC2-AC6
+describe('optimized documentation lane shapes', () => {
+  const tableProfiles = [
+    {
+      name: 'configuration variables',
+      file: 'configuration.md',
+      heading: 'Worker Environment',
+      discriminator: 'Variable',
+      required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
+    },
+    {
+      name: 'configuration bindings',
+      file: 'configuration.md',
+      heading: 'Platform Bindings',
+      discriminator: 'Binding',
+      required: ['Purpose', 'Required', 'Consumed by', 'Implements'],
+    },
+    {
+      name: 'security threats',
+      file: 'security.md',
+      heading: 'Threat Model',
+      discriminator: 'Asset / boundary',
+      required: ['Threat or failure', 'Control and failure posture', 'Residual risk / owner'],
+    },
+    {
+      name: 'security residual risks',
+      file: 'security.md',
+      heading: 'Accepted Exceptions and Residual Risks',
+      discriminator: 'Exception / residual risk',
+      required: ['Current decision', 'Owner / review signal'],
+    },
+    {
+      name: 'security verification',
+      file: 'security.md',
+      heading: 'Verification and Source Map',
+      discriminator: 'Control family',
+      required: ['Requirements / decisions', 'Implementation', 'Evidence'],
+    },
+    {
+      name: 'observability signals',
+      file: 'observability.md',
+      heading: 'Signals',
+      discriminator: 'Signal',
+      required: ['Meaning / non-evidence', 'Observed at', 'Escalate when', 'Runbook'],
+    },
+    {
+      name: 'troubleshooting summary recipes',
+      file: 'troubleshooting.md',
+      heading: 'Failure Index',
+      discriminator: 'Symptom',
+      required: ['Cause', 'Fix'],
+    },
+  ];
 
-    for (const [basename, identity] of identities) {
-      const entry = Object.entries(complete).find(([path]) => path.endsWith(basename));
-      assert.ok(entry, basename);
-      const [path, content] = entry;
-      const regressed = {
-        ...complete,
-        [path]: content.replace(identity, identity.replace(/Worker|Container DO|LlmInterceptor|EgressController|CloudflareBrowserInterceptor|GitHub Integration|Terminal Server|Landing|\/api\/\* Returns HTML|\/setup Shows Access Denied|Auth Error After Access Login|HTTP 500 After Login|Access Application Not Found|Container Stuck Waiting for Services|Secrets Lost After Worker Deletion|Chrome in CI|GET|PATCH|PUT|DELETE/, 'Removed')),
-      };
-      const result = runFixture(regressed, { inventory: true });
-      assert.equal(result.status, 1, `expected inventory regression for ${identity}`);
-      assert.match(result.stdout, /inventory-item-missing/);
+  function tableFixtureWithHeaders({ heading }, headers) {
+    return [
+      '# Guide',
+      '',
+      `## ${heading}`,
+      '',
+      `| ${headers.join(' | ')} |`,
+      `| ${headers.map(() => '---').join(' | ')} |`,
+      `| ${headers.map((field) => `Example ${field}`).join(' | ')} |`,
+    ].join('\n');
+  }
+
+  function tableFixture({ discriminator, required, ...profile }, omitted = null) {
+    const headers = [discriminator, ...required].filter((field) => field !== omitted);
+    return tableFixtureWithHeaders(profile, headers);
+  }
+
+  for (const profile of tableProfiles) {
+    it(`accepts complete ${profile.name}`, () => {
+      const result = runFixture({ [profile.file]: tableFixture(profile) });
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    });
+
+    for (const field of profile.required) {
+      it(`reports ${field} missing from ${profile.name}`, () => {
+        const result = runFixture({ [profile.file]: tableFixture(profile, field) });
+        assert.equal(result.status, 1, result.stdout);
+        assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+      });
+    }
+  }
+
+  it('reports every absent field from sparse tables in governed collection areas', () => {
+    for (const profile of tableProfiles) {
+      const loneField = profile.required[0];
+      const sparse = runFixture({
+        [profile.file]: tableFixtureWithHeaders(profile, [loneField]),
+      });
+      assert.equal(sparse.status, 1, `${profile.name}: ${sparse.stdout}`);
+      assert.deepEqual(
+        JSON.parse(sparse.stdout).findings[0].missing,
+        [profile.discriminator, ...profile.required.filter((field) => field !== loneField)],
+      );
+
+      const fieldless = runFixture({
+        [profile.file]: tableFixtureWithHeaders(profile, ['Unrelated heading']),
+      });
+      assert.equal(fieldless.status, 1, `${profile.name}: ${fieldless.stdout}`);
+      assert.deepEqual(
+        JSON.parse(fieldless.stdout).findings[0].missing,
+        [profile.discriminator, ...profile.required],
+      );
     }
   });
 
-  it('accepts the repository exact inventory', () => {
-    const result = spawnSync(process.execPath, [
-      CHECKER,
-      '--inventory',
-      join(ROOT, 'documentation/lanes/architecture.md'),
-      join(ROOT, 'documentation/lanes/troubleshooting.md'),
-      join(ROOT, 'documentation/lanes/api-reference.md'),
-    ], { cwd: ROOT, encoding: 'utf8' });
+  it('reports fieldless records in explicit component, recipe, and endpoint collections', () => {
+    for (const [file, content, missing] of [
+      [
+        'architecture.md',
+        '# Architecture\n\n## Components\n\n### Worker\n',
+        ['Responsibility', 'Inputs', 'Outputs', 'Source'],
+      ],
+      [
+        'troubleshooting.md',
+        '# Troubleshooting\n\n## Troubleshooting Recipes\n\n### Request fails\n',
+        ['Symptom', 'Cause', 'Fix'],
+      ],
+      [
+        'api-reference.md',
+        '# API\n\n## Items\n\n### GET `/items`\n',
+        ['Authentication', 'Response', 'Implements'],
+      ],
+    ]) {
+      const result = runFixture({ [file]: content });
+      assert.equal(result.status, 1, `${file}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, missing);
+    }
+  });
+
+  it('accepts Description as a legacy configuration Purpose alias', () => {
+    const profile = tableProfiles.find(({ name }) => name === 'configuration variables');
+    const legacy = tableFixture(profile).replace('| Variable | Purpose |', '| Variable | Description |');
+    const result = runFixture({ 'configuration.md': legacy });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('requires every API register discriminator and contract field', () => {
+    const fields = ['Method', 'Path', 'Auth', 'Implements', 'Description'];
+    const fixture = (omitted = null) => {
+      const headers = fields.filter((field) => field !== omitted);
+      return [
+        '# API',
+        '',
+        '## Sessions',
+        '',
+        `| ${headers.join(' | ')} |`,
+        `| ${headers.map(() => '---').join(' | ')} |`,
+        `| ${headers.map((field) => `Example ${field}`).join(' | ')} |`,
+      ].join('\n');
+    };
+    assert.equal(runFixture({ 'api-reference.md': fixture() }).status, 0);
+    for (const field of ['Method', 'Path', 'Auth', 'Implements']) {
+      const result = runFixture({ 'api-reference.md': fixture(field) });
+      assert.equal(result.status, 1, `${field}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    }
+  });
+
+  it('accepts minimal and legacy API sections and validates detailed standard-method sections', () => {
+    const minimalFields = {
+      Authentication: 'Session cookie',
+      Response: '`200` item list',
+      Implements: 'REQ-API-001',
+    };
+    const minimalFixture = (omitted = null) => [
+      '# API', '', '## Items', '', '### GET `/items`', '',
+      ...Object.entries(minimalFields)
+        .filter(([field]) => field !== omitted)
+        .flatMap(([field, value]) => [`**${field}:** ${value}`, '']),
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': minimalFixture() }).status, 0);
+    for (const field of Object.keys(minimalFields)) {
+      const result = runFixture({ 'api-reference.md': minimalFixture(field) });
+      assert.equal(result.status, 1, `${field}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    }
+
+    const legacy = [
+      '# API', '', '## Items', '', '### GET `/items`', '',
+      '**Implements:** REQ-API-001', '',
+      '**Authentication:** Session cookie', '',
+      '**Request:** No request body.', '',
+      '**Response 200:** Item list.', '',
+      '**Error responses:** `401` when unauthenticated.', '',
+      '**Implementation:** `src/items.ts`',
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': legacy }).status, 0);
+    const malformedLegacy = runFixture({
+      'api-reference.md': legacy.replace('**Response 200:** Item list.\n\n', ''),
+    });
+    assert.equal(malformedLegacy.status, 1, malformedLegacy.stdout);
+    assert.deepEqual(JSON.parse(malformedLegacy.stdout).findings[0].missing, ['Response']);
+    for (const [label, value, semantic] of [
+      ['Request', 'No request body.', 'Request'],
+      ['Error responses', '`401` when unauthenticated.', 'Errors'],
+      ['Implementation', '`src/items.ts`', 'Source'],
+    ]) {
+      const line = `**${label}:** ${value}`;
+      const result = runFixture({
+        'api-reference.md': legacy.replace(label === 'Implementation' ? line : `${line}\n\n`, ''),
+      });
+      assert.equal(result.status, 1, `${label}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [semantic]);
+    }
+
+    const detailed = [
+      '# API', '', '## Items', '', '### HEAD `/items`', '',
+      '**Request:** No request body.', '',
+      '**Response:** `200` headers.', '',
+      '**Errors:** `401` when unauthenticated.', '',
+      '**Source:** `src/items.ts`', '',
+      '**Implements:** REQ-API-001',
+    ].join('\n');
+    assert.equal(runFixture({ 'api-reference.md': detailed }).status, 0);
+    const malformed = runFixture({
+      'api-reference.md': detailed.replace('**Errors:** `401` when unauthenticated.\n\n', ''),
+    });
+    assert.equal(malformed.status, 1, malformed.stdout);
+    assert.deepEqual(JSON.parse(malformed.stdout).findings[0].missing, ['Errors']);
+
+    const sparse = [
+      '# API', '', '## Items', '', '### OPTIONS `/items`', '',
+      '**Response:** `204`.', '',
+      '**Source:** `src/items.ts`', '',
+      '**Implements:** REQ-API-001',
+    ].join('\n');
+    const sparseResult = runFixture({ 'api-reference.md': sparse });
+    assert.equal(sparseResult.status, 1, sparseResult.stdout);
+    assert.deepEqual(JSON.parse(sparseResult.stdout).findings[0].missing, ['Request', 'Errors']);
+  });
+
+  it('ignores fenced collection tables and still reports a later live table', () => {
+    for (const [open, close] of [['```markdown', '```'], ['~~~markdown', '~~~']]) {
+      const fenced = [
+        '# Configuration', '', '## Examples', '', open,
+        '| Variable | Purpose |', '|---|---|', '| EXAMPLE | Demonstration |', close,
+        '', '## Worker Environment', '',
+        '| Variable | Purpose |', '|---|---|', '| LIVE | Runtime |',
+      ].join('\n');
+      const result = runFixture({ 'configuration.md': fenced });
+      assert.equal(result.status, 1, `${open}: ${result.stdout}`);
+      assert.equal(JSON.parse(result.stdout).findings.length, 1);
+    }
+  });
+
+  it('checks the shared envelope of first-level project lanes', () => {
+    const complete = [
+      '# Payments', '',
+      '**Audience:** Engineers', '',
+      '**Owns:** Payment contracts.', '',
+      '## Contents', '', '- [Requirement and Source Map](#requirement-and-source-map)', '',
+      '## Requirement and Source Map', '', '| Concern | Source |', '|---|---|', '| Charges | `src/pay.ts` |', '',
+      '## Related Documentation', '', '- [Architecture](architecture.md)',
+    ].join('\n');
+    assert.equal(runFixture({ 'documentation/lanes/payments.md': complete }).status, 0);
+    const result = runFixture({
+      'documentation/lanes/payments.md': complete.replace('**Owns:** Payment contracts.\n\n', ''),
+    });
+    assert.equal(result.status, 1, result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, ['Owns']);
+  });
+
+  const deploymentFields = {
+    When: 'A reviewed release is ready.',
+    Action: 'Run the release workflow.',
+    Verify: 'The health check passes.',
+    Rollback: 'Restore the prior release.',
+  };
+
+  function deploymentFixture(omitted = null) {
+    return [
+      '# Deployment',
+      '',
+      '## Standard Deployment',
+      '',
+      ...Object.entries(deploymentFields)
+        .filter(([field]) => field !== omitted)
+        .flatMap(([field, value]) => [`**${field}:** ${value}`, '']),
+    ].join('\n');
+  }
+
+  it('accepts a complete canonical deployment runbook', () => {
+    const result = runFixture({ 'deployment.md': deploymentFixture() });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  for (const field of Object.keys(deploymentFields)) {
+    it(`reports ${field} missing from a deployment runbook`, () => {
+      const result = runFixture({ 'deployment.md': deploymentFixture(field) });
+      assert.equal(result.status, 1, result.stdout);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, [field]);
+    });
+  }
+
+  it('accepts legacy deployment field aliases without making them canonical', () => {
+    const legacy = deploymentFixture()
+      .replace('**Action:**', '**Command:**')
+      .replace('**Verify:**', '**Verifies:**');
+    const result = runFixture({ 'deployment.md': legacy });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('reports malformed governed table separators', () => {
+    const content = [
+      '# Configuration', '', '## Worker Environment', '',
+      '| Variable | Purpose | Default | Required | Consumed by | Implements |',
+      '|---|---|---|',
+      '| `API_TOKEN` | API access | none | yes | client | REQ-CONFIG-001 |',
+    ].join('\n');
+    const result = runFixture({ 'configuration.md': content });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(JSON.parse(result.stdout).findings[0].rule, 'table-column-count-mismatch');
+  });
+
+  it('accepts the current indexed Codeflare lane corpus without product inventory names', () => {
+    const lanesDir = join(ROOT, 'documentation', 'lanes');
+    const files = readdirSync(lanesDir)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(lanesDir, name));
+    const result = spawnSync(process.execPath, [CHECKER, ...files], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+
+  it('does not confuse unrelated tables with governed collections', () => {
+    const result = runFixture({
+      'configuration.md': '# Configuration\n\n## Permissions\n\n| Permission | Why |\n|---|---|\n| read | Inspection |\n',
+      'security.md': '# Security\n\n## Contacts\n\n| Team | Email |\n|---|---|\n| Security | security@example.com |\n',
+      'observability.md': '# Observability\n\n## Vendors\n\n| Vendor | Product |\n|---|---|\n| Example | Logs |\n',
+    });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 });

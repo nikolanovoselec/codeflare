@@ -3,16 +3,79 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REQUIRED_FIELDS = {
+const SECTION_REQUIRED_FIELDS = {
   architecture: ['Responsibility', 'Inputs', 'Outputs', 'Source'],
   troubleshooting: ['Symptom', 'Cause', 'Fix'],
-  api: ['Method', 'Path', 'Auth', 'Implements'],
 };
 
-const GROUP_KEYS = {
-  architecture: ['Component'],
-  troubleshooting: ['Recipe', 'Symptom'],
-  api: ['Method', 'Path'],
+const TABLE_PROFILES = {
+  architecture: [{
+    id: 'architecture-components',
+    areas: ['Components', 'System Components'],
+    discriminator: ['Component'],
+    required: ['Responsibility', 'Inputs', 'Outputs', 'Source'],
+  }],
+  troubleshooting: [
+    {
+      id: 'troubleshooting-recipes',
+      areas: ['Failure Index'],
+      discriminator: ['Recipe'],
+      required: ['Symptom', 'Cause', 'Fix'],
+    },
+    {
+      id: 'troubleshooting-recipes',
+      areas: ['Failure Index'],
+      contextDefault: true,
+      discriminator: ['Symptom'],
+      required: ['Cause', 'Fix'],
+    },
+  ],
+  api: [{
+    id: 'api-endpoints',
+    discriminator: ['Method', 'Path'],
+    required: ['Auth', 'Implements'],
+  }],
+  configuration: [
+    {
+      id: 'configuration-variables',
+      areas: ['Runtime Variables', 'Worker Environment'],
+      discriminator: ['Variable'],
+      required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
+      aliases: { Purpose: ['Description'] },
+    },
+    {
+      id: 'configuration-bindings',
+      areas: ['Platform Bindings'],
+      discriminator: ['Binding'],
+      required: ['Purpose', 'Required', 'Consumed by', 'Implements'],
+    },
+  ],
+  security: [
+    {
+      id: 'security-threats',
+      areas: ['Threat Model'],
+      discriminator: ['Asset / boundary'],
+      required: ['Threat or failure', 'Control and failure posture', 'Residual risk / owner'],
+    },
+    {
+      id: 'security-residual-risks',
+      areas: ['Accepted Exceptions and Residual Risks'],
+      discriminator: ['Exception / residual risk'],
+      required: ['Current decision', 'Owner / review signal'],
+    },
+    {
+      id: 'security-verification',
+      areas: ['Verification and Source Map'],
+      discriminator: ['Control family'],
+      required: ['Requirements / decisions', 'Implementation', 'Evidence'],
+    },
+  ],
+  observability: [{
+    id: 'observability-signals',
+    areas: ['Signals'],
+    discriminator: ['Signal'],
+    required: ['Meaning / non-evidence', 'Observed at', 'Escalate when', 'Runbook'],
+  }],
 };
 
 const RECOGNIZED_AREAS = {
@@ -20,41 +83,16 @@ const RECOGNIZED_AREAS = {
   troubleshooting: new Set(['Common Issues', 'Recipes', 'Troubleshooting Recipes']),
 };
 
-const INVENTORY = {
-  architecture: [
-    ['Worker', /^Worker(?:\s|$)/i],
-    ['Container DO', /^Container DO(?:\s|$)/i],
-    ['LlmInterceptor', /^LlmInterceptor(?:\s|$)/i],
-    ['EgressController', /^EgressController(?:\s|$)/i],
-    ['CloudflareBrowserInterceptor', /^CloudflareBrowserInterceptor(?:\s|$)/i],
-    ['GitHub Integration', /^GitHub Integration(?:\s|$)/i],
-    ['Terminal Server', /^Terminal Server(?:\s|$)/i],
-    ['Landing', /^Landing(?:\s|$)/i],
-  ],
-  troubleshooting: [
-    ['/api/* Returns HTML', /\/api\/\*.*Returns HTML/i],
-    ['/setup Shows Access Denied', /\/setup.*Shows.*Access Denied/i],
-    ['Auth Error After Access Login', /^Auth Error After (?:Successful )?Access Login/i],
-    ['HTTP 500 After Login', /^HTTP 500 After Login/i],
-    ['Access Application Not Found', /(?:Access Application Not Found|Unable to find your Access application)/i],
-    ['Container Stuck Waiting for Services', /^Container Stuck (?:at )?["“]?Waiting for Services/i],
-    ['Secrets Lost After Worker Deletion', /^Secrets Lost After Worker Deletion/i],
-    ['Chrome in CI', /^Chrome in CI/i],
-  ],
-  api: [
-    ['GET /api/preferences', 'GET', '/api/preferences'],
-    ['PATCH /api/preferences', 'PATCH', '/api/preferences'],
-    ['GET /api/llm-keys', 'GET', '/api/llm-keys'],
-    ['PUT /api/llm-keys', 'PUT', '/api/llm-keys'],
-    ['DELETE /api/llm-keys', 'DELETE', '/api/llm-keys'],
-  ],
-};
-
 function laneKind(file) {
   const name = path.basename(file);
   if (name === 'architecture.md') return 'architecture';
   if (name === 'troubleshooting.md') return 'troubleshooting';
+  if (name === 'configuration.md') return 'configuration';
+  if (name === 'security.md') return 'security';
+  if (name === 'deployment.md') return 'deployment';
+  if (name === 'observability.md') return 'observability';
   if (/^api-reference.*\.md$/.test(name)) return 'api';
+  if (path.basename(path.dirname(file)) === 'lanes' && name.endsWith('.md')) return 'project';
   return null;
 }
 
@@ -157,6 +195,27 @@ function stripHtmlComments(content) {
   }
 }
 
+function maskFencedLines(lines) {
+  let fence = null;
+  return lines.map((line) => {
+    const marker = fenceMarker(line);
+    if (fence) {
+      if (marker
+        && marker.character === fence.character
+        && marker.length >= fence.length
+        && marker.rest.trim() === '') {
+        fence = null;
+      }
+      return '';
+    }
+    if (marker && (marker.character === '~' || !marker.rest.includes('`'))) {
+      fence = marker;
+      return '';
+    }
+    return line;
+  });
+}
+
 function plain(value) {
   return value
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -180,40 +239,68 @@ function isSeparator(line) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replaceAll(' ', '')));
 }
 
-function scanTables(lines, kind, file, findings, seen) {
-  const required = REQUIRED_FIELDS[kind];
-  const keys = GROUP_KEYS[kind];
+function profileFieldPresent(profile, field, headers) {
+  return headers.includes(field)
+    || (profile.aliases?.[field] ?? []).some((alias) => headers.includes(alias));
+}
+
+function profileForHeaders(profiles, headers, area) {
+  const exact = profiles.find(({ discriminator }) =>
+    discriminator.every((field) => headers.includes(field)));
+  if (exact) return exact;
+
+  const partial = profiles
+    .map((profile) => {
+      const fields = [...profile.discriminator, ...profile.required];
+      const matched = fields.filter((field) => profileFieldPresent(profile, field, headers)).length;
+      return { profile, matched };
+    })
+    .filter(({ matched }) => matched >= 2)
+    .sort((left, right) => right.matched - left.matched)[0]?.profile;
+  if (partial) return partial;
+
+  const contextual = profiles.filter((profile) => profile.areas?.includes(area));
+  if (contextual.length === 1) return contextual[0];
+  return contextual.find((profile) => profile.contextDefault) ?? null;
+}
+
+function scanTables(lines, kind, file, findings) {
+  const profiles = TABLE_PROFILES[kind] ?? [];
 
   for (let index = 0; index < lines.length - 1; index += 1) {
     const headers = markdownCells(lines[index]);
+    const separators = markdownCells(lines[index + 1]);
     if (headers.length === 0 || !isSeparator(lines[index + 1])) continue;
-    if (!keys.some((key) => headers.includes(key))) continue;
-
-    const missing = required.filter((field) => !headers.includes(field));
-    if (kind === 'architecture' && !headers.includes('Component')) missing.unshift('Component');
     const area = nearestArea(lines, index);
+    const profile = profileForHeaders(profiles, headers, area);
+    if (!profile) continue;
+    if (headers.length !== separators.length) {
+      findings.push({
+        rule: 'table-column-count-mismatch',
+        file,
+        line: index + 1,
+        collection: profile.id,
+        item: `${area || kind} table`,
+        missing: [],
+      });
+      continue;
+    }
+
+    const missing = [...profile.discriminator, ...profile.required]
+      .filter((field) => !profileFieldPresent(profile, field, headers));
     if (missing.length > 0) {
       findings.push({
         rule: 'template-field-missing',
         file,
         line: index + 1,
-        collection: kind,
+        collection: profile.id,
         item: `${area || kind} table`,
-        missing: [...new Set(missing)],
+        missing,
       });
     }
 
     let row = index + 2;
-    for (; row < lines.length && lines[row].trim().startsWith('|'); row += 1) {
-      const cells = markdownCells(lines[row]);
-      if (cells.length === 0) continue;
-      const record = Object.fromEntries(headers.map((header, cell) => [header, cells[cell] ?? '']));
-      if (kind === 'architecture' && record.Component) seen.architecture.push(record.Component);
-      if (kind === 'troubleshooting' && record.Recipe) seen.troubleshooting.push(record.Recipe);
-      if (kind === 'api' && record.Method && record.Path) {
-        seen.api.push(`${record.Method.toUpperCase()} ${record.Path}`);
-      }
-    }
+    while (row < lines.length && lines[row].trim().startsWith('|')) row += 1;
     index = row - 1;
   }
 }
@@ -226,7 +313,7 @@ function nearestArea(lines, before) {
   return '';
 }
 
-function scanSections(lines, kind, file, findings, seen) {
+function scanSections(lines, kind, file, findings) {
   let area = '';
   let fence = null;
   const sections = [];
@@ -272,14 +359,24 @@ function scanSections(lines, kind, file, findings, seen) {
     );
 
     if (kind === 'api') {
-      const endpoint = section.title.match(/^(GET|POST|PUT|PATCH|DELETE)\s+[`]?([^\s`]+)/i);
-      const hasShapeField = ['Authentication', 'Auth', 'Response', 'Implements'].some((field) => labels.has(field));
-      if (!endpoint || !hasShapeField) continue;
-      const required = ['Authentication', 'Response', 'Implements'];
-      const missing = required.filter((field) => field === 'Authentication'
-        ? !labels.has('Authentication') && !labels.has('Auth')
-        : !labels.has(field));
-      seen.api.push(`${endpoint[1].toUpperCase()} ${endpoint[2]}`);
+      const endpoint = section.title.match(/^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE|CONNECT)\s+[`]?([^\s`]+)/i);
+      const aliases = {
+        Authentication: ['Authentication', 'Auth'],
+        Request: ['Request'],
+        Response: ['Response', 'Response 200'],
+        Errors: ['Errors', 'Error responses'],
+        Source: ['Source', 'Implementation'],
+        Implements: ['Implements'],
+      };
+      const present = (field) => aliases[field].some((alias) => labels.has(alias));
+      const recognized = Object.keys(aliases).some((field) => present(field));
+      if (!endpoint || (!recognized && body.trim() !== '')) continue;
+
+      const detailed = ['Request', 'Errors', 'Source'].some((field) => present(field));
+      const required = detailed
+        ? ['Request', 'Response', 'Errors', 'Source', 'Implements']
+        : ['Authentication', 'Response', 'Implements'];
+      const missing = required.filter((field) => !present(field));
       if (missing.length > 0) {
         findings.push({
           rule: 'template-field-missing', file, line: section.line,
@@ -289,14 +386,13 @@ function scanSections(lines, kind, file, findings, seen) {
       continue;
     }
 
-    const inRecognizedArea = RECOGNIZED_AREAS[kind].has(section.area);
-    if (!inRecognizedArea) continue;
-    const exact = INVENTORY[kind].some(([, matcher]) => matcher.test(section.title));
-    const hasShapeField = REQUIRED_FIELDS[kind].some((field) => labels.has(field));
-    if (!exact && !hasShapeField) continue;
+    const recognizedAreas = RECOGNIZED_AREAS[kind];
+    const required = SECTION_REQUIRED_FIELDS[kind];
+    if (!recognizedAreas || !required || !recognizedAreas.has(section.area)) continue;
+    const hasShapeField = required.some((field) => labels.has(field));
+    if (!hasShapeField && body.trim() !== '') continue;
 
-    seen[kind].push(section.title);
-    const missing = REQUIRED_FIELDS[kind].filter((field) => !labels.has(field));
+    const missing = required.filter((field) => !labels.has(field));
     if (missing.length > 0) {
       findings.push({
         rule: 'template-field-missing', file, line: section.line,
@@ -306,52 +402,98 @@ function scanSections(lines, kind, file, findings, seen) {
   }
 }
 
-function inventoryFindings(files, seen) {
-  const findings = [];
-  for (const [kind, items] of Object.entries(INVENTORY)) {
-    const file = files.find((candidate) => laneKind(candidate) === kind) ?? kind;
-    for (const item of items) {
-      const [name] = item;
-      const found = kind === 'api'
-        ? seen.api.some((value) => value.toUpperCase() === name.toUpperCase())
-        : seen[kind].some((value) => item[1].test(value));
-      if (!found) {
-        findings.push({
-          rule: 'inventory-item-missing', file, line: null,
-          collection: kind, item: name, missing: [],
-        });
-      }
+function scanDeploymentSections(lines, file, findings) {
+  const starts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^##\s+(.+)$/);
+    if (heading) starts.push({ title: plain(heading[1]), line: index + 1, start: index + 1 });
+  }
+
+  const semantics = [
+    ['When', ['When']],
+    ['Action', ['Action', 'Command']],
+    ['Verify', ['Verify', 'Verifies']],
+    ['Rollback', ['Rollback']],
+  ];
+
+  for (let index = 0; index < starts.length; index += 1) {
+    const section = starts[index];
+    const end = starts[index + 1] ? starts[index + 1].line - 1 : lines.length;
+    const body = lines.slice(section.start, end).join('\n');
+    const labels = new Set(
+      [...body.matchAll(/^\*\*([^*:\n]+):\*\*/gm)].map((match) => plain(match[1])),
+    );
+    const matched = semantics.filter(([, aliases]) => aliases.some((alias) => labels.has(alias)));
+    if (matched.length < 2) continue;
+    const missing = semantics
+      .filter(([, aliases]) => !aliases.some((alias) => labels.has(alias)))
+      .map(([canonical]) => canonical);
+    if (missing.length > 0) {
+      findings.push({
+        rule: 'template-field-missing',
+        file,
+        line: section.line,
+        collection: 'deployment-runbooks',
+        item: section.title,
+        missing,
+      });
     }
   }
-  return findings;
 }
 
-export async function checkDocuments(files, { inventory = false } = {}) {
+function scanProjectLane(lines, file, findings) {
+  const firstSection = lines.findIndex((line) => /^##\s+/.test(line));
+  const preamble = lines.slice(0, firstSection === -1 ? lines.length : firstSection).join('\n');
+  const labels = new Set(
+    [...preamble.matchAll(/^\*\*([^*:\n]+):\*\*/gm)].map((match) => plain(match[1])),
+  );
+  const headings = new Set(
+    lines.flatMap((line) => {
+      const match = line.match(/^##\s+(.+)$/);
+      return match ? [plain(match[1])] : [];
+    }),
+  );
+  const missing = [
+    ...['Audience', 'Owns'].filter((field) => !labels.has(field)),
+    ...['Contents', 'Requirement and Source Map', 'Related Documentation']
+      .filter((heading) => !headings.has(heading)),
+  ];
+  if (missing.length > 0) {
+    findings.push({
+      rule: 'project-lane-envelope-missing',
+      file,
+      line: 1,
+      collection: 'project-lane',
+      item: path.basename(file),
+      missing,
+    });
+  }
+}
+
+export async function checkDocuments(files) {
   const findings = [];
-  const seen = { architecture: [], troubleshooting: [], api: [] };
 
   for (const file of files) {
     const kind = laneKind(file);
     if (!kind) continue;
     const content = stripHtmlComments(await readFile(file, 'utf8'));
     const lines = content.split(/\r?\n/);
-    scanTables(lines, kind, file, findings, seen);
-    scanSections(lines, kind, file, findings, seen);
+    scanTables(maskFencedLines(lines), kind, file, findings);
+    scanSections(lines, kind, file, findings);
+    if (kind === 'deployment') scanDeploymentSections(maskFencedLines(lines), file, findings);
+    if (kind === 'project') scanProjectLane(maskFencedLines(lines), file, findings);
   }
 
-  if (inventory) findings.push(...inventoryFindings(files, seen));
   return { ok: findings.length === 0, findings };
 }
 
 async function main(argv) {
-  const inventory = argv.includes('--inventory');
-  const files = argv.filter((arg) => arg !== '--inventory');
-  if (files.length === 0) {
-    process.stderr.write('Usage: check-shape.mjs [--inventory] <lane.md> [...]\n');
+  if (argv.length === 0) {
+    process.stderr.write('Usage: check-shape.mjs <lane.md> [...]\n');
     process.exitCode = 2;
     return;
   }
-  const result = await checkDocuments(files, { inventory });
+  const result = await checkDocuments(argv);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   process.exitCode = result.ok ? 0 : 1;
 }

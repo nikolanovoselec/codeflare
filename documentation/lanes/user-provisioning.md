@@ -91,7 +91,7 @@ Administrator approval, provider-confirmed checkout, onboarding admission, and b
 <a id="session-mode-authorization"></a>
 ### Entitlement alias
 
-Configured tier modes, paid `subscribedMode`, stored next-session preference, downgrade policy, and Enterprise override are owned by [Billing](billing.md#concurrent-session-and-mode-gates). When an administrator assigns `advanced`, `max`, or `unlimited`, source may initialize `sessionMode: 'advanced'`; that preference does not bypass effective entitlement. <!-- @impl: src/routes/users.ts -->
+Configured tier modes, paid `subscribedMode`, stored next-session preference, downgrade policy, and Enterprise override are owned by [Billing](billing.md#concurrent-session-and-mode-gates). When an administrator assigns `advanced`, `max`, or `unlimited`, source may initialize `sessionMode: 'advanced'`; that preference does not bypass effective entitlement. <!-- @impl: src/routes/users.ts::app -->
 
 ## Offboarding Handoff
 

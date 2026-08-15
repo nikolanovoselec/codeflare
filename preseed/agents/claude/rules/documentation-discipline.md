@@ -10,7 +10,7 @@ Applies when `sdd/` AND `documentation/` both exist. Inert otherwise.
 
 ## Lane summary (mid-task keepsake)
 
-`architecture.md` (layout/data-flow), `api-reference*.md` (HTTP routes), `configuration.md` (env vars), `deployment.md` (deploy/rollback), `security.md` (threat model/auth), `troubleshooting.md` (symptom→cause→fix), `decisions/README.md` (ADR ledger). Each owns one operational slice; the full owns / never-owns catalog lives in `doc-enforce-lanes`.
+`architecture.md` (system map and authority), `api-reference*.md` (HTTP routes), `configuration.md` (settings and consumers), `deployment.md` (deploy/verify/rollback), `security.md` (threats and controls), `observability.md` (signals and escalation), `troubleshooting.md` (symptom→cause→fix→verify), indexed first-level project lanes (unowned project concerns), and `decisions/README.md` (ADR ledger). `/sdd init`, `/sdd clean`, and review use the bundled `spec-driven-development/references/templates/documentation-*.md` shapes; the full owns / never-owns catalog lives in `doc-enforce-lanes`.
 
 ## Severity / mode
 

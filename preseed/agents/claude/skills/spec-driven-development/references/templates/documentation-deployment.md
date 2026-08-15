@@ -1,58 +1,61 @@
-<!-- doc-discipline: one-line table cells (≤50 words), deploy commands and rollback steps only — no env var documentation (link to configuration.md), no API contracts (link to api-reference.md). -->
+# {PROJECT_NAME} Deployment
 
-# Deployment
+**Audience:** Operators releasing, verifying, and rolling back the project.
 
-**Audience:** Developers, Operators
+**Owns:** Executable deployment, verification, and rollback runbooks.
 
-Local development setup and production deployment steps.
+**Does not own:** Architecture rationale, configuration inventories, or private credentials.
 
----
+## Contents
 
-## Prerequisites
+- [Standard Deployment](#standard-deployment)
+- [Rollback](#rollback)
+- [Development Reference](#development-reference)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
-- {Tool name} version {X.Y+}
-- {Account or credential needed}
+## Standard Deployment
 
-## Local Development
+**When:** {DEPLOY_WHEN}
 
-```bash
-{install command}
-{seed/migration command}
-{dev server command}
+**Prerequisites:** {DEPLOY_PREREQUISITES}
+
+**Action:**
+
+```sh
+{DEPLOY_COMMAND}
 ```
 
-The dev server runs at {URL}.
+**Verify:** {DEPLOY_VERIFICATION}
 
-## Tests
+**Rollback:** {DEPLOY_ROLLBACK}
 
-```bash
-{test command}
+## Rollback
+
+**When:** {ROLLBACK_WHEN}
+
+**Prerequisites:** {ROLLBACK_PREREQUISITES}
+
+**Action:**
+
+```sh
+{ROLLBACK_COMMAND}
 ```
 
-Tests are organized so each test references a REQ ID — `spec-reviewer` reads test files to verify which Implemented REQs have automated coverage.
+**Verify:** {ROLLBACK_VERIFICATION}
 
-## Production Deployment
+**Rollback:** Escalate rather than applying another unreviewed change if restoration fails.
 
-```bash
-{deploy command}
-```
+## Development Reference
 
-### Environment-specific configuration
+Keep local development commands separate from production runbooks.
 
-| Environment | Branch | Notes |
-|---|---|---|
-| Development | `develop` | {what's special} |
-| Production | `main` | {what's special} |
+## Requirement and Source Map
 
-## Cloudflare Resources
-
-| Resource | Type | Purpose |
-|---|---|---|
-| `{name}` | D1/R2/KV/Worker | {purpose} |
-
----
+| Procedure | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Standard deployment | {REQUIREMENT_LINK} | `{WORKFLOW_PATH}` | {DEPLOY_EVIDENCE} |
 
 ## Related Documentation
 
-- [Configuration](configuration.md) — Env vars and secrets
-- [Architecture](architecture.md) — System overview
+{RELATED_DOCUMENTATION}
