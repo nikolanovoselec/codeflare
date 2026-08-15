@@ -14,8 +14,10 @@ import {
   hasVaultBootstrapCookie,
   inferOriginValidated,
   injectVaultEncryptionConfig,
-  injectVaultBootstrapHopHtml,
   injectVaultPrewarmBridge,
+  buildVaultPrewarmContentProof,
+  postVaultPrewarmMessage,
+  registerCanonicalVaultServiceWorker,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
   getVaultPrewarmRedirectSearch,
@@ -176,23 +178,46 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(registrations[5].unregister).not.toHaveBeenCalled();
     });
 
-    it('runs stale-worker cleanup before canonical registration in the bootstrap hop', () => {
-      const html = injectVaultBootstrapHopHtml('0123456789abcdef0123456789abcdef', 'vault-key');
+    it('removes stale workers before registering the canonical worker', async () => {
+      const calls: string[] = [];
+      const currentScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const stale = {
+        scope: 'https://x/api/vault/legacy/',
+        unregister: vi.fn(async () => { calls.push('unregister'); return true; }),
+      };
+      const serviceWorker = {
+        getRegistrations: vi.fn(async () => stale.unregister.mock.calls.length === 0 ? [stale] : []),
+        register: vi.fn(async () => { calls.push('register'); return { scope: currentScope }; }),
+      };
 
-      expect(html).toContain('unregisterStaleWorkers');
-      expect(html.indexOf('await unregisterStaleWorkers')).toBeLessThan(
-        html.indexOf('navigator.serviceWorker.register'),
+      await registerCanonicalVaultServiceWorker(
+        serviceWorker,
+        '/api/vault/0123456789abcdef0123456789abcdef/',
+        currentScope,
+        unregisterStaleVaultServiceWorkers,
+      );
+
+      expect(calls).toEqual(['unregister', 'register']);
+      expect(serviceWorker.register).toHaveBeenCalledWith(
+        '/api/vault/0123456789abcdef0123456789abcdef/service_worker.js',
+        { scope: '/api/vault/0123456789abcdef0123456789abcdef/' },
       );
     });
 
-    it('fails closed when an old Vault registration remains after unregister', async () => {
+    it('fails closed without registering when an old Vault registration remains', async () => {
       const stale = { scope: 'https://x/api/vault/abcdef12/', unregister: vi.fn(async () => false) };
-      const serviceWorker = { getRegistrations: vi.fn(async () => [stale]) };
+      const serviceWorker = {
+        getRegistrations: vi.fn(async () => [stale]),
+        register: vi.fn(),
+      };
 
-      await expect(unregisterStaleVaultServiceWorkers(
+      await expect(registerCanonicalVaultServiceWorker(
         serviceWorker,
+        '/api/vault/0123456789abcdef0123456789abcdef/',
         'https://x/api/vault/0123456789abcdef0123456789abcdef/',
+        unregisterStaleVaultServiceWorkers,
       )).rejects.toThrow('stale Vault service worker remains');
+      expect(serviceWorker.register).not.toHaveBeenCalled();
     });
   });
 
@@ -418,32 +443,64 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(result.blurCount).toBe(1);
     });
 
-    it('requires SilverBullet space sync and expected vault files before the bridge can report ready', async () => {
-      const html = '<html><head></head><body></body></html>';
-      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge(html, 'warm-1'));
+    it('builds canonical-scope proof only after sync, index, queue, and required-file readiness', async () => {
+      const scope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const runtime = {
+        client: {
+          fullSyncCompleted: false,
+          systemReady: true,
+          pageListLoaded: true,
+          clientSystem: { scriptsLoaded: true },
+          objectIndex: { hasFullIndexCompleted: vi.fn(async () => true) },
+          mq: { getQueueStats: vi.fn(async () => ({ queued: 0, processing: 0, dlq: 0 })) },
+        },
+      };
+      const fetchRef = vi.fn(async () => ({
+        ok: true,
+        json: async () => [...VAULT_PREWARM_REQUIRED_FILES.map((name) => ({ name })), { name: 'Notes.md' }],
+      })) as unknown as typeof fetch;
 
-      for (const file of VAULT_PREWARM_REQUIRED_FILES) {
-        expect(script).toContain(`"${file}"`);
-      }
-      expect(script).toContain('space-sync-complete');
-      expect(script).toContain('hasFullIndexCompleted');
-      expect(script).toContain('getQueueStats("indexQueue")');
-      expect(script).toContain('isQueueEmpty("indexQueue")');
-      expect(script).toContain('fetch(".fs/", { cache: "no-store" })');
-      expect(script.indexOf('checkContentReadiness')).toBeLessThan(
-        script.indexOf('post("ready"'),
+      const proof = await buildVaultPrewarmContentProof(
+        runtime,
+        true,
+        scope,
+        VAULT_PREWARM_REQUIRED_FILES,
+        fetchRef,
       );
-    });
+      expect(proof).toEqual({
+        scope,
+        contentReady: true,
+        spaceSyncCompleted: true,
+        indexReady: true,
+        requiredFiles: [...VAULT_PREWARM_REQUIRED_FILES],
+        listedFileCount: 4,
+      });
+      const parent = { postMessage: vi.fn() };
+      postVaultPrewarmMessage(parent, {}, 'https://x', 'codeflare-vault-prewarm', 'warm-1', 'ready', undefined, proof!);
+      expect(parent.postMessage).toHaveBeenCalledWith({
+        source: 'codeflare-vault-prewarm',
+        prewarmId: 'warm-1',
+        status: 'ready',
+        proof,
+      }, 'https://x');
+      expect(fetchRef).toHaveBeenCalledWith('.fs/', { cache: 'no-store' });
 
-    it('reports only canonical-scope runtime/content proof after the new worker completes', async () => {
-      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-
-      expect(script).toContain('scope: expectedScope');
-      expect(script).toContain('contentProof = await checkContentReadiness()');
-      expect(script).toContain('post("ready", null, contentProof)');
-      expect(script).not.toContain('checkLocalReadiness');
-      expect(script).not.toContain('getRegistration');
-      expect(script).not.toContain('getRegistrations()');
+      await expect(buildVaultPrewarmContentProof(
+        runtime,
+        false,
+        scope,
+        VAULT_PREWARM_REQUIRED_FILES,
+        fetchRef,
+      )).resolves.toBeNull();
+      runtime.client.fullSyncCompleted = true;
+      runtime.client.mq.getQueueStats.mockResolvedValueOnce({ queued: 1, processing: 0, dlq: 0 });
+      await expect(buildVaultPrewarmContentProof(
+        runtime,
+        false,
+        scope,
+        VAULT_PREWARM_REQUIRED_FILES,
+        fetchRef,
+      )).resolves.toBeNull();
     });
 
     it('arms only after the readiness proof holds across multiple consecutive polls (stable-green gate)', async () => {

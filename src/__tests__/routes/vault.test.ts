@@ -11,7 +11,6 @@ import {
   graftVaultKeyRecovery,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
-  VAULT_IDB_RECORDER_MARKER,
   injectVaultEncryptionConfig,
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,

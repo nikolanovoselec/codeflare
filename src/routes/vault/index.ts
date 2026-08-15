@@ -87,7 +87,6 @@ export {
   rewriteVaultHtmlResponse,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
-  VAULT_IDB_RECORDER_MARKER,
 } from '../../lib/vault-view';
 export {
   VAULT_NATIVE_SERVICE_WORKER_JS,

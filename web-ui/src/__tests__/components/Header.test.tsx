@@ -169,25 +169,22 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(onVaultOpen).toHaveBeenCalledOnce();
     });
 
-    it('keeps timeout and error states guarded while still exposing click feedback', () => {
+    it('lets the user retry timeout and error states explicitly', () => {
       const onVaultOpen = vi.fn();
       const { unmount } = render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="timeout" />);
       const timeoutButton = screen.getByTestId('header-vault-button');
-      fireEvent.click(timeoutButton);
-      expect(timeoutButton).not.toBeDisabled();
-      expect(timeoutButton).toHaveAttribute('aria-disabled', 'true');
+      expect(timeoutButton).toHaveAttribute('aria-disabled', 'false');
       expect(timeoutButton).toHaveAttribute('data-vault-status', 'timeout');
-      expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
+      fireEvent.click(timeoutButton);
+      expect(onVaultOpen).toHaveBeenCalledTimes(1);
       unmount();
 
       render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="error" />);
       const errorButton = screen.getByTestId('header-vault-button');
-      fireEvent.click(errorButton);
-      expect(errorButton).not.toBeDisabled();
-      expect(errorButton).toHaveAttribute('aria-disabled', 'true');
+      expect(errorButton).toHaveAttribute('aria-disabled', 'false');
       expect(errorButton).toHaveAttribute('data-vault-status', 'error');
-      expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
-      expect(onVaultOpen).not.toHaveBeenCalled();
+      fireEvent.click(errorButton);
+      expect(onVaultOpen).toHaveBeenCalledTimes(2);
     });
   });
 

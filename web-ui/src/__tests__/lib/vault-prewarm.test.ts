@@ -15,9 +15,9 @@ function currentIframe(): HTMLIFrameElement | null {
 function primeIframeScope(scope: string): Window {
   const iframe = currentIframe();
   if (!iframe?.contentDocument || !iframe.contentWindow) throw new Error('prewarm iframe missing');
-  const base = iframe.contentDocument.createElement('base');
-  base.href = scope;
-  iframe.contentDocument.head.replaceChildren(base);
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(`<html><head><base href="${scope}"></head><body></body></html>`);
+  iframe.contentDocument.close();
   return iframe.contentWindow;
 }
 

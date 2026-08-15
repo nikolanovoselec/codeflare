@@ -325,6 +325,64 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
   return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
+export function postVaultPrewarmMessage(
+  parentRef: any,
+  windowRef: any,
+  origin: string,
+  source: string,
+  prewarmId: string,
+  status: string,
+  message?: string,
+  proof?: Record<string, unknown>,
+): void {
+  if (!parentRef || parentRef === windowRef) return;
+  const payload: Record<string, unknown> = { source, prewarmId, status };
+  if (message) payload.message = message;
+  if (proof) payload.proof = proof;
+  parentRef.postMessage(payload, origin);
+}
+
+export async function buildVaultPrewarmContentProof(
+  windowRef: any,
+  spaceSyncCompleted: boolean,
+  expectedScope: string,
+  requiredFiles: readonly string[],
+  fetchRef: typeof fetch,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const client = windowRef.client;
+    if (!spaceSyncCompleted && client?.fullSyncCompleted !== true) return null;
+    if (!client || client.systemReady !== true || client.pageListLoaded !== true) return null;
+    if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return null;
+    if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== 'function') return null;
+    if (client.mq && typeof client.mq.getQueueStats === 'function') {
+      const stats = await client.mq.getQueueStats('indexQueue');
+      if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return null;
+    } else if (client.mq && typeof client.mq.isQueueEmpty === 'function'
+      && !(await client.mq.isQueueEmpty('indexQueue'))) return null;
+    if (!(await client.objectIndex.hasFullIndexCompleted())) return null;
+
+    const response = await fetchRef('.fs/', { cache: 'no-store' });
+    if (!response?.ok) return null;
+    const listing = await response.json();
+    if (!Array.isArray(listing)) return null;
+    const names = new Set(
+      listing.map((entry: any) => entry?.name).filter((name: unknown): name is string => typeof name === 'string'),
+    );
+    if (requiredFiles.some((name) => !names.has(name))) return null;
+    return {
+      scope: expectedScope,
+      contentReady: true,
+      spaceSyncCompleted: true,
+      indexReady: true,
+      requiredFiles: [...requiredFiles],
+      listedFileCount: listing.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
   if (html.includes(VAULT_PREWARM_BRIDGE_MARKER)) return html;
   if (!html.includes('</head>')) return html;
@@ -338,7 +396,17 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
+  const contentProofSource = buildVaultPrewarmContentProof.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const postMessageSource = postVaultPrewarmMessage.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
+    'var buildContentProof = ' + contentProofSource + ';' +
+    'var postMessageToParent = ' + postMessageSource + ';' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
     'var expectedScope = null;' +
@@ -356,47 +424,13 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
     '} catch (_) { return; }' +
     'function post(status, message, proof) {' +
-    'if (!window.parent || window.parent === window) return;' +
-    'var payload = { source: source, prewarmId: prewarmId, status: status };' +
-    'if (message) payload.message = message;' +
-    'if (proof) payload.proof = proof;' +
-    'window.parent.postMessage(payload, window.location.origin);' +
-    '}' +
-    'function hasSpaceSyncCompleted() {' +
-    'if (spaceSyncCompleted) return true;' +
-    'try { return !!(window.client && window.client.fullSyncCompleted === true); } catch (_) { return false; }' +
+    'postMessageToParent(window.parent, window, window.location.origin, source, prewarmId, status, message, proof);' +
     '}' +
     'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
     'navigator.serviceWorker.addEventListener("message", function (event) {' +
     'var data = event.data;' +
     'if (data && data.type === "space-sync-complete") spaceSyncCompleted = true;' +
     '});' +
-    '}' +
-    'async function checkIndexReadiness() {' +
-    'try {' +
-    'var client = window.client;' +
-    'if (!client || client.systemReady !== true || client.pageListLoaded !== true) return false;' +
-    'if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return false;' +
-    'if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== "function") return false;' +
-    'if (client.mq && typeof client.mq.getQueueStats === "function") {' +
-    'var stats = await client.mq.getQueueStats("indexQueue");' +
-    'if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return false;' +
-    '} else if (client.mq && typeof client.mq.isQueueEmpty === "function" && !(await client.mq.isQueueEmpty("indexQueue"))) return false;' +
-    'return await client.objectIndex.hasFullIndexCompleted();' +
-    '} catch (_) { return false; }' +
-    '}' +
-    'async function checkContentReadiness() {' +
-    'if (!hasSpaceSyncCompleted() || !(await checkIndexReadiness())) return null;' +
-    'try {' +
-    'var res = await fetch(".fs/", { cache: "no-store" });' +
-    'if (!res || !res.ok) return null;' +
-    'var list = await res.json();' +
-    'if (!Array.isArray(list)) return null;' +
-    'var names = {};' +
-    'list.forEach(function (entry) { if (entry && typeof entry.name === "string") names[entry.name] = true; });' +
-    'for (var i = 0; i < requiredFiles.length; i++) { if (!names[requiredFiles[i]]) return null; }' +
-    'return { scope: expectedScope, contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
-    '} catch (_) { return null; }' +
     '}' +
     'var inFlight = false;' +
     'var readyStreak = 0;' +
@@ -413,7 +447,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'inFlight = true;' +
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
-    'var contentProof = await checkContentReadiness();' +
+    'var contentProof = await buildContentProof(window, spaceSyncCompleted, expectedScope, requiredFiles, fetch);' +
     'if (contentProof) {' +
     'readyStreak++;' +
     'if (readyStreak >= requiredReadyStreak) {' +
@@ -544,6 +578,16 @@ export async function unregisterStaleVaultServiceWorkers(
   return stale.length;
 }
 
+export async function registerCanonicalVaultServiceWorker(
+  serviceWorkerRef: any,
+  scope: string,
+  expectedScope: string,
+  unregisterRef: (serviceWorker: any, expected: string) => Promise<number>,
+): Promise<any> {
+  await unregisterRef(serviceWorkerRef, expectedScope);
+  return serviceWorkerRef.register(scope + 'service_worker.js', { scope });
+}
+
 /** Persist the encryption gate before marking the bootstrap complete. */
 export function completeVaultBootstrap(
   storageRef: Pick<Storage, 'setItem'>,
@@ -587,6 +631,10 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const registerCanonicalWorkerSource = registerCanonicalVaultServiceWorker.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   // The cookie and redirect run ONLY inside the SW-success branch.
   // If SW registration or the postMessage handoff fails (private mode,
   // SW disabled, exotic browser), we must NOT set the cookie or redirect
@@ -606,7 +654,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'var cookieName = ' + escapedCookie + ';' +
     'var scope = "/api/vault/" + sid + "/";' +
     'var completeBootstrap = ' + completeBootstrapSource + ';' +
-    'var unregisterStaleWorkers = ' + unregisterStaleWorkersSource + ';' +
+    'var unregisterStaleVaultServiceWorkers = ' + unregisterStaleWorkersSource + ';' +
+    'var registerCanonicalWorker = ' + registerCanonicalWorkerSource + ';' +
     'var el = document.getElementById("status");' +
     'function fail(msg) {' +
     'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
@@ -616,9 +665,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'if (!navigator.serviceWorker) { fail("browser does not support service workers"); return; }' +
     'try {' +
     'step("Removing old service workers...");' +
-    'await unregisterStaleWorkers(navigator.serviceWorker, new URL(scope, location.origin).href);' +
-    'step("Registering service worker...");' +
-    'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
+    'var reg = await registerCanonicalWorker(navigator.serviceWorker, scope, new URL(scope, location.origin).href, unregisterStaleVaultServiceWorkers);' +
+    'step("Registered service worker...");' +
     'try { reg = await reg.update(); } catch (_) {}' +
     'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
     'var sw = reg.active || reg.installing || reg.waiting;' +

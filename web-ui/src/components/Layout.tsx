@@ -210,24 +210,16 @@ const Layout: Component<LayoutProps> = (props) => {
     requestVaultStoragePersistenceOnce(sid);
 
     let handle: ReturnType<typeof startVaultPrewarm> = null;
-    let cancelled = false;
     const mountPrewarm = () => {
       handle = startVaultPrewarm({
         sessionId: sid,
         timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
-        onReady: (proof) => {
-          if (!proof.ready) {
-            setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
-            return;
-          }
-          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
-        },
+        onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
       });
     };
     mountPrewarm();
     onCleanup(() => {
-      cancelled = true;
       handle?.cancel();
       setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
     });

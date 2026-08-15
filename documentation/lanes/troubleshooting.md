@@ -615,7 +615,7 @@ The coercion graft was added for the runtime non-array crash described in the ro
 (1) DevTools → Application → Cookies: confirm the `cf_vault_sid` HttpOnly cookie is set after visiting `/api/vault/<sid>/`. (2) Confirm the redirect lands on `/api/vault/<token>/` where `<token>` is the same 32-hex value across sessions for the same user (it is `SHA-256(salt+bucketName)` — deterministic per bucket). (3) If `ENCRYPTION_KEY` was rotated, the `getVaultEncryptionKey` HKDF output changes and the persisted local cache can no longer decrypt — a one-time re-index after a rotation is expected. Otherwise redeploy the Worker.
 
 <a id="vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr"></a>
-#### Vault button "re-indexes" (breathes accent for ~10s) on every click after the first, then returns green without opening — but the store is healthy (SW log shows "0 operations" / "already configured", same `sb_data_*` reused)
+#### Vault preparation repeatedly breathes without reaching green, or an old Vault worker remains after v3
 
 **Cause detail:**
 
