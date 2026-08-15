@@ -161,12 +161,14 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(mockCtx.waitUntil).toHaveBeenCalledTimes(1);
   });
 
-  it('does not schedule same-key session writes for SilverBullet precache GETs', async () => {
-    const requests = Array.from({ length: 52 }, (_, index) =>
-      tokenRequest(`/.client/asset-${index}.js?v=cache-1785242408248`, {
-        'Sec-Fetch-Mode': 'no-cors',
-      }),
-    );
+  it('does not schedule same-key session writes for the complete SilverBullet precache shape', async () => {
+    const requests = [
+      tokenRequest('/?v=cache-1785242408248', { 'Sec-Fetch-Mode': 'no-cors' }),
+      ...Array.from({ length: 51 }, (_, index) =>
+        tokenRequest(`/.client/asset-${index}.js?v=cache-1785242408248`, {
+          'Sec-Fetch-Mode': 'no-cors',
+        })),
+    ];
 
     const responses = await Promise.all(
       requests.map((request) => handleVaultRequest(request, mockEnv, mockCtx, route(request))),
@@ -175,6 +177,21 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(responses.every((response) => response.status === 200)).toBe(true);
     expect(mockContainerFetch).toHaveBeenCalledTimes(52);
     expect(mockCtx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('still records activity for unrelated or navigation GETs with a cache-version query', async () => {
+    const requests = [
+      tokenRequest('/notes/foo.md?v=cache-1785242408248', { 'Sec-Fetch-Mode': 'no-cors' }),
+      tokenRequest('/.client/client.js?v=cache-1785242408248', { 'Sec-Fetch-Mode': 'navigate' }),
+      tokenRequest('/.client/client.js?v=cache-1785242408248'),
+    ];
+
+    const responses = await Promise.all(
+      requests.map((request) => handleVaultRequest(request, mockEnv, mockCtx, route(request))),
+    );
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(mockCtx.waitUntil).toHaveBeenCalledTimes(3);
   });
 
   // REQ-VAULT-021: the session-keyed path is the entry — it sets the cf_vault_sid

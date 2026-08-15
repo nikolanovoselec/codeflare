@@ -488,6 +488,18 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
   return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
+export async function findExactVaultRegistration(
+  serviceWorkerRef: any,
+  expectedScope: string,
+): Promise<any | null> {
+  try {
+    const registration = await serviceWorkerRef.getRegistration(expectedScope);
+    return registration?.scope === expectedScope ? registration : null;
+  } catch {
+    return null;
+  }
+}
+
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
   if (html.includes(VAULT_PREWARM_BRIDGE_MARKER)) return html;
   if (!html.includes('</head>')) return html;
@@ -500,8 +512,13 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<\//g, '<\\/')
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const exactRegistrationSource = findExactVaultRegistration.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
+    'var findExactRegistration = ' + exactRegistrationSource + ';' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
     'var sid = null;' +
@@ -585,11 +602,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     '}' +
     'async function findRegistration() {' +
     'if (!navigator.serviceWorker || !expectedScope) return null;' +
-    'try {' +
-    'var reg = await navigator.serviceWorker.getRegistration(expectedScope);' +
-    'if (reg && reg.scope === expectedScope) return reg;' +
-    '} catch (_) {}' +
-    'return null;' +
+    'return await findExactRegistration(navigator.serviceWorker, expectedScope);' +
     '}' +
     'async function checkLocalReadiness(sid) {' +
     'var storage = null;' +

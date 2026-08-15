@@ -16,6 +16,7 @@ import {
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   injectVaultPrewarmBridge,
+  findExactVaultRegistration,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
   installVaultIdbRecorder,
@@ -387,10 +388,21 @@ describe('CF-045: vault-html direct unit tests', () => {
       );
     });
 
-    it('binds readiness to the exact current Vault scope instead of enumerating orphaned workers', async () => {
+    it('binds readiness behavior to the exact current Vault scope', async () => {
+      const expectedScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const current = { scope: expectedScope, active: { state: 'activated' } };
+      const orphan = { scope: 'https://x/api/vault/abcdef12/', active: { state: 'activated' } };
+      const exactLookup = { getRegistration: vi.fn(async () => current) };
+      const orphanLookup = { getRegistration: vi.fn(async () => orphan) };
+      const failingLookup = { getRegistration: vi.fn(async () => { throw new Error('unavailable'); }) };
+
+      await expect(findExactVaultRegistration(exactLookup, expectedScope)).resolves.toBe(current);
+      await expect(findExactVaultRegistration(orphanLookup, expectedScope)).resolves.toBeNull();
+      await expect(findExactVaultRegistration(failingLookup, expectedScope)).resolves.toBeNull();
+      expect(exactLookup.getRegistration).toHaveBeenCalledWith(expectedScope);
+
       const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
-      expect(script).toContain('getRegistration(expectedScope)');
-      expect(script).toContain('reg.scope === expectedScope');
+      expect(script).toContain('findExactRegistration(navigator.serviceWorker, expectedScope)');
       expect(script).not.toContain('getRegistrations()');
     });
 
@@ -427,7 +439,7 @@ describe('CF-045: vault-html direct unit tests', () => {
       const deleteDatabase = vi.fn();
       const unregister = vi.fn(async () => true);
       const getRegistrations = vi.fn(async () => [{ scope: 'https://x/api/vault/abcdef12/', unregister }]);
-      const open = vi.fn(() => ({ result: null }));
+      const open = vi.fn((_name: string, _version?: number) => ({ result: null }));
       const indexedDb = { open, deleteDatabase };
       const navigatorRef = { serviceWorker: { addEventListener: vi.fn(), getRegistrations } };
       const windowRef = {

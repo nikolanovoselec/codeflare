@@ -25,7 +25,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 <a id="storage-quota-req-stor-006-req-stor-014"></a>
 ### Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
-Per-user bucket identities are serialized by a bucket-keyed Durable Object rather than inferred solely from a lossy email slug. The Durable Object is the sole ownership authority; authenticated requests do not project ownership to a same-key KV record. Unambiguous legacy buckets remain stable, later collisions receive deterministic digest-suffixed names, and ambiguous legacy collisions are blocked pending operator resolution.
+Per-user bucket identities are serialized by a bucket-keyed Durable Object rather than inferred solely from a lossy email slug. The Durable Object is the sole ownership authority; authenticated requests do not project ownership to a same-key KV record. Unambiguous legacy buckets remain stable, later collisions receive deterministic digest-suffixed names, and ambiguous legacy collisions are blocked pending operator resolution ([REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC1/AC4). <!-- @impl: src/lib/access.ts::resolveBucketName -->
 
 Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota - enforcement is in application code.
 

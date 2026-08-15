@@ -120,8 +120,9 @@ export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolea
   return remainingPath === '/.codeflare-bootstrap' && !isWebSocket && method === 'GET';
 }
 
-function isSilverBulletPrecacheRequest(request: Request): boolean {
-  if (request.method !== 'GET') return false;
+function isSilverBulletPrecacheRequest(request: Request, remainingPath: string): boolean {
+  if (request.method !== 'GET' || !isServiceWorkerContextFetch(request)) return false;
+  if (remainingPath !== '/' && !remainingPath.startsWith('/.client/')) return false;
   const cacheVersion = new URL(request.url).searchParams.get('v');
   return cacheVersion !== null && /^cache-[0-9]+$/.test(cacheVersion);
 }
@@ -311,7 +312,7 @@ export async function handleVaultRequest(
     // service-worker install issues a parallel cache-busted GET for every client
     // asset; touching the same session KV key for that burst violates KV's
     // same-key write limit without representing 52 distinct user interactions.
-    if (!isSilverBulletPrecacheRequest(request)) {
+    if (!isSilverBulletPrecacheRequest(request, remainingPath)) {
       ctx.waitUntil((async () => {
         const fresh = await env.KV.get<Session>(sessionKey, 'json');
         if (fresh) {
