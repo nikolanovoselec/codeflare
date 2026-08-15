@@ -11,17 +11,21 @@ const SECTION_REQUIRED_FIELDS = {
 const TABLE_PROFILES = {
   architecture: [{
     id: 'architecture-components',
+    areas: ['Components', 'System Components'],
     discriminator: ['Component'],
     required: ['Responsibility', 'Inputs', 'Outputs', 'Source'],
   }],
   troubleshooting: [
     {
       id: 'troubleshooting-recipes',
+      areas: ['Failure Index'],
       discriminator: ['Recipe'],
       required: ['Symptom', 'Cause', 'Fix'],
     },
     {
       id: 'troubleshooting-recipes',
+      areas: ['Failure Index'],
+      contextDefault: true,
       discriminator: ['Symptom'],
       required: ['Cause', 'Fix'],
     },
@@ -34,12 +38,14 @@ const TABLE_PROFILES = {
   configuration: [
     {
       id: 'configuration-variables',
+      areas: ['Runtime Variables', 'Worker Environment'],
       discriminator: ['Variable'],
       required: ['Purpose', 'Default', 'Required', 'Consumed by', 'Implements'],
       aliases: { Purpose: ['Description'] },
     },
     {
       id: 'configuration-bindings',
+      areas: ['Platform Bindings'],
       discriminator: ['Binding'],
       required: ['Purpose', 'Required', 'Consumed by', 'Implements'],
     },
@@ -47,22 +53,26 @@ const TABLE_PROFILES = {
   security: [
     {
       id: 'security-threats',
+      areas: ['Threat Model'],
       discriminator: ['Asset / boundary'],
       required: ['Threat or failure', 'Control and failure posture', 'Residual risk / owner'],
     },
     {
       id: 'security-residual-risks',
+      areas: ['Accepted Exceptions and Residual Risks'],
       discriminator: ['Exception / residual risk'],
       required: ['Current decision', 'Owner / review signal'],
     },
     {
       id: 'security-verification',
+      areas: ['Verification and Source Map'],
       discriminator: ['Control family'],
       required: ['Requirements / decisions', 'Implementation', 'Evidence'],
     },
   ],
   observability: [{
     id: 'observability-signals',
+    areas: ['Signals'],
     discriminator: ['Signal'],
     required: ['Meaning / non-evidence', 'Observed at', 'Escalate when', 'Runbook'],
   }],
@@ -234,19 +244,24 @@ function profileFieldPresent(profile, field, headers) {
     || (profile.aliases?.[field] ?? []).some((alias) => headers.includes(alias));
 }
 
-function profileForHeaders(profiles, headers) {
+function profileForHeaders(profiles, headers, area) {
   const exact = profiles.find(({ discriminator }) =>
     discriminator.every((field) => headers.includes(field)));
   if (exact) return exact;
 
-  return profiles
+  const partial = profiles
     .map((profile) => {
       const fields = [...profile.discriminator, ...profile.required];
       const matched = fields.filter((field) => profileFieldPresent(profile, field, headers)).length;
       return { profile, matched };
     })
     .filter(({ matched }) => matched >= 2)
-    .sort((left, right) => right.matched - left.matched)[0]?.profile ?? null;
+    .sort((left, right) => right.matched - left.matched)[0]?.profile;
+  if (partial) return partial;
+
+  const contextual = profiles.filter((profile) => profile.areas?.includes(area));
+  if (contextual.length === 1) return contextual[0];
+  return contextual.find((profile) => profile.contextDefault) ?? null;
 }
 
 function scanTables(lines, kind, file, findings) {
@@ -256,10 +271,9 @@ function scanTables(lines, kind, file, findings) {
     const headers = markdownCells(lines[index]);
     const separators = markdownCells(lines[index + 1]);
     if (headers.length === 0 || !isSeparator(lines[index + 1])) continue;
-    const profile = profileForHeaders(profiles, headers);
-    if (!profile) continue;
-
     const area = nearestArea(lines, index);
+    const profile = profileForHeaders(profiles, headers, area);
+    if (!profile) continue;
     if (headers.length !== separators.length) {
       findings.push({
         rule: 'table-column-count-mismatch',
@@ -356,7 +370,7 @@ function scanSections(lines, kind, file, findings) {
       };
       const present = (field) => aliases[field].some((alias) => labels.has(alias));
       const recognized = Object.keys(aliases).some((field) => present(field));
-      if (!endpoint || !recognized) continue;
+      if (!endpoint || (!recognized && body.trim() !== '')) continue;
 
       const detailed = ['Request', 'Errors', 'Source'].some((field) => present(field));
       const required = detailed
@@ -376,7 +390,7 @@ function scanSections(lines, kind, file, findings) {
     const required = SECTION_REQUIRED_FIELDS[kind];
     if (!recognizedAreas || !required || !recognizedAreas.has(section.area)) continue;
     const hasShapeField = required.some((field) => labels.has(field));
-    if (!hasShapeField) continue;
+    if (!hasShapeField && body.trim() !== '') continue;
 
     const missing = required.filter((field) => !labels.has(field));
     if (missing.length > 0) {

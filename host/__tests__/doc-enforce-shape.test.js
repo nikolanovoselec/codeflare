@@ -332,8 +332,7 @@ describe('optimized documentation lane shapes', () => {
     },
   ];
 
-  function tableFixture({ heading, discriminator, required }, omitted = null) {
-    const headers = [discriminator, ...required].filter((field) => field !== omitted);
+  function tableFixtureWithHeaders({ heading }, headers) {
     return [
       '# Guide',
       '',
@@ -343,6 +342,11 @@ describe('optimized documentation lane shapes', () => {
       `| ${headers.map(() => '---').join(' | ')} |`,
       `| ${headers.map((field) => `Example ${field}`).join(' | ')} |`,
     ].join('\n');
+  }
+
+  function tableFixture({ discriminator, required, ...profile }, omitted = null) {
+    const headers = [discriminator, ...required].filter((field) => field !== omitted);
+    return tableFixtureWithHeaders(profile, headers);
   }
 
   for (const profile of tableProfiles) {
@@ -359,6 +363,53 @@ describe('optimized documentation lane shapes', () => {
       });
     }
   }
+
+  it('reports every absent field from sparse tables in governed collection areas', () => {
+    for (const profile of tableProfiles) {
+      const loneField = profile.required[0];
+      const sparse = runFixture({
+        [profile.file]: tableFixtureWithHeaders(profile, [loneField]),
+      });
+      assert.equal(sparse.status, 1, `${profile.name}: ${sparse.stdout}`);
+      assert.deepEqual(
+        JSON.parse(sparse.stdout).findings[0].missing,
+        [profile.discriminator, ...profile.required.filter((field) => field !== loneField)],
+      );
+
+      const fieldless = runFixture({
+        [profile.file]: tableFixtureWithHeaders(profile, ['Unrelated heading']),
+      });
+      assert.equal(fieldless.status, 1, `${profile.name}: ${fieldless.stdout}`);
+      assert.deepEqual(
+        JSON.parse(fieldless.stdout).findings[0].missing,
+        [profile.discriminator, ...profile.required],
+      );
+    }
+  });
+
+  it('reports fieldless records in explicit component, recipe, and endpoint collections', () => {
+    for (const [file, content, missing] of [
+      [
+        'architecture.md',
+        '# Architecture\n\n## Components\n\n### Worker\n',
+        ['Responsibility', 'Inputs', 'Outputs', 'Source'],
+      ],
+      [
+        'troubleshooting.md',
+        '# Troubleshooting\n\n## Troubleshooting Recipes\n\n### Request fails\n',
+        ['Symptom', 'Cause', 'Fix'],
+      ],
+      [
+        'api-reference.md',
+        '# API\n\n## Items\n\n### GET `/items`\n',
+        ['Authentication', 'Response', 'Implements'],
+      ],
+    ]) {
+      const result = runFixture({ [file]: content });
+      assert.equal(result.status, 1, `${file}: ${result.stdout}`);
+      assert.deepEqual(JSON.parse(result.stdout).findings[0].missing, missing);
+    }
+  });
 
   it('accepts Description as a legacy configuration Purpose alias', () => {
     const profile = tableProfiles.find(({ name }) => name === 'configuration variables');

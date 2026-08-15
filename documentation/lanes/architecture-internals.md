@@ -42,7 +42,7 @@ See [Architecture](architecture.md) for the system map, component and state owne
 | `src/lib/currency.ts` | Maps a two-letter ISO country code to a supported regional currency. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing). |
 | `src/types.ts` | `BillingStatus` union type with `BILLING_STATUS` const and `isBillingStatus()` guard. `ContainerConfigPayload` groups 16 container initialization params into logical sub-objects (R2 creds, LlmKeys, DeployKeys, preferences). |
 
-`getCurrencyForCountry(country)` maps CH and LI to CHF; GB plus GI, GG, JE, and IM to GBP; Eurozone, other EU, and non-EU European countries to EUR; and all other country codes to USD.
+`getCurrencyForCountry(country)` maps CH and LI to CHF; GB plus GI, GG, JE, and IM to GBP; Eurozone, other EU, and non-EU European countries to EUR; and all other country codes to USD. <!-- @impl: src/lib/currency.ts::getCurrencyForCountry -->
 
 ### Setup Wizard Resilience
 
