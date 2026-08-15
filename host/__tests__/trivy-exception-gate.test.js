@@ -57,6 +57,33 @@ function undiciVulnerability(installedVersion, overrides = {}) {
   };
 }
 
+const GO_STDLIB_FIXED_VERSIONS = Object.freeze({
+  'CVE-2026-33818': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-39821': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-46600': '1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56853': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56858': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56859': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56860': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56862': '1.25.13, 1.26.6, 1.27.0-rc.3',
+});
+const GH_STDLIB_FINDINGS = Object.freeze(Object.keys(GO_STDLIB_FIXED_VERSIONS));
+const LAZYGIT_STDLIB_FINDINGS = Object.freeze(GH_STDLIB_FINDINGS.filter((id) => id !== 'CVE-2026-46600'));
+
+function goStdlibResult(target, installedVersion, vulnerabilityIds) {
+  return {
+    Target: target,
+    Vulnerabilities: vulnerabilityIds.map((vulnerabilityId) => ({
+      VulnerabilityID: vulnerabilityId,
+      PkgName: 'stdlib',
+      InstalledVersion: installedVersion,
+      FixedVersion: GO_STDLIB_FIXED_VERSIONS[vulnerabilityId],
+      Severity: 'HIGH',
+      PkgIdentifier: { PURL: `pkg:golang/stdlib@${installedVersion}` },
+    })),
+  };
+}
+
 function report(results = [
   {
     Target: 'Node.js',
@@ -79,6 +106,8 @@ function report(results = [
       }),
     ],
   },
+  goStdlibResult('usr/bin/gh', 'v1.26.5', GH_STDLIB_FINDINGS),
+  goStdlibResult('usr/local/bin/lazygit', 'v1.25.12', LAZYGIT_STDLIB_FINDINGS),
 ]) {
   return { Results: results };
 }
@@ -91,8 +120,10 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       'Node.js@10.1.0',
       'Node.js@10.2.0',
       'Node.js@7.28.0',
+      'usr/bin/gh@v1.26.5',
+      'usr/local/bin/lazygit@v1.25.12',
     ]);
-    assert.equal(result.evidence.length, 4);
+    assert.equal(result.evidence.length, 19);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -118,6 +149,8 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
         `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
         `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
+        ...GH_STDLIB_FINDINGS.map((id) => `${prefix}${id} stdlib v1.26.5 at usr/bin/gh [path=<unavailable>; purl=pkg:golang/stdlib@v1.26.5]`),
+        ...LAZYGIT_STDLIB_FINDINGS.map((id) => `${prefix}${id} stdlib v1.25.12 at usr/local/bin/lazygit [path=<unavailable>; purl=pkg:golang/stdlib@v1.25.12]`),
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

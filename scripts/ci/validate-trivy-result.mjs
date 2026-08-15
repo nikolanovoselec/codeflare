@@ -3,6 +3,30 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+const GO_STDLIB_FIXED_VERSIONS = Object.freeze({
+  'CVE-2026-33818': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-39821': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-46600': '1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56853': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56858': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56859': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56860': '1.25.13, 1.26.6, 1.27.0-rc.3',
+  'CVE-2026-56862': '1.25.13, 1.26.6, 1.27.0-rc.3',
+});
+
+function reviewedGoStdlibFindings(target, installedVersion, vulnerabilityIds) {
+  return vulnerabilityIds.map((vulnerabilityId) => ({
+    target,
+    vulnerabilityId,
+    packageName: 'stdlib',
+    packagePath: undefined,
+    packagePurl: `pkg:golang/stdlib@${installedVersion}`,
+    installedVersion,
+    fixedVersion: GO_STDLIB_FIXED_VERSIONS[vulnerabilityId],
+    severity: 'HIGH',
+  }));
+}
+
 const REVIEWED_FINDINGS = [
   {
     // Reviewed from integration deployment 30847836723 at head a05cf374 and
@@ -60,6 +84,22 @@ const REVIEWED_FINDINGS = [
     fixedVersion: '7.29.0, 8.9.0',
     severity: 'HIGH',
   },
+  // Integration deployment 31889621501 at head 4e9ac2e built the latest
+  // upstream releases (gh 2.97.0 and lazygit 0.64.1), but those binaries still
+  // embed Go 1.26.5 and 1.25.12. The patched Go releases exist while no rebuilt
+  // CLI release does. gh and lazygit are outbound, single-tenant developer CLIs:
+  // they expose no HTTP/2 or TLS server, render no HTML, and consume only trusted
+  // API responses plus the user's own repositories, paths, remotes, and config.
+  // The recursive protobuf/XML, DNS, IDNA, template, path, and handshake findings
+  // can therefore only stop or misdirect that user's own CLI process. Bind every
+  // accepted identity to its scanner target/version/PURL and remove the batch as
+  // soon as either upstream release embeds Go 1.25.13 or 1.26.6.
+  ...reviewedGoStdlibFindings('usr/bin/gh', 'v1.26.5', Object.keys(GO_STDLIB_FIXED_VERSIONS)),
+  ...reviewedGoStdlibFindings(
+    'usr/local/bin/lazygit',
+    'v1.25.12',
+    Object.keys(GO_STDLIB_FIXED_VERSIONS).filter((id) => id !== 'CVE-2026-46600'),
+  ),
 ];
 
 function matchesReviewedFinding(reviewed, finding) {
