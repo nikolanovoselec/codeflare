@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
 import {
+  VscodeEventEmitter,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -51,6 +52,21 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(selected.dependencies['@github/copilot'], undefined);
     assert.equal(selected.dependencies['opencode-ai'], undefined);
     assert.equal(manifest.dependencies['@github/copilot'], originalCopilotVersion, 'the source manifest must not be mutated');
+  });
+
+  it('REQ-OPS-002 AC7: packaged-image smoke supplies the VS Code EventEmitter contract used during activation', () => {
+    const emitter = new VscodeEventEmitter();
+    const observed = [];
+    const first = emitter.event((value) => observed.push(`first:${value}`));
+    emitter.event((value) => observed.push(`second:${value}`));
+
+    emitter.fire('ready');
+    first.dispose();
+    emitter.fire('again');
+    emitter.dispose();
+    emitter.fire('ignored');
+
+    assert.deepEqual(observed, ['first:ready', 'second:ready', 'second:again']);
   });
 
   it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {

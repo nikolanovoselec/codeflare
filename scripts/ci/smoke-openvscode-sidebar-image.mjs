@@ -29,6 +29,23 @@ const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'opencode', directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
 ]);
 
+export class VscodeEventEmitter {
+  #listeners = new Set();
+
+  event = (listener) => {
+    this.#listeners.add(listener);
+    return { dispose: () => this.#listeners.delete(listener) };
+  };
+
+  fire(value) {
+    for (const listener of this.#listeners) listener(value);
+  }
+
+  dispose() {
+    this.#listeners.clear();
+  }
+}
+
 export async function verifySelectedAgentLaunchers(
   selection,
   { commands, hasCodingAgent, inspectPath = lstat, run = execFileSync },
@@ -355,6 +372,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
   const vscode = new Proxy({
+    EventEmitter: VscodeEventEmitter,
     Uri: {
       file: (path) => uri(path),
       joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)),
