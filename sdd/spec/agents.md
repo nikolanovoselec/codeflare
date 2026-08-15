@@ -308,8 +308,6 @@ Multi-agent support, preseed system, and session modes.
 5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: keeps FIX delivery fail-open when Goal is removed during review) -->
 6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race) -->
 7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121: resumed sessions recover once through FIX and restore Goal pause) -->
-8. A trusted review-owned pause changes Goal state and cancels Goal continuation work without aborting the queued review or FIX turn. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114: executes the session-bound pause/resume control contract) -->
-9. A manual Goal pause retains pi-goal's ordinary current-turn abort behavior. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-117: preserves manual pause aborts while trusted review pause can suppress them) -->
 
 **Constraints:** A failure in detached Goal pause control cannot block review or CI work.
 
@@ -318,6 +316,31 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
 **Verification:** Review-enforcement behavioral tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-144: Review-owned Goal pause command compatibility
+
+**Intent:** Trusted review control must preserve pi-goal's native pause behavior without aborting unrelated Pi work.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A trusted review-owned pause does not abort the current Pi turn. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+2. A trusted review-owned pause cancels pending Goal continuation work. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+3. A trusted review-owned pause transitions the active Goal to paused. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+4. A manual Goal pause retains pi-goal's current-turn abort behavior. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+
+**Constraints:** Only the trusted session-local review-control channel may select the non-aborting pause path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-114](#req-agent-114-review-owned-goal-continuation), [REQ-AGENT-117](#req-agent-117-non-disruptive-review-owned-goal-control)
+
+**Verification:** pi-goal compatibility-transform behavioral tests
 
 **Status:** Implemented
 

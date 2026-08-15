@@ -476,7 +476,7 @@ function writeNextFixturePackage(root, overrides = {}) {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114: executes the session-bound pause/resume control contract', async () => {
+  it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract', async () => {
     const { runtime, controller, lifecycle, events } = executablePatchedGoal();
     runtime.activeGoal = { id: 'goal-a', status: 'active' };
     const ctx = { session: 'current' };
@@ -511,7 +511,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(response, { ok: false, goalId: 'resumed-goal', status: 'active' });
   });
 
-  it('REQ-AGENT-117: preserves manual pause aborts while trusted review pause can suppress them', () => {
+  it('REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them', () => {
     let aborts = 0;
     let continuationCancellations = 0;
     const Controller = executablePatchedController(() => { aborts += 1; });
