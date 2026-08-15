@@ -82,6 +82,7 @@ beforeAll(async () => {
 describe('production-bundled Vault browser scripts', () => {
   it('removes stale workers, registers the canonical worker, persists encryption, and redirects', async () => {
     const token = '0123456789abcdef0123456789abcdef';
+    const hostileKey = '</script><script>globalThis.compromised=true</script>';
     const scope = `https://codeflare.test/api/vault/${token}/`;
     const workerEvents: string[] = [];
     const completionEvents: string[] = [];
@@ -119,7 +120,7 @@ describe('production-bundled Vault browser scripts', () => {
       origin: 'https://codeflare.test',
       replace: vi.fn(() => { completionEvents.push('redirect'); }),
     };
-    const html = injectors.injectVaultBootstrapHopHtml(token, 'secret-key', '?codeflarePrewarm=1&prewarmId=warm-1');
+    const html = injectors.injectVaultBootstrapHopHtml(token, hostileKey, '?codeflarePrewarm=1&prewarmId=warm-1');
     const [script] = scriptBodies(html);
 
     const completion = vm.runInNewContext(script, {
@@ -141,7 +142,7 @@ describe('production-bundled Vault browser scripts', () => {
     expect(crossOrigin.unregister).not.toHaveBeenCalled();
     expect(unrelated.unregister).not.toHaveBeenCalled();
     expect(register).toHaveBeenCalledWith(`/api/vault/${token}/service_worker.js`, { scope: `/api/vault/${token}/` });
-    expect(activeWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: 'secret-key' });
+    expect(activeWorker.postMessage).toHaveBeenCalledWith({ type: 'set-encryption-key', key: hostileKey });
     expect(storage.setItem).toHaveBeenCalledWith('enableEncryption', 'true');
     expect(cookie).toBe(`codeflare_vault_bootstrap=1; Path=/api/vault/${token}/; SameSite=Lax; Secure`);
     expect(locationRef.replace).toHaveBeenCalledWith(`/api/vault/${token}/?codeflarePrewarm=1&prewarmId=warm-1`);
