@@ -22,6 +22,14 @@ import { SESSION_ID_PATTERN } from './constants';
 import { VAULT_BUCKET_TOKEN_PATTERN } from './vault-bucket-token';
 import { toErrorMessage } from './error-types';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './access';
+import {
+  VAULT_COMPLETE_BOOTSTRAP_SOURCE,
+  VAULT_CONTROLLED_RELOAD_SOURCE,
+  VAULT_PREWARM_BRIDGE_SOURCE,
+  VAULT_PREWARM_FOCUS_GUARD_SOURCE,
+  VAULT_REGISTER_CANONICAL_WORKER_SOURCE,
+  VAULT_UNREGISTER_STALE_WORKERS_SOURCE,
+} from './vault-browser-scripts';
 
 /** REQ-VAULT-021: the cookie that carries the real session id for bucket-stable
  * vault URLs (`/api/vault/<token>/...`). Set by the session-keyed open entry. */
@@ -262,46 +270,6 @@ export function getVaultPrewarmRedirectSearch(request: Request): string {
   return `?${params.toString()}`;
 }
 
-export function installVaultPrewarmNoFocus(windowRef: any, documentRef: any, prewarmId: string | null): boolean {
-  try {
-    function valid(value: any) {
-      return typeof value === 'string' && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9._~-]+$/.test(value);
-    }
-    let resolvedPrewarmId = prewarmId;
-    if (!valid(resolvedPrewarmId)) {
-      const SearchParams = windowRef.URLSearchParams || URLSearchParams;
-      const params = new SearchParams(windowRef.location ? windowRef.location.search : '');
-      if (params.get('codeflarePrewarm') === '1') resolvedPrewarmId = params.get('prewarmId');
-    }
-    if (!valid(resolvedPrewarmId)) return false;
-    windowRef.__codeflareVaultPrewarmNoFocus = true;
-    const noop = function () {};
-    function replace(proto: any, name: string) {
-      try {
-        if (proto && typeof proto[name] === 'function') {
-          Object.defineProperty(proto, name, { configurable: true, writable: true, value: noop });
-        }
-      } catch (_) {}
-    }
-    replace(windowRef.HTMLElement && windowRef.HTMLElement.prototype, 'focus');
-    replace(windowRef.SVGElement && windowRef.SVGElement.prototype, 'focus');
-    replace(windowRef.HTMLInputElement && windowRef.HTMLInputElement.prototype, 'select');
-    replace(windowRef.HTMLTextAreaElement && windowRef.HTMLTextAreaElement.prototype, 'select');
-    try { windowRef.focus = noop; } catch (_) {}
-    if (documentRef && typeof documentRef.addEventListener === 'function') {
-      documentRef.addEventListener('focusin', function (event: any) {
-        try {
-          const target = event.target;
-          if (target && typeof target.blur === 'function') target.blur();
-        } catch (_) {}
-      }, true);
-    }
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): string {
   if (html.includes(VAULT_PREWARM_FOCUS_GUARD_MARKER)) return html;
   const headMatch = /<head\b[^>]*>/i.exec(html);
@@ -315,7 +283,7 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
       .replace(/<\//g, '<\\/')
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const focusGuardSource = installVaultPrewarmNoFocus.toString()
+  const focusGuardSource = VAULT_PREWARM_FOCUS_GUARD_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
@@ -323,102 +291,6 @@ export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): 
     focusGuardSource + ')(window, document, ' + escapedId + ');})();</script>';
   const insertAt = headMatch.index + headMatch[0].length;
   return html.slice(0, insertAt) + script + html.slice(insertAt);
-}
-
-export function installVaultPrewarmBridgeRuntime(
-  windowRef: any,
-  documentRef: any,
-  navigatorRef: any,
-  fetchRef: typeof fetch,
-  suppliedPrewarmId: string | null,
-  requiredFiles: readonly string[],
-): void {
-  let prewarmId = suppliedPrewarmId;
-  let expectedScope: string;
-  let spaceSyncCompleted = false;
-  try {
-    if (!prewarmId) {
-      const params = new URLSearchParams(windowRef.location.search);
-      if (params.get('codeflarePrewarm') === '1') prewarmId = params.get('prewarmId');
-    }
-    if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;
-    expectedScope = new URL('.', documentRef.baseURI).href;
-    const expected = new URL(expectedScope);
-    if (expected.origin !== windowRef.location.origin || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(expected.pathname)) return;
-    windowRef.sbRuntime = windowRef.sbRuntime || {};
-    windowRef.sbRuntime.headless = true;
-  } catch {
-    return;
-  }
-
-  const post = (status: string, message?: string, proof?: Record<string, unknown>) => {
-    if (!windowRef.parent || windowRef.parent === windowRef) return;
-    const payload: Record<string, unknown> = { source: 'codeflare-vault-prewarm', prewarmId, status };
-    if (message) payload.message = message;
-    if (proof) payload.proof = proof;
-    windowRef.parent.postMessage(payload, windowRef.location.origin);
-  };
-  const serviceWorker = navigatorRef.serviceWorker;
-  if (serviceWorker && typeof serviceWorker.addEventListener === 'function') {
-    serviceWorker.addEventListener('message', (event: any) => {
-      if (event.data?.type === 'space-sync-complete') spaceSyncCompleted = true;
-    });
-  }
-
-  const buildContentProof = async (): Promise<Record<string, unknown> | null> => {
-    try {
-      const client = windowRef.client;
-      if (!spaceSyncCompleted && client?.fullSyncCompleted !== true) return null;
-      if (!client || client.systemReady !== true || client.pageListLoaded !== true) return null;
-      if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return null;
-      if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== 'function') return null;
-      if (client.mq && typeof client.mq.getQueueStats === 'function') {
-        const stats = await client.mq.getQueueStats('indexQueue');
-        if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return null;
-      } else if (client.mq && typeof client.mq.isQueueEmpty === 'function'
-        && !(await client.mq.isQueueEmpty('indexQueue'))) return null;
-      if (!(await client.objectIndex.hasFullIndexCompleted())) return null;
-      const response = await fetchRef('.fs/', { cache: 'no-store' });
-      if (!response?.ok) return null;
-      const listing = await response.json();
-      if (!Array.isArray(listing)) return null;
-      const names = new Set(
-        listing.map((entry: any) => entry?.name).filter((name: unknown): name is string => typeof name === 'string'),
-      );
-      if (requiredFiles.some((name) => !names.has(name))) return null;
-      return {
-        scope: expectedScope,
-        contentReady: true,
-        spaceSyncCompleted: true,
-        indexReady: true,
-        requiredFiles: [...requiredFiles],
-        listedFileCount: listing.length,
-      };
-    } catch {
-      return null;
-    }
-  };
-
-  let inFlight = false;
-  let readyStreak = 0;
-  const requiredReadyStreak = 2;
-  const timer = windowRef.setInterval(async () => {
-    if (inFlight) return;
-    inFlight = true;
-    try {
-      const proof = windowRef.sbRuntime?.ready === true ? await buildContentProof() : null;
-      readyStreak = proof ? readyStreak + 1 : 0;
-      if (proof && readyStreak >= requiredReadyStreak) {
-        windowRef.clearInterval(timer);
-        post('ready', undefined, proof);
-      }
-    } catch (error) {
-      windowRef.clearInterval(timer);
-      post('error', error instanceof Error ? error.message : String(error));
-    } finally {
-      inFlight = false;
-    }
-  }, 250);
 }
 
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
@@ -434,7 +306,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
-  const runtimeSource = installVaultPrewarmBridgeRuntime.toString()
+  const runtimeSource = VAULT_PREWARM_BRIDGE_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
@@ -454,39 +326,11 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
  * not yet controlling this client. Inert in the headless prewarm iframe
  * (`window.parent !== window`), on a genuine first boot (no vault SW yet), and when
  * the SW already controls the page (the one-shot is cleared then so a later in-tab
- * navigation can self-heal again). Exported + `.toString()`-injected so it has a
- * single source of truth and is unit-tested directly.
+ * navigation can self-heal again). The injected browser-realm source is authored
+ * explicitly in vault-browser-scripts.ts and exercised after production-like bundling.
  */
-export function installVaultControlledReload(windowRef: any, navigatorRef: any, storageRef: any): void {
-  try {
-    if (windowRef.parent !== windowRef) return;
-    const sw = navigatorRef && navigatorRef.serviceWorker;
-    if (!sw) return;
-    const expectedScope = new URL('.', windowRef.document.baseURI).href;
-    const expectedUrl = new URL(expectedScope);
-    if (expectedUrl.origin !== windowRef.location.origin
-      || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(expectedUrl.pathname)) return;
-    const expectedScript = new URL('service_worker.js', expectedScope).href;
-    const controlsCurrentScope = () => sw.controller?.scriptURL === expectedScript;
-    const KEY = 'cf-vault-sw-controlled-reload';
-    if (controlsCurrentScope()) {
-      try { if (storageRef) storageRef.removeItem(KEY); } catch (_) {}
-      return;
-    }
-    sw.getRegistration(expectedScope).then(function (registration: any) {
-      if (controlsCurrentScope()) return;
-      if (!registration || registration.scope !== expectedScope || !registration.active) return;
-      let already = false;
-      try { already = !!(storageRef && storageRef.getItem(KEY) === '1'); } catch (_) {}
-      if (already) return;
-      try { if (storageRef) storageRef.setItem(KEY, '1'); } catch (_) {}
-      windowRef.location.reload();
-    }).catch(function () {});
-  } catch (_) {}
-}
-
 export function injectVaultControlledReload(html: string): string {
-  const source = installVaultControlledReload.toString()
+  const source = VAULT_CONTROLLED_RELOAD_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
@@ -528,58 +372,6 @@ export function injectVaultControlledReload(html: string): string {
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
-export async function unregisterStaleVaultServiceWorkers(
-  serviceWorkerRef: any,
-  expectedScope: string,
-): Promise<number> {
-  if (!serviceWorkerRef || typeof serviceWorkerRef.getRegistrations !== 'function') {
-    throw new Error('service worker registration enumeration is unavailable');
-  }
-  const expected = new URL(expectedScope);
-  const isStaleVaultScope = (scopeValue: unknown) => {
-    if (typeof scopeValue !== 'string' || scopeValue === expected.href) return false;
-    try {
-      const scope = new URL(scopeValue);
-      return scope.origin === expected.origin
-        && scope.pathname.startsWith('/api/vault/');
-    } catch {
-      return false;
-    }
-  };
-  const registrations = await serviceWorkerRef.getRegistrations();
-  const stale = registrations.filter((registration: any) => isStaleVaultScope(registration?.scope));
-  await Promise.all(stale.map((registration: any) => registration.unregister()));
-  const remaining = await serviceWorkerRef.getRegistrations();
-  if (remaining.some((registration: any) => isStaleVaultScope(registration?.scope))) {
-    throw new Error('stale Vault service worker remains after unregister');
-  }
-  return stale.length;
-}
-
-export async function registerCanonicalVaultServiceWorker(
-  serviceWorkerRef: any,
-  scope: string,
-  expectedScope: string,
-  unregisterRef: (serviceWorker: any, expected: string) => Promise<number>,
-): Promise<any> {
-  await unregisterRef(serviceWorkerRef, expectedScope);
-  return serviceWorkerRef.register(scope + 'service_worker.js', { scope });
-}
-
-/** Persist the encryption gate before marking the bootstrap complete. */
-export function completeVaultBootstrap(
-  storageRef: Pick<Storage, 'setItem'>,
-  documentRef: { cookie: string },
-  locationRef: { replace(url: string): void },
-  cookieName: string,
-  scope: string,
-  redirectSearch: string,
-): void {
-  storageRef.setItem('enableEncryption', 'true');
-  documentRef.cookie = `${cookieName}=1; Path=${scope}; SameSite=Lax; Secure`;
-  locationRef.replace(scope + redirectSearch);
-}
-
 export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKey: string, redirectSearch = ''): string {
   if (!vaultEncryptionKey) {
     throw new Error('injectVaultBootstrapHopHtml: vaultEncryptionKey must be non-empty');
@@ -601,15 +393,15 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   const escapedSid = escape(sessionId);
   const escapedCookie = escape(VAULT_BOOTSTRAP_COOKIE);
   const escapedRedirectSearch = escape(redirectSearch);
-  const completeBootstrapSource = completeVaultBootstrap.toString()
+  const completeBootstrapSource = VAULT_COMPLETE_BOOTSTRAP_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const unregisterStaleWorkersSource = unregisterStaleVaultServiceWorkers.toString()
+  const unregisterStaleWorkersSource = VAULT_UNREGISTER_STALE_WORKERS_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
-  const registerCanonicalWorkerSource = registerCanonicalVaultServiceWorker.toString()
+  const registerCanonicalWorkerSource = VAULT_REGISTER_CANONICAL_WORKER_SOURCE
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
