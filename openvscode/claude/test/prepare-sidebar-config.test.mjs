@@ -178,7 +178,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
   await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
     "workbench.colorTheme": "Default Light Modern",
     "keyboard.layout": "de",
-    "chat.disableAIFeatures": true,
+    "chat.disableAIFeatures": false,
     "chat.titleBar.signIn.enabled": true,
     "chat.notifyWindowOnResponseReceived": "off",
     "chat.agentFilesLocations": {
