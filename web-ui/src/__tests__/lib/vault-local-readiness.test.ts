@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../../lib/vault-local-readiness';
 
-function createStorage(entries: Record<string, string> = {}): Storage {
-  const store = new Map(Object.entries(entries));
+const CURRENT_SCOPE = 'https://codeflare.example/api/vault/0123456789abcdef0123456789abcdef/';
+const LEGACY_SCOPE = 'https://codeflare.example/api/vault/abcdef12/';
+const IDB_KEY = 'vault-session-session-1-idbs';
+const SCOPE_KEY = 'vault-session-session-1-scope';
+
+function createStorage(entries: Record<string, string> = {}, addCurrentScope = true): Storage {
+  const initialEntries = addCurrentScope && IDB_KEY in entries && !(SCOPE_KEY in entries)
+    ? { ...entries, [SCOPE_KEY]: CURRENT_SCOPE }
+    : entries;
+  const store = new Map(Object.entries(initialEntries));
   return {
     get length() { return store.size; },
     clear: vi.fn(() => store.clear()),
@@ -25,13 +33,23 @@ function createIndexedDb(names: string[], includeDatabasesApi = true) {
   return idb;
 }
 
-function createServiceWorker(active = true) {
-  const registration = active
-    ? { scope: 'https://codeflare.example/api/vault/session-1/', active: { state: 'activated' as ServiceWorkerState } }
-    : { scope: 'https://codeflare.example/api/vault/session-1/', active: null };
+function createReadyStorage(recordedDbs = ['sb_data_abc', 'sb_files_def']): Storage {
+  return createStorage({
+    [IDB_KEY]: JSON.stringify(recordedDbs),
+    [SCOPE_KEY]: CURRENT_SCOPE,
+  });
+}
+
+function createServiceWorker(active = true, registrations?: Array<{ scope: string; active: { state: ServiceWorkerState } | null }>) {
+  const current = {
+    scope: CURRENT_SCOPE,
+    active: active ? { state: 'activated' as ServiceWorkerState } : null,
+  };
+  const available = registrations ?? [current];
   return {
-    getRegistration: vi.fn(async () => registration),
-    getRegistrations: vi.fn(async () => [registration]),
+    getRegistration: vi.fn(async (clientUrl?: string) =>
+      available.find((registration) => registration.scope === clientUrl)),
+    getRegistrations: vi.fn(async () => available),
   } as unknown as ServiceWorkerContainer;
 }
 
@@ -129,28 +147,47 @@ describe('checkVaultLocalReadiness', () => {
     expect(result.hasIndexedDbDatabasesApi).toBe(false);
   });
 
-  // REQ-VAULT-021: the SW now registers under the bucket-stable `/api/vault/<token>/`
-  // scope, which differs from the session id the dashboard checks readiness for.
-  // The lookup must match any vault-scoped registration, not one named by sid.
-  it('finds the vault service worker even when its scope segment is the bucket token, not the session id', async () => {
-    const storage = createStorage({
-      'vault-session-session-1-idbs': JSON.stringify(['sb_data_abc', 'sb_files_def']),
-    });
-    const tokenScopedSw = {
-      getRegistration: vi.fn(async () => undefined),
-      getRegistrations: vi.fn(async () => [
-        { scope: 'https://codeflare.example/api/vault/0123456789abcdef0123456789abcdef/', active: { state: 'activated' as ServiceWorkerState } },
-      ]),
-    } as unknown as ServiceWorkerContainer;
+  it('requires the active service worker at the exact scope recorded with the current databases', async () => {
+    const serviceWorker = createServiceWorker(true, [
+      { scope: LEGACY_SCOPE, active: { state: 'activated' } },
+      { scope: CURRENT_SCOPE, active: { state: 'activated' } },
+    ]);
 
     const result = await checkVaultLocalReadiness('session-1', {
-      localStorageRef: storage,
+      localStorageRef: createReadyStorage(),
       indexedDbRef: createIndexedDb(['sb_data_abc', 'sb_files_def']),
-      serviceWorkerRef: tokenScopedSw,
+      serviceWorkerRef: serviceWorker,
     });
 
     expect(result.ready).toBe(true);
-    expect(result.serviceWorkerState).toBe('activated');
+    expect(serviceWorker.getRegistration).toHaveBeenCalledWith(CURRENT_SCOPE);
+    expect(serviceWorker.getRegistrations).not.toHaveBeenCalled();
+  });
+
+  it('does not let an orphaned legacy registration satisfy current readiness', async () => {
+    const result = await checkVaultLocalReadiness('session-1', {
+      localStorageRef: createReadyStorage(),
+      indexedDbRef: createIndexedDb(['sb_data_abc', 'sb_files_def']),
+      serviceWorkerRef: createServiceWorker(true, [
+        { scope: LEGACY_SCOPE, active: { state: 'activated' } },
+      ]),
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.reason).toBe('missing-service-worker');
+  });
+
+  it('forces the unchanged prewarm lifecycle when legacy readiness has no recorded scope', async () => {
+    const result = await checkVaultLocalReadiness('session-1', {
+      localStorageRef: createStorage({ [IDB_KEY]: JSON.stringify(['sb_data_old', 'sb_files_old']) }, false),
+      indexedDbRef: createIndexedDb(['sb_data_old', 'sb_files_old']),
+      serviceWorkerRef: createServiceWorker(true, [
+        { scope: LEGACY_SCOPE, active: { state: 'activated' } },
+      ]),
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.reason).toBe('missing-service-worker-scope');
   });
 
   it('does not report ready without an active per-session service worker', async () => {

@@ -5,6 +5,7 @@ export type VaultLocalReadinessReason =
   | 'missing-sb-data'
   | 'missing-sb-files'
   | 'missing-idb-database'
+  | 'missing-service-worker-scope'
   | 'missing-service-worker';
 
 export interface VaultLocalReadinessResult {
@@ -27,6 +28,7 @@ export interface VaultLocalReadinessOptions {
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
+const VAULT_SCOPE_SUFFIX = '-scope';
 const VAULT_PREWARMED_SUFFIX = '-prewarmed';
 
 function getLocalStorage(): Storage | null {
@@ -70,6 +72,22 @@ function hasRecordedDb(recordedDbs: string[], prefix: string): boolean {
   return recordedDbs.some((name) => name.startsWith(prefix));
 }
 
+function getRecordedVaultScope(sessionId: string, storage: Storage): string | null {
+  try {
+    const raw = storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_SCOPE_SUFFIX}`);
+    if (!raw) return null;
+    const scope = new URL(raw);
+    if ((scope.protocol !== 'https:' && scope.protocol !== 'http:')
+      || scope.username || scope.password || scope.search || scope.hash
+      || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(scope.pathname)) {
+      return null;
+    }
+    return scope.href;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Durable per-session, per-browser marker that THIS browser once completed a
  * FULL prewarm proof for the session — SilverBullet runtime ready, space sync
@@ -100,13 +118,11 @@ export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | nul
 
 async function findVaultServiceWorker(
   serviceWorker: ServiceWorkerContainer,
+  expectedScope: string,
 ): Promise<ServiceWorkerRegistration | null> {
-  // REQ-VAULT-021: SilverBullet registers its SW under the bucket-stable
-  // `/api/vault/<token>/` scope (one per user), which the dashboard cannot name
-  // by session id. Match any vault-scoped registration — there is exactly one.
   try {
-    const registrations = await serviceWorker.getRegistrations();
-    return registrations.find((registration) => registration.scope.includes('/api/vault/')) ?? null;
+    const registration = await serviceWorker.getRegistration(expectedScope);
+    return registration?.scope === expectedScope ? registration : null;
   } catch {
     return null;
   }
@@ -134,8 +150,10 @@ export async function checkVaultLocalReadiness(
   if (!hasRecordedDb(recordedDbs, 'sb_data_')) return { ...base(), reason: 'missing-sb-data' };
   if (!hasRecordedDb(recordedDbs, 'sb_files_')) return { ...base(), reason: 'missing-sb-files' };
 
+  const expectedScope = getRecordedVaultScope(sessionId, localStorageRef);
+  if (!expectedScope) return { ...base(), reason: 'missing-service-worker-scope' };
   if (!serviceWorkerRef) return { ...base(), reason: 'missing-service-worker' };
-  const registration = await findVaultServiceWorker(serviceWorkerRef);
+  const registration = await findVaultServiceWorker(serviceWorkerRef, expectedScope);
   const active = registration?.active ?? null;
   if (!active) return { ...base(), reason: 'missing-service-worker' };
 

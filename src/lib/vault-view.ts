@@ -334,45 +334,75 @@ export const VAULT_PREWARM_FOCUS_GUARD_MARKER = 'data-codeflare-vault-prewarm-fo
 export const VAULT_CONTROLLED_RELOAD_MARKER = 'data-codeflare-vault-controlled-reload';
 export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
+export function installVaultIdbRecorder(
+  windowRef: any,
+  navigatorRef: any,
+  indexedDbRef: any,
+  storageRef: any,
+): void {
+  try {
+    const boot = windowRef.__codeflareVaultBoot;
+    if (!boot || typeof boot.sessionId !== 'string') return;
+    const sid = boot.sessionId;
+    if (!/^[a-z0-9]{8,24}$/.test(sid)) return;
+
+    const scopeUrl = new URL('.', windowRef.document.baseURI);
+    if (scopeUrl.origin !== windowRef.location.origin
+      || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(scopeUrl.pathname)) return;
+    const scope = scopeUrl.href;
+    const key = `vault-session-${sid}-idbs`;
+    const scopeKey = `vault-session-${sid}-scope`;
+    const prewarmedKey = `vault-session-${sid}-prewarmed`;
+
+    if (storageRef.getItem(scopeKey) !== scope) {
+      // Cut over readiness metadata only. Historical SW registrations and
+      // SilverBullet databases remain untouched and orphaned by design.
+      storageRef.setItem(key, '[]');
+      storageRef.removeItem(prewarmedKey);
+      storageRef.setItem(scopeKey, scope);
+    }
+
+    function record(name: unknown): void {
+      if (typeof name !== 'string' || !name.startsWith('sb_')) return;
+      try {
+        const parsed = JSON.parse(storageRef.getItem(key) || '[]');
+        const recorded = Array.isArray(parsed)
+          ? parsed.filter((entry): entry is string => typeof entry === 'string')
+          : [];
+        if (!recorded.includes(name)) {
+          storageRef.setItem(key, JSON.stringify([...recorded, name]));
+        }
+      } catch {
+        // Storage unavailable/full: local readiness remains safely false.
+      }
+    }
+
+    const originalOpen = indexedDbRef.open.bind(indexedDbRef);
+    indexedDbRef.open = function open(name: string, version?: number) {
+      record(name);
+      return originalOpen(name, version);
+    };
+    if (navigatorRef.serviceWorker
+      && typeof navigatorRef.serviceWorker.addEventListener === 'function') {
+      navigatorRef.serviceWorker.addEventListener('message', function onMessage(event: any) {
+        const data = event.data;
+        if (data && data.type === 'codeflare-vault-idb-open') record(data.name);
+      });
+    }
+  } catch {
+    // Recorder installation is best-effort; readiness fails closed without it.
+  }
+}
+
 export function injectVaultIdbRecorder(html: string): string {
-  if (html.includes(VAULT_IDB_RECORDER_MARKER)) {
-    return html;
-  }
-  if (!html.includes('</head>')) {
-    return html;
-  }
-  const script =
-    '<script>' + VAULT_IDB_RECORDER_MARKER + '(function () {' +
-    'try {' +
-    'var boot = window.__codeflareVaultBoot;' +
-    'if (!boot || typeof boot.sessionId !== "string") return;' +
-    'var sid = boot.sessionId;' +
-    'if (!/^[a-z0-9]{8,24}$/.test(sid)) return;' +
-    'var key = "vault-session-" + sid + "-idbs";' +
-    'function record(name) {' +
-    'if (typeof name !== "string" || name.indexOf("sb_") !== 0) return;' +
-    'try {' +
-    'var arr = JSON.parse(localStorage.getItem(key) || "[]");' +
-    'if (!Array.isArray(arr)) arr = [];' +
-    'if (arr.indexOf(name) === -1) {' +
-    'arr.push(name);' +
-    'localStorage.setItem(key, JSON.stringify(arr));' +
-    '}' +
-    '} catch (_) {}' +
-    '}' +
-    'var origOpen = indexedDB.open.bind(indexedDB);' +
-    'indexedDB.open = function (name, version) {' +
-    'record(name);' +
-    'return origOpen(name, version);' +
-    '};' +
-    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
-    'navigator.serviceWorker.addEventListener("message", function (event) {' +
-    'var data = event.data;' +
-    'if (data && data.type === "codeflare-vault-idb-open") record(data.name);' +
-    '});' +
-    '}' +
-    '} catch (_) {}' +
-    '})();</script>';
+  if (html.includes(VAULT_IDB_RECORDER_MARKER)) return html;
+  if (!html.includes('</head>')) return html;
+  const installerSource = installVaultIdbRecorder.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (match) => `\\u${match.charCodeAt(0).toString(16)}`);
+  const script = '<script>' + VAULT_IDB_RECORDER_MARKER + '(function () {(' +
+    installerSource + ')(window, navigator, indexedDB, localStorage);})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
 
@@ -475,6 +505,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
     'var sid = null;' +
+    'var expectedScope = null;' +
     'var requiredFiles = ' + requiredFilesJson + ';' +
     'var spaceSyncCompleted = false;' +
     'try {' +
@@ -486,6 +517,9 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var boot = window.__codeflareVaultBoot;' +
     'sid = boot && typeof boot.sessionId === "string" ? boot.sessionId : null;' +
     'if (!sid || !/^[a-z0-9]{8,24}$/.test(sid)) return;' +
+    'expectedScope = new URL(".", document.baseURI).href;' +
+    'var expected = new URL(expectedScope);' +
+    'if (expected.origin !== window.location.origin || !/^\\/api\\/vault\\/[0-9a-f]{32}\\/$/.test(expected.pathname)) return;' +
     'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
     '} catch (_) { return; }' +
     'function post(status, message, proof) {' +
@@ -543,17 +577,17 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'return parsed.filter(function (entry) { return typeof entry === "string"; });' +
     '} catch (_) { return []; }' +
     '}' +
+    'function readRecordedScope(storage, sid) {' +
+    'try { return storage.getItem("vault-session-" + sid + "-scope"); } catch (_) { return null; }' +
+    '}' +
     'function hasPrefix(recordedDbs, prefix) {' +
     'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
     '}' +
     'async function findRegistration() {' +
-    'if (!navigator.serviceWorker) return null;' +
-    // REQ-VAULT-021: SilverBullet registers its SW under the bucket-stable
-    // `/api/vault/<token>/` scope (one per user), which this iframe cannot name
-    // by session id. Match any vault-scoped registration.
+    'if (!navigator.serviceWorker || !expectedScope) return null;' +
     'try {' +
-    'var regs = await navigator.serviceWorker.getRegistrations();' +
-    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf("/api/vault/") !== -1) return regs[i]; }' +
+    'var reg = await navigator.serviceWorker.getRegistration(expectedScope);' +
+    'if (reg && reg.scope === expectedScope) return reg;' +
     '} catch (_) {}' +
     'return null;' +
     '}' +
@@ -566,6 +600,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var recordedDbs = storage ? readRecorded(storage, sid) : [];' +
     'if (!storage) return proof(recordedDbs, hasDbApi, "no-local-storage");' +
     'if (!idb) return proof(recordedDbs, hasDbApi, "no-indexeddb");' +
+    'if (readRecordedScope(storage, sid) !== expectedScope) return proof(recordedDbs, hasDbApi, "missing-service-worker-scope");' +
     'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
     'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
     'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
@@ -642,18 +677,20 @@ export function installVaultControlledReload(windowRef: any, navigatorRef: any, 
     if (windowRef.parent !== windowRef) return;
     const sw = navigatorRef && navigatorRef.serviceWorker;
     if (!sw) return;
+    const expectedScope = new URL('.', windowRef.document.baseURI).href;
+    const expectedUrl = new URL(expectedScope);
+    if (expectedUrl.origin !== windowRef.location.origin
+      || !/^\/api\/vault\/[0-9a-f]{32}\/$/.test(expectedUrl.pathname)) return;
+    const expectedScript = new URL('service_worker.js', expectedScope).href;
+    const controlsCurrentScope = () => sw.controller?.scriptURL === expectedScript;
     const KEY = 'cf-vault-sw-controlled-reload';
-    if (sw.controller) {
+    if (controlsCurrentScope()) {
       try { if (storageRef) storageRef.removeItem(KEY); } catch (_) {}
       return;
     }
-    sw.getRegistrations().then(function (regs: any) {
-      if (sw.controller) return;
-      let active = false;
-      for (let i = 0; i < regs.length; i++) {
-        if (regs[i] && regs[i].active && regs[i].scope.indexOf('/api/vault/') !== -1) { active = true; break; }
-      }
-      if (!active) return;
+    sw.getRegistration(expectedScope).then(function (registration: any) {
+      if (controlsCurrentScope()) return;
+      if (!registration || registration.scope !== expectedScope || !registration.active) return;
       let already = false;
       try { already = !!(storageRef && storageRef.getItem(KEY) === '1'); } catch (_) {}
       if (already) return;

@@ -17,7 +17,9 @@
  * `cf_vault_sid` cookie, never in this URL, so `location.href` stays bucket-stable.
  */
 
-const TOKEN_SALT = 'codeflare-vault-bucket-token';
+// v2 intentionally cuts over to one fresh canonical SW scope and fresh
+// SilverBullet IndexedDB identities. Keep this stable across future releases.
+const TOKEN_SALT = 'codeflare-vault-bucket-token-v2';
 
 /** Matches the 32-hex-char token produced by getVaultBucketToken. */
 export const VAULT_BUCKET_TOKEN_PATTERN = /^[0-9a-f]{32}$/;

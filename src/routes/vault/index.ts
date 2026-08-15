@@ -120,6 +120,12 @@ export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolea
   return remainingPath === '/.codeflare-bootstrap' && !isWebSocket && method === 'GET';
 }
 
+function isSilverBulletPrecacheRequest(request: Request): boolean {
+  if (request.method !== 'GET') return false;
+  const cacheVersion = new URL(request.url).searchParams.get('v');
+  return cacheVersion !== null && /^cache-[0-9]+$/.test(cacheVersion);
+}
+
 export async function handleVaultRequest(
   request: Request,
   env: Env,
@@ -301,15 +307,19 @@ export async function handleVaultRequest(
       }
     }
 
-    // Bump session lastAccessedAt out of band - vault edits should keep
-    // the session alive the same way terminal activity does.
-    ctx.waitUntil((async () => {
-      const fresh = await env.KV.get<Session>(sessionKey, 'json');
-      if (fresh) {
-        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await putSessionWithMetadata(env.KV, sessionKey, touched);
-      }
-    })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+    // Bump session lastAccessedAt out of band for user activity. SilverBullet's
+    // service-worker install issues a parallel cache-busted GET for every client
+    // asset; touching the same session KV key for that burst violates KV's
+    // same-key write limit without representing 52 distinct user interactions.
+    if (!isSilverBulletPrecacheRequest(request)) {
+      ctx.waitUntil((async () => {
+        const fresh = await env.KV.get<Session>(sessionKey, 'json');
+        if (fresh) {
+          const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
+          await putSessionWithMetadata(env.KV, sessionKey, touched);
+        }
+      })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+    }
 
     // REQ-VAULT-024 AC1: the codeflare bootstrap-hop short-circuit. This
     // route is auth-gated by the chain above but never reaches the

@@ -18,6 +18,7 @@ import {
   injectVaultPrewarmBridge,
   injectVaultPrewarmFocusGuard,
   installVaultPrewarmNoFocus,
+  installVaultIdbRecorder,
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
@@ -386,6 +387,13 @@ describe('CF-045: vault-html direct unit tests', () => {
       );
     });
 
+    it('binds readiness to the exact current Vault scope instead of enumerating orphaned workers', async () => {
+      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
+      expect(script).toContain('getRegistration(expectedScope)');
+      expect(script).toContain('reg.scope === expectedScope');
+      expect(script).not.toContain('getRegistrations()');
+    });
+
     it('arms only after the readiness proof holds across multiple consecutive polls (stable-green gate)', async () => {
       const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
       // More than one consecutive proven-ready poll is required before arming.
@@ -399,6 +407,67 @@ describe('CF-045: vault-html direct unit tests', () => {
       );
       // ... and a not-ready poll resets the streak so a momentary index-empty cannot arm.
       expect(script).toContain('readyStreak = 0');
+    });
+  });
+
+  describe('installVaultIdbRecorder (REQ-VAULT-021 v2 scope cutover)', () => {
+    const SID = 'aabbccdd';
+    const CURRENT_SCOPE = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+    const IDB_KEY = `vault-session-${SID}-idbs`;
+    const SCOPE_KEY = `vault-session-${SID}-scope`;
+    const PREWARMED_KEY = `vault-session-${SID}-prewarmed`;
+
+    function runRecorder(entries: Record<string, string>) {
+      const store = new Map(Object.entries(entries));
+      const storage = {
+        getItem: vi.fn((key: string) => store.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => { store.set(key, value); }),
+        removeItem: vi.fn((key: string) => { store.delete(key); }),
+      };
+      const deleteDatabase = vi.fn();
+      const unregister = vi.fn(async () => true);
+      const getRegistrations = vi.fn(async () => [{ scope: 'https://x/api/vault/abcdef12/', unregister }]);
+      const open = vi.fn(() => ({ result: null }));
+      const indexedDb = { open, deleteDatabase };
+      const navigatorRef = { serviceWorker: { addEventListener: vi.fn(), getRegistrations } };
+      const windowRef = {
+        __codeflareVaultBoot: { sessionId: SID },
+        document: { baseURI: CURRENT_SCOPE },
+        location: { origin: 'https://x' },
+      };
+
+      installVaultIdbRecorder(windowRef, navigatorRef, indexedDb, storage);
+      return { store, storage, indexedDb, open, deleteDatabase, getRegistrations, unregister };
+    }
+
+    it('invalidates only readiness markers when the canonical scope changes, then records fresh DB names', () => {
+      const result = runRecorder({
+        [IDB_KEY]: JSON.stringify(['sb_data_old', 'sb_files_old']),
+        [PREWARMED_KEY]: '1',
+      });
+
+      expect(result.store.get(SCOPE_KEY)).toBe(CURRENT_SCOPE);
+      expect(result.store.get(IDB_KEY)).toBe('[]');
+      expect(result.store.has(PREWARMED_KEY)).toBe(false);
+      expect(result.deleteDatabase).not.toHaveBeenCalled();
+      expect(result.getRegistrations).not.toHaveBeenCalled();
+      expect(result.unregister).not.toHaveBeenCalled();
+
+      result.indexedDb.open('sb_data_new');
+      result.indexedDb.open('sb_files_new');
+      expect(JSON.parse(result.store.get(IDB_KEY)!)).toEqual(['sb_data_new', 'sb_files_new']);
+    });
+
+    it('preserves the current readiness proof and DB record when the scope is unchanged', () => {
+      const result = runRecorder({
+        [IDB_KEY]: JSON.stringify(['sb_data_current', 'sb_files_current']),
+        [SCOPE_KEY]: CURRENT_SCOPE,
+        [PREWARMED_KEY]: '1',
+      });
+
+      expect(JSON.parse(result.store.get(IDB_KEY)!)).toEqual(['sb_data_current', 'sb_files_current']);
+      expect(result.store.get(PREWARMED_KEY)).toBe('1');
+      expect(result.deleteDatabase).not.toHaveBeenCalled();
     });
   });
 
@@ -420,22 +489,28 @@ describe('CF-045: vault-html direct unit tests', () => {
         setItem: (k: string, v: string) => { store[k] = v; },
         removeItem: (k: string) => { delete store[k]; },
       };
-      const fakeWindow: any = { location: { reload: () => { reloadCount += 1; } } };
+      const currentScope = 'https://x/api/vault/0123456789abcdef0123456789abcdef/';
+      const fakeWindow: any = {
+        document: { baseURI: currentScope },
+        location: { origin: 'https://x', reload: () => { reloadCount += 1; } },
+      };
       fakeWindow.parent = (opts.topLevel ?? true) ? fakeWindow : {};
+      const registrations = opts.regs ?? [];
       const navigatorRef: any = opts.hasServiceWorker === false ? {} : {
         serviceWorker: {
-          controller: opts.controller ? {} : null,
-          getRegistrations: async () => opts.regs ?? [],
+          controller: opts.controller ? { scriptURL: `${currentScope}service_worker.js` } : null,
+          getRegistration: async (scope: string) => registrations.find((registration) => registration.scope === scope),
+          getRegistrations: async () => registrations,
         },
       };
       installVaultControlledReload(fakeWindow, navigatorRef, storage);
-      // Let the getRegistrations().then microtask settle.
+      // Let the getRegistration().then microtask settle.
       await Promise.resolve();
       await Promise.resolve();
       return { reloadCount, flagSet: store['cf-vault-sw-controlled-reload'] === '1' };
     }
 
-    const VAULT_REG = [{ active: true, scope: 'https://x/api/vault/abc123/' }];
+    const VAULT_REG = [{ active: true, scope: 'https://x/api/vault/0123456789abcdef0123456789abcdef/' }];
 
     it('injects exactly one controlled-reload script carrying the marker', () => {
       const rewritten = injectVaultControlledReload('<html><head></head><body></body></html>');
@@ -466,6 +541,14 @@ describe('CF-045: vault-html direct unit tests', () => {
 
     it('does not reload when only a non-vault service worker scope is active', async () => {
       const { reloadCount } = await runControlledReload({ controller: false, regs: [{ active: true, scope: 'https://x/other/' }] });
+      expect(reloadCount).toBe(0);
+    });
+
+    it('does not let an active orphaned Vault scope trigger the current page reload', async () => {
+      const { reloadCount } = await runControlledReload({
+        controller: false,
+        regs: [{ active: true, scope: 'https://x/api/vault/abcdef12/' }],
+      });
       expect(reloadCount).toBe(0);
     });
 

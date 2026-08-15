@@ -5,6 +5,19 @@ import { getVaultBucketToken, VAULT_BUCKET_TOKEN_PATTERN } from '../../lib/vault
 // deterministic, opaque, per-bucket value so the served vault URL — and therefore
 // SilverBullet's IndexedDB names — are identical across sessions for one user.
 describe('getVaultBucketToken (REQ-VAULT-021)', () => {
+  it('cuts over from the legacy scope while remaining deterministic for the release', async () => {
+    const bucket = 'codeflare-user-example-com';
+    const legacyBytes = new TextEncoder().encode(`codeflare-vault-bucket-token:${bucket}`);
+    const legacyDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', legacyBytes));
+    const legacyToken = Array.from(legacyDigest.slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+    const current = await getVaultBucketToken(bucket);
+
+    expect(current).not.toBe(legacyToken);
+    expect(current).toBe('354a02298d9df49a95bb2c7438377068');
+    expect(await getVaultBucketToken(bucket)).toBe(current);
+  });
+
   it('is deterministic for the same bucket (stable across sessions)', async () => {
     const a = await getVaultBucketToken('codeflare-user-example-com');
     const b = await getVaultBucketToken('codeflare-user-example-com');
