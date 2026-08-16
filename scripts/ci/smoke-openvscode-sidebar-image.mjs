@@ -371,6 +371,7 @@ function createInlineEditRpcChild() {
           toolName: 'codeflare_submit_inline_edits',
           args: {
             requestId: payload.requestId,
+            summary: 'Replaced the packaged value because the previous value was stale.',
             edits: [{
               startLine: 0,
               startCharacter: 0,
@@ -450,6 +451,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let executedCommand;
   const contextValues = new Map();
   let handler;
+  let packagedConfirmation;
   const hostModelProviders = new Map();
   let reviewFile;
   const disposable = () => ({ dispose() {} });
@@ -489,6 +491,15 @@ async function verifyPackagedNativeChat(extensionRoot) {
         hostModelProviders.set(vendor, provider);
         return disposable();
       },
+    },
+    MarkdownString: class MarkdownString {
+      constructor() {
+        this.value = '';
+      }
+      appendText(value) {
+        this.value += value;
+        return this;
+      }
     },
     Range: class Range {
       constructor(startLine, startCharacter, endLine, endCharacter) {
@@ -603,6 +614,14 @@ async function verifyPackagedNativeChat(extensionRoot) {
         markdown: () => assert.fail('inline request emitted hidden markdown'),
         progress: () => undefined,
         textEdit: (target, edits) => rendered.push({ target, edits }),
+        confirmation: (title, message, data, buttons) => {
+          packagedConfirmation = {
+            title,
+            message: typeof message === 'string' ? message : message.value,
+            data,
+            buttons,
+          };
+        },
       },
       { isCancellationRequested: false, onCancellationRequested: () => disposable() },
     );
@@ -619,6 +638,14 @@ async function verifyPackagedNativeChat(extensionRoot) {
       newText: 'const packaged = 42;',
     }]);
     assert.deepEqual(rendered[1], { target: reviewResource, edits: true });
+    assert.equal(packagedConfirmation?.title, 'Review Codeflare changes');
+    assert.equal(
+      packagedConfirmation?.message,
+      'Replaced the packaged value because the previous value was stale.',
+    );
+    assert.equal(packagedConfirmation?.data?.kind, 'codeflare-inline-edit-review');
+    assert.match(packagedConfirmation?.data?.requestId ?? '', /^inline-/);
+    assert.deepEqual(packagedConfirmation?.buttons, ['Keep', 'Undo']);
     const panelMarkdown = [];
     await handler(
       { location: 1, prompt: 'continue in panel', references: [] },

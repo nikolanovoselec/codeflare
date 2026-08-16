@@ -795,6 +795,7 @@ A full code-server browser editor for an advanced running session. The editor op
 5. Accepted edits are deterministically ordered and contain neither a repeated start nor a crossing range. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: repeated edit starts fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: overlapping inline edits fail closed) -->
 6. Every edit position lies within the captured active document. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: out-of-bounds inline edits fail closed) -->
 7. The active document version still equals its captured version when the host emits edits. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: stale document versions fail closed) -->
+8. The correlated proposal includes one trimmed, single-line explanation of at most 500 characters; a missing, empty, multiline, control-bearing, or oversized explanation fails closed. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029: inline proposal summaries are bounded plain text and fail closed) -->
 
 **Constraints:**
 
@@ -805,7 +806,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate proposal cardinality, correlation, count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
+**Verification:** PR-boundary review and GitHub Actions CI validate proposal cardinality, correlation, explanation bounds, edit count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
 
 **Status:** Partial
 
@@ -869,31 +870,37 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-029: Native Inline Chat feedback
 
-**Intent:** A user can follow an editor request before its proposed changes open and can identify the completed native review action afterward.
+**Intent:** A user can follow an editor request, understand what its proposed changes do and why, and resolve the native review without leaving editor Inline Chat.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. An accepted editor request immediately shows no more than two progress updates in the native Inline Chat surface. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) -->
-2. Provider-emitted reasoning streams through the editor's native thinking presentation. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
-3. Final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+1. An accepted editor request immediately shows no more than two progress updates while native Inline Chat is active. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) -->
+2. A completed proposal shows its bounded what-and-why explanation in a native Inline confirmation and in the non-blocking fallback notification. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029: inline proposal summaries are bounded plain text and fail closed) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+3. Unstructured final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
 4. A completed editor proposal reports its edit count. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
-5. The completed proposal presents a visible Keep action for the proposed file. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
-6. The completed proposal presents a visible Undo action for the proposed file. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+5. The native Inline confirmation and fallback notification each present a file-scoped Keep action. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+6. The native Inline confirmation and fallback notification each present a file-scoped Undo action. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+7. Keep or Undo through an owned action reopens the captured ordinary text document after resolving the Chat Editing entry. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::resolveInlineReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+8. A correlated confirmation decision resolves the pending review without starting another Pi turn. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineReviewDecision --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::resolveInlineReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+9. A superseded same-file action, malformed decision, uncorrelated decision, or duplicate decision invokes neither Pi nor a review command. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::registerInlineReview --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineReviewDecision --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::resolveInlineReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029: a delayed superseded review action cannot resolve a newer proposal for the same URI) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029: malformed and duplicate confirmation decisions invoke neither Pi nor review commands) -->
+10. Pending review correlation is bounded to 32 requests; after overflow, an action for the oldest request is inert while the newest remains resolvable. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::registerInlineReview --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029: pending review correlation evicts the oldest request beyond its bound) -->
 
 **Constraints:**
 
-- Feedback remains in native Inline Chat and never hands the request to panel Chat.
+- Feedback is a concise authored explanation, never raw chain-of-thought.
+- The pinned host filters ordinary completed response rows, so `ChatResult.details`, progress, thinking, and Markdown are not treated as a durable Inline transcript.
 - Pi does not apply proposed edits directly.
-- Dismissing or ignoring the Keep/Undo notification does not block request completion.
+- Dismissing or ignoring the fallback notification does not block request completion; the native confirmation remains the Inline review control.
+- Pending review correlation retains at most one current request per URI and 32 requests total.
 - code-server and Code OSS source remain unmodified.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-proposal-validation)
 
-**Verification:** GitHub Actions validates immediate progress, native reasoning, hidden final markdown, edit-count details, both review actions, and non-blocking dismissal. Fresh integration verifies visible feedback and both file-scoped review actions.
+**Verification:** GitHub Actions validates immediate bounded progress, hidden final markdown, bounded explanations, native and fallback review actions, ordinary-document restoration, and non-blocking notification dismissal. Fresh integration verifies the native confirmation, Keep, Undo, and an immediate second Inline request after each action.
 
 **Status:** Partial
 

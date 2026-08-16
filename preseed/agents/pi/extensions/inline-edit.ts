@@ -12,6 +12,7 @@ export type InlineEditCommandPayload = {
 
 type InlineEditProposal = {
   requestId: string;
+  summary: string;
   edits: Array<{
     startLine: number;
     startCharacter: number;
@@ -76,9 +77,11 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
     promptSnippet: "Submit the final native Inline Chat text edits",
     promptGuidelines: [
       "Use codeflare_submit_inline_edits exactly once for a native Inline Chat request and do not emit prose afterward.",
+      "Include one concise plain-text summary of what the edits change and why; do not expose chain-of-thought.",
     ],
     parameters: Type.Object({
       requestId: Type.String({ minLength: 15, maxLength: 87 }),
+      summary: Type.String({ minLength: 1, maxLength: 500 }),
       edits: Type.Array(Type.Object({
         startLine: Type.Integer({ minimum: 0 }),
         startCharacter: Type.Integer({ minimum: 0 }),
@@ -97,7 +100,7 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
       active.proposalSubmitted = true;
       return {
         content: [{ type: "text", text: "Native Inline Chat edit proposal accepted by the host adapter." }],
-        details: { requestId: proposal.requestId, editCount: proposal.edits.length },
+        details: { requestId: proposal.requestId, editCount: proposal.edits.length, summary: proposal.summary },
         terminate: true,
       };
     },
@@ -133,7 +136,7 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
       `The required requestId is ${active.requestId}.`,
       `Call ${INLINE_EDIT_TOOL} exactly once with edits for the active editor document.`,
       "Coordinates are zero-based UTF-16 line and character positions.",
-      "Return only host-owned edits. Do not describe, apply, or simulate filesystem changes.",
+      "Return only host-owned edits and the bounded proposal summary. Do not apply or simulate filesystem changes.",
     ].join(" ");
     return { systemPrompt: `${String(event?.systemPrompt ?? "")}\n\n${contract}`.trim() };
   });

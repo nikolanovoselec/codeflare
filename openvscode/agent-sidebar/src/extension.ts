@@ -1,5 +1,6 @@
 import {
   EventEmitter,
+  MarkdownString,
   Range,
   TextEdit,
   Uri,
@@ -7,6 +8,7 @@ import {
   commands,
   lm,
   window,
+  workspace,
   type ExtensionContext,
   type LanguageModelChatInformation,
   type LanguageModelChatProvider,
@@ -40,7 +42,21 @@ const CHAT_LOCATION_EDITOR = 4 as const;
 
 type InlineEditResponseStream = {
   textEdit(target: Uri, edits: TextEdit | TextEdit[] | true): void;
+  confirmation(title: string, message: string | MarkdownString, data: unknown, buttons?: string[]): void;
 };
+
+type PendingInlineReview = {
+  readonly requestId: string;
+  readonly uri: Uri;
+  readonly uriKey: string;
+};
+
+type PendingInlineReviews = {
+  readonly byRequestId: Map<string, PendingInlineReview>;
+  readonly currentByUri: Map<string, string>;
+};
+
+const MAX_PENDING_INLINE_REVIEWS = 32;
 
 type ThinkingResponseStream = {
   thinkingProgress(delta: { readonly id: string; readonly text: string }): void;
@@ -101,6 +117,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
   await commands.executeCommand('setContext', 'chatSetupHidden', true);
   await commands.executeCommand('setContext', 'chatSetupCompleted', true);
   const runtime = new NativePiRuntime(createBackend, runNativePiChat);
+  const pendingInlineReviews: PendingInlineReviews = {
+    byRequestId: new Map(),
+    currentByUri: new Map(),
+  };
   const modelChanges = new EventEmitter<void>();
   const hostFallbackProvider = lm.registerLanguageModelChatProvider(
     HOST_FALLBACK_VENDOR,
@@ -119,6 +139,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     async (request, chatContext, response, cancellation) => {
       if ('location' in request && request.location === CHAT_LOCATION_EDITOR) {
         if (cancellation.isCancellationRequested) return;
+        const reviewDecision = parseInlineReviewDecision(request);
+        if (reviewDecision !== undefined) {
+          if (reviewDecision) {
+            await resolveInlineReview(pendingInlineReviews, reviewDecision.requestId, reviewDecision.action);
+          }
+          return;
+        }
         const document = window.activeTextEditor?.document;
         if (!document || document.isClosed || document.uri.scheme !== 'file') {
           await window.showWarningMessage('Native Inline Chat requires an active workspace file.');
@@ -128,6 +155,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
         const inlineResponse = response as typeof response & InlineEditResponseStream;
         const thinkingResponse = response as typeof response & ThinkingResponseStream;
         let proposedEditCount = 0;
+        let proposalSummary: string | undefined;
+        let proposalRequestId: string | undefined;
         response.progress('Codeflare is preparing editor changes…');
         const input = Promise.all([
           collectNativePiPromptInput(request, chatContext),
@@ -146,7 +175,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
               id: 'codeflare-pi-inline-reasoning',
               text: value,
             }),
-            textEdit: (edits) => {
+            textEdit: (edits, proposal) => {
               if (document.isClosed) throw new Error('Native Inline Chat target closed before proposal completion');
               const validated = validateInlineTextEdits({
                 version: document.version,
@@ -154,6 +183,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
                 lineLength: (line) => document.lineAt(line).text.length,
               }, baseVersion, edits);
               proposedEditCount = validated.length;
+              proposalSummary = proposal.summary;
+              proposalRequestId = proposal.requestId;
               inlineResponse.textEdit(document.uri, validated.map((edit) => TextEdit.replace(
                 new Range(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter),
                 edit.newText,
@@ -164,12 +195,22 @@ export async function activate(context: ExtensionContext): Promise<void> {
           cancellation,
         });
         if (cancellation.isCancellationRequested) return;
+        if (!proposalSummary || !proposalRequestId) {
+          throw new Error('Native Inline Chat completed without a validated proposal');
+        }
         const plural = proposedEditCount === 1 ? '' : 's';
-        const pronoun = proposedEditCount === 1 ? 'it' : 'them';
-        const details = `Codeflare prepared ${proposedEditCount} proposed edit${plural}. Use Keep or Undo to review ${pronoun}.`;
+        const details = `${proposalSummary} ${proposedEditCount} proposed edit${plural}.`;
+        const review = registerInlineReview(pendingInlineReviews, proposalRequestId, document.uri);
+        inlineResponse.confirmation(
+          'Review Codeflare changes',
+          new MarkdownString().appendText(proposalSummary),
+          { kind: 'codeflare-inline-edit-review', requestId: review.requestId },
+          ['Keep', 'Undo'],
+        );
         void Promise.resolve(window.showInformationMessage(details, 'Keep', 'Undo')).then(async (action) => {
-          if (action === 'Keep') await commands.executeCommand('chatEditing.acceptFile', document.uri);
-          if (action === 'Undo') await commands.executeCommand('chatEditing.discardFile', document.uri);
+          if (action === 'Keep' || action === 'Undo') {
+            await resolveInlineReview(pendingInlineReviews, review.requestId, action);
+          }
         }).catch(() => undefined);
         return { details, metadata: {} };
       }
@@ -243,6 +284,71 @@ function isUriResource(value: unknown): value is Uri {
     && typeof value.scheme === 'string'
     && 'fsPath' in value
     && typeof value.fsPath === 'string';
+}
+
+function parseInlineReviewDecision(request: unknown): {
+  readonly requestId: string;
+  readonly action: 'Keep' | 'Undo';
+} | null | undefined {
+  if (!isRecord(request)) return undefined;
+  const accepted = request.acceptedConfirmationData;
+  const rejected = request.rejectedConfirmationData;
+  if (accepted === undefined && rejected === undefined) return undefined;
+  if ((accepted !== undefined && !Array.isArray(accepted))
+    || (rejected !== undefined && !Array.isArray(rejected))) return null;
+  const acceptedItems = Array.isArray(accepted) ? accepted : [];
+  const rejectedItems = Array.isArray(rejected) ? rejected : [];
+  if (acceptedItems.length + rejectedItems.length !== 1) return null;
+  const action = acceptedItems.length === 1 ? 'Keep' : 'Undo';
+  const data = acceptedItems[0] ?? rejectedItems[0];
+  if (!isRecord(data) || data.kind !== 'codeflare-inline-edit-review'
+    || typeof data.requestId !== 'string' || data.requestId.length === 0) return null;
+  return { requestId: data.requestId, action };
+}
+
+function registerInlineReview(
+  pending: PendingInlineReviews,
+  requestId: string,
+  uri: Uri,
+): PendingInlineReview {
+  const uriKey = `${uri.scheme}:${uri.fsPath}`;
+  const replacedRequestId = pending.currentByUri.get(uriKey);
+  if (replacedRequestId) pending.byRequestId.delete(replacedRequestId);
+  const duplicateRequest = pending.byRequestId.get(requestId);
+  if (duplicateRequest) pending.currentByUri.delete(duplicateRequest.uriKey);
+
+  const review = Object.freeze({ requestId, uri, uriKey });
+  pending.byRequestId.set(requestId, review);
+  pending.currentByUri.set(uriKey, requestId);
+  while (pending.byRequestId.size > MAX_PENDING_INLINE_REVIEWS) {
+    const oldestRequestId = pending.byRequestId.keys().next().value as string | undefined;
+    if (!oldestRequestId) break;
+    const oldest = pending.byRequestId.get(oldestRequestId);
+    pending.byRequestId.delete(oldestRequestId);
+    if (oldest && pending.currentByUri.get(oldest.uriKey) === oldestRequestId) {
+      pending.currentByUri.delete(oldest.uriKey);
+    }
+  }
+  return review;
+}
+
+async function resolveInlineReview(
+  pending: PendingInlineReviews,
+  requestId: string,
+  action: 'Keep' | 'Undo',
+): Promise<void> {
+  const review = pending.byRequestId.get(requestId);
+  if (!review || pending.currentByUri.get(review.uriKey) !== requestId) return;
+  pending.byRequestId.delete(requestId);
+  pending.currentByUri.delete(review.uriKey);
+  const command = action === 'Keep' ? 'chatEditing.acceptFile' : 'chatEditing.discardFile';
+  await commands.executeCommand(command, review.uri);
+  const document = await workspace.openTextDocument(review.uri);
+  await window.showTextDocument(document, { preview: false });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function createBackend(): PiRpcBackend {

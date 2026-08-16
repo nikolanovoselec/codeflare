@@ -3,7 +3,7 @@ import { setImmediate as waitForImmediate, setTimeout as waitForTimeout } from '
 import { test } from 'vitest';
 
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
-import { PiRpcBackend } from '../src/pi/node-rpc-backend.ts';
+import { PiRpcBackend, parseInlineEditProposal } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
 class UnexpectedApprovalHost implements ApprovalHost {
@@ -398,6 +398,7 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
     toolCallId: 'inline-tool-1',
     args: {
       requestId: payload.requestId,
+      summary: 'Replaced the declaration because the old value was invalid.',
       edits: [
         {
           startLine: 0,
@@ -426,27 +427,56 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
   });
   spawner.children[0]?.emit({ type: 'agent_settled' });
 
-  assert.deepEqual(await turn, [
-    {
-      startLine: 0,
-      startCharacter: 0,
-      endLine: 0,
-      endCharacter: 5,
-      newText: 'const replacement = true',
-    },
-    {
-      startLine: 0,
-      startCharacter: 5,
-      endLine: 0,
-      endCharacter: 5,
-      newText: ';',
-    },
-  ]);
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    summary: 'Replaced the declaration because the old value was invalid.',
+    edits: [
+      {
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 5,
+        newText: 'const replacement = true',
+      },
+      {
+        startLine: 0,
+        startCharacter: 5,
+        endLine: 0,
+        endCharacter: 5,
+        newText: ';',
+      },
+    ],
+  });
   assert.deepEqual(markdown, []);
   assert.deepEqual(thinking, ['Preparing the smallest editor change.']);
   assert.equal(progress.length, 1);
   assert.ok(progress[0]);
   await backend.stop();
+});
+
+test('REQ-IDE-029: inline proposal summaries are bounded plain text and fail closed', () => {
+  const edit = {
+    startLine: 0,
+    startCharacter: 0,
+    endLine: 0,
+    endCharacter: 0,
+    newText: 'safe',
+  };
+
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    edits: [edit],
+  }, 'inline-request-1'), /invalid native Inline Chat edit proposal/i);
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    summary: 'Unsafe\nsecond line',
+    edits: [edit],
+  }, 'inline-request-1'), /invalid native Inline Chat edit proposal/i);
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    summary: 'x'.repeat(501),
+    edits: [edit],
+  }, 'inline-request-1'), /invalid native Inline Chat edit proposal/i);
 });
 
 test('REQ-IDE-028: inline command extension errors reject immediately and retire the backend', async () => {
@@ -521,6 +551,7 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
     toolName: 'codeflare_submit_inline_edits',
     args: {
       requestId: payload.requestId,
+      summary: 'Inserted the safe value because the target was empty.',
       edits: [{
         startLine: 0,
         startCharacter: 0,
@@ -532,13 +563,17 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
   });
   spawner.children[0]?.emit({ type: 'agent_settled' });
 
-  assert.deepEqual(await turn, [{
-    startLine: 0,
-    startCharacter: 0,
-    endLine: 0,
-    endCharacter: 0,
-    newText: 'safe',
-  }]);
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    summary: 'Inserted the safe value because the target was empty.',
+    edits: [{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 0,
+      newText: 'safe',
+    }],
+  });
   assert.equal(backend.isReusable(), true);
   await backend.stop();
 });
@@ -561,6 +596,7 @@ test('REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backen
     toolName: 'codeflare_submit_inline_edits',
     args: {
       requestId: payload.requestId,
+      summary: 'Inserted the safe value because the target was empty.',
       edits: [{
         startLine: 0,
         startCharacter: 0,
@@ -597,6 +633,7 @@ test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the
     toolName: 'codeflare_submit_inline_edits',
     args: {
       requestId: payload.requestId,
+      summary: 'Inserted bounded values because the target was empty.',
       edits: Array.from({ length: 65 }, () => ({
         startLine: 0,
         startCharacter: 0,
@@ -629,6 +666,7 @@ test('REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the ba
     toolName: 'codeflare_submit_inline_edits',
     args: {
       requestId: 'inline-wrong000',
+      summary: 'Inserted an unsafe value from an uncorrelated proposal.',
       edits: [{
         startLine: 0,
         startCharacter: 0,

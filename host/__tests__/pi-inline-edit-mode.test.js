@@ -52,6 +52,7 @@ function fixture() {
 
 const proposal = {
   requestId: 'inline-12345678',
+  summary: 'Replaced the function because the selected implementation was stale.',
   edits: [{
     startLine: 2,
     startCharacter: 1,
@@ -91,7 +92,11 @@ test('REQ-IDE-025: inline edit mode exposes only one proposal tool and restores 
   assert.ok(tool);
   const result = await tool.execute('proposal-1', proposal);
   assert.equal(result.terminate, true);
-  assert.deepEqual(result.details, { requestId: proposal.requestId, editCount: 1 });
+  assert.deepEqual(result.details, {
+    requestId: proposal.requestId,
+    editCount: 1,
+    summary: proposal.summary,
+  });
 
   await runtime.emit('agent_settled');
   assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write']);

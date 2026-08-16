@@ -152,13 +152,17 @@ class RecordingBackend implements NativePiBackend {
   async runInlineEditPrompt(message: string, observer: NativePiTurnObserver) {
     this.inlinePrompts.push(message);
     this.observers.push(observer);
-    return [{
-      startLine: 0,
-      startCharacter: 0,
-      endLine: 0,
-      endCharacter: 0,
-      newText: 'generated inline code',
-    }];
+    return {
+      requestId: 'inline-request-1',
+      summary: 'Inserted generated code because the target was empty.',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'generated inline code',
+      }],
+    };
   }
 
   settle(index = 0): void {
@@ -204,16 +208,20 @@ function responseRecorder(): {
   response: NativePiResponse;
   markdown: string[];
   progress: string[];
-  textEdits: unknown[][];
+  textEdits: Array<{ edits: unknown[]; requestId: string; summary: string }>;
 } {
   const markdown: string[] = [];
   const progress: string[] = [];
-  const textEdits: unknown[][] = [];
+  const textEdits: Array<{ edits: unknown[]; requestId: string; summary: string }> = [];
   return {
     response: {
       markdown: (value) => markdown.push(value),
       progress: (value) => progress.push(value),
-      textEdit: (edits) => textEdits.push([...edits]),
+      textEdit: (edits, proposal) => textEdits.push({
+        edits: [...edits],
+        requestId: proposal.requestId,
+        summary: proposal.summary,
+      }),
     },
     markdown,
     progress,
@@ -281,13 +289,17 @@ test('REQ-IDE-025: panel and native inline edit turns reuse one backend with sur
   assert.equal(backend.inlinePrompts.length, 1);
   assert.match(backend.inlinePrompts[0] ?? '', /inline request/);
   assert.deepEqual(inline.markdown, []);
-  assert.deepEqual(inline.textEdits, [[{
-    startLine: 0,
-    startCharacter: 0,
-    endLine: 0,
-    endCharacter: 0,
-    newText: 'generated inline code',
-  }]]);
+  assert.deepEqual(inline.textEdits, [{
+    requestId: 'inline-request-1',
+    summary: 'Inserted generated code because the target was empty.',
+    edits: [{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 0,
+      newText: 'generated inline code',
+    }],
+  }]);
   await runtime.dispose();
 });
 

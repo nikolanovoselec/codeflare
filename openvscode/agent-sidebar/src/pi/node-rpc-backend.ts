@@ -4,13 +4,14 @@ import { randomUUID } from 'node:crypto';
 import type { ApprovalBridge, PiExtensionUiRequest } from './approval-bridge.ts';
 import { PiProtocolError, StrictPiJsonlTransport, type PiRpcEnvelope } from './rpc-client.ts';
 import { PiSession, type PiChildProcess, type PiProcessSpawner, type PiSpawnSpec } from './session.ts';
-import type { NativePiTextEdit } from './native-chat.ts';
+import type { NativePiInlineEditProposal, NativePiTextEdit } from './native-chat.ts';
 
 const TERM_GRACE_MS = 2_000;
 export const INLINE_EDIT_COMMAND = 'codeflare-inline-edit';
 export const INLINE_EDIT_TOOL = 'codeflare_submit_inline_edits';
 const MAX_INLINE_EDIT_COUNT = 64;
 const MAX_INLINE_EDIT_BYTES = 256 * 1024;
+const MAX_INLINE_SUMMARY_LENGTH = 500;
 
 export interface PiTurnObserver {
   markdown(value: string): void;
@@ -24,12 +25,12 @@ interface ActiveTurn {
   settled: boolean;
   completed: boolean;
   inlineRequestId: string | undefined;
-  inlineEdits: readonly NativePiTextEdit[] | undefined;
+  inlineProposal: NativePiInlineEditProposal | undefined;
   readonly reportedActivities: Set<string>;
   readonly observer: PiTurnObserver;
   readonly cancellation: AbortController;
-  readonly promise: Promise<readonly NativePiTextEdit[] | undefined>;
-  readonly resolve: (edits?: readonly NativePiTextEdit[]) => void;
+  readonly promise: Promise<NativePiInlineEditProposal | undefined>;
+  readonly resolve: (proposal?: NativePiInlineEditProposal) => void;
   readonly reject: (error: Error) => void;
 }
 
@@ -221,24 +222,24 @@ export class PiRpcBackend {
     await this.#runPrompt(message, observer);
   }
 
-  async runInlineEditPrompt(message: string, observer: PiTurnObserver): Promise<readonly NativePiTextEdit[]> {
+  async runInlineEditPrompt(message: string, observer: PiTurnObserver): Promise<NativePiInlineEditProposal> {
     const requestId = `inline-${randomUUID()}`;
     const payload = Buffer.from(JSON.stringify({ requestId, prompt: message }), 'utf8').toString('base64url');
-    const edits = await this.#runPrompt(`/${INLINE_EDIT_COMMAND} ${payload}`, observer, requestId);
-    if (!edits) throw new Error('Native Inline Chat did not submit an edit proposal');
-    return edits;
+    const proposal = await this.#runPrompt(`/${INLINE_EDIT_COMMAND} ${payload}`, observer, requestId);
+    if (!proposal) throw new Error('Native Inline Chat did not submit an edit proposal');
+    return proposal;
   }
 
   async #runPrompt(
     message: string,
     observer: PiTurnObserver,
     inlineRequestId?: string,
-  ): Promise<readonly NativePiTextEdit[] | undefined> {
+  ): Promise<NativePiInlineEditProposal | undefined> {
     if (this.#turn) throw new Error('Pi RPC turn is already active');
-    let resolveTurn = (_edits?: readonly NativePiTextEdit[]): void => undefined;
+    let resolveTurn = (_proposal?: NativePiInlineEditProposal): void => undefined;
     let rejectTurn = (_error: Error): void => undefined;
-    const promise = new Promise<readonly NativePiTextEdit[] | undefined>((resolve, reject) => {
-      resolveTurn = (edits) => resolve(edits);
+    const promise = new Promise<NativePiInlineEditProposal | undefined>((resolve, reject) => {
+      resolveTurn = (proposal) => resolve(proposal);
       rejectTurn = reject;
     });
     void promise.catch(() => undefined);
@@ -248,7 +249,7 @@ export class PiRpcBackend {
       settled: false,
       completed: false,
       inlineRequestId,
-      inlineEdits: undefined,
+      inlineProposal: undefined,
       reportedActivities: new Set(),
       observer,
       cancellation: new AbortController(),
@@ -403,12 +404,12 @@ export class PiRpcBackend {
         turn.accepted = true;
       } else if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
         if (turn.inlineRequestId) {
-          if (envelope.toolName !== INLINE_EDIT_TOOL || turn.inlineEdits) {
+          if (envelope.toolName !== INLINE_EDIT_TOOL || turn.inlineProposal) {
             this.#protocolFailure(new Error('Native Inline Chat attempted an invalid or duplicate tool'), generation);
             return;
           }
           try {
-            turn.inlineEdits = parseInlineEditProposal(envelope.args, turn.inlineRequestId);
+            turn.inlineProposal = parseInlineEditProposal(envelope.args, turn.inlineRequestId);
           } catch (error) {
             this.#protocolFailure(error, generation);
             return;
@@ -422,7 +423,7 @@ export class PiRpcBackend {
           }
         }
       } else if (envelope.type === 'agent_settled') {
-        if (turn.inlineRequestId && !turn.inlineEdits) {
+        if (turn.inlineRequestId && !turn.inlineProposal) {
           this.#protocolFailure(new Error('Native Inline Chat did not submit an edit proposal'), generation);
           return;
         }
@@ -461,7 +462,7 @@ export class PiRpcBackend {
     const turn = this.#turn;
     if (!turn || turn.completed || !turn.accepted || !turn.settled) return;
     turn.completed = true;
-    turn.resolve(turn.inlineEdits);
+    turn.resolve(turn.inlineProposal);
   }
 
   #rejectTurn(error: Error): void {
@@ -476,9 +477,11 @@ export class PiRpcBackend {
 export function parseInlineEditProposal(
   value: unknown,
   expectedRequestId: string,
-): readonly NativePiTextEdit[] {
-  if (!isRecord(value) || value.requestId !== expectedRequestId || !Array.isArray(value.edits)
-    || value.edits.length === 0 || value.edits.length > MAX_INLINE_EDIT_COUNT) {
+): NativePiInlineEditProposal {
+  if (!isRecord(value)) throw new Error('Invalid native Inline Chat edit proposal');
+  const summary = value.summary;
+  if (value.requestId !== expectedRequestId || !validInlineSummary(summary)
+    || !Array.isArray(value.edits) || value.edits.length === 0 || value.edits.length > MAX_INLINE_EDIT_COUNT) {
     throw new Error('Invalid native Inline Chat edit proposal');
   }
   let totalBytes = 0;
@@ -529,7 +532,19 @@ export function parseInlineEditProposal(
     ) > 0;
     if (sameStart || crosses) throw new Error('Native Inline Chat edit proposal ranges overlap');
   }
-  return ordered;
+  return {
+    requestId: expectedRequestId,
+    summary,
+    edits: ordered,
+  };
+}
+
+function validInlineSummary(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_INLINE_SUMMARY_LENGTH
+    && value.trim() === value
+    && !/[\u0000-\u001f\u007f\u2028\u2029]/u.test(value);
 }
 
 function compareEditPosition(

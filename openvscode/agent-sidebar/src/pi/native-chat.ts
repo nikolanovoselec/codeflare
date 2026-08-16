@@ -73,6 +73,12 @@ export interface NativePiTextEdit {
   readonly newText: string;
 }
 
+export interface NativePiInlineEditProposal {
+  readonly requestId: string;
+  readonly summary: string;
+  readonly edits: readonly NativePiTextEdit[];
+}
+
 export type NativePiTurnMode = 'chat' | 'inline-edit';
 
 /** The editor-context object as serialized into the prompt, before any section is dropped. */
@@ -102,7 +108,7 @@ export interface NativePiTurnObserver {
 
 export interface NativePiBackend {
   runPrompt(message: string, observer: NativePiTurnObserver): Promise<void>;
-  runInlineEditPrompt?(message: string, observer: NativePiTurnObserver): Promise<readonly NativePiTextEdit[]>;
+  runInlineEditPrompt?(message: string, observer: NativePiTurnObserver): Promise<NativePiInlineEditProposal>;
   abort(): Promise<void>;
   stop(): Promise<void>;
   isReusable(): boolean;
@@ -118,7 +124,7 @@ export interface NativePiCancellation {
 }
 
 export interface NativePiResponse extends NativePiTurnObserver {
-  textEdit?(edits: readonly NativePiTextEdit[]): void;
+  textEdit?(edits: readonly NativePiTextEdit[], proposal: NativePiInlineEditProposal): void;
 }
 
 export interface RunNativePiChatOptions {
@@ -365,8 +371,8 @@ export async function runNativePiChat(options: RunNativePiChatOptions): Promise<
         if (!options.backend.runInlineEditPrompt || !options.response.textEdit) {
           throw new Error('Native Pi backend does not support host-owned Inline Chat edits');
         }
-        const edits = await options.backend.runInlineEditPrompt(prompt, options.response);
-        if (!cancelled) options.response.textEdit(edits);
+        const proposal = await options.backend.runInlineEditPrompt(prompt, options.response);
+        if (!cancelled) options.response.textEdit(proposal.edits, proposal);
       } else {
         await options.backend.runPrompt(prompt, options.response);
       }
