@@ -199,6 +199,50 @@ function installActiveEditor(
   return { uri, version: document.version, document, selection };
 }
 
+async function runInlineDiagnosticRequest(): Promise<void> {
+  const target = installActiveEditor();
+  nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
+    response: {
+      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
+    };
+  }) => {
+    options.response.textEdit([{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 5,
+      newText: 'generated',
+    }], {
+      requestId: 'diagnostic-request',
+      summary: 'Generated diagnostic test edit.',
+    });
+    return 'completed';
+  });
+  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+  assert.ok(host.participantHandler);
+  await host.participantHandler(
+    {
+      location: 4,
+      location2: {
+        document: target.document,
+        selection: target.selection,
+        wholeRange: target.selection,
+      },
+      prompt: 'generate diagnostic edit',
+      references: [],
+    },
+    { history: [] },
+    {
+      markdown: () => assert.fail('diagnostic request emitted hidden markdown'),
+      progress() {},
+      thinkingProgress() {},
+      textEdit() {},
+      confirmation: () => assert.fail('diagnostic request emitted review confirmation'),
+    },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+  );
+}
+
 afterEach(async () => {
   await deactivate();
   host.activeEditorUri = undefined;
@@ -434,6 +478,73 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
   assert.match(tabEvent, /target\.ts/);
   assert.doesNotMatch(tabEvent, /operator|authority-secret|query-secret|fragment-secret|credential-bearing-label-secret/);
   assert.doesNotMatch(tabEvent, /home\/user\/workspace|private/);
+});
+
+test('REQ-IDE-034 AC3: delayed Inline diagnostics record three-second and eight-second snapshots', async () => {
+  vi.useFakeTimers();
+  try {
+    await runInlineDiagnosticRequest();
+    assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=3s')).length, 0);
+    assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=8s')).length, 0);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=3s')).length, 1);
+    assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=8s')).length, 0);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    assert.equal(host.diagnosticLines.filter((line) => line.includes('snapshot=8s')).length, 1);
+  } finally {
+    await deactivate();
+    vi.useRealTimers();
+  }
+});
+
+test('REQ-IDE-034 AC5: Inline diagnostics cap tab events and line length', async () => {
+  vi.useFakeTimers();
+  try {
+    await runInlineDiagnosticRequest();
+    const longName = `${'x'.repeat(13_000)}.ts`;
+    const tab = {
+      label: 'not-logged',
+      isActive: true,
+      input: {
+        uri: {
+          scheme: 'vscode-remote',
+          authority: 'integration-proxy.example',
+          path: `/workspace/${longName}`,
+        },
+      },
+    };
+    host.tabGroups = [{ isActive: true, tabs: [tab] }];
+    for (let index = 0; index < 17; index += 1) {
+      host.tabChangeListener?.({ opened: [tab], closed: [], changed: [] });
+    }
+
+    const tabEvents = host.diagnosticLines.filter((line) => line.includes('tabsChanged'));
+    assert.equal(tabEvents.length, 16);
+    assert.ok(tabEvents[0]?.endsWith('…'));
+    assert.ok((tabEvents[0]?.length ?? Number.POSITIVE_INFINITY) < 12_100);
+  } finally {
+    await deactivate();
+    vi.useRealTimers();
+  }
+});
+
+test('REQ-IDE-034 AC7: deactivation cancels delayed diagnostics and the tab listener', async () => {
+  vi.useFakeTimers();
+  try {
+    await runInlineDiagnosticRequest();
+    const lineCount = host.diagnosticLines.length;
+
+    await deactivate();
+    assert.equal(host.diagnosticDisposed, true);
+    assert.equal(host.tabChangeListener, undefined);
+    await vi.advanceTimersByTimeAsync(8_000);
+    assert.equal(host.diagnosticLines.length, lineCount);
+  } finally {
+    await deactivate();
+    vi.useRealTimers();
+  }
 });
 
 test('REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission', async () => {
