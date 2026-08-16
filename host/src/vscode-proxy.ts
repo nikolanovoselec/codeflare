@@ -191,7 +191,21 @@ function encodeWorkbenchAttribute(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
-export function projectVscodeWorkbenchWorkspace(html: string): string | null {
+function isValidVscodeAuthority(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 255) return false;
+  try {
+    const authority = new URL(`https://${value}`);
+    return !!authority.host && authority.pathname === '/'
+      && !authority.search && !authority.hash && !authority.username && !authority.password;
+  } catch {
+    return false;
+  }
+}
+
+export function projectVscodeWorkbenchWorkspace(
+  html: string,
+  browserAuthority: string,
+): string | null {
   if (Buffer.byteLength(html) > OPENVSCODE_WORKBENCH_MAX_BYTES) return null;
   const matches = [...html.matchAll(WORKBENCH_CONFIGURATION_PATTERN)];
   if (matches.length !== 1) return null;
@@ -208,23 +222,18 @@ export function projectVscodeWorkbenchWorkspace(html: string): string | null {
     return null;
   }
 
-  const remoteAuthority = configuration.remoteAuthority;
-  if (typeof remoteAuthority !== 'string' || remoteAuthority.length === 0 || remoteAuthority.length > 255) {
-    return null;
-  }
-  try {
-    const authority = new URL(`https://${remoteAuthority}`);
-    if (!authority.host || authority.pathname !== '/'
-      || authority.search || authority.hash || authority.username || authority.password) return null;
-  } catch {
-    return null;
-  }
+  if (!isValidVscodeAuthority(configuration.remoteAuthority)
+    || !isValidVscodeAuthority(browserAuthority)) return null;
 
+  // code-server deliberately emits the placeholder authority `remote` and
+  // replaces it with location.host in the browser. The server-provided folder
+  // URI is not rewritten by that client patch, so project it with the same
+  // canonical public authority the browser will use for remote URI transforms.
   const projected = {
     ...configuration,
     folderUri: {
       scheme: 'vscode-remote',
-      authority: remoteAuthority,
+      authority: browserAuthority,
       path: CODEFLARE_WORKSPACE_ROOT,
     },
   };

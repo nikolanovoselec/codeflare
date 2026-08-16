@@ -322,14 +322,15 @@ async function verifyCodeServerWorkspaceProjection() {
     const { projectVscodeWorkbenchWorkspace } = await import(
       pathToFileURL('/app/host/dist/vscode-proxy.js').href
     );
-    const projected = projectVscodeWorkbenchWorkspace(html);
+    const browserAuthority = 'codeflare-smoke.invalid';
+    const projected = projectVscodeWorkbenchWorkspace(html, browserAuthority);
     assert.ok(projected, 'packaged Code OSS workbench configuration shape is incompatible');
     const matches = [...projected.matchAll(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/g)];
     assert.equal(matches.length, 1);
     const config = JSON.parse(matches[0][1].replaceAll('&quot;', '"'));
     assert.deepEqual(config.folderUri, {
       scheme: 'vscode-remote',
-      authority: config.remoteAuthority,
+      authority: browserAuthority,
       path: '/home/user/workspace',
     });
     await waitForUnsupportedInventoryInitialization(join(ROOT, 'extensions', 'none'));

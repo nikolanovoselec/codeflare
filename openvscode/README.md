@@ -54,7 +54,7 @@ Claude package-selection, pinning, and complete-image behavior belong to [Contai
 
 ## Workspace selection and safe continuity
 
-The public Browser IDE location stays clean and rejects browser-supplied workspace selectors at Worker and host boundaries. Only the private loopback root hop receives the canonical workspace. This limits public navigation; terminals, trusted extensions, and agents retain container filesystem access.
+The public Browser IDE location stays clean and rejects browser-supplied workspace selectors at Worker and host boundaries. Only the private loopback root hop receives the canonical workspace. Its projected `vscode-remote` folder uses the proxy's canonical public browser authority rather than code-server's server-side `remote` placeholder, keeping renderer and extension-host document identities equal. This limits public navigation; terminals, trusted extensions, and agents retain container filesystem access.
 
 Live code-server state remains ephemeral. Package code exports only the approved theme, string keyboard layout, Explorer expansion, and canonical in-workspace open-file state into the bounded snapshot. Credentials, authentication, unapproved settings, extension/global/workspace storage, editor databases, chat history, logs, WAL, and SHM are excluded. The canonical persistence and security consequences belong to [Container](../documentation/lanes/container.md) and [Storage & Sync](../documentation/lanes/storage-and-sync.md).
 
