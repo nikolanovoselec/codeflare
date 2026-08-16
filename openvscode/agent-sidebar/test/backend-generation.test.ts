@@ -439,7 +439,7 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
   await backend.stop();
 });
 
-test('REQ-IDE-026: inline command extension errors reject immediately and retire the backend', async () => {
+test('REQ-IDE-028: inline command extension errors reject immediately and retire the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -463,7 +463,31 @@ test('REQ-IDE-026: inline command extension errors reject immediately and retire
   await backend.stop();
 });
 
-test('REQ-IDE-026: unrelated extension errors do not discard a valid inline proposal', async () => {
+test('REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: '<runtime>',
+    event: 'send_user_message',
+    error: 'Nested prompt dispatch failed',
+  });
+
+  await assert.rejects(turn, /native Inline Chat command failed/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {

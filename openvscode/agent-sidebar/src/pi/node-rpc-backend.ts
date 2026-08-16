@@ -380,7 +380,10 @@ export class PiRpcBackend {
       if (
         turn.inlineRequestId
         && envelope.type === 'extension_error'
-        && envelope.extensionPath === `command:${INLINE_EDIT_COMMAND}`
+        && (
+          envelope.extensionPath === `command:${INLINE_EDIT_COMMAND}`
+          || (envelope.extensionPath === '<runtime>' && envelope.event === 'send_user_message')
+        )
       ) {
         const detail = typeof envelope.error === 'string' && envelope.error
           ? `: ${envelope.error}`

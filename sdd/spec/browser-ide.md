@@ -788,7 +788,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The backend accepts exactly one proposal whose request ID matches the active editor turn; a matching command error, missing proposal, duplicate proposal, or uncorrelated proposal fails closed and retires that backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: unrelated extension errors do not discard a valid inline proposal) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi fails closed when settlement has no valid proposal) -->
+1. Exactly one proposal whose request ID matches the active editor turn crosses the backend; every other cardinality or correlation outcome retires that backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi fails closed when settlement has no valid proposal) -->
 2. A proposal contains between one and 64 edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: empty inline edit proposals fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: more than 64 inline edits fail closed) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend) -->
 3. The combined replacement text is at most 256 KiB in UTF-8. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: inline edit payloads above 256 KiB fail closed) -->
 4. Every coordinate is a non-negative safe integer whose start does not follow its end. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: invalid inline edit coordinates fail closed) -->
@@ -799,13 +799,13 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Proposal fields cannot name another URI or request direct filesystem mutation.
-- Any validation or matching inline-command failure prevents host edit emission; unrelated extension errors do not discard a valid proposal.
+- Any proposal validation failure prevents host edit emission; dispatch-error isolation is owned by REQ-IDE-028.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate command failure handling, cardinality, correlation, count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
+**Verification:** PR-boundary review and GitHub Actions CI validate proposal cardinality, correlation, count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
 
 **Status:** Partial
 
@@ -833,6 +833,32 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
 **Verification:** GitHub Actions validates reasoning forwarding and bounded activity reporting. Fresh integration verifies the native thinking presentation during a long panel turn.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-028: Native Inline Chat dispatch-error isolation
+
+**Intent:** An editor request fails closed when its nested Pi dispatch fails without allowing unrelated extension errors to discard a valid proposal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A command-attributed error or `<runtime>` `send_user_message` error during the active editor command rejects the turn and retires its backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) -->
+2. Every other extension error leaves the active proposal eligible for validation. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) -->
+
+**Constraints:**
+
+- Runtime dispatch errors are owned only while an editor turn is active.
+- No timeout, third process, Code OSS patch, or direct-write replay is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates both Pi 0.84.1 dispatch-error envelopes and unrelated-error isolation. Fresh integration verifies that an editor request either renders host-owned edits or rejects without an indefinite wait.
 
 **Status:** Partial
 
