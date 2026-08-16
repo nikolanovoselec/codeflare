@@ -522,8 +522,11 @@ test('REQ-IDE-034 AC5: Inline diagnostics cap tab events and line length', async
 
     const tabEvents = host.diagnosticLines.filter((line) => line.includes('tabsChanged'));
     assert.equal(tabEvents.length, 16);
-    assert.ok(tabEvents[0]?.endsWith('…'));
-    assert.ok((tabEvents[0]?.length ?? Number.POSITIVE_INFINITY) < 12_100);
+    const timestampedMessage = tabEvents[0]?.match(/^\S+ (.*)$/);
+    assert.ok(timestampedMessage);
+    const message = timestampedMessage[1];
+    assert.ok(message.endsWith('…'));
+    assert.equal(message.slice(0, -1).length, 12_000);
   } finally {
     await deactivate();
     vi.useRealTimers();
