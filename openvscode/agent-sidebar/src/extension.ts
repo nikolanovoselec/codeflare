@@ -241,7 +241,7 @@ export async function deactivate(): Promise<void> {
   await runtime?.dispose();
 }
 
-const INLINE_DIAGNOSTIC_REVISION = 'uri-authority-probe-v1';
+const INLINE_DIAGNOSTIC_REVISION = 'uri-authority-probe-v2';
 const MAX_INLINE_DIAGNOSTIC_TAB_EVENTS = 16;
 const MAX_INLINE_DIAGNOSTIC_LINE_LENGTH = 12_000;
 
@@ -351,14 +351,13 @@ function describeChangedTabs(tabs: readonly unknown[]): string {
 }
 
 function describeTab(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) return { value: String(value) };
+  if (!isRecord(value)) return { inputType: typeof value };
   const input = value.input;
   const inputConstructor = isRecord(input) ? input.constructor : undefined;
   const inputType = typeof inputConstructor === 'function'
     ? inputConstructor.name
     : typeof input;
   return {
-    label: typeof value.label === 'string' ? value.label : undefined,
     active: typeof value.isActive === 'boolean' ? value.isActive : undefined,
     inputType,
     uri: isRecord(input) ? describeUri(input.uri) : undefined,
@@ -368,18 +367,16 @@ function describeTab(value: unknown): Record<string, unknown> {
 }
 
 function describeUri(value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
-  const render = value.toString;
-  if (typeof render === 'function') {
-    const rendered = render.call(value);
-    if (rendered !== '[object Object]') return rendered;
-  }
-  if (typeof value.scheme !== 'string') return undefined;
-  const authority = typeof value.authority === 'string' ? value.authority : '';
+  if (!isRecord(value) || typeof value.scheme !== 'string') return undefined;
+  const rawAuthority = typeof value.authority === 'string' ? value.authority : '';
+  const userInfoEnd = rawAuthority.lastIndexOf('@');
+  const authority = userInfoEnd >= 0 ? rawAuthority.slice(userInfoEnd + 1) : rawAuthority;
   const path = typeof value.path === 'string'
     ? value.path
     : typeof value.fsPath === 'string' ? value.fsPath : '';
-  return `${value.scheme}://${authority}${path}`;
+  const normalizedPath = path.replaceAll('\\', '/').replace(/\/+$/, '');
+  const resourceName = normalizedPath.slice(normalizedPath.lastIndexOf('/') + 1) || '<resource>';
+  return `${value.scheme}://${authority}/${resourceName}`;
 }
 
 async function openFileReview(resource: unknown): Promise<void> {

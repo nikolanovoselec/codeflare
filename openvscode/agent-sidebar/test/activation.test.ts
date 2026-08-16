@@ -240,7 +240,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: nat
 
   assert.equal(host.participantId, 'codeflare.pi');
   assert.equal(host.diagnosticChannel, 'Codeflare Inline Chat');
-  assert.match(host.diagnosticLines[0] ?? '', /revision=uri-authority-probe-v1/);
+  assert.match(host.diagnosticLines[0] ?? '', /revision=uri-authority-probe-v2/);
   assert.match(host.diagnosticLines[0] ?? '', /openChatEditedFiles=false/);
   assert.match(host.diagnosticLines[0] ?? '', /disableAIFeatures=true/);
   assert.deepEqual(host.contextValues, [
@@ -339,8 +339,9 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
     assert.equal(options.input.activeEditor?.path, target.uri.fsPath);
     assert.match(options.input.activeEditor?.content ?? '', /targetValue/);
     assert.doesNotMatch(options.input.activeEditor?.content ?? '', /decoyValue/);
-    assert.match(host.diagnosticLines.find((line) => line.includes('request=')) ?? '', /target\.ts/);
-    assert.doesNotMatch(host.diagnosticLines.find((line) => line.includes('request=')) ?? '', /decoy\.ts/);
+    const requestDiagnostic = host.diagnosticLines.find((line) => line.includes('request=')) ?? '';
+    assert.match(requestDiagnostic, /target\.ts/);
+    assert.doesNotMatch(requestDiagnostic, /decoy\.ts|home\/user\/workspace/);
     assert.deepEqual(options.input.activeEditor?.wholeRange, {
       startLine: 1,
       startColumn: 1,
@@ -414,13 +415,15 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
 
   const remoteUri = {
     scheme: 'vscode-remote',
-    authority: 'integration-proxy.example',
-    path: '/home/user/workspace/src/target.ts',
-    fsPath: '/home/user/workspace/src/target.ts',
-    toString: () => 'vscode-remote://integration-proxy.example/home/user/workspace/src/target.ts',
+    authority: 'operator:authority-secret@integration-proxy.example',
+    path: '/home/user/workspace/private/target.ts',
+    fsPath: '/home/user/workspace/private/target.ts',
+    query: 'token=query-secret',
+    fragment: 'fragment-secret',
+    toString: () => 'vscode-remote://operator:authority-secret@integration-proxy.example/home/user/workspace/private/target.ts?token=query-secret#fragment-secret',
   };
   const openedTab = {
-    label: 'target.ts',
+    label: 'credential-bearing-label-secret',
     isActive: true,
     input: { uri: remoteUri },
   };
@@ -429,6 +432,8 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
   const tabEvent = host.diagnosticLines.find((line) => line.includes('tabsChanged')) ?? '';
   assert.match(tabEvent, /integration-proxy\.example/);
   assert.match(tabEvent, /target\.ts/);
+  assert.doesNotMatch(tabEvent, /operator|authority-secret|query-secret|fragment-secret|credential-bearing-label-secret/);
+  assert.doesNotMatch(tabEvent, /home\/user\/workspace|private/);
 });
 
 test('REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission', async () => {
