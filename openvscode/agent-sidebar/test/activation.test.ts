@@ -269,7 +269,7 @@ test('REQ-IDE-025 AC1: participant requests run the local Pi backend without pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
-test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback', async () => {
+test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-031: inline-first renders one host-owned edit with native feedback', async () => {
   const target = installActiveEditor();
   host.informationChoice = 'Keep';
   const rendered: Array<{ uri: unknown; edits: unknown }> = [];
@@ -442,7 +442,7 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-own
   assert.equal(host.executedCommand, undefined);
 });
 
-test('REQ-IDE-029: a delayed superseded review action cannot resolve a newer proposal for the same URI', async () => {
+test('REQ-IDE-032: a delayed superseded review action cannot resolve a newer proposal for the same URI', async () => {
   const target = installActiveEditor();
   let proposalNumber = 0;
   nativeChat.runNativePiChat.mockImplementation(async (options: {
@@ -511,7 +511,7 @@ test('REQ-IDE-029: a delayed superseded review action cannot resolve a newer pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 2);
 });
 
-test('REQ-IDE-029: pending review correlation evicts the oldest request beyond its bound', async () => {
+test('REQ-IDE-032: pending review correlation evicts the oldest request beyond its bound', async () => {
   let proposalNumber = 0;
   nativeChat.runNativePiChat.mockImplementation(async (options: {
     response: {
@@ -567,7 +567,7 @@ test('REQ-IDE-029: pending review correlation evicts the oldest request beyond i
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 33);
 });
 
-test('REQ-IDE-029: malformed and duplicate confirmation decisions invoke neither Pi nor review commands', async () => {
+test('REQ-IDE-032: malformed and duplicate confirmation decisions invoke neither Pi nor review commands', async () => {
   installActiveEditor();
   nativeChat.runNativePiChat.mockImplementation(async (options: {
     response: {

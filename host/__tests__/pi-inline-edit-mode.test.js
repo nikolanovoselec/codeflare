@@ -102,7 +102,7 @@ test('REQ-IDE-025: inline edit mode exposes only one proposal tool and restores 
   assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write']);
 });
 
-test('REQ-IDE-026: inline edit mode rejects stale or duplicate proposals before restoration', async () => {
+test('REQ-IDE-030: inline edit mode rejects stale or duplicate proposals before restoration', async () => {
   const runtime = fixture();
   await runtime.emit('session_start');
   const command = runtime.commands.get(INLINE_EDIT_COMMAND);

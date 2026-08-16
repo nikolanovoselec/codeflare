@@ -371,7 +371,7 @@ test('REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progres
   await backend.stop();
 });
 
-test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
+test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
   const markdown: string[] = [];
   const thinking: string[] = [];
   const progress: string[] = [];
@@ -454,7 +454,7 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
   await backend.stop();
 });
 
-test('REQ-IDE-029: inline proposal summaries are bounded plain text and fail closed', () => {
+test('REQ-IDE-030: inline proposal summaries are bounded plain text and fail closed', () => {
   const edit = {
     startLine: 0,
     startCharacter: 0,
@@ -578,7 +578,7 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
   await backend.stop();
 });
 
-test('REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backend', async () => {
+test('REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -650,7 +650,7 @@ test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the
   await backend.stop();
 });
 
-test('REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
+test('REQ-IDE-030: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -683,7 +683,7 @@ test('REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the ba
   await backend.stop();
 });
 
-test('REQ-IDE-026: inline Pi fails closed when settlement has no valid proposal', async () => {
+test('REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
