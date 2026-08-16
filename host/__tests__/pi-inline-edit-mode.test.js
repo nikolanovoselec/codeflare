@@ -58,7 +58,7 @@ const proposal = {
   }],
 };
 
-test('REQ-IDE-020: inline edit mode exposes only one proposal tool and restores unrestricted panel tools', async () => {
+test('REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools', async () => {
   assert.equal(INLINE_EDIT_COMMAND, BACKEND_INLINE_EDIT_COMMAND);
   assert.equal(INLINE_EDIT_TOOL, BACKEND_INLINE_EDIT_TOOL);
   const runtime = fixture();
@@ -97,7 +97,7 @@ test('REQ-IDE-020: inline edit mode exposes only one proposal tool and restores 
   assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write']);
 });
 
-test('REQ-IDE-020: inline edit mode rejects stale or duplicate proposals before restoration', async () => {
+test('REQ-IDE-026: inline edit mode rejects stale or duplicate proposals before restoration', async () => {
   const runtime = fixture();
   await runtime.emit('session_start');
   const command = runtime.commands.get(INLINE_EDIT_COMMAND);

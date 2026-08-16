@@ -365,7 +365,7 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
   await backend.stop();
 });
 
-test('REQ-IDE-020: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
+test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
   const markdown: string[] = [];
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
@@ -433,7 +433,77 @@ test('REQ-IDE-020: inline Pi returns one correlated host-owned edit proposal wit
   await backend.stop();
 });
 
-test('REQ-IDE-020: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
+test('REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  const proposal = {
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'safe',
+      }],
+    },
+  };
+  spawner.children[0]?.emit(proposal);
+  spawner.children[0]?.emit(proposal);
+
+  await assert.rejects(turn, /invalid or duplicate tool/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      edits: Array.from({ length: 65 }, () => ({
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'x',
+      })),
+    },
+  });
+
+  await assert.rejects(turn, /invalid native Inline Chat edit proposal/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-026: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -465,7 +535,7 @@ test('REQ-IDE-020: inline Pi rejects an uncorrelated proposal and retires the ba
   await backend.stop();
 });
 
-test('REQ-IDE-020: inline Pi fails closed when settlement has no valid proposal', async () => {
+test('REQ-IDE-026: inline Pi fails closed when settlement has no valid proposal', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {

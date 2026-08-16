@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import {
   lstat,
@@ -55,13 +56,14 @@ export function createVscodeSmokeApi(api) {
   });
 }
 
-export async function activateExtensionWithVscode(extensionMain, vscode, context) {
+export async function activateExtensionWithVscode(extensionMain, vscode, context, moduleOverrides = {}) {
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
   try {
     Module._load = function load(request, parent, isMain) {
       if (request === 'vscode') return vscode;
+      if (Object.hasOwn(moduleOverrides, request)) return moduleOverrides[request];
       return originalLoad.call(this, request, parent, isMain);
     };
     const extension = require(extensionMain);
@@ -348,6 +350,62 @@ async function verifyCodeServerWorkspaceProjection() {
   }
 }
 
+function createInlineEditRpcChild() {
+  const child = new EventEmitter();
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const stdin = new EventEmitter();
+  let closed = false;
+  stdin.destroyed = false;
+  stdin.write = (line, _encoding, callback) => {
+    const envelope = JSON.parse(line);
+    assert.equal(envelope.type, 'prompt');
+    callback?.();
+    queueMicrotask(() => {
+      const events = [{ id: envelope.id, type: 'response', command: 'prompt', success: true }];
+      if (String(envelope.message).startsWith('/codeflare-inline-edit ')) {
+        const encoded = String(envelope.message).split(/\s+/, 2)[1] ?? '';
+        const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+        events.push({
+          type: 'tool_execution_start',
+          toolName: 'codeflare_submit_inline_edits',
+          args: {
+            requestId: payload.requestId,
+            edits: [{
+              startLine: 0,
+              startCharacter: 0,
+              endLine: 0,
+              endCharacter: 19,
+              newText: 'const packaged = 42;',
+            }],
+          },
+        });
+      } else {
+        events.push({
+          type: 'message_update',
+          assistantMessageEvent: { type: 'text_delta', delta: 'packaged panel response' },
+        });
+      }
+      events.push({ type: 'agent_settled' });
+      stdout.emit('data', Buffer.from(`${events.map((event) => JSON.stringify(event)).join('\n')}\n`));
+    });
+    return true;
+  };
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.stdin = stdin;
+  child.kill = () => {
+    if (!closed) {
+      closed = true;
+      stdin.destroyed = true;
+      queueMicrotask(() => child.emit('close', 0, null));
+    }
+    return true;
+  };
+  queueMicrotask(() => child.emit('spawn'));
+  return child;
+}
+
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.enabledApiProposals, [
@@ -388,6 +446,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
   assert.equal(manifest.contributes?.views, undefined);
 
   let activeEditorUri;
+  let activeEditorDocument;
   let executedCommand;
   const contextValues = new Map();
   let handler;
@@ -431,9 +490,18 @@ async function verifyPackagedNativeChat(extensionRoot) {
         return disposable();
       },
     },
+    Range: class Range {
+      constructor(startLine, startCharacter, endLine, endCharacter) {
+        this.start = { line: startLine, character: startCharacter };
+        this.end = { line: endLine, character: endCharacter };
+      }
+    },
+    TextEdit: {
+      replace: (range, newText) => ({ range, newText }),
+    },
     window: {
       get activeTextEditor() {
-        return activeEditorUri ? { document: { uri: activeEditorUri } } : undefined;
+        return activeEditorDocument ?? (activeEditorUri ? { document: { uri: activeEditorUri } } : undefined);
       },
       showWarningMessage: async () => undefined,
       showTextDocument: async () => undefined,
@@ -451,10 +519,25 @@ async function verifyPackagedNativeChat(extensionRoot) {
 
   try {
     const subscriptions = [];
+    const actualChildProcess = createRequire(import.meta.url)('node:child_process');
+    const spawnedRpcChildren = [];
     extension = await activateExtensionWithVscode(
       join(extensionRoot, String(manifest.main).replace(/^\.\//, '')),
       vscode,
       { extensionUri: uri(extensionRoot), subscriptions },
+      {
+        'node:child_process': {
+          ...actualChildProcess,
+          spawn: (executable, args, options) => {
+            assert.equal(executable, '/usr/local/bin/pi');
+            assert.deepEqual(args, ['--mode', 'rpc', '--no-session', '--no-themes']);
+            assert.equal(options?.cwd, '/home/user/workspace');
+            const child = createInlineEditRpcChild();
+            spawnedRpcChildren.push(child);
+            return child;
+          },
+        },
+      },
     );
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
     assert.equal(contextValues.get('chatSetupHidden'), true, 'packaged Pi inventory did not suppress Code OSS Copilot setup chrome');
@@ -493,11 +576,58 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
     assert.match(executedCommand?.options.query, /^@codeflare\b/);
     assert.equal(executedCommand?.options.mode, 'ask');
-    const bundledMain = await readFile(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')), 'utf8');
-    assert.match(bundledMain, /codeflare-inline-edit/, 'packaged participant omitted native inline edit RPC mode');
-    assert.match(bundledMain, /codeflare_submit_inline_edits/, 'packaged participant omitted inline proposal correlation');
-    const inlineModeExtension = await readFile('/opt/codeflare/pi-agent/extensions/inline-edit.ts', 'utf8');
-    assert.match(inlineModeExtension, /setActiveTools\(\[INLINE_EDIT_TOOL\]\)/, 'image omitted the proposal-only Pi tool boundary');
+    const source = 'const packaged = 0;\n';
+    activeEditorDocument = {
+      document: {
+        uri: reviewResource,
+        isClosed: false,
+        isDirty: false,
+        version: 1,
+        languageId: 'typescript',
+        lineCount: 2,
+        getText: () => source,
+        lineAt: (line) => ({ text: line === 0 ? source.trimEnd() : '' }),
+      },
+      selection: {
+        isEmpty: true,
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 0 },
+      },
+    };
+    const rendered = [];
+    await handler(
+      { location: 4, prompt: 'replace packaged value', references: [] },
+      { history: [] },
+      {
+        markdown: () => assert.fail('inline request emitted hidden markdown'),
+        progress: () => undefined,
+        textEdit: (target, edits) => rendered.push({ target, edits }),
+      },
+      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
+    );
+    assert.equal(spawnedRpcChildren.length, 1, 'packaged inline request did not use one IDE Pi process');
+    assert.equal(rendered.length, 2);
+    assert.equal(rendered[0]?.target, reviewResource);
+    assert.deepEqual(rendered[0]?.edits.map((edit) => ({
+      start: edit.range.start,
+      end: edit.range.end,
+      newText: edit.newText,
+    })), [{
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 19 },
+      newText: 'const packaged = 42;',
+    }]);
+    assert.deepEqual(rendered[1], { target: reviewResource, edits: true });
+    const panelMarkdown = [];
+    await handler(
+      { location: 1, prompt: 'continue in panel', references: [] },
+      { history: [] },
+      { markdown: (value) => panelMarkdown.push(value), progress: () => undefined },
+      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
+    );
+    assert.equal(spawnedRpcChildren.length, 1, 'packaged panel request did not reuse the IDE Pi process');
+    assert.deepEqual(panelMarkdown, ['packaged panel response']);
+    assert.ok((await stat('/opt/codeflare/pi-agent/extensions/inline-edit.ts')).size > 0, 'image omitted the inline proposal extension');
     await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },

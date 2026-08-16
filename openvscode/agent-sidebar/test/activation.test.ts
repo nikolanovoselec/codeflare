@@ -209,7 +209,7 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registe
   assert.equal(subscriptions.length, 6);
 });
 
-test('REQ-IDE-019 AC7: participant requests run the local Pi backend without provider generation', async () => {
+test('REQ-IDE-025 AC1: participant requests run the local Pi backend without provider generation', async () => {
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: { backend: unknown }) => {
     assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
     return 'completed';
@@ -230,7 +230,7 @@ test('REQ-IDE-019 AC7: participant requests run the local Pi backend without pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
-test('REQ-IDE-019 + REQ-IDE-020: inline-first renders one host-owned edit through shared Pi', async () => {
+test('REQ-IDE-020 + REQ-IDE-026: inline-first renders one host-owned edit through shared Pi', async () => {
   const target = installActiveEditor();
   const rendered: Array<{ uri: unknown; edits: unknown }> = [];
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
@@ -265,22 +265,25 @@ test('REQ-IDE-019 + REQ-IDE-020: inline-first renders one host-owned edit throug
 
   assert.equal(host.executedCommand, undefined);
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
-  assert.deepEqual(rendered, [{
-    uri: target.uri,
-    edits: [{
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 0, character: 19 },
-      },
-      newText: 'const generated = 42;',
-    }],
-  }, {
-    uri: target.uri,
-    edits: true,
+  assert.equal(rendered.length, 2);
+  assert.equal(rendered[0]?.uri, target.uri);
+  const renderedEdits = rendered[0]?.edits as Array<{
+    range: { start: unknown; end: unknown };
+    newText: string;
+  }>;
+  assert.deepEqual(renderedEdits.map((edit) => ({
+    start: edit.range.start,
+    end: edit.range.end,
+    newText: edit.newText,
+  })), [{
+    start: { line: 0, character: 0 },
+    end: { line: 0, character: 19 },
+    newText: 'const generated = 42;',
   }]);
+  assert.deepEqual(rendered[1], { uri: target.uri, edits: true });
 });
 
-test('REQ-IDE-020: panel-first then native inline edit reuses one unrestricted IDE Pi conversation', async () => {
+test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation', async () => {
   installActiveEditor();
   const backends: unknown[] = [];
   const modes: string[] = [];

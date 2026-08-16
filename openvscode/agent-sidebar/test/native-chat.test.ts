@@ -259,7 +259,7 @@ test('REQ-IDE-005: lazy native Pi reuses one backend after settled turns', async
   assert.equal(backends[0]?.stops, 1);
 });
 
-test('REQ-IDE-020: panel and native inline edit turns reuse one backend with surface-specific output', async () => {
+test('REQ-IDE-025: panel and native inline edit turns reuse one backend with surface-specific output', async () => {
   const backend = new RecordingBackend();
   const runtime = new NativePiRuntime(() => backend, runNativePiChat);
   const panel = responseRecorder();

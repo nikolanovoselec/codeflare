@@ -9,7 +9,15 @@ const document = {
   lineLength: (line: number) => ['const value = 1;', 'return value;', ''][line]?.length ?? 0,
 };
 
-test('REQ-IDE-020: native inline edits validate against the captured document version and bounds', () => {
+const boundedEdit = {
+  startLine: 0,
+  startCharacter: 0,
+  endLine: 0,
+  endCharacter: 5,
+  newText: 'let',
+};
+
+test('REQ-IDE-026: native inline edits validate against the captured document version and bounds', () => {
   const edits = validateInlineTextEdits(document, 7, [{
     startLine: 0,
     startCharacter: 6,
@@ -39,7 +47,7 @@ test('REQ-IDE-020: native inline edits validate against the captured document ve
   }]);
 });
 
-test('REQ-IDE-020: adjacent non-overlapping inline edits are accepted and ordered', () => {
+test('REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered', () => {
   const edits = validateInlineTextEdits(document, 7, [{
     startLine: 0,
     startCharacter: 5,
@@ -57,24 +65,61 @@ test('REQ-IDE-020: adjacent non-overlapping inline edits are accepted and ordere
   assert.deepEqual(edits.map((edit) => edit.newText), ['const', ';']);
 });
 
-test('REQ-IDE-020: stale, overlapping, and out-of-bounds inline edits fail closed', () => {
-  const edit = {
+test('REQ-IDE-026: empty inline edit proposals fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 7, []), /edit count/i);
+});
+
+test('REQ-IDE-026: more than 64 inline edits fail closed', () => {
+  const insert = {
     startLine: 0,
     startCharacter: 0,
     endLine: 0,
-    endCharacter: 5,
-    newText: 'let',
+    endCharacter: 0,
+    newText: 'x',
   };
 
-  assert.throws(() => validateInlineTextEdits(document, 6, [edit]), /document changed/i);
+  assert.throws(() => validateInlineTextEdits(
+    document,
+    7,
+    Array.from({ length: 65 }, () => ({ ...insert })),
+  ), /edit count/i);
+});
+
+test('REQ-IDE-026: stale document versions fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 6, [boundedEdit]), /document changed/i);
+});
+
+test('REQ-IDE-026: invalid inline edit coordinates fail closed', () => {
   assert.throws(() => validateInlineTextEdits(document, 7, [
-    edit,
-    { ...edit, startCharacter: 4, endCharacter: 8 },
-  ]), /overlap/i);
-  assert.throws(() => validateInlineTextEdits(document, 7, [
-    { ...edit, endLine: 9 },
+    { ...boundedEdit, startCharacter: -1 },
   ]), /range/i);
   assert.throws(() => validateInlineTextEdits(document, 7, [
-    { ...edit, newText: 'x'.repeat(300 * 1024) },
+    { ...boundedEdit, startCharacter: 6 },
+  ]), /range/i);
+});
+
+test('REQ-IDE-026: repeated edit starts fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 7, [
+    { ...boundedEdit, endCharacter: 0, newText: 'a' },
+    { ...boundedEdit, endCharacter: 0, newText: 'b' },
+  ]), /overlap/i);
+});
+
+test('REQ-IDE-026: overlapping inline edits fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 7, [
+    boundedEdit,
+    { ...boundedEdit, startCharacter: 4, endCharacter: 8 },
+  ]), /overlap/i);
+});
+
+test('REQ-IDE-026: out-of-bounds inline edits fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 7, [
+    { ...boundedEdit, endLine: 9 },
+  ]), /range/i);
+});
+
+test('REQ-IDE-026: inline edit payloads above 256 KiB fail closed', () => {
+  assert.throws(() => validateInlineTextEdits(document, 7, [
+    { ...boundedEdit, newText: 'x'.repeat(300 * 1024) },
   ]), /size/i);
 });
