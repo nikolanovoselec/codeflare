@@ -352,10 +352,12 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay b
     details: 'Replaced the selected target value. 1 proposed edit.',
     metadata: {},
   });
-  assert.equal(rendered.length, 2);
-  assert.equal(rendered[0]?.uri, target.uri);
+  assert.equal(rendered.length, 3);
+  assert.deepEqual(rendered[0], { uri: target.uri, edits: [] });
   assert.equal(rendered[1]?.uri, target.uri);
-  assert.equal(rendered[1]?.edits, true);
+  assert.ok(Array.isArray(rendered[1]?.edits));
+  assert.equal((rendered[1]?.edits as unknown[]).length, 1);
+  assert.deepEqual(rendered[2], { uri: target.uri, edits: true });
   assert.deepEqual(host.confirmations, []);
   assert.deepEqual(host.informationMessages, []);
   assert.equal(host.executedCommand, undefined);

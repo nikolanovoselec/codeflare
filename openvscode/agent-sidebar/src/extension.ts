@@ -169,6 +169,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
               }, baseVersion, edits);
               proposedEditCount = validated.length;
               proposalSummary = proposal.summary;
+              inlineResponse.textEdit(document.uri, []);
               inlineResponse.textEdit(document.uri, validated.map((edit) => TextEdit.replace(
                 new Range(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter),
                 edit.newText,

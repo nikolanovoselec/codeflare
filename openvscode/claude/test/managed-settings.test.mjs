@@ -69,7 +69,7 @@ test("REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy
   });
 });
 
-test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1: Pi native Chat settings suppress Copilot and retain one personal agent source", () => {
+test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor", () => {
   const settings = buildPiOpenVscodeSettings();
   assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,
@@ -77,6 +77,7 @@ test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1: Pi native Chat settings s
     "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
+    "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {

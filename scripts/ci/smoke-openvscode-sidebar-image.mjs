@@ -634,9 +634,10 @@ async function verifyPackagedNativeChat(extensionRoot) {
       { isCancellationRequested: false, onCancellationRequested: () => disposable() },
     );
     assert.equal(spawnedRpcChildren.length, 1, 'packaged inline request did not use one IDE Pi process');
-    assert.equal(rendered.length, 2);
-    assert.equal(rendered[0]?.target, reviewResource);
-    assert.deepEqual(rendered[0]?.edits.map((edit) => ({
+    assert.equal(rendered.length, 3);
+    assert.deepEqual(rendered[0], { target: reviewResource, edits: [] });
+    assert.equal(rendered[1]?.target, reviewResource);
+    assert.deepEqual(rendered[1]?.edits.map((edit) => ({
       start: edit.range.start,
       end: edit.range.end,
       newText: edit.newText,
@@ -645,7 +646,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
       end: { line: 0, character: 19 },
       newText: 'const packaged = 42;',
     }]);
-    assert.deepEqual(rendered[1], { target: reviewResource, edits: true });
+    assert.deepEqual(rendered[2], { target: reviewResource, edits: true });
     assert.equal(executedCommand, undefined, 'packaged inline request invoked extension-owned review command');
     const panelMarkdown = [];
     await handler(
@@ -734,6 +735,7 @@ async function verifyOpenVscodeSettings() {
     const piSettings = JSON.parse(await readFile(join(piDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(piSettings, managed.buildPiOpenVscodeSettings());
     assert.equal(piSettings['chat.disableAIFeatures'], true);
+    assert.equal(piSettings['accessibility.openChatEditedFiles'], false);
     assert.deepEqual(piSettings['chat.agentFilesLocations'], { '~/.claude/agents': false });
 
     const unsupportedDataRoot = join(root, 'unsupported-data');

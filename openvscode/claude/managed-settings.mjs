@@ -20,6 +20,7 @@ export function buildPiOpenVscodeSettings() {
   return {
     ...buildBaseOpenVscodeSettings(),
     "chat.disableAIFeatures": true,
+    "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
@@ -41,6 +42,7 @@ export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "workbench.startupEditor",
   "chat.titleBar.signIn.enabled",
   "chat.disableAIFeatures",
+  "accessibility.openChatEditedFiles",
   "chat.notifyWindowOnResponseReceived",
   "chat.notifyWindowOnConfirmation",
   "chat.agentFilesLocations",
