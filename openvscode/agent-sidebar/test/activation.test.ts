@@ -3,13 +3,13 @@ import { afterEach, test, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
   activeEditorUri: undefined as { fsPath: string; scheme: string } | undefined,
+  activeEditor: undefined as Record<string, unknown> | undefined,
   commandHandler: undefined as ((resource?: unknown) => Promise<void>) | undefined,
   commandId: undefined as string | undefined,
   executedCommand: undefined as { id: string; options: Record<string, unknown> } | undefined,
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<void>) | undefined,
-  openPanel: undefined as ((options: Record<string, unknown>) => Promise<void>) | undefined,
   modelProviders: new Map<string, Record<string, (...args: unknown[]) => unknown>>(),
   modelChanges: [] as Array<{ vendor: string; contextValues: Array<{ key: string; value: unknown }> }>,
   warnings: [] as string[],
@@ -53,6 +53,17 @@ vi.mock('vscode', () => ({
     file: (fsPath: string) => ({ fsPath, scheme: 'file' }),
     joinPath: (base: { fsPath?: string }, ...parts: string[]) => ({ fsPath: [base.fsPath, ...parts].join('/') }),
   },
+  Range: class Range {
+    readonly start: { line: number; character: number };
+    readonly end: { line: number; character: number };
+    constructor(startLine: number, startCharacter: number, endLine: number, endCharacter: number) {
+      this.start = { line: startLine, character: startCharacter };
+      this.end = { line: endLine, character: endCharacter };
+    }
+  },
+  TextEdit: {
+    replace: (range: unknown, newText: string) => ({ range, newText }),
+  },
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   commands: {
     executeCommand: async (id: string, ...args: unknown[]) => {
@@ -61,9 +72,6 @@ vi.mock('vscode', () => ({
         return;
       }
       host.executedCommand = { id, options: args[0] as Record<string, unknown> };
-      if (id === 'workbench.action.chat.open') {
-        await host.openPanel?.(args[0] as Record<string, unknown>);
-      }
     },
     registerCommand: (id: string, handler: (resource?: unknown) => Promise<void>) => {
       host.commandId = id;
@@ -94,7 +102,7 @@ vi.mock('vscode', () => ({
   },
   window: {
     get activeTextEditor() {
-      return host.activeEditorUri ? { document: { uri: host.activeEditorUri } } : undefined;
+      return host.activeEditor ?? (host.activeEditorUri ? { document: { uri: host.activeEditorUri } } : undefined);
     },
     showWarningMessage: async (message: string) => { host.warnings.push(message); },
     showTextDocument: async () => undefined,
@@ -108,16 +116,43 @@ vi.mock('vscode', () => ({
 
 import { activate, deactivate } from '../src/extension.ts';
 
+function installActiveEditor(content = 'const oldValue = 1;\nreturn oldValue;\n'): {
+  uri: { scheme: string; fsPath: string };
+  version: number;
+} {
+  const uri = { scheme: 'file', fsPath: '/home/user/workspace/src/inline.ts' };
+  const lines = content.split('\n');
+  const document = {
+    uri,
+    version: 7,
+    lineCount: lines.length,
+    languageId: 'typescript',
+    isDirty: true,
+    isClosed: false,
+    getText: () => content,
+    lineAt: (line: number) => ({ text: lines[line] ?? '' }),
+  };
+  host.activeEditor = {
+    document,
+    selection: {
+      isEmpty: false,
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: lines[0]?.length ?? 0 },
+    },
+  };
+  return { uri, version: document.version };
+}
+
 afterEach(async () => {
   await deactivate();
   host.activeEditorUri = undefined;
+  host.activeEditor = undefined;
   host.commandHandler = undefined;
   host.commandId = undefined;
   host.executedCommand = undefined;
   host.contextValues = [];
   host.participantId = undefined;
   host.participantHandler = undefined;
-  host.openPanel = undefined;
   host.modelProviders.clear();
   host.modelChanges = [];
   nativeChat.runNativePiChat.mockReset();
@@ -195,89 +230,108 @@ test('REQ-IDE-019 AC7: participant requests run the local Pi backend without pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
-test('REQ-IDE-019: an inline-first request transfers to panel before Pi streams one visible answer', async () => {
-  const panelMarkdown: string[] = [];
-  const inlineMarkdown: string[] = [];
+test('REQ-IDE-019 + REQ-IDE-020: inline-first renders one host-owned edit through shared Pi', async () => {
+  const target = installActiveEditor();
+  const rendered: Array<{ uri: unknown; edits: unknown }> = [];
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
+    mode: string;
     input: { prompt: string };
-    response: { markdown(value: string): void };
+    response: { textEdit(edits: unknown[]): void };
   }) => {
-    options.response.markdown(`answer:${options.input.prompt}`);
+    assert.equal(options.mode, 'inline-edit');
+    assert.equal(options.input.prompt, 'inline first');
+    options.response.textEdit([{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 19,
+      newText: 'const generated = 42;',
+    }]);
     return 'completed';
   });
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
 
   assert.ok(host.participantHandler);
-  host.openPanel = (options) => {
-    assert.deepEqual(options, {
-      query: 'inline first',
-      mode: 'ask',
-      modelSelector: { vendor: 'codeflare' },
-    });
-    return host.participantHandler!(
-      { location: 1, prompt: String(options.query), references: [] },
-      { history: [] },
-      { markdown: (value: string) => panelMarkdown.push(value), progress() {} },
-      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
-    );
-  };
   await host.participantHandler(
     { location: 4, prompt: 'inline first', references: [] },
     { history: [] },
-    { markdown: (value: string) => inlineMarkdown.push(value), progress() {} },
+    {
+      markdown: () => assert.fail('native inline edit emitted hidden markdown'),
+      progress() {},
+      textEdit: (uri: unknown, edits: unknown) => rendered.push({ uri, edits }),
+    },
     { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
   );
 
-  assert.equal(host.executedCommand?.id, 'workbench.action.chat.open');
-  assert.deepEqual(inlineMarkdown, []);
-  assert.deepEqual(panelMarkdown, ['answer:inline first']);
+  assert.equal(host.executedCommand, undefined);
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
+  assert.deepEqual(rendered, [{
+    uri: target.uri,
+    edits: [{
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 19 },
+      },
+      newText: 'const generated = 42;',
+    }],
+  }, {
+    uri: target.uri,
+    edits: true,
+  }]);
 });
 
-test('REQ-IDE-020: panel-first then inline reuses one runtime and transfers the follow-up visibly', async () => {
+test('REQ-IDE-020: panel-first then native inline edit reuses one unrestricted IDE Pi conversation', async () => {
+  installActiveEditor();
   const backends: unknown[] = [];
+  const modes: string[] = [];
   const answers: string[] = [];
+  const inlineEdits: unknown[] = [];
   nativeChat.runNativePiChat.mockImplementation(async (options: {
+    mode: string;
     input: { prompt: string };
-    response: { markdown(value: string): void };
+    response: { markdown(value: string): void; textEdit?(edits: unknown[]): void };
     backend: unknown;
   }) => {
     backends.push(options.backend);
-    options.response.markdown(`answer:${options.input.prompt}`);
+    modes.push(options.mode);
+    if (options.mode === 'inline-edit') {
+      options.response.textEdit?.([{
+        startLine: 1,
+        startCharacter: 0,
+        endLine: 1,
+        endCharacter: 16,
+        newText: 'return generated;',
+      }]);
+    } else {
+      options.response.markdown(`answer:${options.input.prompt}`);
+    }
     return 'completed';
   });
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
 
   assert.ok(host.participantHandler);
-  const response = { markdown: (value: string) => answers.push(value), progress() {} };
   const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
   await host.participantHandler(
     { location: 1, prompt: 'panel first', references: [] },
     { history: [] },
-    response,
+    { markdown: (value: string) => answers.push(value), progress() {} },
     cancellation,
   );
-  host.openPanel = (options) => {
-    assert.deepEqual(options, {
-      query: 'inline follow-up',
-      mode: 'ask',
-      modelSelector: { vendor: 'codeflare' },
-    });
-    return host.participantHandler!(
-      { location: 1, prompt: String(options.query), references: [] },
-      { history: [] },
-      response,
-      cancellation,
-    );
-  };
   await host.participantHandler(
     { location: 4, prompt: 'inline follow-up', references: [] },
     { history: [] },
-    { markdown: () => assert.fail('inline response must transfer before Pi runs'), progress() {} },
+    {
+      markdown: () => assert.fail('native inline edit emitted hidden markdown'),
+      progress() {},
+      textEdit: (_uri: unknown, edits: unknown) => inlineEdits.push(edits),
+    },
     cancellation,
   );
 
-  assert.deepEqual(answers, ['answer:panel first', 'answer:inline follow-up']);
+  assert.deepEqual(modes, ['chat', 'inline-edit']);
+  assert.deepEqual(answers, ['answer:panel first']);
+  assert.equal(inlineEdits.length, 2);
+  assert.equal(inlineEdits[1], true);
   assert.equal(backends.length, 2);
   assert.equal(backends[0], backends[1]);
 });

@@ -121,6 +121,7 @@ test('REQ-IDE-005 AC2: native Pi prompt truncation is deterministic and remains 
 
 class RecordingBackend implements NativePiBackend {
   readonly prompts: string[] = [];
+  readonly inlinePrompts: string[] = [];
   readonly observers: NativePiTurnObserver[] = [];
   aborts = 0;
   stops = 0;
@@ -146,6 +147,18 @@ class RecordingBackend implements NativePiBackend {
     await new Promise<void>((resolve, reject) => {
       this.#active.push({ resolve, reject });
     });
+  }
+
+  async runInlineEditPrompt(message: string, observer: NativePiTurnObserver) {
+    this.inlinePrompts.push(message);
+    this.observers.push(observer);
+    return [{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 0,
+      newText: 'generated inline code',
+    }];
   }
 
   settle(index = 0): void {
@@ -187,16 +200,24 @@ class RecordingCancellation implements NativePiCancellation {
   }
 }
 
-function responseRecorder(): { response: NativePiResponse; markdown: string[]; progress: string[] } {
+function responseRecorder(): {
+  response: NativePiResponse;
+  markdown: string[];
+  progress: string[];
+  textEdits: unknown[][];
+} {
   const markdown: string[] = [];
   const progress: string[] = [];
+  const textEdits: unknown[][] = [];
   return {
     response: {
       markdown: (value) => markdown.push(value),
       progress: (value) => progress.push(value),
+      textEdit: (edits) => textEdits.push([...edits]),
     },
     markdown,
     progress,
+    textEdits,
   };
 }
 
@@ -236,6 +257,38 @@ test('REQ-IDE-005: lazy native Pi reuses one backend after settled turns', async
 
   await runtime.dispose();
   assert.equal(backends[0]?.stops, 1);
+});
+
+test('REQ-IDE-020: panel and native inline edit turns reuse one backend with surface-specific output', async () => {
+  const backend = new RecordingBackend();
+  const runtime = new NativePiRuntime(() => backend, runNativePiChat);
+  const panel = responseRecorder();
+  const inline = responseRecorder();
+
+  await runtime.handle({
+    input: promptInput({ prompt: 'panel request' }),
+    response: panel.response,
+    cancellation: activeCancellation,
+  });
+  await runtime.handle({
+    mode: 'inline-edit',
+    input: promptInput({ prompt: 'inline request' }),
+    response: inline.response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(backend.prompts.length, 1);
+  assert.equal(backend.inlinePrompts.length, 1);
+  assert.match(backend.inlinePrompts[0] ?? '', /inline request/);
+  assert.deepEqual(inline.markdown, []);
+  assert.deepEqual(inline.textEdits, [[{
+    startLine: 0,
+    startCharacter: 0,
+    endLine: 0,
+    endCharacter: 0,
+    newText: 'generated inline code',
+  }]]);
+  await runtime.dispose();
 });
 
 test('REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation', async () => {

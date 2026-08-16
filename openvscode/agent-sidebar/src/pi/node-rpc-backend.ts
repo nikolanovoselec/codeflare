@@ -1,10 +1,16 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 import type { ApprovalBridge, PiExtensionUiRequest } from './approval-bridge.ts';
 import { PiProtocolError, StrictPiJsonlTransport, type PiRpcEnvelope } from './rpc-client.ts';
 import { PiSession, type PiChildProcess, type PiProcessSpawner, type PiSpawnSpec } from './session.ts';
+import type { NativePiTextEdit } from './native-chat.ts';
 
 const TERM_GRACE_MS = 2_000;
+export const INLINE_EDIT_COMMAND = 'codeflare-inline-edit';
+export const INLINE_EDIT_TOOL = 'codeflare_submit_inline_edits';
+const MAX_INLINE_EDIT_COUNT = 64;
+const MAX_INLINE_EDIT_BYTES = 256 * 1024;
 
 export interface PiTurnObserver {
   markdown(value: string): void;
@@ -16,10 +22,12 @@ interface ActiveTurn {
   accepted: boolean;
   settled: boolean;
   completed: boolean;
+  inlineRequestId: string | undefined;
+  inlineEdits: readonly NativePiTextEdit[] | undefined;
   readonly observer: PiTurnObserver;
   readonly cancellation: AbortController;
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
+  readonly promise: Promise<readonly NativePiTextEdit[] | undefined>;
+  readonly resolve: (edits?: readonly NativePiTextEdit[]) => void;
   readonly reject: (error: Error) => void;
 }
 
@@ -208,11 +216,27 @@ export class PiRpcBackend {
   }
 
   async runPrompt(message: string, observer: PiTurnObserver): Promise<void> {
+    await this.#runPrompt(message, observer);
+  }
+
+  async runInlineEditPrompt(message: string, observer: PiTurnObserver): Promise<readonly NativePiTextEdit[]> {
+    const requestId = `inline-${randomUUID()}`;
+    const payload = Buffer.from(JSON.stringify({ requestId, prompt: message }), 'utf8').toString('base64url');
+    const edits = await this.#runPrompt(`/${INLINE_EDIT_COMMAND} ${payload}`, observer, requestId);
+    if (!edits) throw new Error('Native Inline Chat did not submit an edit proposal');
+    return edits;
+  }
+
+  async #runPrompt(
+    message: string,
+    observer: PiTurnObserver,
+    inlineRequestId?: string,
+  ): Promise<readonly NativePiTextEdit[] | undefined> {
     if (this.#turn) throw new Error('Pi RPC turn is already active');
-    let resolveTurn = (): void => undefined;
+    let resolveTurn = (_edits?: readonly NativePiTextEdit[]): void => undefined;
     let rejectTurn = (_error: Error): void => undefined;
-    const promise = new Promise<void>((resolve, reject) => {
-      resolveTurn = resolve;
+    const promise = new Promise<readonly NativePiTextEdit[] | undefined>((resolve, reject) => {
+      resolveTurn = (edits) => resolve(edits);
       rejectTurn = reject;
     });
     void promise.catch(() => undefined);
@@ -221,6 +245,8 @@ export class PiRpcBackend {
       accepted: false,
       settled: false,
       completed: false,
+      inlineRequestId,
+      inlineEdits: undefined,
       observer,
       cancellation: new AbortController(),
       promise,
@@ -233,7 +259,7 @@ export class PiRpcBackend {
       if (this.#abortRequested) {
         turn.completed = true;
         turn.resolve();
-        return;
+        return undefined;
       }
       const promptWrite = this.#runWrite(() => this.#session.sendPrompt(message, (id) => {
         turn.promptId = id;
@@ -246,13 +272,14 @@ export class PiRpcBackend {
         if (this.#promptWrite === promptWrite) this.#promptWrite = undefined;
       }
       if (this.#abortRequested) await this.#sendAbort();
-      await turn.promise;
+      const result = await turn.promise;
       await this.#eventTail;
+      return result;
     } catch (error) {
       if (this.#abortRequested && !this.#stopRequested && !turn.completed && turn.promptId === undefined) {
         turn.completed = true;
         turn.resolve();
-        return;
+        return undefined;
       }
       const failure = error instanceof Error ? error : new Error('Pi RPC request failed');
       this.#rejectTurn(failure);
@@ -357,14 +384,31 @@ export class PiRpcBackend {
           return;
         }
         turn.accepted = true;
-      } else if (envelope.type === 'agent_settled') {
-        turn.settled = true;
-      } else {
-        const text = assistantTextDelta(envelope);
-        if (text) turn.observer.markdown(text);
-        if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
+      } else if (envelope.type === 'tool_execution_start' && typeof envelope.toolName === 'string') {
+        if (turn.inlineRequestId) {
+          if (envelope.toolName !== INLINE_EDIT_TOOL || turn.inlineEdits) {
+            this.#protocolFailure(new Error('Native Inline Chat attempted an invalid or duplicate tool'), generation);
+            return;
+          }
+          try {
+            turn.inlineEdits = parseInlineEditProposal(envelope.args, turn.inlineRequestId);
+          } catch (error) {
+            this.#protocolFailure(error, generation);
+            return;
+          }
+          turn.observer.progress('Preparing native editor changes…');
+        } else {
           turn.observer.progress(`Running ${envelope.toolName}…`);
         }
+      } else if (envelope.type === 'agent_settled') {
+        if (turn.inlineRequestId && !turn.inlineEdits) {
+          this.#protocolFailure(new Error('Native Inline Chat did not submit an edit proposal'), generation);
+          return;
+        }
+        turn.settled = true;
+      } else if (!turn.inlineRequestId) {
+        const text = assistantTextDelta(envelope);
+        if (text) turn.observer.markdown(text);
       }
       this.#completeTurn();
       return;
@@ -392,7 +436,7 @@ export class PiRpcBackend {
     const turn = this.#turn;
     if (!turn || turn.completed || !turn.accepted || !turn.settled) return;
     turn.completed = true;
-    turn.resolve();
+    turn.resolve(turn.inlineEdits);
   }
 
   #rejectTurn(error: Error): void {
@@ -402,6 +446,74 @@ export class PiRpcBackend {
     turn.cancellation.abort();
     turn.reject(error);
   }
+}
+
+export function parseInlineEditProposal(
+  value: unknown,
+  expectedRequestId: string,
+): readonly NativePiTextEdit[] {
+  if (!isRecord(value) || value.requestId !== expectedRequestId || !Array.isArray(value.edits)
+    || value.edits.length === 0 || value.edits.length > MAX_INLINE_EDIT_COUNT) {
+    throw new Error('Invalid native Inline Chat edit proposal');
+  }
+  let totalBytes = 0;
+  const edits = value.edits.map((candidate) => {
+    if (!isRecord(candidate) || typeof candidate.newText !== 'string') {
+      throw new Error('Invalid native Inline Chat edit proposal');
+    }
+    const positions = [
+      candidate.startLine,
+      candidate.startCharacter,
+      candidate.endLine,
+      candidate.endCharacter,
+    ];
+    if (!positions.every((part) => typeof part === 'number' && Number.isSafeInteger(part) && part >= 0)) {
+      throw new Error('Invalid native Inline Chat edit proposal');
+    }
+    const edit: NativePiTextEdit = {
+      startLine: candidate.startLine as number,
+      startCharacter: candidate.startCharacter as number,
+      endLine: candidate.endLine as number,
+      endCharacter: candidate.endCharacter as number,
+      newText: candidate.newText,
+    };
+    if (compareEditPosition(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter) > 0) {
+      throw new Error('Invalid native Inline Chat edit proposal');
+    }
+    totalBytes += Buffer.byteLength(edit.newText, 'utf8');
+    if (totalBytes > MAX_INLINE_EDIT_BYTES) throw new Error('Native Inline Chat edit proposal exceeds size limit');
+    return edit;
+  });
+  const ordered = [...edits].sort((left, right) =>
+    compareEditPosition(left.startLine, left.startCharacter, right.startLine, right.startCharacter));
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
+    if (!previous || !current) continue;
+    const sameStart = compareEditPosition(
+      previous.startLine,
+      previous.startCharacter,
+      current.startLine,
+      current.startCharacter,
+    ) === 0;
+    const crosses = compareEditPosition(
+      previous.endLine,
+      previous.endCharacter,
+      current.startLine,
+      current.startCharacter,
+    ) > 0;
+    if (sameStart || crosses) throw new Error('Native Inline Chat edit proposal ranges overlap');
+  }
+  return ordered;
+}
+
+function compareEditPosition(
+  leftLine: number,
+  leftCharacter: number,
+  rightLine: number,
+  rightCharacter: number,
+): number {
+  return leftLine === rightLine ? leftCharacter - rightCharacter : leftLine - rightLine;
 }
 
 function createTransport(): StrictPiJsonlTransport {

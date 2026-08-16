@@ -365,3 +365,122 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
   await backend.stop();
 });
 
+test('REQ-IDE-020: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
+  const markdown: string[] = [];
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('replace the selected function', {
+    markdown: (value) => markdown.push(value),
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  assert.equal(prompt.id, 'prompt-1');
+  assert.match(prompt.message ?? '', /^\/codeflare-inline-edit\s+/);
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string; prompt: string };
+  assert.equal(payload.prompt, 'replace the selected function');
+
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    toolCallId: 'inline-tool-1',
+    args: {
+      requestId: payload.requestId,
+      edits: [
+        {
+          startLine: 0,
+          startCharacter: 5,
+          endLine: 0,
+          endCharacter: 5,
+          newText: ';',
+        },
+        {
+          startLine: 0,
+          startCharacter: 0,
+          endLine: 0,
+          endCharacter: 5,
+          newText: 'const replacement = true',
+        },
+      ],
+    },
+  });
+  spawner.children[0]?.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', delta: 'must stay hidden' },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, [
+    {
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 5,
+      newText: 'const replacement = true',
+    },
+    {
+      startLine: 0,
+      startCharacter: 5,
+      endLine: 0,
+      endCharacter: 5,
+      newText: ';',
+    },
+  ]);
+  assert.deepEqual(markdown, []);
+  await backend.stop();
+});
+
+test('REQ-IDE-020: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: 'inline-wrong000',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'unsafe',
+      }],
+    },
+  });
+
+  await assert.rejects(turn, /invalid native Inline Chat edit proposal/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-020: inline Pi fails closed when settlement has no valid proposal', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  await assert.rejects(turn, /did not submit.*edit proposal/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+

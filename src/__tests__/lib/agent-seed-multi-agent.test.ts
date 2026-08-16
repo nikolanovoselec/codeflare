@@ -384,6 +384,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/graphify-native.ts',
       '.pi/agent/extensions/guard-helpers.ts',
+      '.pi/agent/extensions/inline-edit.ts',
       '.pi/agent/extensions/local-statusline.ts',
       '.pi/agent/extensions/memory-inject-helpers.ts',
       '.pi/agent/extensions/memory-inject.ts',

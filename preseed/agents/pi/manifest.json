@@ -4,6 +4,11 @@
       "advanced"
     ]
   },
+  "extensions/inline-edit.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/active-repo-memory.ts": {
     "modes": [
       "default",

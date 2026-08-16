@@ -1,5 +1,7 @@
 import {
   EventEmitter,
+  Range,
+  TextEdit,
   Uri,
   chat,
   commands,
@@ -17,6 +19,7 @@ import {
 } from './pi/native-chat.ts';
 import { NodePiProcessSpawner, PiRpcBackend } from './pi/node-rpc-backend.ts';
 import { VsCodeApprovalHost } from './pi/vscode-approval-host.ts';
+import { validateInlineTextEdits } from './pi/inline-edit-validation.ts';
 import {
   canonicalWorkspaceFilePath,
   collectNativePiPromptInput,
@@ -34,6 +37,10 @@ const HOST_VISIBLE_VENDOR = 'codeflare';
 const HOST_MODEL_FAMILY = 'codeflare-pi-rpc';
 const CHAT_LOCATION_PANEL = 1 as const;
 const CHAT_LOCATION_EDITOR = 4 as const;
+
+type InlineEditResponseStream = {
+  textEdit(target: Uri, edits: TextEdit | TextEdit[] | true): void;
+};
 const HOST_FALLBACK_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
   readonly isUserSelectable: false;
@@ -108,18 +115,46 @@ export async function activate(context: ExtensionContext): Promise<void> {
     async (request, chatContext, response, cancellation) => {
       if ('location' in request && request.location === CHAT_LOCATION_EDITOR) {
         if (cancellation.isCancellationRequested) return;
-        // Code OSS 1.132 filters ordinary participant text, while its native
-        // continue action is enabled only after an inline session terminates.
-        // Submit the untouched prompt to the visible panel before Pi inference;
-        // the resulting panel invocation owns the shared runtime and response.
-        await commands.executeCommand(OPEN_CHAT_COMMAND, {
-          query: request.prompt,
-          mode: 'ask',
-          modelSelector: { vendor: HOST_VISIBLE_VENDOR },
+        const document = window.activeTextEditor?.document;
+        if (!document || document.isClosed || document.uri.scheme !== 'file') {
+          await window.showWarningMessage('Native Inline Chat requires an active workspace file.');
+          return;
+        }
+        const baseVersion = document.version;
+        const inlineResponse = response as typeof response & InlineEditResponseStream;
+        const input = Promise.all([
+          collectNativePiPromptInput(request, chatContext),
+          canonicalWorkspaceFilePath(document.uri),
+        ]).then(([collected, canonicalPath]) => {
+          if (!canonicalPath) throw new Error('Native Inline Chat target is outside the workspace');
+          return collected;
+        });
+        await runtime.handle({
+          mode: 'inline-edit',
+          input,
+          response: {
+            markdown: () => undefined,
+            progress: (value) => response.progress(value),
+            textEdit: (edits) => {
+              if (document.isClosed) throw new Error('Native Inline Chat target closed before proposal completion');
+              const validated = validateInlineTextEdits({
+                version: document.version,
+                lineCount: document.lineCount,
+                lineLength: (line) => document.lineAt(line).text.length,
+              }, baseVersion, edits);
+              inlineResponse.textEdit(document.uri, validated.map((edit) => TextEdit.replace(
+                new Range(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter),
+                edit.newText,
+              )));
+              inlineResponse.textEdit(document.uri, true);
+            },
+          },
+          cancellation,
         });
         return;
       }
       await runtime.handle({
+        mode: 'chat',
         input: collectNativePiPromptInput(request, chatContext),
         response: {
           markdown: (value) => response.markdown(value),

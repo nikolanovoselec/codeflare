@@ -493,20 +493,11 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
     assert.match(executedCommand?.options.query, /^@codeflare\b/);
     assert.equal(executedCommand?.options.mode, 'ask');
-    await handler(
-      { location: 4, prompt: 'inline smoke', references: [] },
-      { history: [] },
-      { markdown: () => assert.fail('inline request emitted hidden markdown'), progress: () => assert.fail('inline request emitted hidden progress') },
-      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
-    );
-    assert.deepEqual(executedCommand, {
-      id: 'workbench.action.chat.open',
-      options: {
-        query: 'inline smoke',
-        mode: 'ask',
-        modelSelector: { vendor: 'codeflare' },
-      },
-    });
+    const bundledMain = await readFile(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')), 'utf8');
+    assert.match(bundledMain, /codeflare-inline-edit/, 'packaged participant omitted native inline edit RPC mode');
+    assert.match(bundledMain, /codeflare_submit_inline_edits/, 'packaged participant omitted inline proposal correlation');
+    const inlineModeExtension = await readFile('/opt/codeflare/pi-agent/extensions/inline-edit.ts', 'utf8');
+    assert.match(inlineModeExtension, /setActiveTools\(\[INLINE_EDIT_TOOL\]\)/, 'image omitted the proposal-only Pi tool boundary');
     await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },
