@@ -799,7 +799,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Proposal fields cannot name another URI or request direct filesystem mutation.
-- Any proposal validation failure prevents host edit emission; dispatch-error isolation is owned by REQ-IDE-028.
+- Any proposal validation failure prevents host edit emission; dispatch-error isolation is owned by [REQ-IDE-028](#req-ide-028-native-inline-chat-dispatch-error-isolation).
 
 **Priority:** P1
 
@@ -846,8 +846,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. A command-attributed error or `<runtime>` `send_user_message` error during the active editor command rejects the turn and retires its backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) -->
-2. Every other extension error leaves the active proposal eligible for validation. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) -->
+1. An error attributed to the active editor command rejects the turn and retires its backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) -->
+2. An asynchronous failure dispatching the nested editor prompt rejects the turn and retires its backend. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) -->
+3. Every other extension error leaves the active proposal eligible for validation. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) -->
 
 **Constraints:**
 
