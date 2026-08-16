@@ -20,6 +20,15 @@ const host = vi.hoisted(() => ({
   openedDocuments: [] as unknown[],
   shownDocuments: [] as unknown[],
   reviewEvents: [] as string[],
+  diagnosticChannel: undefined as string | undefined,
+  diagnosticLines: [] as string[],
+  diagnosticDisposed: false,
+  tabChangeListener: undefined as ((event: unknown) => void) | undefined,
+  tabGroups: [{ isActive: true, tabs: [] as unknown[] }],
+  settings: new Map<string, unknown>([
+    ['accessibility.openChatEditedFiles', false],
+    ['chat.disableAIFeatures', true],
+  ]),
 }));
 
 const nativeChat = vi.hoisted(() => ({
@@ -118,6 +127,20 @@ vi.mock('vscode', () => ({
     },
   },
   window: {
+    createOutputChannel: (name: string) => {
+      host.diagnosticChannel = name;
+      return {
+        appendLine: (line: string) => host.diagnosticLines.push(line),
+        dispose() { host.diagnosticDisposed = true; },
+      };
+    },
+    tabGroups: {
+      get all() { return host.tabGroups; },
+      onDidChangeTabs: (listener: (event: unknown) => void) => {
+        host.tabChangeListener = listener;
+        return { dispose() { host.tabChangeListener = undefined; } };
+      },
+    },
     get activeTextEditor() {
       return host.activeEditor ?? (host.activeEditorUri ? { document: { uri: host.activeEditorUri } } : undefined);
     },
@@ -132,6 +155,7 @@ vi.mock('vscode', () => ({
     },
   },
   workspace: {
+    getConfiguration: () => ({ get: (key: string) => host.settings.get(key) }),
     getWorkspaceFolder: (resource: { fsPath: string }) => resource.fsPath.startsWith('/home/user/workspace/') ? {} : undefined,
     textDocuments: [],
     openTextDocument: async (uri: unknown) => {
@@ -196,9 +220,18 @@ afterEach(async () => {
   host.openedDocuments = [];
   host.shownDocuments = [];
   host.reviewEvents = [];
+  host.diagnosticChannel = undefined;
+  host.diagnosticLines = [];
+  host.diagnosticDisposed = false;
+  host.tabChangeListener = undefined;
+  host.tabGroups = [{ isActive: true, tabs: [] }];
+  host.settings = new Map([
+    ['accessibility.openChatEditedFiles', false],
+    ['chat.disableAIFeatures', true],
+  ]);
 });
 
-test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat', async () => {
+test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat', async () => {
   const subscriptions: Array<{ dispose(): void }> = [];
   await activate({
     extensionUri: { fsPath: '/extension' },
@@ -206,6 +239,10 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registe
   } as never);
 
   assert.equal(host.participantId, 'codeflare.pi');
+  assert.equal(host.diagnosticChannel, 'Codeflare Inline Chat');
+  assert.match(host.diagnosticLines[0] ?? '', /revision=uri-authority-probe-v1/);
+  assert.match(host.diagnosticLines[0] ?? '', /openChatEditedFiles=false/);
+  assert.match(host.diagnosticLines[0] ?? '', /disableAIFeatures=true/);
   assert.deepEqual(host.contextValues, [
     { key: 'chatSetupHidden', value: true },
     { key: 'chatSetupCompleted', value: true },
@@ -245,10 +282,14 @@ test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registe
     );
     assert.equal(await provider.provideTokenCount(), 0);
   }
-  assert.equal(subscriptions.length, 6);
+  assert.equal(subscriptions.length, 7);
+  assert.ok(host.tabChangeListener);
+  await deactivate();
+  assert.equal(host.diagnosticDisposed, true);
+  assert.equal(host.tabChangeListener, undefined);
 });
 
-test('REQ-IDE-025 AC1: participant requests run the local Pi backend without provider generation', async () => {
+test('REQ-IDE-025 AC1 + REQ-IDE-034: panel requests run Pi without Inline diagnostics or provider generation', async () => {
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: { backend: unknown }) => {
     assert.equal((options.backend as { constructor: { name: string } }).constructor.name, 'PiRpcBackend');
     return 'completed';
@@ -259,6 +300,7 @@ test('REQ-IDE-025 AC1: participant requests run the local Pi backend without pro
   } as never);
 
   assert.ok(host.participantHandler);
+  const diagnosticLineCount = host.diagnosticLines.length;
   await host.participantHandler(
     { location: 1, prompt: 'Refactor this selection', references: [] },
     { history: [] },
@@ -267,9 +309,10 @@ test('REQ-IDE-025 AC1: participant requests run the local Pi backend without pro
   );
 
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
+  assert.equal(host.diagnosticLines.length, diagnosticLineCount);
 });
 
-test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document', async () => {
+test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document', async () => {
   const target = installActiveEditor('const targetValue = 1;\nreturn targetValue;\n', '/home/user/workspace/src/target.ts');
   const decoy = installActiveEditor('const decoyValue = 2;\n', '/home/user/workspace/src/decoy.ts');
   const rendered: Array<{ uri: unknown; edits: unknown }> = [];
@@ -296,6 +339,8 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay b
     assert.equal(options.input.activeEditor?.path, target.uri.fsPath);
     assert.match(options.input.activeEditor?.content ?? '', /targetValue/);
     assert.doesNotMatch(options.input.activeEditor?.content ?? '', /decoyValue/);
+    assert.match(host.diagnosticLines.find((line) => line.includes('request=')) ?? '', /target\.ts/);
+    assert.doesNotMatch(host.diagnosticLines.find((line) => line.includes('request=')) ?? '', /decoy\.ts/);
     assert.deepEqual(options.input.activeEditor?.wholeRange, {
       startLine: 1,
       startColumn: 1,
@@ -364,6 +409,26 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay b
   assert.deepEqual(host.openedDocuments, []);
   assert.deepEqual(host.shownDocuments, []);
   assert.deepEqual(host.reviewEvents, []);
+  assert.match(host.diagnosticLines.find((line) => line.includes('stream=')) ?? '', /target\.ts/);
+  assert.match(host.diagnosticLines.find((line) => line.includes('snapshot=immediate')) ?? '', /groups=1/);
+
+  const remoteUri = {
+    scheme: 'vscode-remote',
+    authority: 'integration-proxy.example',
+    path: '/home/user/workspace/src/target.ts',
+    fsPath: '/home/user/workspace/src/target.ts',
+    toString: () => 'vscode-remote://integration-proxy.example/home/user/workspace/src/target.ts',
+  };
+  const openedTab = {
+    label: 'target.ts',
+    isActive: true,
+    input: { uri: remoteUri },
+  };
+  host.tabGroups = [{ isActive: true, tabs: [openedTab] }];
+  host.tabChangeListener?.({ opened: [openedTab], closed: [], changed: [] });
+  const tabEvent = host.diagnosticLines.find((line) => line.includes('tabsChanged')) ?? '';
+  assert.match(tabEvent, /integration-proxy\.example/);
+  assert.match(tabEvent, /target\.ts/);
 });
 
 test('REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission', async () => {

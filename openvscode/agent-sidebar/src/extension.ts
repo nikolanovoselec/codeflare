@@ -7,6 +7,7 @@ import {
   commands,
   lm,
   window,
+  workspace,
   type ExtensionContext,
   type LanguageModelChatInformation,
   type LanguageModelChatProvider,
@@ -52,6 +53,12 @@ type InlineEditorLocation = {
 
 type ThinkingResponseStream = {
   thinkingProgress(delta: { readonly id: string; readonly text: string }): void;
+};
+
+type InlineDiagnostics = {
+  begin(document: TextDocument, selection: Selection): string;
+  streamed(requestId: string, target: Uri): void;
+  dispose(): void;
 };
 const HOST_FALLBACK_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
@@ -100,6 +107,7 @@ const hostCompatibilityProvider = (
   provideTokenCount: async () => 0,
 });
 let activeRuntime: NativePiRuntime | undefined;
+let activeInlineDiagnostics: InlineDiagnostics | undefined;
 
 export async function activate(context: ExtensionContext): Promise<void> {
   // Code OSS contributes Copilot setup/status chrome while Chat setup remains
@@ -108,6 +116,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   // completion still suppresses the remaining setup actions.
   await commands.executeCommand('setContext', 'chatSetupHidden', true);
   await commands.executeCommand('setContext', 'chatSetupCompleted', true);
+  const inlineDiagnostics = createInlineDiagnostics();
   const runtime = new NativePiRuntime(createBackend, runNativePiChat);
   const modelChanges = new EventEmitter<void>();
   const hostFallbackProvider = lm.registerLanguageModelChatProvider(
@@ -133,6 +142,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
           await window.showWarningMessage('Native Inline Chat requires an active workspace file.');
           return;
         }
+        const diagnosticRequestId = inlineDiagnostics.begin(document, editorLocation.selection);
         const baseVersion = document.version;
         const inlineResponse = response as typeof response & InlineEditResponseStream;
         const thinkingResponse = response as typeof response & ThinkingResponseStream;
@@ -175,6 +185,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
                 edit.newText,
               )));
               inlineResponse.textEdit(document.uri, true);
+              inlineDiagnostics.streamed(diagnosticRequestId, document.uri);
             },
           },
           cancellation,
@@ -209,7 +220,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
   );
   participant.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
   activeRuntime = runtime;
+  activeInlineDiagnostics = inlineDiagnostics;
   context.subscriptions.push(
+    inlineDiagnostics,
     modelChanges,
     hostFallbackProvider,
     hostVisibleProvider,
@@ -221,8 +234,152 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
 export async function deactivate(): Promise<void> {
   const runtime = activeRuntime;
+  const diagnostics = activeInlineDiagnostics;
   activeRuntime = undefined;
+  activeInlineDiagnostics = undefined;
+  diagnostics?.dispose();
   await runtime?.dispose();
+}
+
+const INLINE_DIAGNOSTIC_REVISION = 'uri-authority-probe-v1';
+const MAX_INLINE_DIAGNOSTIC_TAB_EVENTS = 16;
+const MAX_INLINE_DIAGNOSTIC_LINE_LENGTH = 12_000;
+
+function createInlineDiagnostics(): InlineDiagnostics {
+  const output = window.createOutputChannel('Codeflare Inline Chat');
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  let sequence = 0;
+  let disposed = false;
+  let active: { readonly requestId: string; tabEvents: number } | undefined;
+
+  const log = (message: string): void => {
+    if (disposed) return;
+    const bounded = message.length <= MAX_INLINE_DIAGNOSTIC_LINE_LENGTH
+      ? message
+      : `${message.slice(0, MAX_INLINE_DIAGNOSTIC_LINE_LENGTH)}…`;
+    output.appendLine(`${new Date().toISOString()} ${bounded}`);
+  };
+  const snapshot = (): string => describeTabSnapshot();
+  const schedule = (callback: () => void, delay: number): void => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      callback();
+    }, delay);
+    if (typeof timer === 'object' && 'unref' in timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    timers.add(timer);
+  };
+
+  log([
+    `activation revision=${INLINE_DIAGNOSTIC_REVISION}`,
+    `openChatEditedFiles=${String(workspace.getConfiguration().get('accessibility.openChatEditedFiles'))}`,
+    `disableAIFeatures=${String(workspace.getConfiguration().get('chat.disableAIFeatures'))}`,
+    snapshot(),
+  ].join(' '));
+
+  const tabListener = window.tabGroups.onDidChangeTabs((event) => {
+    if (!active || active.tabEvents >= MAX_INLINE_DIAGNOSTIC_TAB_EVENTS) return;
+    active.tabEvents += 1;
+    log([
+      `tabsChanged request=${active.requestId}`,
+      `opened=${describeChangedTabs(event.opened)}`,
+      `closed=${describeChangedTabs(event.closed)}`,
+      `changed=${describeChangedTabs(event.changed)}`,
+      snapshot(),
+    ].join(' '));
+  });
+
+  return {
+    begin(document, selection) {
+      sequence += 1;
+      const requestId = `inline-${sequence}`;
+      active = { requestId, tabEvents: 0 };
+      log([
+        `request=${requestId}`,
+        'location=4',
+        'hasLocation2=true',
+        `docUri=${describeUri(document.uri)}`,
+        `version=${document.version}`,
+        `selection=${selection.start.line}:${selection.start.character}-${selection.end.line}:${selection.end.character}`,
+        snapshot(),
+      ].join(' '));
+      schedule(() => {
+        if (active?.requestId === requestId) active = undefined;
+      }, 15_000);
+      return requestId;
+    },
+    streamed(requestId, target) {
+      if (active?.requestId !== requestId) return;
+      log(`stream=${requestId} targetUri=${describeUri(target)} snapshot=immediate ${snapshot()}`);
+      schedule(() => {
+        if (active?.requestId === requestId) {
+          log(`stream=${requestId} targetUri=${describeUri(target)} snapshot=3s ${snapshot()}`);
+        }
+      }, 3_000);
+      schedule(() => {
+        if (active?.requestId === requestId) {
+          log(`stream=${requestId} targetUri=${describeUri(target)} snapshot=8s ${snapshot()}`);
+          active = undefined;
+        }
+      }, 8_000);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      active = undefined;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      tabListener.dispose();
+      output.dispose();
+    },
+  };
+}
+
+function describeTabSnapshot(): string {
+  const groups = window.tabGroups.all;
+  const tabs = groups.flatMap((group, groupIndex) => group.tabs.slice(0, 32).map((tab) => ({
+    group: groupIndex,
+    groupActive: group.isActive,
+    tab: describeTab(tab),
+  })));
+  return `groups=${groups.length} tabs=${tabs.length} tabData=${JSON.stringify(tabs)}`;
+}
+
+function describeChangedTabs(tabs: readonly unknown[]): string {
+  return JSON.stringify(tabs.slice(0, 32).map(describeTab));
+}
+
+function describeTab(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return { value: String(value) };
+  const input = value.input;
+  const inputConstructor = isRecord(input) ? input.constructor : undefined;
+  const inputType = typeof inputConstructor === 'function'
+    ? inputConstructor.name
+    : typeof input;
+  return {
+    label: typeof value.label === 'string' ? value.label : undefined,
+    active: typeof value.isActive === 'boolean' ? value.isActive : undefined,
+    inputType,
+    uri: isRecord(input) ? describeUri(input.uri) : undefined,
+    original: isRecord(input) ? describeUri(input.original) : undefined,
+    modified: isRecord(input) ? describeUri(input.modified) : undefined,
+  };
+}
+
+function describeUri(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const render = value.toString;
+  if (typeof render === 'function') {
+    const rendered = render.call(value, true);
+    if (rendered !== '[object Object]') return rendered;
+  }
+  if (typeof value.scheme !== 'string') return undefined;
+  const authority = typeof value.authority === 'string' ? value.authority : '';
+  const path = typeof value.path === 'string'
+    ? value.path
+    : typeof value.fsPath === 'string' ? value.fsPath : '';
+  return `${value.scheme}://${authority}${path}`;
 }
 
 async function openFileReview(resource: unknown): Promise<void> {

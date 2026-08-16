@@ -450,6 +450,8 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let activeEditorDocument;
   let executedCommand;
   const contextValues = new Map();
+  const diagnosticLines = [];
+  let diagnosticChannel;
   let handler;
   const hostModelProviders = new Map();
   let reviewFile;
@@ -510,6 +512,14 @@ async function verifyPackagedNativeChat(extensionRoot) {
       replace: (range, newText) => ({ range, newText }),
     },
     window: {
+      createOutputChannel: (name) => {
+        diagnosticChannel = name;
+        return { appendLine: (line) => diagnosticLines.push(line), dispose() {} };
+      },
+      tabGroups: {
+        all: [{ isActive: true, tabs: [] }],
+        onDidChangeTabs: () => disposable(),
+      },
       get activeTextEditor() {
         return activeEditorDocument ?? (activeEditorUri ? { document: { uri: activeEditorUri } } : undefined);
       },
@@ -518,6 +528,11 @@ async function verifyPackagedNativeChat(extensionRoot) {
       showTextDocument: async () => undefined,
     },
     workspace: {
+      getConfiguration: () => ({
+        get: (key) => key === 'accessibility.openChatEditedFiles'
+          ? false
+          : key === 'chat.disableAIFeatures' ? true : undefined,
+      }),
       getWorkspaceFolder: (resource) => resource.fsPath.startsWith('/home/user/workspace/') ? {} : undefined,
       textDocuments: [],
       openTextDocument: async () => ({}),
@@ -551,6 +566,9 @@ async function verifyPackagedNativeChat(extensionRoot) {
       },
     );
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(diagnosticChannel, 'Codeflare Inline Chat');
+    assert.match(diagnosticLines[0] ?? '', /revision=uri-authority-probe-v1/);
+    assert.match(diagnosticLines[0] ?? '', /openChatEditedFiles=false/);
     assert.equal(contextValues.get('chatSetupHidden'), true, 'packaged Pi inventory did not suppress Code OSS Copilot setup chrome');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
     assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
@@ -647,6 +665,8 @@ async function verifyPackagedNativeChat(extensionRoot) {
       newText: 'const packaged = 42;',
     }]);
     assert.deepEqual(rendered[2], { target: reviewResource, edits: true });
+    assert.match(diagnosticLines.find((line) => line.includes('request=')) ?? '', /codeflare-review-smoke\.ts/);
+    assert.match(diagnosticLines.find((line) => line.includes('snapshot=immediate')) ?? '', /groups=1/);
     assert.equal(executedCommand, undefined, 'packaged inline request invoked extension-owned review command');
     const panelMarkdown = [];
     await handler(

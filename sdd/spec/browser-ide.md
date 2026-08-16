@@ -612,9 +612,9 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Editor requests capture the invoking host document's unsaved content, selection, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
-2. An editor request invokes the local Pi runtime directly without compatibility-provider generation or panel handoff. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-3. A valid proposal emits native text edits for the captured document. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-4. The host emits the native edit-completion marker after those edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
+2. An editor request invokes the local Pi runtime directly without compatibility-provider generation or panel handoff. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. A valid proposal emits native text edits for the captured document. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. The host emits the native edit-completion marker after those edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 5. The rendered native transaction offers **Keep** for the proposed edits. <!-- @manual: On fresh deployed integration, generate an Inline Chat edit and verify Keep applies the displayed proposal. -->
 6. Reject or Undo restores the document through the native Inline Chat transaction. <!-- @manual: On fresh deployed integration, reject or undo an Inline Chat proposal and verify the prior document content is restored. -->
 
@@ -874,9 +874,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. An accepted editor request immediately shows no more than two progress updates while native Inline Chat is active. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-2. A completed proposal carries its bounded what-and-why explanation in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-3. A completed proposal reports its edit count in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
+1. An accepted editor request immediately shows no more than two progress updates while native Inline Chat is active. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+2. A completed proposal carries its bounded what-and-why explanation in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. A completed proposal reports its edit count in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 4. Unstructured final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown) -->
 
 **Constraints:**
@@ -934,11 +934,11 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. An editor request derives document content, selection, edit target, and version from the host-supplied editor location captured for that request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
+1. An editor request derives document content, selection, edit target, and version from the host-supplied editor location captured for that request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 2. Missing, malformed, closed, non-file, or out-of-workspace editor location data starts no Pi turn and emits no edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission) -->
-3. A valid editor turn emits one empty start marker, one non-empty text-edit batch, and one completion marker for the invoking URI. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-4. Codeflare emits no review confirmation, notification action, Chat Editing command, or document reopen request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document) -->
-5. The managed Pi profile prevents host chat-edit handling from opening another editor for the edit target. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
+3. A valid editor turn emits one empty start marker, one non-empty text-edit batch, and one completion marker for the invoking URI. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. Codeflare emits no review confirmation, notification action, Chat Editing command, or document reopen request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+5. The managed Pi profile disables the host configuration-gated automatic opening of chat-edited files. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
 6. Native Keep accepts the current Inline session, while native Close rejects it and disposes controller-owned state. <!-- @manual: On fresh integration, apply an Inline proposal with Keep, reject another with Close, and verify both sessions settle in the invoking editor. -->
 7. A new Inline request reaches Codeflare immediately after both Keep and Close without a document-URI error or duplicate editor. <!-- @manual: On fresh integration, submit a second Inline request after each outcome and verify one editor group/tab remains. -->
 
@@ -952,8 +952,36 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope)
 
-**Verification:** GitHub Actions validates exact host-document binding, start/edit/done ordering, automatic edited-file opening disabled in Pi, and absence of extension-owned review side effects. Fresh integration owns Keep, Close, immediate second-request, single-editor, and URI-lifecycle evidence.
+**Verification:** GitHub Actions validates exact host-document binding, start/edit/done ordering, the configuration-gated edited-file opener disabled in Pi, and absence of extension-owned review side effects. Fresh integration owns Keep, Close, immediate second-request, single-editor, and URI-lifecycle evidence.
 
 **Status:** Partial
+
+---
+
+### REQ-IDE-034: Bounded Inline lifecycle diagnostics
+
+**Intent:** An operator can distinguish stale rollout, wrong invocation surface, and edit/session URI mismatch from one failed Inline request.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Pi activation records one diagnostic revision and the effective edited-file-opening and built-in-AI settings. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
+2. Each admitted editor request records its editor location, invoking document URI, version, and selection without recording document content. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. The active request records bounded tab-change events and immediate, three-second, and eight-second tab snapshots with input URI identity. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. Diagnostics remain in the local Output channel, cap tab events and line length, exclude panel turns and document content, and dispose timers and listeners with the extension. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025 AC1 + REQ-IDE-034: panel requests run Pi without Inline diagnostics or provider generation) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+
+**Constraints:**
+
+- Diagnostics do not alter edit, review, navigation, or Pi lifecycle behavior.
+- URI and tab metadata remain local to the Browser IDE session unless the user copies them.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle)
+
+**Verification:** GitHub Actions validates revision, setting, request-identity, stream, and tab-event records. Fresh integration uses the Output channel to classify the deployed failure before another lifecycle change.
+
+**Status:** Implemented
 
 ---
