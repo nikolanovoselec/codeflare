@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 
+const persistence = vi.hoisted(() => ({ activations: 0 }));
+
 const host = vi.hoisted(() => ({
   commandHandler: undefined as (() => void) | undefined,
   messageHandler: undefined as ((message: unknown) => Promise<void>) | undefined,
@@ -13,6 +15,10 @@ const host = vi.hoisted(() => ({
 
 vi.mock('node:crypto', () => ({
   randomBytes: () => ({ toString: () => 'fixed-nonce-value' }),
+}));
+
+vi.mock('../src/extension-persistence.ts', () => ({
+  activateExtensionPersistence: async () => { persistence.activations += 1; },
 }));
 
 vi.mock('vscode', () => ({
@@ -71,6 +77,17 @@ afterEach(() => {
   host.revealed = 0;
   host.executed = [];
   host.html = '';
+  persistence.activations = 0;
+});
+
+test('REQ-IDE-036 AC3: welcome activation starts lazy extension persistence', () => {
+  vi.useFakeTimers();
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+
+  assert.equal(persistence.activations, 1);
+  for (const subscription of subscriptions) subscription.dispose();
 });
 
 test('REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action', async () => {

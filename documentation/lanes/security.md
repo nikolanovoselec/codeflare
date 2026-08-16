@@ -175,6 +175,13 @@ Vault/SilverBullet and Browser IDE require narrowly scoped framing/proxy behavio
 
 Public workspace selectors are rejected independently by Worker and host. Only the private loopback root request receives the fixed workspace. This constrains browser navigation, not terminal/trusted-extension filesystem access. The package is pinned and image-verified without patching code-server/Code OSS or Anthropic's official extension.
 
+<a id="browser-ide-user-extensions"></a>
+### User-installed Browser IDE extensions
+
+A user-installed extension is arbitrary root-capable code inside the session container. Pinned code-server also exposes proposed APIs broadly and disables VSIX signature verification; Open VSX over TLS is the v1 transport boundary. Before the first extension identity is persisted, the workbench requires one durable warning acknowledgement. Managed `extensions.allowed` deliberately bypasses publisher-trust modals so lazy restoration cannot block indefinitely; it is an operator policy seam, not artifact verification.
+
+Persistence stores only the validated 64 KiB intent manifest: lowercase IDs, exact versions, optional audit metadata, and bounded contributed global settings. It stores no VSIX/extracted bytes, extension/global/workspace storage, SecretStorage, Accounts, enablement, keybindings, snippets, or secondary downloads. Malformed or redirected content fails closed and remains unchanged. Pi, Claude, welcome, and unsupported base inventories remain image-owned; user directories exist only in the writable `/tmp` layer. Whole-file R2 convergence remains newest-wins, so simultaneous sessions are not serialized. [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions) and [AD132](../decisions/README.md#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) own this accepted boundary.
+
 <a id="browser-ide-native-agents"></a>
 ### Unsandboxed native agents
 

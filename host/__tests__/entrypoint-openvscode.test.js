@@ -11,7 +11,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, writeFileSync, existsSync, chmodSync, lstatSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +81,7 @@ function openvscodeLaunchScript({ stubAgentPreparation = true, stubUiState = tru
   const production = [
     extractOptionalFn('_openvscode_agent_kind'),
     extractOptionalFn('_openvscode_extensions_dir'),
+    extractOptionalFn('_openvscode_seed_extension_layer'),
     extractOptionalFn('_openvscode_prepare_agent'),
     extractOptionalFn('_openvscode_restore_ui_state'),
     extractFn('_openvscode_launch_once'),
@@ -100,10 +101,12 @@ function openvscodeSupervisorScript() {
     extractFn('_openvscode_should_launch'),
     openvscodeLaunchScript(),
     extractOptionalFn('_openvscode_capture_ui_state'),
+    extractOptionalFn('_openvscode_capture_extensions'),
     '_openvscode_capture_ui_state() { :; }',
+    '_openvscode_capture_extensions() { :; }',
     extractFn('_openvscode_supervise_loop'),
     'export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree',
-    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop',
+    'export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_seed_extension_layer _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_capture_extensions _openvscode_launch_once _openvscode_supervise_loop',
   ].join('\n');
 }
 
@@ -211,10 +214,64 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
       '--user-data-dir',
       '/tmp/openvscode-data/data',
       '--extensions-dir',
-      '/opt/codeflare/openvscode/extensions/claude',
+      '/tmp/openvscode-data/extensions',
       workspace,
       '---',
     ]);
+  });
+
+  it('REQ-IDE-036 AC3: seeds immutable base extensions into a writable session layer', () => {
+    const fixedRoot = join(dir, 'fixed');
+    const dataDir = join(dir, 'session-data');
+    const fixedPi = join(fixedRoot, 'pi', 'codeflare.codeflare-agent-sidebar');
+    const fixedClaude = join(fixedRoot, 'claude', 'anthropic.claude-code');
+    mkdirSync(fixedPi, { recursive: true });
+    mkdirSync(fixedClaude, { recursive: true });
+    writeFileSync(join(fixedPi, 'package.json'), '{"version":"0.0.0"}\n');
+    writeFileSync(join(fixedClaude, 'package.json'), '{"version":"2.1.224"}\n');
+    const sessionExtensions = join(dataDir, 'extensions');
+    const userExtension = join(sessionExtensions, 'redhat.vscode-yaml');
+    mkdirSync(userExtension, { recursive: true });
+    writeFileSync(join(userExtension, 'package.json'), '{"version":"1.24.0"}\n');
+    const stub = writeStub(dir, argsFile);
+    const before = readFileSync(join(fixedPi, 'package.json'), 'utf8');
+    const script = `${openvscodeLaunchScript()}
+_openvscode_extensions_dir() { printf '%s/%s' "$FIXED_ROOT" "$1"; }
+_openvscode_launch_once`;
+
+    const result = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: dataDir,
+      FIXED_ROOT: fixedRoot,
+      TAB_CONFIG: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      SESSION_ID: 'abcd1234',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const fixedLink = join(sessionExtensions, 'codeflare.codeflare-agent-sidebar');
+    assert.equal(lstatSync(fixedLink).isSymbolicLink(), true);
+    assert.equal(readlinkSync(fixedLink), fixedPi);
+    assert.equal(lstatSync(userExtension).isDirectory(), true, 'a real user extension coexists beside fixed symlinks');
+    assert.equal(readFileSync(join(fixedPi, 'package.json'), 'utf8'), before, 'session composition never mutates fixed bytes');
+    const args = readFileSync(argsFile, 'utf8').trim().split('\n');
+    assert.equal(args[args.indexOf('--extensions-dir') + 1], sessionExtensions);
+
+    const noneData = join(dir, 'none-data');
+    const noneArgs = join(dir, 'none-args.log');
+    const noneStub = writeStub(dir, noneArgs);
+    const noneResult = runBash(script, {
+      OPENVSCODE_BIN: noneStub,
+      OPENVSCODE_WORKSPACE: workspace,
+      OPENVSCODE_DATA_DIR: noneData,
+      FIXED_ROOT: fixedRoot,
+      TAB_CONFIG: JSON.stringify([{ id: '1', command: 'codex', label: 'Terminal 1' }]),
+      SESSION_ID: 'abcd1234',
+    });
+    assert.equal(noneResult.status, 0, noneResult.stderr);
+    assert.deepEqual(readdirSync(join(noneData, 'extensions')), []);
+    mkdirSync(join(noneData, 'extensions', 'user.fixture'));
+    assert.equal(lstatSync(join(noneData, 'extensions', 'user.fixture')).isDirectory(), true);
   });
 
   it('REQ-IDE-002 AC2: separate session launches use independent workspace and editor-state roots', () => {
@@ -348,9 +405,11 @@ _openvscode_launch_once`;
       const caseArgs = join(caseDir, 'args.log');
       const stub = writeSelectionStub(caseDir, caseArgs);
       const configSetup = config === undefined ? 'unset TAB_CONFIG' : ':';
+      const dataRoot = join(caseDir, 'data');
       const env = {
         OPENVSCODE_BIN: stub,
         OPENVSCODE_WORKSPACE: workspace,
+        OPENVSCODE_DATA_DIR: dataRoot,
         SESSION_ID: 'abcd1234',
         ...(config === undefined ? {} : { TAB_CONFIG: config }),
       };
@@ -362,7 +421,7 @@ _openvscode_launch_once`;
       const observed = {
         label,
         agent: lines.find((line) => line.startsWith('agent='))?.slice('agent='.length) ?? null,
-        directory: extensionsFlag === -1 ? null : lines[extensionsFlag + 1],
+        sessionLayer: extensionsFlag !== -1 && lines[extensionsFlag + 1] === join(dataRoot, 'extensions'),
         proposedApi: proposedApiFlag === -1 ? null : lines[proposedApiFlag + 1],
         leakedInput: config === undefined || config === '' ? false : lines.some((line) => line.includes(config)),
       };
@@ -373,7 +432,7 @@ _openvscode_launch_once`;
     assert.deepEqual(actual, cases.map(({ label, expected }) => ({
       label,
       agent: expected,
-      directory: `/opt/codeflare/openvscode/extensions/${expected}`,
+      sessionLayer: true,
       proposedApi: expected === 'pi' ? 'codeflare.codeflare-agent-sidebar' : null,
       leakedInput: false,
     })));
@@ -453,6 +512,39 @@ timeout 1 bash -c '_openvscode_supervise_loop' || true`;
     assert.equal(result.status, 0, result.stderr);
     const firstGeneration = readFileSync(events, 'utf8').trim().split('\n').slice(0, 3).map((line) => line.split(':')[0]);
     assert.deepEqual(firstGeneration, ['server-start', 'server-exit', 'capture']);
+  });
+
+  it('REQ-IDE-016 AC4: captures the extension registry exactly once after a generation exits', () => {
+    const events = join(dir, 'extension-events.log');
+    const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash
+printf 'server-start\n' >> "$EVENTS"
+trap 'printf "server-exit\\n" >> "$EVENTS"' EXIT
+exit 17
+`);
+    const script = `${openvscodeSupervisorScript()}
+_openvscode_capture_ui_state() { printf 'ui-capture\n' >> "$EVENTS"; }
+_openvscode_capture_extensions() { printf 'extension-capture:%s\n' "$1" >> "$EVENTS"; }
+export -f _openvscode_capture_ui_state _openvscode_capture_extensions
+timeout 1 bash -c '_openvscode_supervise_loop' || true`;
+
+    const result = runBash(script, {
+      OPENVSCODE_BIN: stub,
+      OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_DATA_DIR: join(dir, 'data'),
+      OPENVSCODE_REQUEST_TRIGGER: trigger,
+      CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234',
+      EVENTS: events,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const firstGeneration = readFileSync(events, 'utf8').trim().split('\n').slice(0, 4);
+    assert.deepEqual(firstGeneration.slice(0, 2), ['server-start', 'server-exit']);
+    assert.deepEqual(firstGeneration.slice(2).sort(), [
+      `extension-capture:${join(dir, 'data', 'extensions')}`,
+      'ui-capture',
+    ]);
+    assert.equal(firstGeneration.filter((event) => event.startsWith('extension-capture:')).length, 1);
   });
 
   it('REQ-IDE-003 AC4 + REQ-IDE-008 AC4: each restart creates one separately identifiable launch generation', () => {

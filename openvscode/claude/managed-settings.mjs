@@ -11,6 +11,7 @@ export function buildBaseOpenVscodeSettings() {
   return {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
   };
@@ -39,6 +40,7 @@ export function buildUnsupportedOpenVscodeSettings() {
 export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "security.workspace.trust.enabled",
   "extensions.ignoreRecommendations",
+  "extensions.allowed",
   "workbench.startupEditor",
   "chat.titleBar.signIn.enabled",
   "chat.disableAIFeatures",

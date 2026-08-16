@@ -13,11 +13,15 @@ import {
   normalizeIdeAgentKind,
   renderWelcomeHtml,
 } from './welcome.ts';
+import { activateExtensionPersistence } from './extension-persistence.ts';
+
+export { activateExtensionPersistence } from './extension-persistence.ts';
 
 const OPEN_WELCOME_COMMAND = 'codeflare.welcome.open';
 const OPEN_DELAY_MS = 250;
 
 export function activate(context: ExtensionContext): void {
+  void activateExtensionPersistence(context).catch(() => undefined);
   const presentation = buildWelcomePresentation(
     normalizeIdeAgentKind(process.env.CODEFLARE_SIDEBAR_AGENT),
   );
