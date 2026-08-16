@@ -374,11 +374,12 @@ test('REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progres
 test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
   const markdown: string[] = [];
   const thinking: string[] = [];
+  const progress: string[] = [];
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('replace the selected function', {
     markdown: (value) => markdown.push(value),
-    progress: () => undefined,
+    progress: (value) => progress.push(value),
     thinking: (value) => thinking.push(value),
   });
   await waitForImmediate();
@@ -443,6 +444,8 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
   ]);
   assert.deepEqual(markdown, []);
   assert.deepEqual(thinking, ['Preparing the smallest editor change.']);
+  assert.equal(progress.length, 1);
+  assert.ok(progress[0]);
   await backend.stop();
 });
 

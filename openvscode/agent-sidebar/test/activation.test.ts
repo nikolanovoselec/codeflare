@@ -249,10 +249,11 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-own
   nativeChat.runNativePiChat.mockImplementation(async (options: {
     mode: string;
     input: { prompt: string };
-    response: { thinking?(value: string): void; textEdit(edits: unknown[]): void };
+    response: { progress(value: string): void; thinking?(value: string): void; textEdit(edits: unknown[]): void };
   }) => {
     assert.equal(options.mode, 'inline-edit');
     assert.equal(options.input.prompt, 'inline first');
+    options.response.progress('Preparing native editor changes…');
     options.response.thinking?.('Preparing a bounded change.');
     options.response.textEdit([{
       startLine: 0,
@@ -281,9 +282,8 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-own
   );
   const result = await invoke();
 
-  assert.equal(host.executedCommand, undefined);
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
-  assert.equal(progress.length, 1);
+  assert.equal(progress.length, 2);
   assert.ok(progress[0]);
   assert.deepEqual(reasoning, [{ id: 'codeflare-pi-inline-reasoning', text: 'Preparing a bounded change.' }]);
   assert.deepEqual(result, {
@@ -327,6 +327,12 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-own
     details: 'Codeflare prepared 1 proposed edit. Use Keep or Undo to review it.',
     metadata: {},
   });
+  assert.equal(host.executedCommand, undefined);
+
+  host.informationPromise = undefined;
+  const dismissedResult = await invoke();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(dismissedResult, nonBlockingResult);
   assert.equal(host.executedCommand, undefined);
 });
 
