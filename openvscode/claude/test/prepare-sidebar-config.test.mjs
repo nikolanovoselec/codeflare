@@ -178,6 +178,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
   await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
     "workbench.colorTheme": "Default Light Modern",
     "keyboard.layout": "de",
+    "workbench.startupEditor": "welcomePage",
     "chat.disableAIFeatures": false,
     "chat.titleBar.signIn.enabled": true,
     "chat.notifyWindowOnResponseReceived": "off",
@@ -194,6 +195,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",

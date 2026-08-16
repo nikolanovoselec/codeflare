@@ -726,7 +726,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Pi, Claude, and unsupported sessions open one Codeflare welcome editor with non-empty owned HTML. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) -->
+1. Pi, Claude, and unsupported sessions open exactly one startup welcome editor: Codeflare's non-empty owned HTML. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) -->
 2. The welcome editor explains full VS Code availability, the observability-plane role, and the shared isolated ephemeral container. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
 3. The welcome editor adapts to light and dark themes, responsive viewport widths, and reduced-motion preferences. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @manual: On deployed integration, verify the welcome editor in light and dark themes at desktop and mobile widths, including reduced motion. -->
 4. The welcome action opens Codeflare Chat for Pi, opens the official Claude Code panel for Claude, and exposes no agent action for unsupported selections. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent) -->
@@ -825,7 +825,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Tool progress exposes neither command arguments nor file contents.
-- Editor Inline Chat remains a host-owned edit transaction and does not render panel reasoning.
+- Editor Inline Chat remains a host-owned edit transaction and does not render final-answer markdown.
 - code-server and Code OSS source remain unmodified.
 
 **Priority:** P2
@@ -862,6 +862,38 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
 **Verification:** GitHub Actions validates both Pi 0.84.1 dispatch-error envelopes and unrelated-error isolation. Fresh integration verifies that an editor request either renders host-owned edits or rejects without an indefinite wait.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-029: Native Inline Chat feedback
+
+**Intent:** A user can follow an editor request before its proposed changes open and can identify the completed native review action afterward.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An accepted editor request immediately shows bounded progress in the native Inline Chat surface. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+2. Provider-emitted reasoning streams through the editor's native thinking presentation. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+3. Final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal without markdown) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+4. A completed editor proposal reports its edit count. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+5. The completed proposal presents a visible Keep action for the proposed file. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+6. The completed proposal presents a visible Undo action for the proposed file. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029: inline-first renders one host-owned edit with native feedback) -->
+
+**Constraints:**
+
+- Feedback remains in native Inline Chat and never hands the request to panel Chat.
+- Pi does not apply proposed edits directly.
+- Dismissing or ignoring the Keep/Undo notification does not block request completion.
+- code-server and Code OSS source remain unmodified.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-proposal-validation)
+
+**Verification:** GitHub Actions validates immediate progress, native reasoning, hidden final markdown, edit-count details, both review actions, and non-blocking dismissal. Fresh integration verifies visible feedback and both file-scoped review actions.
 
 **Status:** Partial
 

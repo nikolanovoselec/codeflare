@@ -427,11 +427,13 @@ export class PiRpcBackend {
           return;
         }
         turn.settled = true;
-      } else if (!turn.inlineRequestId) {
+      } else {
         const thinking = assistantThinkingDelta(envelope);
         if (thinking) turn.observer.thinking?.(thinking);
-        const text = assistantTextDelta(envelope);
-        if (text) turn.observer.markdown(text);
+        if (!turn.inlineRequestId) {
+          const text = assistantTextDelta(envelope);
+          if (text) turn.observer.markdown(text);
+        }
       }
       this.#completeTurn();
       return;

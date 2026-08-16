@@ -18,7 +18,7 @@ The directory name is a retained private migration identifier. The selected IDE 
 
 An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty inventory. Classification never executes or rewrites the terminal command.
 
-Every inventory opens the separate owned Codeflare welcome editor with self-contained nonce-bound HTML. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface or external content.
+Every inventory manages `workbench.startupEditor` to `none`, suppressing code-server's default Welcome editor, then opens only the owned Codeflare welcome editor with self-contained nonce-bound HTML. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface or external content.
 
 ## Package map
 
@@ -36,7 +36,7 @@ Every inventory opens the separate owned Codeflare welcome editor with self-cont
 
 The owned extension registers stable participant ID `codeflare.pi`, visibly named **Codeflare**, in panel Chat and the pinned editor Inline Chat surface. Its hidden fallback and visible account-free model exist only to satisfy the pinned host's eligibility and model lookup; neither performs inference or requests authorization.
 
-The private request-location proposal distinguishes editor submissions. Because Code OSS 1.132 Inline Chat expects host-owned edit transactions, an editor turn temporarily exposes one Pi proposal tool and emits validated `textEdit` parts against the captured document version. It neither invokes the termination-only continuation action nor replays direct filesystem writes. Pi RPC remains the inference path and does not use VS Code Authentication or Copilot.
+The private request-location proposal distinguishes editor submissions. Because Code OSS 1.132 Inline Chat expects host-owned edit transactions, an editor turn temporarily exposes one Pi proposal tool and emits validated `textEdit` parts against the captured document version. It publishes bounded progress and provider reasoning in the native editor surface, then returns edit-count details and non-blocking Keep/Undo actions with the completed transaction. It neither invokes the termination-only continuation action nor replays direct filesystem writes. Pi RPC remains the inference path and does not use VS Code Authentication or Copilot.
 
 Pi disables the host's unrelated built-in AI setup through managed settings and reasserts that setup hidden before refreshing its account-free models, so the bottom-right status does not compete with Codeflare; the registered participant remains available, while provider generation and VS Code Authentication stay outside Pi inference.
 

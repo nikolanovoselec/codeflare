@@ -126,6 +126,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
         }
         const baseVersion = document.version;
         const inlineResponse = response as typeof response & InlineEditResponseStream;
+        const thinkingResponse = response as typeof response & ThinkingResponseStream;
+        let proposedEditCount = 0;
+        response.progress('Codeflare is preparing editor changes…');
         const input = Promise.all([
           collectNativePiPromptInput(request, chatContext),
           canonicalWorkspaceFilePath(document.uri),
@@ -139,6 +142,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
           response: {
             markdown: () => undefined,
             progress: (value) => response.progress(value),
+            thinking: (value) => thinkingResponse.thinkingProgress({
+              id: 'codeflare-pi-inline-reasoning',
+              text: value,
+            }),
             textEdit: (edits) => {
               if (document.isClosed) throw new Error('Native Inline Chat target closed before proposal completion');
               const validated = validateInlineTextEdits({
@@ -146,6 +153,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
                 lineCount: document.lineCount,
                 lineLength: (line) => document.lineAt(line).text.length,
               }, baseVersion, edits);
+              proposedEditCount = validated.length;
               inlineResponse.textEdit(document.uri, validated.map((edit) => TextEdit.replace(
                 new Range(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter),
                 edit.newText,
@@ -155,7 +163,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
           },
           cancellation,
         });
-        return;
+        if (cancellation.isCancellationRequested) return;
+        const plural = proposedEditCount === 1 ? '' : 's';
+        const pronoun = proposedEditCount === 1 ? 'it' : 'them';
+        const details = `Codeflare prepared ${proposedEditCount} proposed edit${plural}. Use Keep or Undo to review ${pronoun}.`;
+        void Promise.resolve(window.showInformationMessage(details, 'Keep', 'Undo')).then(async (action) => {
+          if (action === 'Keep') await commands.executeCommand('chatEditing.acceptFile', document.uri);
+          if (action === 'Undo') await commands.executeCommand('chatEditing.discardFile', document.uri);
+        }).catch(() => undefined);
+        return { details, metadata: {} };
       }
       const thinkingResponse = response as typeof response & ThinkingResponseStream;
       await runtime.handle({

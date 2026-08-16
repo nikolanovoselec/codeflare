@@ -5,11 +5,13 @@ import { isAbsolute, resolve } from "node:path";
 // session workspace without VS Code's trust prompt -- the container is already
 // the security boundary and IDE agents run unrestricted, so the trust gate adds
 // no protection (REQ-IDE-009, AD114). Ignoring recommendations suppresses the
-// cloned repository's "install recommended extensions" prompt.
+// cloned repository's "install recommended extensions" prompt. Disabling the
+// default startup editor leaves the owned Codeflare welcome as the sole welcome.
 export function buildBaseOpenVscodeSettings() {
   return {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
   };
 }
@@ -36,6 +38,7 @@ export function buildUnsupportedOpenVscodeSettings() {
 export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "security.workspace.trust.enabled",
   "extensions.ignoreRecommendations",
+  "workbench.startupEditor",
   "chat.titleBar.signIn.enabled",
   "chat.disableAIFeatures",
   "chat.notifyWindowOnResponseReceived",
