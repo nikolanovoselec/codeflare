@@ -504,6 +504,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
         return activeEditorDocument ?? (activeEditorUri ? { document: { uri: activeEditorUri } } : undefined);
       },
       showWarningMessage: async () => undefined,
+      showInformationMessage: async () => undefined,
       showTextDocument: async () => undefined,
     },
     workspace: {
