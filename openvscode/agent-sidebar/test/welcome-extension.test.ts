@@ -35,7 +35,10 @@ vi.mock('vscode', () => ({
     createWebviewPanel: () => {
       host.created += 1;
       const webview = {
-        cspSource: 'vscode-webview://codeflare',
+        // Built-in web extensions can receive the extension CDN source and the
+        // generic webview source as one CSP source-list. The welcome owns no
+        // external resources, so that host value must never leave the panel blank.
+        cspSource: 'https://codeflare.example/extensions/codeflare-welcome/ vscode-webview://codeflare',
         get html() { return host.html; },
         set html(value: string) { host.html = value; },
         onDidReceiveMessage: (handler: (message: unknown) => Promise<void>) => {

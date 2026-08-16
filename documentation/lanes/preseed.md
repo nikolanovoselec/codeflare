@@ -509,6 +509,8 @@ export a default factory function. Pure helper modules such as
 factory alongside their named exports, or Pi aborts startup with
 `Extension does not export a valid factory function`.
 
+`inline-edit.ts` is the managed endpoint for [native Pi editor proposals](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits). It removes its proposal tool at session start, activates only that tool for a correlated `/codeflare-inline-edit` turn, dispatches the decoded prompt through Pi's `ExtensionAPI.sendUserMessage`, rejects duplicate or mismatched submissions, and restores the exact previous tool list at settlement. Panel turns therefore retain their unrestricted tool set without loading another Pi process. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+
 Native skill overrides include graphify
 ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
 AC7), `review`, `review-scope`, and the Pi spec/doc enforcement families.
@@ -1441,6 +1443,7 @@ Exhaustive Agents and Memory status remains in the active SDD; section-local lin
 | Review/CI/governance runtime | REQ-AGENT-015/036-126 as linked in sections | rules, skills, Pi extension, agent definitions | policy contract and workflow behavioral tests |
 | Graphify | REQ-AGENT-023/025/026/043/127/128 | Graphify plugin/scripts and Pi tools | build-mode, publication, and graph-limit checks |
 | Provider/tool integration | REQ-AGENT-017/019/020/027-032/067/069/118 | entrypoint, setup, skills, MCP adapters | agent-specific projection and isolation tests |
+| Native editor proposal mode | REQ-IDE-025/026 | `inline-edit.ts`, Pi manifest, generated seed | proposal-only mode and exact-restoration tests |
 | Memory capture/extraction | REQ-MEM-013/016/017/018 | hooks and capture/extract agent definitions | bounded profile and deterministic identity tests |
 | SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
 

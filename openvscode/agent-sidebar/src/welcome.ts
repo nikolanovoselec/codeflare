@@ -64,14 +64,13 @@ export function buildWelcomePresentation(kind: IdeAgentKind): WelcomePresentatio
   });
 }
 
+// The page is self-contained, so webview.cspSource is intentionally not an
+// input. Built-in web extensions can receive a space-separated source list;
+// rejecting that unused host value left the already-created panel without HTML.
 export function renderWelcomeHtml(
   presentation: WelcomePresentation,
-  cspSource: string,
   nonce: string,
 ): string {
-  if (!/^[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+$/i.test(cspSource)) {
-    throw new TypeError('Invalid webview CSP source');
-  }
   if (!/^[a-zA-Z0-9_-]{8,128}$/.test(nonce)) throw new TypeError('Invalid webview nonce');
   const agentKind = escapeHtml(presentation.agentKind);
   const runtimeLabel = escapeHtml(presentation.runtimeLabel);

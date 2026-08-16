@@ -56,7 +56,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(manifest.dependencies['@github/copilot'], originalCopilotVersion, 'the source manifest must not be mutated');
   });
 
-  it('REQ-OPS-002 AC7: packaged-image smoke activates an extension through its VS Code EventEmitter shim', () => {
+  it('REQ-OPS-002 AC7: packaged-image smoke activates an extension through its VS Code EventEmitter shim', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'sidebar-smoke-activation-'));
     try {
       const extensionMain = join(fixture, 'extension.cjs');
@@ -72,7 +72,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       ].join('\n'));
       const context = { observed: [], subscriptions: [] };
 
-      activateExtensionWithVscode(extensionMain, createVscodeSmokeApi({}), context);
+      await activateExtensionWithVscode(extensionMain, createVscodeSmokeApi({}), context);
 
       assert.deepEqual(context.observed, ['ready']);
       assert.equal(context.subscriptions.length, 1);

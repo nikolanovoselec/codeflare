@@ -41,7 +41,6 @@ export function activate(context: ExtensionContext): void {
     panel.iconPath = Uri.joinPath(context.extensionUri, 'media', 'agent.svg');
     panel.webview.html = renderWelcomeHtml(
       presentation,
-      panel.webview.cspSource,
       randomBytes(18).toString('base64url'),
     );
     const messages = panel.webview.onDidReceiveMessage(async (message: unknown) => {

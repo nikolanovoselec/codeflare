@@ -14,8 +14,8 @@ import {
   type ChatResponseTurn,
   type Diagnostic,
   type Location,
+  type Selection,
   type TextDocument,
-  type TextEditor,
   type Uri,
 } from 'vscode';
 
@@ -31,12 +31,19 @@ const WORKSPACE_ROOT = '/home/user/workspace';
 const MAX_COLLECTED_DOCUMENTS = 32;
 const MAX_COLLECTED_DIAGNOSTICS = 256;
 
+export interface NativePiEditorSource {
+  readonly document: TextDocument;
+  readonly selection: Selection;
+  readonly wholeRange?: Range;
+}
+
 interface ActiveEditorSnapshot {
   readonly uri: Uri;
   readonly languageId: string;
   readonly dirty: boolean;
   readonly content: string;
   readonly selection?: NonNullable<NativePiActiveEditor['selection']>;
+  readonly wholeRange?: NonNullable<NativePiActiveEditor['wholeRange']>;
 }
 
 interface ReferenceSnapshot {
@@ -64,6 +71,7 @@ export async function collectNativePiPromptInput(
   request: ChatRequest,
   context: ChatContext,
   workspaceRoot: string = WORKSPACE_ROOT,
+  editorSource: NativePiEditorSource | undefined = window.activeTextEditor,
 ): Promise<NativePiPromptInput> {
   // Snapshot host-owned request state before the first await. The persistent
   // runtime may queue this turn behind another, and a later editor focus change
@@ -73,7 +81,7 @@ export async function collectNativePiPromptInput(
   const documentSnapshots = workspace.textDocuments.filter((document) => !document.isClosed);
   const referenceSnapshots = snapshotReferences(requestReferences, documentSnapshots);
   const history = collectHistory(context);
-  const activeEditorSnapshot = snapshotActiveEditor(window.activeTextEditor);
+  const activeEditorSnapshot = snapshotActiveEditor(editorSource);
   const diagnosticSnapshots = snapshotDiagnostics(activeEditorSnapshot?.uri, requestReferences);
   const canonicalRoot = await realpath(workspaceRoot);
   const activeEditor = await collectActiveEditor(activeEditorSnapshot, canonicalRoot);
@@ -99,7 +107,7 @@ export async function collectNativePiPromptInput(
   };
 }
 
-function snapshotActiveEditor(editor: TextEditor | undefined): ActiveEditorSnapshot | undefined {
+function snapshotActiveEditor(editor: NativePiEditorSource | undefined): ActiveEditorSnapshot | undefined {
   if (!editor) return undefined;
   const selection = editor.selection;
   return {
@@ -114,6 +122,12 @@ function snapshotActiveEditor(editor: TextEditor | undefined): ActiveEditorSnaps
       endColumn: selection.end.character + 1,
       text: editor.document.getText(selection),
     },
+    wholeRange: editor.wholeRange ? {
+      startLine: editor.wholeRange.start.line + 1,
+      startColumn: editor.wholeRange.start.character + 1,
+      endLine: editor.wholeRange.end.line + 1,
+      endColumn: editor.wholeRange.end.character + 1,
+    } : undefined,
   };
 }
 
@@ -130,6 +144,7 @@ async function collectActiveEditor(
     dirty: editor.dirty,
     content: editor.content,
     selection: editor.selection,
+    wholeRange: editor.wholeRange,
   };
 }
 

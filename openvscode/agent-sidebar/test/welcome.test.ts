@@ -55,7 +55,6 @@ test('REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations
     const presentation = buildWelcomePresentation(kind);
     const html = renderWelcomeHtml(
       presentation,
-      'vscode-webview://codeflare',
       'fixed-nonce',
     );
 

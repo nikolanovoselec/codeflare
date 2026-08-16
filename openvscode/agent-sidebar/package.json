@@ -21,6 +21,7 @@
   ],
   "enabledApiProposals": [
     "chatParticipantAdditions",
+    "chatParticipantPrivate",
     "chatProvider",
     "defaultChatParticipant"
   ],

@@ -47,6 +47,7 @@ export interface NativePiActiveEditor {
   readonly dirty: boolean;
   readonly content: string;
   readonly selection?: NativePiSelection;
+  readonly wholeRange?: Omit<NativePiSelection, 'text'>;
 }
 
 export interface NativePiDiagnostic {
@@ -64,6 +65,22 @@ export interface NativePiReference {
   readonly text?: string;
   readonly description?: string;
 }
+
+export interface NativePiTextEdit {
+  readonly startLine: number;
+  readonly startCharacter: number;
+  readonly endLine: number;
+  readonly endCharacter: number;
+  readonly newText: string;
+}
+
+export interface NativePiInlineEditProposal {
+  readonly requestId: string;
+  readonly summary: string;
+  readonly edits: readonly NativePiTextEdit[];
+}
+
+export type NativePiTurnMode = 'chat' | 'inline-edit';
 
 /** The editor-context object as serialized into the prompt, before any section is dropped. */
 interface ContextSections {
@@ -87,10 +104,12 @@ export interface NativePiPromptInput {
 export interface NativePiTurnObserver {
   markdown(value: string): void;
   progress(value: string): void;
+  thinking?(value: string): void;
 }
 
 export interface NativePiBackend {
   runPrompt(message: string, observer: NativePiTurnObserver): Promise<void>;
+  runInlineEditPrompt?(message: string, observer: NativePiTurnObserver): Promise<NativePiInlineEditProposal>;
   abort(): Promise<void>;
   stop(): Promise<void>;
   isReusable(): boolean;
@@ -105,9 +124,12 @@ export interface NativePiCancellation {
   onCancellationRequested(listener: () => void): NativePiDisposable;
 }
 
-export interface NativePiResponse extends NativePiTurnObserver {}
+export interface NativePiResponse extends NativePiTurnObserver {
+  textEdit?(edits: readonly NativePiTextEdit[], proposal: NativePiInlineEditProposal): void;
+}
 
 export interface RunNativePiChatOptions {
+  readonly mode: NativePiTurnMode;
   readonly input: NativePiPromptInput;
   readonly response: NativePiResponse;
   readonly cancellation: NativePiCancellation;
@@ -119,6 +141,7 @@ export type NativePiTurnResult = 'completed' | 'cancelled';
 export type NativePiTurnRunner = (options: RunNativePiChatOptions) => Promise<NativePiTurnResult>;
 
 export interface NativePiRuntimeRequest {
+  readonly mode?: NativePiTurnMode;
   readonly input: NativePiPromptInput | PromiseLike<NativePiPromptInput>;
   readonly response: NativePiResponse;
   readonly cancellation: NativePiCancellation;
@@ -187,6 +210,7 @@ export class NativePiRuntime {
 
     try {
       const result = await this.#runTurn({
+        mode: request.mode ?? 'chat',
         input,
         response: request.response,
         cancellation: request.cancellation,
@@ -256,6 +280,12 @@ export function buildNativePiPrompt(
       endLine: input.activeEditor.selection.endLine,
       endColumn: input.activeEditor.selection.endColumn,
       text: truncateUtf8(input.activeEditor.selection.text, MAX_SELECTION_BYTES),
+    } : undefined,
+    wholeRange: input.activeEditor.wholeRange ? {
+      startLine: input.activeEditor.wholeRange.startLine,
+      startColumn: input.activeEditor.wholeRange.startColumn,
+      endLine: input.activeEditor.wholeRange.endLine,
+      endColumn: input.activeEditor.wholeRange.endColumn,
     } : undefined,
   } : undefined;
   // From the tail: history arrives oldest-first, and a replay that runs out of
@@ -343,10 +373,16 @@ export async function runNativePiChat(options: RunNativePiChatOptions): Promise<
   if (options.cancellation.isCancellationRequested) requestAbort();
   try {
     if (!cancelled) {
-      await options.backend.runPrompt(
-        buildNativePiPrompt(options.input, { hydrateHistory: options.hydrateHistory }),
-        options.response,
-      );
+      const prompt = buildNativePiPrompt(options.input, { hydrateHistory: options.hydrateHistory });
+      if (options.mode === 'inline-edit') {
+        if (!options.backend.runInlineEditPrompt || !options.response.textEdit) {
+          throw new Error('Native Pi backend does not support host-owned Inline Chat edits');
+        }
+        const proposal = await options.backend.runInlineEditPrompt(prompt, options.response);
+        if (!cancelled) options.response.textEdit(proposal.edits, proposal);
+      } else {
+        await options.backend.runPrompt(prompt, options.response);
+      }
     }
   } catch (error) {
     if (!cancelled) throw error;

@@ -12,8 +12,6 @@ import {
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
 const PROFILE_STORAGE_MAX_BYTES = 256 * 1024;
-const HIDDEN_STATUS_ENTRY_STORAGE_KEY = "workbench.statusbar.hidden";
-const HIDDEN_STATUS_ENTRY_ID = "chat.statusBarEntry";
 const ACCOUNTS_VISIBILITY_STORAGE_KEY = "workbench.activity.showAccounts";
 
 export const SIDEBAR_LINK_ALLOWLIST = Object.freeze([
@@ -118,9 +116,9 @@ async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
 }
 
 async function writeOpenVscodeProfileState(serverDataRoot) {
-  // The code-server web workbench resolves BrowserWorkbenchEnvironmentService.stateResource
-  // to <user-data-dir>/User/State/storage.json. User/globalStorage serves unrelated
-  // extension storage and is not the workbench profile-state resource.
+  // Keep the existing bounded server-side State resource for the Accounts
+  // preference only. Code OSS 1.132 owns status-entry visibility in browser
+  // IndexedDB, so Pi setup chrome is handled by managed settings and extension context instead.
   const storageDirectory = resolve(serverDataRoot, "data", "User", "State");
   const storagePath = resolve(storageDirectory, "storage.json");
   await mkdir(storageDirectory, { mode: 0o700, recursive: true });
@@ -145,20 +143,8 @@ async function writeOpenVscodeProfileState(serverDataRoot) {
     }
     preserved = parsed;
   }
-  const existingHidden = preserved[HIDDEN_STATUS_ENTRY_STORAGE_KEY];
-  let hiddenEntries = [];
-  if (typeof existingHidden === "string") {
-    try {
-      const parsed = JSON.parse(existingHidden);
-      if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string")) hiddenEntries = parsed;
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-    }
-  }
-  if (!hiddenEntries.includes(HIDDEN_STATUS_ENTRY_ID)) hiddenEntries.push(HIDDEN_STATUS_ENTRY_ID);
   const serialized = `${JSON.stringify({
     ...preserved,
-    [HIDDEN_STATUS_ENTRY_STORAGE_KEY]: JSON.stringify(hiddenEntries),
     [ACCOUNTS_VISIBILITY_STORAGE_KEY]: "false",
   }, null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > PROFILE_STORAGE_MAX_BYTES) {

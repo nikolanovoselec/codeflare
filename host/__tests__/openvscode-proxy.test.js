@@ -104,24 +104,24 @@ describe('vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navig
   });
 });
 
-describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)', () => {
+describe('projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)', () => {
   const html = (config) => `<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="${JSON.stringify(config).replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"><title>Code</title>`;
   const configuration = (document) => JSON.parse(
     document.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1]
       .replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&'),
   );
 
-  it('projects the fixed remote folder and preserves unrelated pinned-host configuration', () => {
+  it('projects the fixed remote folder with the browser authority and preserves unrelated pinned-host configuration', () => {
     const projected = projectVscodeWorkbenchWorkspace(html({
-      remoteAuthority: 'codeflare.example',
-      folderUri: { scheme: 'vscode-remote', authority: 'codeflare.example', path: '/tmp/old' },
+      remoteAuthority: 'remote',
+      folderUri: { scheme: 'vscode-remote', authority: 'remote', path: '/tmp/old' },
       productConfiguration: { nameShort: 'Code' },
       opaqueServerSetting: { nested: ['preserve', { value: 7 }] },
-    }));
+    }), 'codeflare.example');
 
     assert.ok(projected);
     assert.deepEqual(configuration(projected), {
-      remoteAuthority: 'codeflare.example',
+      remoteAuthority: 'remote',
       folderUri: {
         scheme: 'vscode-remote',
         authority: 'codeflare.example',
@@ -138,9 +138,9 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed
       dollars: "$& $' $` literal",
     };
     const projected = projectVscodeWorkbenchWorkspace(html({
-      remoteAuthority: 'codeflare.example',
+      remoteAuthority: 'remote',
       opaqueServerSetting,
-    }));
+    }), 'codeflare.example');
 
     assert.ok(projected);
     assert.deepEqual(configuration(projected).opaqueServerSetting, opaqueServerSetting);
@@ -153,12 +153,12 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed
     // assertions. This expected string is authored by hand from the entity
     // contract, not derived from the implementation.
     const projected = projectVscodeWorkbenchWorkspace(html({
-      remoteAuthority: 'codeflare.example',
+      remoteAuthority: 'remote',
       x: 'a&b',
-    }));
+    }), 'codeflare.example');
     assert.ok(projected);
     assert.ok(projected.includes(
-      'data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.example&quot;,'
+      'data-settings="{&quot;remoteAuthority&quot;:&quot;remote&quot;,'
       + '&quot;x&quot;:&quot;a&amp;b&quot;,'
       + '&quot;folderUri&quot;:{&quot;scheme&quot;:&quot;vscode-remote&quot;,'
       + '&quot;authority&quot;:&quot;codeflare.example&quot;,'
@@ -175,7 +175,12 @@ describe('projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed
       html({ remoteAuthority: '' }),
       `${marker}${'x'.repeat(2 * 1024 * 1024)}`,
     ];
-    assert.deepEqual(cases.map(projectVscodeWorkbenchWorkspace), cases.map(() => null));
+    assert.deepEqual(
+      cases.map((document) => projectVscodeWorkbenchWorkspace(document, 'codeflare.example')),
+      cases.map(() => null),
+    );
+    assert.equal(projectVscodeWorkbenchWorkspace(marker, ''), null);
+    assert.equal(projectVscodeWorkbenchWorkspace(marker, 'https://codeflare.example/path'), null);
   });
 });
 
