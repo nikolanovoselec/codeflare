@@ -15,6 +15,7 @@ const MAX_INLINE_EDIT_BYTES = 256 * 1024;
 export interface PiTurnObserver {
   markdown(value: string): void;
   progress(value: string): void;
+  thinking?(value: string): void;
 }
 
 interface ActiveTurn {
@@ -24,6 +25,7 @@ interface ActiveTurn {
   completed: boolean;
   inlineRequestId: string | undefined;
   inlineEdits: readonly NativePiTextEdit[] | undefined;
+  readonly reportedActivities: Set<string>;
   readonly observer: PiTurnObserver;
   readonly cancellation: AbortController;
   readonly promise: Promise<readonly NativePiTextEdit[] | undefined>;
@@ -247,6 +249,7 @@ export class PiRpcBackend {
       completed: false,
       inlineRequestId,
       inlineEdits: undefined,
+      reportedActivities: new Set(),
       observer,
       cancellation: new AbortController(),
       promise,
@@ -409,7 +412,11 @@ export class PiRpcBackend {
           }
           turn.observer.progress('Preparing native editor changes…');
         } else {
-          turn.observer.progress(`Running ${envelope.toolName}…`);
+          const activity = toolActivity(envelope.toolName);
+          if (!turn.reportedActivities.has(activity.key)) {
+            turn.reportedActivities.add(activity.key);
+            turn.observer.progress(activity.label);
+          }
         }
       } else if (envelope.type === 'agent_settled') {
         if (turn.inlineRequestId && !turn.inlineEdits) {
@@ -418,6 +425,8 @@ export class PiRpcBackend {
         }
         turn.settled = true;
       } else if (!turn.inlineRequestId) {
+        const thinking = assistantThinkingDelta(envelope);
+        if (thinking) turn.observer.thinking?.(thinking);
         const text = assistantTextDelta(envelope);
         if (text) turn.observer.markdown(text);
       }
@@ -535,10 +544,37 @@ function createTransport(): StrictPiJsonlTransport {
   });
 }
 
+function assistantThinkingDelta(envelope: PiRpcEnvelope): string | undefined {
+  if (envelope.type !== 'message_update' || !isRecord(envelope.assistantMessageEvent)) return undefined;
+  const event = envelope.assistantMessageEvent;
+  return event.type === 'thinking_delta' && typeof event.delta === 'string' ? event.delta : undefined;
+}
+
 function assistantTextDelta(envelope: PiRpcEnvelope): string | undefined {
   if (envelope.type !== 'message_update' || !isRecord(envelope.assistantMessageEvent)) return undefined;
   const event = envelope.assistantMessageEvent;
   return event.type === 'text_delta' && typeof event.delta === 'string' ? event.delta : undefined;
+}
+
+function toolActivity(toolName: string): { readonly key: string; readonly label: string } {
+  switch (toolName.toLowerCase()) {
+    case 'read':
+    case 'grep':
+    case 'find':
+    case 'search':
+    case 'ls':
+      return { key: 'inspect', label: 'Inspecting workspace…' };
+    case 'bash':
+    case 'shell':
+      return { key: 'command', label: 'Running command…' };
+    case 'edit':
+    case 'write':
+      return { key: 'edit', label: 'Editing files…' };
+    case 'subagent':
+      return { key: 'delegate', label: 'Delegating analysis…' };
+    default:
+      return { key: 'other', label: 'Using workspace tools…' };
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

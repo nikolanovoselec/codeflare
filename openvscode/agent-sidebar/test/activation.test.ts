@@ -288,11 +288,12 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
   const backends: unknown[] = [];
   const modes: string[] = [];
   const answers: string[] = [];
+  const reasoning: unknown[] = [];
   const inlineEdits: unknown[] = [];
   nativeChat.runNativePiChat.mockImplementation(async (options: {
     mode: string;
     input: { prompt: string };
-    response: { markdown(value: string): void; textEdit?(edits: unknown[]): void };
+    response: { markdown(value: string): void; thinking?(value: string): void; textEdit?(edits: unknown[]): void };
     backend: unknown;
   }) => {
     backends.push(options.backend);
@@ -306,6 +307,7 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
         newText: 'return generated;',
       }]);
     } else {
+      options.response.thinking?.('Checking the selected architecture.');
       options.response.markdown(`answer:${options.input.prompt}`);
     }
     return 'completed';
@@ -317,7 +319,11 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
   await host.participantHandler(
     { location: 1, prompt: 'panel first', references: [] },
     { history: [] },
-    { markdown: (value: string) => answers.push(value), progress() {} },
+    {
+      markdown: (value: string) => answers.push(value),
+      progress() {},
+      thinkingProgress: (value: unknown) => reasoning.push(value),
+    },
     cancellation,
   );
   await host.participantHandler(
@@ -333,6 +339,7 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
 
   assert.deepEqual(modes, ['chat', 'inline-edit']);
   assert.deepEqual(answers, ['answer:panel first']);
+  assert.deepEqual(reasoning, [{ id: 'codeflare-pi-reasoning', text: 'Checking the selected architecture.' }]);
   assert.equal(inlineEdits.length, 2);
   assert.equal(inlineEdits[1], true);
   assert.equal(backends.length, 2);

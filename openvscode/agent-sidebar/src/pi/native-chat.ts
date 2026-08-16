@@ -97,6 +97,7 @@ export interface NativePiPromptInput {
 export interface NativePiTurnObserver {
   markdown(value: string): void;
   progress(value: string): void;
+  thinking?(value: string): void;
 }
 
 export interface NativePiBackend {

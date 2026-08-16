@@ -758,16 +758,16 @@ A full code-server browser editor for an advanced running session. The editor op
 
 1. Participant requests invoke the local Pi RPC backend instead of either compatibility provider's generation path. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025 AC1: participant requests run the local Pi backend without provider generation) -->
 2. The Browser IDE creates at most one lazy IDE-owned Pi process, separate from terminal Pi. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
-3. Panel and editor turns reuse that process. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
-4. Panel and editor turns retain one in-memory Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: panel and native inline edit turns reuse one backend with surface-specific output) -->
-5. Panel turns retain their existing unrestricted tool set without editor permission prompts. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
-6. An editor turn activates only `codeflare_submit_inline_edits`, then dispatches its prompt once through Pi's `ExtensionAPI.sendUserMessage`. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+3. Panel and editor turns retain one in-memory Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: panel and native inline edit turns reuse one backend with surface-specific output) -->
+4. Panel turns retain their existing unrestricted tool set without editor permission prompts. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
+5. An editor turn activates only `codeflare_submit_inline_edits`. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+6. That editor command dispatches exactly one prompt into the shared IDE Pi conversation. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
 7. Editor settlement restores the exact prior panel tool set before the external RPC settlement releases the next turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
 
 **Constraints:**
 
 - The fixed local `pi --mode rpc --no-session --no-themes` process serializes all IDE turns.
-- Pi 0.84.0 awaits extension settlement handlers before emitting external settlement.
+- Pi 0.84.1 awaits extension settlement handlers before emitting external settlement.
 - Active cancellation or backend failure follows REQ-IDE-008 process-generation ownership.
 
 **Priority:** P1
@@ -806,6 +806,33 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
 **Verification:** PR-boundary review and GitHub Actions CI validate command failure handling, cardinality, correlation, count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-027: Native Pi panel reasoning and bounded progress
+
+**Intent:** A Pi user can follow a long native panel turn without waiting behind an unbounded list of repetitive tool messages.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Panel turns stream provider-emitted reasoning through Code OSS's native thinking UI separately from the final answer. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
+2. A panel turn reports each bounded tool-activity category at most once. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) -->
+
+**Constraints:**
+
+- Tool progress exposes neither command arguments nor file contents.
+- Editor Inline Chat remains a host-owned edit transaction and does not render panel reasoning.
+- code-server and Code OSS source remain unmodified.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates reasoning forwarding and bounded activity reporting. Fresh integration verifies the native thinking presentation during a long panel turn.
 
 **Status:** Partial
 

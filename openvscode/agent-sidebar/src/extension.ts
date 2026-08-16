@@ -41,6 +41,10 @@ const CHAT_LOCATION_EDITOR = 4 as const;
 type InlineEditResponseStream = {
   textEdit(target: Uri, edits: TextEdit | TextEdit[] | true): void;
 };
+
+type ThinkingResponseStream = {
+  thinkingProgress(delta: { readonly id: string; readonly text: string }): void;
+};
 const HOST_FALLBACK_MODEL: LanguageModelChatInformation & {
   readonly isDefault: Readonly<Record<typeof CHAT_LOCATION_PANEL, true>>;
   readonly isUserSelectable: false;
@@ -153,12 +157,17 @@ export async function activate(context: ExtensionContext): Promise<void> {
         });
         return;
       }
+      const thinkingResponse = response as typeof response & ThinkingResponseStream;
       await runtime.handle({
         mode: 'chat',
         input: collectNativePiPromptInput(request, chatContext),
         response: {
           markdown: (value) => response.markdown(value),
           progress: (value) => response.progress(value),
+          thinking: (value) => thinkingResponse.thinkingProgress({
+            id: 'codeflare-pi-reasoning',
+            text: value,
+          }),
         },
         cancellation,
       });

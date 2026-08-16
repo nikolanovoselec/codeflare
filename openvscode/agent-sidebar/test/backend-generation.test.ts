@@ -322,9 +322,10 @@ test('REQ-IDE-008: an unexpected idle Pi exit marks the backend unavailable for 
   await backend.stop();
 });
 
-test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled', async () => {
+test('REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer', async () => {
   const markdown: string[] = [];
   const progress: string[] = [];
+  const thinking: string[] = [];
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
 
@@ -332,6 +333,7 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
   const turn = backend.runPrompt('inspect the active file', {
     markdown: (value) => markdown.push(value),
     progress: (value) => progress.push(value),
+    thinking: (value) => thinking.push(value),
   }).then(() => { settled = true; });
   await waitForImmediate();
 
@@ -351,12 +353,16 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
     assistantMessageEvent: { type: 'thinking_delta', delta: 'hidden reasoning canary' },
   });
   spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'read' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'read' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'bash' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'bash' });
   spawner.children[0]?.emit({ type: 'agent_end', willRetry: false });
   await waitForImmediate();
 
   assert.equal(settled, false);
   assert.deepEqual(markdown, ['Visible answer']);
-  assert.deepEqual(progress, ['Running read…']);
+  assert.deepEqual(thinking, ['hidden reasoning canary']);
+  assert.deepEqual(progress, ['Inspecting workspace…', 'Running command…']);
   assert.doesNotMatch(markdown.join(''), /hidden reasoning canary/);
 
   spawner.children[0]?.emit({ type: 'agent_settled' });
@@ -443,13 +449,13 @@ test('REQ-IDE-026: inline command extension errors reject immediately and retire
   await waitForImmediate();
 
   const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
-  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({
     type: 'extension_error',
     extensionPath: 'command:codeflare-inline-edit',
     event: 'command',
     error: 'ctx.sendUserMessage is not a function',
   });
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
 
   await assert.rejects(turn, /native Inline Chat command failed/i);
   await waitForImmediate();
