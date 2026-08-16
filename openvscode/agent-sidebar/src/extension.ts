@@ -371,7 +371,7 @@ function describeUri(value: unknown): string | undefined {
   if (!isRecord(value)) return undefined;
   const render = value.toString;
   if (typeof render === 'function') {
-    const rendered = render.call(value, true);
+    const rendered = render.call(value);
     if (rendered !== '[object Object]') return rendered;
   }
   if (typeof value.scheme !== 'string') return undefined;
