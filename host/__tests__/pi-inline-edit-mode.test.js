@@ -17,6 +17,7 @@ function fixture() {
   const handlers = new Map();
   let activeTools = ['read', 'bash', 'edit', 'write', INLINE_EDIT_TOOL];
   const activeToolHistory = [];
+  const sentUserMessages = [];
   const pi = {
     registerCommand(name, definition) { commands.set(name, definition); },
     registerTool(definition) { tools.set(definition.name, definition); },
@@ -25,6 +26,7 @@ function fixture() {
       handlers.set(event, [...existing, handler]);
     },
     getActiveTools() { return [...activeTools]; },
+    sendUserMessage(message) { sentUserMessages.push(message); },
     setActiveTools(names) {
       activeTools = [...names];
       activeToolHistory.push([...names]);
@@ -36,6 +38,7 @@ function fixture() {
     tools,
     activeToolHistory,
     activeTools: () => [...activeTools],
+    sentUserMessages,
     async emit(event, payload = {}, context = {}) {
       let result;
       for (const handler of handlers.get(event) ?? []) {
@@ -65,7 +68,6 @@ test('REQ-IDE-025: inline edit mode exposes only one proposal tool and restores 
   await runtime.emit('session_start');
   assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write']);
 
-  const sent = [];
   const command = runtime.commands.get(INLINE_EDIT_COMMAND);
   assert.ok(command);
   await command.handler(encodeInlineEditCommandPayload({
@@ -73,12 +75,10 @@ test('REQ-IDE-025: inline edit mode exposes only one proposal tool and restores 
     prompt: 'Replace the selected function.',
   }), {
     waitForIdle: async () => undefined,
-    sendUserMessage: async (message) => { sent.push(message); },
   });
 
   assert.deepEqual(runtime.activeTools(), [INLINE_EDIT_TOOL]);
-  assert.equal(sent.length, 1);
-  assert.match(sent[0], /Replace the selected function\./);
+  assert.deepEqual(runtime.sentUserMessages, ['Replace the selected function.']);
   const start = await runtime.emit('before_agent_start', { systemPrompt: 'base system' });
   assert.match(start.systemPrompt, new RegExp(proposal.requestId));
   assert.match(start.systemPrompt, new RegExp(INLINE_EDIT_TOOL));
@@ -110,7 +110,6 @@ test('REQ-IDE-026: inline edit mode rejects stale or duplicate proposals before 
     prompt: 'Generate code here.',
   }), {
     waitForIdle: async () => undefined,
-    sendUserMessage: async () => undefined,
   });
 
   await assert.rejects(

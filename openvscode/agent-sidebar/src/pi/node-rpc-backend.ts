@@ -375,6 +375,17 @@ export class PiRpcBackend {
     const turn = this.#turn;
     if (turn) {
       if (
+        turn.inlineRequestId
+        && envelope.type === 'extension_error'
+        && envelope.extensionPath === `command:${INLINE_EDIT_COMMAND}`
+      ) {
+        const detail = typeof envelope.error === 'string' && envelope.error
+          ? `: ${envelope.error}`
+          : '';
+        this.#protocolFailure(new Error(`Native Inline Chat command failed${detail}`), generation);
+        return;
+      }
+      if (
         envelope.type === 'response' &&
         envelope.id === turn.promptId &&
         envelope.command === 'prompt'

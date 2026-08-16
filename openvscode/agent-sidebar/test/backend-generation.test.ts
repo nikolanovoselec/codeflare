@@ -433,6 +433,76 @@ test('REQ-IDE-026: inline Pi returns one correlated host-owned edit proposal wit
   await backend.stop();
 });
 
+test('REQ-IDE-026: inline command extension errors reject immediately and retire the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: 'command:codeflare-inline-edit',
+    event: 'command',
+    error: 'ctx.sendUserMessage is not a function',
+  });
+
+  await assert.rejects(turn, /native Inline Chat command failed/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-026: unrelated extension errors do not discard a valid inline proposal', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: '/home/user/.pi/agent/extensions/unrelated.ts',
+    event: 'agent_start',
+    error: 'unrelated failure',
+  });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'safe',
+      }],
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, [{
+    startLine: 0,
+    startCharacter: 0,
+    endLine: 0,
+    endCharacter: 0,
+    newText: 'safe',
+  }]);
+  assert.equal(backend.isReusable(), true);
+  await backend.stop();
+});
+
 test('REQ-IDE-026: inline Pi rejects a duplicate proposal and retires the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));

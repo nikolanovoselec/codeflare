@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 export const INLINE_EDIT_COMMAND = "codeflare-inline-edit";
@@ -18,22 +19,6 @@ type InlineEditProposal = {
     endCharacter: number;
     newText: string;
   }>;
-};
-
-type CommandContext = {
-  waitForIdle(): Promise<void>;
-  sendUserMessage(message: string): void | Promise<void>;
-};
-
-type ExtensionAPI = {
-  registerCommand(name: string, definition: {
-    description: string;
-    handler(args: string, ctx: CommandContext): void | Promise<void>;
-  }): void;
-  registerTool(definition: unknown): void;
-  on(event: string, handler: (event: any, ctx: any) => unknown): void;
-  getActiveTools(): string[];
-  setActiveTools(names: string[]): void;
 };
 
 type ActiveInlineEdit = {
@@ -128,7 +113,7 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
       pi.setActiveTools([INLINE_EDIT_TOOL]);
       try {
         await ctx.waitForIdle();
-        await ctx.sendUserMessage(payload.prompt);
+        pi.sendUserMessage(payload.prompt);
       } catch (error) {
         restoreTools();
         throw error;
