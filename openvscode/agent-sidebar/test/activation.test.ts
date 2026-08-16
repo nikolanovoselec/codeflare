@@ -477,8 +477,9 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
   assert.deepEqual(modes, ['chat', 'inline-edit']);
   assert.deepEqual(answers, ['answer:panel first']);
   assert.deepEqual(reasoning, [{ id: 'codeflare-pi-reasoning', text: 'Checking the selected architecture.' }]);
-  assert.equal(inlineEdits.length, 2);
-  assert.equal(inlineEdits[1], true);
+  assert.equal(inlineEdits.length, 3);
+  assert.deepEqual(inlineEdits[0], []);
+  assert.equal(inlineEdits[2], true);
   assert.equal(backends.length, 2);
   assert.equal(backends[0], backends[1]);
 });
