@@ -12,6 +12,7 @@ export const INLINE_EDIT_TOOL = 'codeflare_submit_inline_edits';
 const MAX_INLINE_EDIT_COUNT = 64;
 const MAX_INLINE_EDIT_BYTES = 256 * 1024;
 const MAX_INLINE_SUMMARY_LENGTH = 500;
+const MAX_INLINE_PROPOSAL_ATTEMPTS = 3;
 
 export interface PiTurnObserver {
   markdown(value: string): void;
@@ -26,6 +27,8 @@ interface ActiveTurn {
   completed: boolean;
   inlineRequestId: string | undefined;
   inlineProposal: NativePiInlineEditProposal | undefined;
+  inlineProposalAttempts: number;
+  inlineProposalError: Error | undefined;
   readonly reportedActivities: Set<string>;
   readonly observer: PiTurnObserver;
   readonly cancellation: AbortController;
@@ -250,6 +253,8 @@ export class PiRpcBackend {
       completed: false,
       inlineRequestId,
       inlineProposal: undefined,
+      inlineProposalAttempts: 0,
+      inlineProposalError: undefined,
       reportedActivities: new Set(),
       observer,
       cancellation: new AbortController(),
@@ -408,10 +413,17 @@ export class PiRpcBackend {
             this.#protocolFailure(new Error('Native Inline Chat attempted an invalid or duplicate tool'), generation);
             return;
           }
+          turn.inlineProposalAttempts += 1;
           try {
             turn.inlineProposal = parseInlineEditProposal(envelope.args, turn.inlineRequestId);
+            turn.inlineProposalError = undefined;
           } catch (error) {
-            this.#protocolFailure(error, generation);
+            turn.inlineProposalError = error instanceof Error
+              ? error
+              : new Error('Native Inline Chat proposal geometry is invalid');
+            if (turn.inlineProposalAttempts >= MAX_INLINE_PROPOSAL_ATTEMPTS) {
+              this.#protocolFailure(turn.inlineProposalError, generation);
+            }
             return;
           }
           turn.observer.progress('Preparing native editor changes…');
@@ -424,7 +436,10 @@ export class PiRpcBackend {
         }
       } else if (envelope.type === 'agent_settled') {
         if (turn.inlineRequestId && !turn.inlineProposal) {
-          this.#protocolFailure(new Error('Native Inline Chat did not submit an edit proposal'), generation);
+          this.#protocolFailure(
+            turn.inlineProposalError ?? new Error('Native Inline Chat did not submit an edit proposal'),
+            generation,
+          );
           return;
         }
         turn.settled = true;
@@ -478,16 +493,21 @@ export function parseInlineEditProposal(
   value: unknown,
   expectedRequestId: string,
 ): NativePiInlineEditProposal {
-  if (!isRecord(value)) throw new Error('Invalid native Inline Chat edit proposal');
+  if (!isRecord(value)) throw new Error('Native Inline Chat proposal geometry is invalid');
+  if (value.requestId !== expectedRequestId) {
+    throw new Error('Native Inline Chat proposal correlation is invalid');
+  }
   const summary = value.summary;
-  if (value.requestId !== expectedRequestId || !validInlineSummary(summary)
-    || !Array.isArray(value.edits) || value.edits.length === 0 || value.edits.length > MAX_INLINE_EDIT_COUNT) {
-    throw new Error('Invalid native Inline Chat edit proposal');
+  if (!validInlineSummary(summary)) {
+    throw new Error('Native Inline Chat proposal summary is invalid');
+  }
+  if (!Array.isArray(value.edits) || value.edits.length === 0 || value.edits.length > MAX_INLINE_EDIT_COUNT) {
+    throw new Error('Native Inline Chat proposal edit count is invalid');
   }
   let totalBytes = 0;
   const edits = value.edits.map((candidate) => {
     if (!isRecord(candidate) || typeof candidate.newText !== 'string') {
-      throw new Error('Invalid native Inline Chat edit proposal');
+      throw new Error('Native Inline Chat proposal geometry is invalid');
     }
     const positions = [
       candidate.startLine,
@@ -496,7 +516,7 @@ export function parseInlineEditProposal(
       candidate.endCharacter,
     ];
     if (!positions.every((part) => typeof part === 'number' && Number.isSafeInteger(part) && part >= 0)) {
-      throw new Error('Invalid native Inline Chat edit proposal');
+      throw new Error('Native Inline Chat proposal geometry is invalid');
     }
     const edit: NativePiTextEdit = {
       startLine: candidate.startLine as number,
@@ -506,10 +526,12 @@ export function parseInlineEditProposal(
       newText: candidate.newText,
     };
     if (compareEditPosition(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter) > 0) {
-      throw new Error('Invalid native Inline Chat edit proposal');
+      throw new Error('Native Inline Chat proposal geometry is invalid');
     }
     totalBytes += Buffer.byteLength(edit.newText, 'utf8');
-    if (totalBytes > MAX_INLINE_EDIT_BYTES) throw new Error('Native Inline Chat edit proposal exceeds size limit');
+    if (totalBytes > MAX_INLINE_EDIT_BYTES) {
+      throw new Error('Native Inline Chat proposal geometry is invalid');
+    }
     return edit;
   });
   const ordered = [...edits].sort((left, right) =>
@@ -530,7 +552,7 @@ export function parseInlineEditProposal(
       current.startLine,
       current.startCharacter,
     ) > 0;
-    if (sameStart || crosses) throw new Error('Native Inline Chat edit proposal ranges overlap');
+    if (sameStart || crosses) throw new Error('Native Inline Chat proposal geometry is invalid');
   }
   return {
     requestId: expectedRequestId,

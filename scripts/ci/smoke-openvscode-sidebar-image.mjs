@@ -451,7 +451,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
   let executedCommand;
   const contextValues = new Map();
   let handler;
-  let packagedConfirmation;
   const hostModelProviders = new Map();
   let reviewFile;
   const disposable = () => ({ dispose() {} });
@@ -589,39 +588,48 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.match(executedCommand?.options.query, /^@codeflare\b/);
     assert.equal(executedCommand?.options.mode, 'ask');
     const source = 'const packaged = 0;\n';
+    const inlineDocument = {
+      uri: reviewResource,
+      isClosed: false,
+      isDirty: false,
+      version: 1,
+      languageId: 'typescript',
+      lineCount: 2,
+      getText: () => source,
+      lineAt: (line) => ({ text: line === 0 ? source.trimEnd() : '' }),
+    };
+    const inlineSelection = {
+      isEmpty: true,
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 0 },
+    };
     activeEditorDocument = {
       document: {
-        uri: reviewResource,
-        isClosed: false,
-        isDirty: false,
-        version: 1,
-        languageId: 'typescript',
-        lineCount: 2,
-        getText: () => source,
-        lineAt: (line) => ({ text: line === 0 ? source.trimEnd() : '' }),
+        ...inlineDocument,
+        uri: uri('/home/user/workspace/focused-elsewhere.ts'),
+        getText: () => 'const focusedElsewhere = true;\n',
       },
-      selection: {
-        isEmpty: true,
-        start: { line: 0, character: 0 },
-        end: { line: 0, character: 0 },
-      },
+      selection: inlineSelection,
     };
+    executedCommand = undefined;
     const rendered = [];
     await handler(
-      { location: 4, prompt: 'replace packaged value', references: [] },
+      {
+        location: 4,
+        location2: {
+          document: inlineDocument,
+          selection: inlineSelection,
+          wholeRange: inlineSelection,
+        },
+        prompt: 'replace packaged value',
+        references: [],
+      },
       { history: [] },
       {
         markdown: () => assert.fail('inline request emitted hidden markdown'),
         progress: () => undefined,
         textEdit: (target, edits) => rendered.push({ target, edits }),
-        confirmation: (title, message, data, buttons) => {
-          packagedConfirmation = {
-            title,
-            message: typeof message === 'string' ? message : message.value,
-            data,
-            buttons,
-          };
-        },
+        confirmation: () => assert.fail('packaged inline request emitted review confirmation'),
       },
       { isCancellationRequested: false, onCancellationRequested: () => disposable() },
     );
@@ -638,14 +646,7 @@ async function verifyPackagedNativeChat(extensionRoot) {
       newText: 'const packaged = 42;',
     }]);
     assert.deepEqual(rendered[1], { target: reviewResource, edits: true });
-    assert.equal(packagedConfirmation?.title, 'Review Codeflare changes');
-    assert.equal(
-      packagedConfirmation?.message,
-      'Replaced the packaged value because the previous value was stale.',
-    );
-    assert.equal(packagedConfirmation?.data?.kind, 'codeflare-inline-edit-review');
-    assert.match(packagedConfirmation?.data?.requestId ?? '', /^inline-/);
-    assert.deepEqual(packagedConfirmation?.buttons, ['Keep', 'Undo']);
+    assert.equal(executedCommand, undefined, 'packaged inline request invoked extension-owned review command');
     const panelMarkdown = [];
     await handler(
       { location: 1, prompt: 'continue in panel', references: [] },

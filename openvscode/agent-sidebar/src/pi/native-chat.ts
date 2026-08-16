@@ -47,6 +47,7 @@ export interface NativePiActiveEditor {
   readonly dirty: boolean;
   readonly content: string;
   readonly selection?: NativePiSelection;
+  readonly wholeRange?: Omit<NativePiSelection, 'text'>;
 }
 
 export interface NativePiDiagnostic {
@@ -279,6 +280,12 @@ export function buildNativePiPrompt(
       endLine: input.activeEditor.selection.endLine,
       endColumn: input.activeEditor.selection.endColumn,
       text: truncateUtf8(input.activeEditor.selection.text, MAX_SELECTION_BYTES),
+    } : undefined,
+    wholeRange: input.activeEditor.wholeRange ? {
+      startLine: input.activeEditor.wholeRange.startLine,
+      startColumn: input.activeEditor.wholeRange.startColumn,
+      endLine: input.activeEditor.wholeRange.endLine,
+      endColumn: input.activeEditor.wholeRange.endColumn,
     } : undefined,
   } : undefined;
   // From the tail: history arrives oldest-first, and a replay that runs out of

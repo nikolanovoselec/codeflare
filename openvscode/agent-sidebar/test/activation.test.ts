@@ -151,6 +151,8 @@ function installActiveEditor(
 ): {
   uri: { scheme: string; fsPath: string };
   version: number;
+  document: Record<string, unknown>;
+  selection: Record<string, unknown>;
 } {
   const uri = { scheme: 'file', fsPath };
   const lines = content.split('\n');
@@ -164,15 +166,13 @@ function installActiveEditor(
     getText: () => content,
     lineAt: (line: number) => ({ text: lines[line] ?? '' }),
   };
-  host.activeEditor = {
-    document,
-    selection: {
-      isEmpty: false,
-      start: { line: 0, character: 0 },
-      end: { line: 0, character: lines[0]?.length ?? 0 },
-    },
+  const selection = {
+    isEmpty: false,
+    start: { line: 0, character: 0 },
+    end: { line: 0, character: lines[0]?.length ?? 0 },
   };
-  return { uri, version: document.version };
+  host.activeEditor = { document, selection };
+  return { uri, version: document.version, document, selection };
 }
 
 afterEach(async () => {
@@ -269,16 +269,22 @@ test('REQ-IDE-025 AC1: participant requests run the local Pi backend without pro
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
 });
 
-test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-031: inline-first renders one host-owned edit with native feedback', async () => {
-  const target = installActiveEditor();
-  host.informationChoice = 'Keep';
+test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033: inline edits stay bound to the invoking host document', async () => {
+  const target = installActiveEditor('const targetValue = 1;\nreturn targetValue;\n', '/home/user/workspace/src/target.ts');
+  const decoy = installActiveEditor('const decoyValue = 2;\n', '/home/user/workspace/src/decoy.ts');
   const rendered: Array<{ uri: unknown; edits: unknown }> = [];
   const progress: string[] = [];
   const reasoning: unknown[] = [];
-  let nextRequestId = 0;
   nativeChat.runNativePiChat.mockImplementation(async (options: {
     mode: string;
-    input: { prompt: string };
+    input: {
+      prompt: string;
+      activeEditor?: {
+        path: string;
+        content: string;
+        wholeRange?: { startLine: number; startColumn: number; endLine: number; endColumn: number };
+      };
+    };
     response: {
       progress(value: string): void;
       thinking?(value: string): void;
@@ -286,362 +292,117 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-031: inline-first render
     };
   }) => {
     assert.equal(options.mode, 'inline-edit');
-    assert.equal(options.input.prompt, 'inline first');
+    assert.equal(options.input.prompt, 'replace target');
+    assert.equal(options.input.activeEditor?.path, target.uri.fsPath);
+    assert.match(options.input.activeEditor?.content ?? '', /targetValue/);
+    assert.doesNotMatch(options.input.activeEditor?.content ?? '', /decoyValue/);
+    assert.deepEqual(options.input.activeEditor?.wholeRange, {
+      startLine: 1,
+      startColumn: 1,
+      endLine: 2,
+      endColumn: 20,
+    });
     options.response.progress('Preparing native editor changes…');
     options.response.thinking?.('Preparing a bounded change.');
-    nextRequestId += 1;
     options.response.textEdit([{
       startLine: 0,
-      startCharacter: 0,
+      startCharacter: 6,
       endLine: 0,
-      endCharacter: 19,
-      newText: 'const generated = 42;',
+      endCharacter: 17,
+      newText: 'generated',
     }], {
-      requestId: `inline-request-${nextRequestId}`,
-      summary: 'Replaced the stale declaration because the selected value was invalid.',
+      requestId: 'inline-request-1',
+      summary: 'Replaced the selected target value.',
     });
     return 'completed';
   });
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
 
+  host.activeEditor = { document: decoy.document, selection: decoy.selection };
   assert.ok(host.participantHandler);
-  const response = {
-    markdown: () => assert.fail('native inline edit emitted hidden markdown'),
-    progress: (value: string) => progress.push(value),
-    thinkingProgress: (value: unknown) => reasoning.push(value),
-    textEdit: (uri: unknown, edits: unknown) => rendered.push({ uri, edits }),
-    confirmation: (title: string, message: string | { value: string }, data: unknown, buttons: string[]) => {
-      host.confirmations.push({
-        title,
-        message: typeof message === 'string' ? message : message.value,
-        data,
-        buttons,
-      });
+  const result = await host.participantHandler(
+    {
+      location: 4,
+      location2: {
+        document: target.document,
+        selection: target.selection,
+        wholeRange: {
+          start: { line: 0, character: 0 },
+          end: { line: 1, character: 19 },
+        },
+      },
+      prompt: 'replace target',
+      references: [],
     },
-  };
-  const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
-  const invoke = () => host.participantHandler?.(
-    { location: 4, prompt: 'inline first', references: [] },
     { history: [] },
-    response,
-    cancellation,
+    {
+      markdown: () => assert.fail('native inline edit emitted hidden markdown'),
+      progress: (value: string) => progress.push(value),
+      thinkingProgress: (value: unknown) => reasoning.push(value),
+      textEdit: (uri: unknown, edits: unknown) => rendered.push({ uri, edits }),
+      confirmation: () => assert.fail('Codeflare took ownership of native review confirmation'),
+    },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
   );
-  const result = await invoke();
 
   assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
   assert.equal(progress.length, 2);
-  assert.ok(progress[0]);
   assert.deepEqual(reasoning, [{ id: 'codeflare-pi-inline-reasoning', text: 'Preparing a bounded change.' }]);
   assert.deepEqual(result, {
-    details: 'Replaced the stale declaration because the selected value was invalid. 1 proposed edit.',
+    details: 'Replaced the selected target value. 1 proposed edit.',
     metadata: {},
   });
-  assert.deepEqual(host.confirmations, [{
-    title: 'Review Codeflare changes',
-    message: 'Replaced the stale declaration because the selected value was invalid.',
-    data: { kind: 'codeflare-inline-edit-review', requestId: 'inline-request-1' },
-    buttons: ['Keep', 'Undo'],
-  }]);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.deepEqual(host.informationMessages, [{
-    message: 'Replaced the stale declaration because the selected value was invalid. 1 proposed edit.',
-    items: ['Keep', 'Undo'],
-  }]);
-  assert.deepEqual(host.executedCommand, { id: 'chatEditing.acceptFile', options: target.uri });
-  assert.deepEqual(host.openedDocuments, [{ uri: target.uri }]);
-  assert.deepEqual(host.shownDocuments, host.openedDocuments);
-  assert.deepEqual(host.reviewEvents, [
-    'command:chatEditing.acceptFile',
-    'openTextDocument',
-    'showTextDocument',
-  ]);
   assert.equal(rendered.length, 2);
   assert.equal(rendered[0]?.uri, target.uri);
-  const renderedEdits = rendered[0]?.edits as Array<{
-    range: { start: unknown; end: unknown };
-    newText: string;
-  }>;
-  assert.deepEqual(renderedEdits.map((edit) => ({
-    start: edit.range.start,
-    end: edit.range.end,
-    newText: edit.newText,
-  })), [{
-    start: { line: 0, character: 0 },
-    end: { line: 0, character: 19 },
-    newText: 'const generated = 42;',
-  }]);
-  assert.deepEqual(rendered[1], { uri: target.uri, edits: true });
-
-  host.executedCommand = undefined;
-  host.reviewEvents = [];
-  host.informationChoice = 'Undo';
-  await invoke();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.deepEqual(host.executedCommand, { id: 'chatEditing.discardFile', options: target.uri });
-  assert.equal(host.openedDocuments.length, 2);
-  assert.equal(host.shownDocuments.length, 2);
-  assert.deepEqual(host.reviewEvents, [
-    'command:chatEditing.discardFile',
-    'openTextDocument',
-    'showTextDocument',
-  ]);
-
-  host.executedCommand = undefined;
-  host.informationChoice = undefined;
-  host.informationPromise = new Promise<string | undefined>(() => undefined);
-  await invoke();
-  const nativeUndo = await host.participantHandler?.(
-    {
-      location: 4,
-      prompt: 'Undo: "Review Codeflare changes"',
-      references: [],
-      rejectedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-request-3' }],
-    },
-    { history: [] },
-    response,
-    cancellation,
-  );
-  assert.equal(nativeUndo, undefined);
-  assert.deepEqual(host.executedCommand, { id: 'chatEditing.discardFile', options: target.uri });
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 3);
-  assert.equal(host.openedDocuments.length, 3);
-  assert.equal(host.shownDocuments.length, 3);
-
-  host.executedCommand = undefined;
-  host.informationChoice = undefined;
-  host.informationPromise = new Promise<string | undefined>(() => undefined);
-  const nonBlockingResult = await invoke();
-  assert.deepEqual(nonBlockingResult, {
-    details: 'Replaced the stale declaration because the selected value was invalid. 1 proposed edit.',
-    metadata: {},
-  });
+  assert.equal(rendered[1]?.uri, target.uri);
+  assert.equal(rendered[1]?.edits, true);
+  assert.deepEqual(host.confirmations, []);
+  assert.deepEqual(host.informationMessages, []);
   assert.equal(host.executedCommand, undefined);
-
-  const nativeKeep = await host.participantHandler?.(
-    {
-      location: 4,
-      prompt: 'Keep: "Review Codeflare changes"',
-      references: [],
-      acceptedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-request-4' }],
-    },
-    { history: [] },
-    response,
-    cancellation,
-  );
-  assert.equal(nativeKeep, undefined);
-  assert.deepEqual(host.executedCommand, { id: 'chatEditing.acceptFile', options: target.uri });
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 4);
-  assert.equal(host.openedDocuments.length, 4);
-  assert.equal(host.shownDocuments.length, 4);
-
-  host.executedCommand = undefined;
-  host.informationPromise = undefined;
-  const dismissedResult = await invoke();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.deepEqual(dismissedResult, nonBlockingResult);
-  assert.equal(host.executedCommand, undefined);
-});
-
-test('REQ-IDE-032: a delayed superseded review action cannot resolve a newer proposal for the same URI', async () => {
-  const target = installActiveEditor();
-  let proposalNumber = 0;
-  nativeChat.runNativePiChat.mockImplementation(async (options: {
-    response: {
-      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
-    };
-  }) => {
-    proposalNumber += 1;
-    options.response.textEdit([{
-      startLine: 0,
-      startCharacter: 0,
-      endLine: 0,
-      endCharacter: 0,
-      newText: String(proposalNumber),
-    }], {
-      requestId: `inline-review-${proposalNumber}`,
-      summary: `Proposal ${proposalNumber} updates the current declaration safely.`,
-    });
-    return 'completed';
-  });
-  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
-
-  let resolveDelayed = (_action: string | undefined): void => undefined;
-  host.informationPromise = new Promise<string | undefined>((resolve) => { resolveDelayed = resolve; });
-  const response = {
-    markdown() {},
-    progress() {},
-    textEdit() {},
-    confirmation() {},
-  };
-  const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
-  const invoke = () => host.participantHandler?.(
-    { location: 4, prompt: 'change this', references: [] },
-    { history: [] },
-    response,
-    cancellation,
-  );
-
-  await invoke();
-  host.informationPromise = undefined;
-  await invoke();
-  host.executedCommand = undefined;
-  host.reviewEvents = [];
-  resolveDelayed('Undo');
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(host.executedCommand, undefined);
+  assert.deepEqual(host.openedDocuments, []);
+  assert.deepEqual(host.shownDocuments, []);
   assert.deepEqual(host.reviewEvents, []);
-
-  await host.participantHandler?.(
-    {
-      location: 4,
-      prompt: 'Keep: "Review Codeflare changes"',
-      references: [],
-      acceptedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-review-2' }],
-    },
-    { history: [] },
-    response,
-    cancellation,
-  );
-  assert.deepEqual(host.executedCommand, { id: 'chatEditing.acceptFile', options: target.uri });
-  assert.deepEqual(host.reviewEvents, [
-    'command:chatEditing.acceptFile',
-    'openTextDocument',
-    'showTextDocument',
-  ]);
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 2);
 });
 
-test('REQ-IDE-032: pending review correlation evicts the oldest request beyond its bound', async () => {
-  let proposalNumber = 0;
-  nativeChat.runNativePiChat.mockImplementation(async (options: {
-    response: {
-      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
-    };
-  }) => {
-    proposalNumber += 1;
-    options.response.textEdit([{
-      startLine: 0,
-      startCharacter: 0,
-      endLine: 0,
-      endCharacter: 0,
-      newText: String(proposalNumber),
-    }], {
-      requestId: `bounded-review-${proposalNumber}`,
-      summary: `Proposal ${proposalNumber} updates its captured file safely.`,
-    });
-    return 'completed';
-  });
-  host.informationPromise = new Promise<string | undefined>(() => undefined);
-  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
-  const response = {
-    markdown() {},
-    progress() {},
-    textEdit() {},
-    confirmation() {},
-  };
-  const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
-  for (let index = 0; index < 33; index += 1) {
-    installActiveEditor(undefined, `/home/user/workspace/src/inline-${index}.ts`);
-    await host.participantHandler?.(
-      { location: 4, prompt: `proposal ${index + 1}`, references: [] },
-      { history: [] },
-      response,
-      cancellation,
-    );
-  }
-
-  const decision = (requestId: string) => ({
-    location: 4,
-    prompt: 'Keep: "Review Codeflare changes"',
-    references: [],
-    acceptedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId }],
-  });
-  await host.participantHandler?.(decision('bounded-review-1'), { history: [] }, response, cancellation);
-  assert.deepEqual(host.reviewEvents, []);
-  await host.participantHandler?.(decision('bounded-review-33'), { history: [] }, response, cancellation);
-  assert.deepEqual(host.reviewEvents, [
-    'command:chatEditing.acceptFile',
-    'openTextDocument',
-    'showTextDocument',
-  ]);
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 33);
-});
-
-test('REQ-IDE-032: malformed and duplicate confirmation decisions invoke neither Pi nor review commands', async () => {
+test('REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission', async () => {
   installActiveEditor();
-  nativeChat.runNativePiChat.mockImplementation(async (options: {
-    response: {
-      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
-    };
-  }) => {
-    options.response.textEdit([{
-      startLine: 0,
-      startCharacter: 0,
-      endLine: 0,
-      endCharacter: 0,
-      newText: 'safe',
-    }], {
-      requestId: 'inline-review-current',
-      summary: 'Inserted the safe value because the previous declaration was empty.',
-    });
-    return 'completed';
-  });
-  host.informationPromise = new Promise<string | undefined>(() => undefined);
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+  assert.ok(host.participantHandler);
+  const rendered: unknown[] = [];
   const response = {
     markdown() {},
     progress() {},
-    textEdit() {},
-    confirmation() {},
+    textEdit: (...args: unknown[]) => rendered.push(args),
+    confirmation: () => assert.fail('invalid editor location opened review confirmation'),
   };
   const cancellation = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
-  await host.participantHandler?.(
-    { location: 4, prompt: 'insert safely', references: [] },
+
+  await host.participantHandler(
+    { location: 4, prompt: 'missing location', references: [] },
+    { history: [] },
+    response,
+    cancellation,
+  );
+  await host.participantHandler(
+    {
+      location: 4,
+      location2: { document: { uri: { scheme: 'untitled', fsPath: '' }, isClosed: false } },
+      prompt: 'malformed location',
+      references: [],
+    },
     { history: [] },
     response,
     cancellation,
   );
 
-  for (const malformed of [
-    { acceptedConfirmationData: [], rejectedConfirmationData: [] },
-    { acceptedConfirmationData: [{ kind: 'wrong', requestId: 'inline-review-current' }] },
-    {
-      acceptedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-review-current' }],
-      rejectedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-review-current' }],
-    },
-  ]) {
-    await host.participantHandler?.(
-      { location: 4, prompt: 'malformed decision', references: [], ...malformed },
-      { history: [] },
-      response,
-      cancellation,
-    );
-  }
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
-  assert.deepEqual(host.reviewEvents, []);
-
-  const decision = {
-    location: 4,
-    prompt: 'Undo: "Review Codeflare changes"',
-    references: [],
-    rejectedConfirmationData: [{ kind: 'codeflare-inline-edit-review', requestId: 'inline-review-current' }],
-  };
-  await host.participantHandler?.(decision, { history: [] }, response, cancellation);
-  assert.deepEqual(host.reviewEvents, [
-    'command:chatEditing.discardFile',
-    'openTextDocument',
-    'showTextDocument',
-  ]);
-  host.reviewEvents = [];
-  host.executedCommand = undefined;
-  await host.participantHandler?.(decision, { history: [] }, response, cancellation);
-  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 1);
-  assert.equal(host.executedCommand, undefined);
-  assert.deepEqual(host.reviewEvents, []);
+  assert.equal(nativeChat.runNativePiChat.mock.calls.length, 0);
+  assert.deepEqual(rendered, []);
+  assert.equal(host.warnings.length, 2);
+  assert.ok(host.warnings.every((message) => /active workspace file/i.test(message)));
 });
 
 test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation', async () => {
-  installActiveEditor();
+  const target = installActiveEditor();
   const backends: unknown[] = [];
   const modes: string[] = [];
   const answers: string[] = [];
@@ -691,13 +452,22 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
     cancellation,
   );
   await host.participantHandler(
-    { location: 4, prompt: 'inline follow-up', references: [] },
+    {
+      location: 4,
+      location2: {
+        document: target.document,
+        selection: target.selection,
+        wholeRange: target.selection,
+      },
+      prompt: 'inline follow-up',
+      references: [],
+    },
     { history: [] },
     {
       markdown: () => assert.fail('native inline edit emitted hidden markdown'),
       progress() {},
       textEdit: (_uri: unknown, edits: unknown) => inlineEdits.push(edits),
-      confirmation() {},
+      confirmation: () => assert.fail('shared Pi inline turn emitted review confirmation'),
     },
     cancellation,
   );

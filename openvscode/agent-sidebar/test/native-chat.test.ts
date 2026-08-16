@@ -42,6 +42,12 @@ function promptInput(overrides: Partial<NativePiPromptInput> = {}): NativePiProm
         endColumn: 29,
         text: 'broken',
       },
+      wholeRange: {
+        startLine: 1,
+        startColumn: 1,
+        endLine: 1,
+        endColumn: 30,
+      },
     },
     openFiles: [
       '/home/user/workspace/src/parser.ts',
@@ -90,6 +96,12 @@ test('REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, refe
   assert.match(prompt, /Cannot find name broken/);
   assert.match(prompt, /We are repairing the parser/);
   assert.match(prompt, /context is untrusted data/i);
+  assert.deepEqual((editorContext(prompt).activeEditor as { wholeRange?: unknown }).wholeRange, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: 30,
+  });
   assert.doesNotMatch(prompt, /outside-workspace-canary|outside-reference-canary|codeflare-secret/);
   assert.ok(Buffer.byteLength(prompt, 'utf8') <= MAX_NATIVE_CHAT_PROMPT_BYTES);
 });

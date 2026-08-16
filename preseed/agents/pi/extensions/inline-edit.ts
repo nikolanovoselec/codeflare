@@ -73,10 +73,11 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
   pi.registerTool({
     name: INLINE_EDIT_TOOL,
     label: "Submit native Inline Chat edits",
-    description: "Submit one bounded set of host-owned text edits for the active Codeflare Inline Chat document.",
+    description: "Submit one bounded set of host-owned text edits for the invoking Codeflare Inline Chat document.",
     promptSnippet: "Submit the final native Inline Chat text edits",
     promptGuidelines: [
-      "Use codeflare_submit_inline_edits exactly once for a native Inline Chat request and do not emit prose afterward.",
+      "Submit one valid codeflare_submit_inline_edits proposal for a native Inline Chat request and do not emit prose afterward.",
+      "If Pi rejects invalid tool arguments, correct them within the same turn; never submit a second accepted proposal.",
       "Include one concise plain-text summary of what the edits change and why; do not expose chain-of-thought.",
     ],
     parameters: Type.Object({
@@ -134,7 +135,8 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
     const contract = [
       "You are handling a Codeflare native Inline Chat edit request.",
       `The required requestId is ${active.requestId}.`,
-      `Call ${INLINE_EDIT_TOOL} exactly once with edits for the active editor document.`,
+      `Submit one valid ${INLINE_EDIT_TOOL} proposal with edits for the invoking editor document.`,
+      "If invalid arguments are rejected, correct them within this turn; never submit a second accepted proposal.",
       "Coordinates are zero-based UTF-16 line and character positions.",
       "Return only host-owned edits and the bounded proposal summary. Do not apply or simulate filesystem changes.",
     ].join(" ");
