@@ -691,6 +691,7 @@ async function launchBoundaryPlan(
   dependencies: Dependencies,
   boundary: ClassifiedBoundary,
   queuedFollowUps: Set<string>,
+  restoreExistingGoalPause = false,
 ): Promise<BoundaryLaunchResult | undefined> {
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
@@ -779,7 +780,11 @@ async function launchBoundaryPlan(
 
   if (existingPlan) {
     appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
-    return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
+    return {
+      head: review.pr.headRefOid,
+      pauseGoal: restoreExistingGoalPause && requiredLanes.length > 0,
+      queuedPlan: false,
+    };
   }
 
   const key = followUpKey("plan", review.repo, review.pr.number, review.pr.headRefOid);
@@ -1150,7 +1155,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   const retryPendingBoundary = async (ctx: ReviewContext): Promise<void> => {
     const boundary = pendingBoundary;
     if (!boundary) return;
-    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, queuedFollowUps);
+    const launch = await launchBoundaryPlan(
+      pi,
+      ctx,
+      dependencies,
+      boundary,
+      queuedFollowUps,
+      resumedWithoutBoundary,
+    );
     if (launch === "retry") return;
     pendingBoundary = undefined;
     if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
@@ -1181,7 +1193,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
     if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
-    const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, queuedFollowUps);
+    const launch = await launchBoundaryPlan(
+      pi,
+      ctx,
+      dependencies,
+      boundary,
+      queuedFollowUps,
+      resumedWithoutBoundary,
+    );
     if (launch === "retry") {
       pendingBoundary = boundary;
       return;
@@ -1233,7 +1252,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
           || boundaryLaunchWasAccepted(ctx, latest.toolUseId))) {
         const boundary = persistedBoundary(ctx, recoveryFile);
         if (boundary) {
-          const launch = await launchBoundaryPlan(pi, ctx, dependencies, boundary, queuedFollowUps);
+          const launch = await launchBoundaryPlan(
+            pi,
+            ctx,
+            dependencies,
+            boundary,
+            queuedFollowUps,
+            true,
+          );
           if (launch === "retry") {
             pendingBoundary = boundary;
             return;

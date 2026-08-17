@@ -10,6 +10,7 @@ const host = vi.hoisted(() => ({
   contextValues: [] as Array<{ key: string; value: unknown }>,
   participantId: undefined as string | undefined,
   participantHandler: undefined as ((request: unknown, context: unknown, response: unknown, cancellation: unknown) => Promise<unknown>) | undefined,
+  participant: undefined as { iconPath?: { fsPath: string }; dispose(): void } | undefined,
   modelProviders: new Map<string, Record<string, (...args: unknown[]) => unknown>>(),
   modelChanges: [] as Array<{ vendor: string; contextValues: Array<{ key: string; value: unknown }> }>,
   warnings: [] as string[],
@@ -112,7 +113,9 @@ vi.mock('vscode', () => ({
     ) => {
       host.participantId = id;
       host.participantHandler = handler;
-      return { dispose() {} };
+      const participant = { iconPath: undefined as { fsPath: string } | undefined, dispose() {} };
+      host.participant = participant;
+      return participant;
     },
   },
   languages: { getDiagnostics: () => [] },
@@ -253,6 +256,7 @@ afterEach(async () => {
   host.contextValues = [];
   host.participantId = undefined;
   host.participantHandler = undefined;
+  host.participant = undefined;
   host.modelProviders.clear();
   host.modelChanges = [];
   nativeChat.runNativePiChat.mockReset();
@@ -273,6 +277,12 @@ afterEach(async () => {
     ['accessibility.openChatEditedFiles', false],
     ['chat.disableAIFeatures', true],
   ]);
+});
+
+test('REQ-IDE-001: native Pi registers the Codeflare brand icon', async () => {
+  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+
+  assert.deepEqual(host.participant?.iconPath, { fsPath: '/extension/media/agent.svg' });
 });
 
 test('REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat', async () => {
