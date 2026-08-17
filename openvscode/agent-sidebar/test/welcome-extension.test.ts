@@ -80,7 +80,7 @@ afterEach(() => {
   persistence.activations = 0;
 });
 
-test('REQ-IDE-016 AC3 + REQ-IDE-036 AC4: welcome activation starts lazy extension persistence', () => {
+test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', () => {
   vi.useFakeTimers();
   const subscriptions: Array<{ dispose(): void }> = [];
 

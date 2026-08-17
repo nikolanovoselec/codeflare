@@ -124,7 +124,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-036 AC1+AC3: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
+test('REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const malformed = JSON.stringify({
     version: 1,
@@ -149,7 +149,7 @@ test('REQ-IDE-036 AC1+AC3: malformed manifests fail closed and valid manifests r
   assert.deepEqual(loaded.manifest?.settings, { 'yaml.validate': true });
 });
 
-test('REQ-IDE-016 AC3 + REQ-IDE-036 AC4: restores exact versions, falls back once on structured not-found, and preserves failures', async () => {
+test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures', async () => {
   const { extensionsDir, manifestPath } = fixture();
   const manifest = {
     ...validManifest({
@@ -208,7 +208,7 @@ test('REQ-IDE-016 AC3 + REQ-IDE-036 AC4: restores exact versions, falls back onc
   ]);
 });
 
-test('REQ-IDE-036 AC7: unacknowledged manifest intent never executes before the warning is accepted', async () => {
+test('REQ-IDE-037 AC6: unacknowledged manifest intent never executes before the warning is accepted', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const original = JSON.stringify(validManifest({
     'publisher.extension': { version: '1.0.0' },
@@ -223,16 +223,19 @@ test('REQ-IDE-036 AC7: unacknowledged manifest intent never executes before the 
   assert.equal(readFileSync(manifestPath, 'utf8'), original);
 
   host.acknowledgeSecurity = true;
+  let acknowledgedAtInstall = false;
   host.execute = async () => {
-    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
+    acknowledgedAtInstall = JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown === true;
   };
-  await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  const result = await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
 
+  assert.deepEqual(result.failures, []);
+  assert.equal(acknowledgedAtInstall, true);
   assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), ['publisher.extension@1.0.0']);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
 });
 
-test('REQ-IDE-036 AC4: contributed settings restore after their missing extension registers', async () => {
+test('REQ-IDE-037 AC5: contributed settings restore after their missing extension registers', async () => {
   const { extensionsDir, manifestPath } = fixture();
   writeFileSync(manifestPath, JSON.stringify({
     ...validManifest({ 'publisher.extension': { version: '1.0.0' } }, { 'fixture.enabled': true }),
@@ -250,7 +253,7 @@ test('REQ-IDE-036 AC4: contributed settings restore after their missing extensio
   assert.deepEqual(host.settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
 });
 
-test('REQ-IDE-036 AC4: restores at most two missing extensions concurrently', async () => {
+test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', async () => {
   const { extensionsDir, manifestPath } = fixture();
   const ids = ['one.extension', 'two.extension', 'three.extension', 'four.extension'];
   writeFileSync(manifestPath, JSON.stringify({
@@ -295,7 +298,7 @@ test('REQ-IDE-036 AC4: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), ids);
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC5: capture preserves intent, filters settings, warns once, and signals after atomic change', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC2: capture preserves intent, filters settings, warns once, and signals after atomic change', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -355,7 +358,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC5: capture preserves intent, filters setti
   assert.equal(kill.mock.calls.length, 2);
 });
 
-test('REQ-IDE-036 AC7: warns once before the first persisted user extension across fresh activations', async () => {
+test('REQ-IDE-036 AC4 + REQ-IDE-037 AC7: warns once before the first persisted user extension across fresh activations', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
   writeFileSync(syncPidFile, '2222\n');
@@ -370,7 +373,7 @@ test('REQ-IDE-036 AC7: warns once before the first persisted user extension acro
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-036 AC5: extension-host changes debounce one capture', async () => {
+test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () => {
   vi.useFakeTimers();
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir);

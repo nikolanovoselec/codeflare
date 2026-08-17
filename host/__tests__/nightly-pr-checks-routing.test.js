@@ -35,6 +35,24 @@ describe('nightly PR Checks routing', () => {
     assert.match(filter.if, /github\.event_name == 'push'/);
   });
 
+  it('falls back to a checked-out exact diff without weakening lane coverage when the PR files API fails', () => {
+    const changes = prChecks.jobs.changes;
+    const checkout = changes.steps.find((step) => String(step.uses).startsWith('actions/checkout@'));
+    const filter = changes.steps.find((step) => step.id === 'filter');
+    const fallback = changes.steps.find((step) => step.id === 'filter_fallback');
+
+    assert.equal(checkout.with['fetch-depth'], 0);
+    assert.equal(filter['continue-on-error'], true);
+    assert.equal(fallback.if, "steps.filter.outcome == 'failure'");
+    assert.match(fallback.run, /git cat-file -e "\$\{BASE_SHA\}\^\{commit\}"/);
+    assert.match(fallback.run, /git diff --name-only "\$BASE_SHA" "\$HEAD_SHA"/);
+    assert.match(fallback.run, /for lane in backend webui landing host ide workflows/);
+    assert.match(fallback.run, /echo "\$\{lane\}=true"/);
+    for (const lane of ['backend', 'webui', 'landing', 'host', 'ide', 'workflows']) {
+      assert.match(changes.outputs[lane], new RegExp(`steps\\.filter_fallback\\.outputs\\.${lane}`));
+    }
+  });
+
   it('preserves every direct and reusable PR Checks entry point', () => {
     assert.deepEqual(prChecks.on.push.branches, ['main']);
     assert.deepEqual(prChecks.on.pull_request.branches, ['main', 'develop']);

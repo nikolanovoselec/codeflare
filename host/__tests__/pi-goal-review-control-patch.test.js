@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   COMMANDS_PATCH_MARKER,
@@ -55,23 +58,6 @@ const fixtureGoalSource = `function registerGoalRuntime(pi: ExtensionAPI, option
 \tconst runController = new GoalRunController(runtime, commands);
 \trunController.register(pi);
 
-\tpi.on("session_start", async (_event, ctx) => {
-\t\truntime.replaceMenuSession();
-\t});
-
-\tpi.on("session_shutdown", (_event, ctx) => {
-\t\trunController.unbindSession();
-\t});
-}
-`;
-
-const fixtureLifecycleSource = `export function registerGoalLifecycle(
-\tpi: ExtensionAPI,
-\truntime: GoalRuntime,
-\tcommands: GoalCommandController,
-\trunController: GoalRunController,
-\toptions: GoalLifecycleOptions = {},
-) {
 \tpi.on("session_start", async (_event, ctx) => {
 \t\truntime.replaceMenuSession();
 \t});
@@ -455,24 +441,18 @@ function readFixturePackage(root, sessionSourceName = 'goal') {
   );
 }
 
-function writeNextFixturePackage(root, overrides = {}) {
-  mkdirSync(join(root, 'src'), { recursive: true });
-  const files = {
-    'package.json': `${JSON.stringify({ version: NEXT_PI_GOAL_VERSION })}\n`,
-    'src/commands.ts': fixtureCommandsSource,
-    'src/lifecycle.ts': fixtureLifecycleSource,
-    'src/runtime.ts': fixtureRuntimeSource.replace(
-      'this.goalToolsAvailable()',
-      'this.toolPolicy.toolsAvailable()',
-    ),
-    'src/settings.ts': fixtureSettingsSource.replaceAll(
-      'automaticTurns: null',
-      'automaticTurns: 25',
-    ),
-    ...overrides,
-  };
-  for (const [path, contents] of Object.entries(files)) writeFileSync(join(root, path), contents);
-  return files;
+const NEXT_PACKAGE_ARCHIVE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '__fixtures__',
+  'pi-goal-0.49.7.tgz',
+);
+const NEXT_PACKAGE_INTEGRITY = 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==';
+
+function extractPinnedNextFixturePackage(root) {
+  const archive = readFileSync(NEXT_PACKAGE_ARCHIVE);
+  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, NEXT_PACKAGE_INTEGRITY);
+  execFileSync('tar', ['-xzf', NEXT_PACKAGE_ARCHIVE, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
@@ -732,7 +712,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
 
   it('REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-next-review-control-'));
-    writeNextFixturePackage(root);
+    extractPinnedNextFixturePackage(root);
 
     patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
