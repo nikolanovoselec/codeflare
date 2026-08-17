@@ -8,7 +8,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 - **Active:** the decision still governs the system.
 - **Superseded:** a newer linked decision or requirement replaced the whole record. Superseded entries are struck through in the index, while their original sections remain readable as history.
 - **Partially superseded:** only the explicitly named clause was replaced; the record remains active for everything else.
-- **Redirect anchor:** the numbered heading is retained so inbound links keep working, but the content was either merged into another ADR or reclassified into its canonical documentation lane because it was not a genuine architectural decision. Follow the destination named in the index and section status.
+- **Redirect anchor:** the numbered heading remains for inbound links, but its content moved to another ADR or canonical documentation lane. Follow the destination in the index and section status.
 
 **Audience:** Developers
 

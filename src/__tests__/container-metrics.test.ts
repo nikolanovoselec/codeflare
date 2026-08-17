@@ -316,9 +316,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
     });
 
-    it.each([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY])(
-      'REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear %s',
-      async (failedKey) => {
+    it('REQ-SESSION-021 AC4: does not arm metrics when startup cannot clear prior transport state', async () => {
+      for (const failedKey of [TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]) {
+        testState.scheduleCalls = [];
+        testState.storageDeleteFailures.clear();
         await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 2);
         await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
         testState.storageDeleteFailures.add(failedKey);
@@ -328,8 +329,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         expect(testState.scheduleCalls).toEqual([]);
         expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(2);
         expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual({ status: 'resetting' });
-      },
-    );
+      }
+    });
   });
 
   describe('collectMetrics', () => {

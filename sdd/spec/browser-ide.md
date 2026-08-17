@@ -80,7 +80,8 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - The selected session remains visible in the editor location for the lifetime of the page.
-- Bucket-level IDE state is limited to `~/.codeflare/ide-ui-state.json` and `~/.codeflare/ide-extensions.json`. Both are atomically written and fail closed; the first is capped at 1 MiB and contains only allowlisted UI values/resources, while the second is capped at 64 KiB and contains only bounded extension identity/version metadata, a durable warning acknowledgement, and contributed User-scope settings.
+- Bucket-level UI state is limited to atomic, fail-closed `~/.codeflare/ide-ui-state.json`, capped at 1 MiB with only allowlisted UI values and resources.
+- Bucket-level extension state is limited to atomic, fail-closed `~/.codeflare/ide-extensions.json`, capped at 64 KiB with bounded identity/version metadata, warning acknowledgement, and contributed User-scope settings.
 - Managed Codeflare, Claude, and UI-continuity settings override extension-restored preferences on every launch.
 - The upstream keyboard-layout status item and picker remain visible; Codeflare persists the user's selection instead of hiding or preselecting that control.
 
