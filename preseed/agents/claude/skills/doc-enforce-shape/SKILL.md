@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-shape
 description: SDD documentation structural enforcement for canonical lane records, navigation, and traceability. Invoked by doc-enforce for changed lanes or scope=all.
-version: 5.1.1
+version: 5.1.2
 ---
 
 # Documentation Enforcement — Structural shape

@@ -691,6 +691,18 @@ describe('optimized documentation lane shapes', () => {
       activeResult.stdout,
     );
 
+    const choiceOnly = active.replace(
+      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
+      'Each terminal tab receives a dedicated container in the current system design.',
+    );
+    const choiceOnlyResult = runFixture({ 'documentation/decisions/README.md': choiceOnly });
+    assert.equal(choiceOnlyResult.status, 1, choiceOnlyResult.stdout);
+    assert.ok(
+      JSON.parse(choiceOnlyResult.stdout).findings
+        .some(({ rule }) => rule === 'adr-index-summary-body-support-missing'),
+      choiceOnlyResult.stdout,
+    );
+
     const inventedDriver = active.replace(
       'Cloud storage encrypts unrelated account data to reduce credential exposure.',
       'Each terminal tab receives a dedicated container to reduce monthly licensing fees for operators.',

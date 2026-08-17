@@ -3858,6 +3858,7 @@ None.
 ### REQ-AGENT-146: Self-contained ADR decision index summaries
 
 **Intent:** Decision indexes must explain each architectural choice, its driver or consequence, and its current state without requiring readers to open every ADR body.
+
 **Applies To:** User
 
 **Acceptance Criteria:**

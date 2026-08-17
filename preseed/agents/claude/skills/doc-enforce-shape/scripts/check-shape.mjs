@@ -262,9 +262,9 @@ function hasTokenOverlap(left, right) {
 
 function hasAdrBodySupport(summary, support) {
   const rendered = adrRenderedText(summary);
-  const driver = rendered.match(/\b(?:because|so|to|prevent\w*|avoid\w*|without|rather|instead|while|preserv\w*|protect\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i);
-  const explanation = driver ? rendered.slice(driver.index) : rendered;
-  return hasTokenOverlap(explanation, support);
+  const driver = rendered.match(/\b(?:because|so|to|prevent\w*|avoid\w*|without|rather|instead|while|allow\w*|enabl\w*|keep\w*|mak\w*|move\w*|reduc\w*|replac\w*|preserv\w*|protect\w*|retain\w*|limit\w*|remain\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i);
+  if (!driver) return false;
+  return hasTokenOverlap(rendered.slice(driver.index), support);
 }
 
 function adrField(bodyLines, field) {
