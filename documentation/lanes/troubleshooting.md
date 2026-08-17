@@ -69,7 +69,7 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 
 **Fix:** Confirm capture runs after generation cleanup, the snapshot is a mode-0600 JSON file no larger than 1 MiB, and only `ide-ui-state.json` plus `ide-extensions.json` survive the `~/.codeflare/**` R2 filter. Theme values and string-valued `keyboard.layout` are the only allowlisted User settings in the UI snapshot. Never sync `/tmp/openvscode-data`, `workspaceStorage`, `globalStorage`, SecretStorage, authentication, chat history, logs, WAL, or SHM. Allowlisted workspace rows must match their key-specific canonical-resource schemas; unknown fields and opaque strings are invalid. Managed inventory settings must be reapplied after restore. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
 
-### User-installed Browser IDE extensions do not return or uninstall ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration-and-warning-acknowledgement))
+### User-installed Browser IDE extensions do not return or uninstall ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration))
 
 **Symptom:** An Open VSX extension installed through the native Extensions view disappears in a fresh session, an uninstalled extension returns, restore shows one failure warning, or the arbitrary-code warning repeats.
 

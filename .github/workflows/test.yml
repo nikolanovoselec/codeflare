@@ -210,17 +210,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git cat-file -e "${HEAD_SHA}^{commit}"
-          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"
-          echo "::warning::Path-filter API failed; selecting every lane from the verified local ${BASE_SHA}..${HEAD_SHA} diff ($(wc -l < "$RUNNER_TEMP/changed-files.txt") files)."
-          for lane in backend webui landing host ide workflows; do
-            echo "${lane}=true" >> "$GITHUB_OUTPUT"
-          done
+        run: scripts/ci/path-filter-fallback.sh
 
   quality:
     name: Quality (lint / knip / audit)

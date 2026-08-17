@@ -196,6 +196,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
