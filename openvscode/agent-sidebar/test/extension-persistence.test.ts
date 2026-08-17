@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { readFile as readFileAsync } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -213,7 +212,7 @@ test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls 
   ]);
 });
 
-test('REQ-IDE-036 AC5: unacknowledged manifest intent never executes before the warning is accepted', async () => {
+test('REQ-IDE-038 AC2: unacknowledged manifest intent never executes before the warning is accepted', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const original = JSON.stringify(validManifest({
     'publisher.extension': { version: '1.0.0' },
@@ -303,10 +302,10 @@ test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', as
   assert.deepEqual(result.failures, []);
   assert.equal(maximum, 2);
   const installed = JSON.parse(readFileSync(join(extensionsDir, 'extensions.json'), 'utf8'));
-  assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), ids);
+  assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), [...ids].sort());
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC2: capture preserves intent, filters settings, warns once, and signals after atomic change', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, settings, and uninstall evidence', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -366,7 +365,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC2: capture preserves intent, filters setti
   assert.equal(kill.mock.calls.length, 2);
 });
 
-test('REQ-IDE-036 AC4+AC6: warns once before the first persisted user extension across fresh activations', async () => {
+test('REQ-IDE-038 AC1+AC3: warns once before the first persisted user extension across fresh activations', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
   writeFileSync(syncPidFile, '2222\n');
@@ -390,7 +389,12 @@ test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () =>
     securityWarningShown: true,
   }));
   writeFileSync(syncPidFile, '3333\n');
-  const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+  let captureSignaled!: () => void;
+  const captureSignal = new Promise<void>((resolve) => { captureSignaled = resolve; });
+  const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
+    captureSignaled();
+    return true;
+  });
   const subscriptions: Array<{ dispose(): void }> = [];
 
   await activateExtensionPersistence(
@@ -405,12 +409,8 @@ test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () =>
   await vi.advanceTimersByTimeAsync(1_999);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'], undefined);
   await vi.advanceTimersByTimeAsync(1);
-  let capturedVersion: string | undefined;
-  for (let attempt = 0; attempt < 20 && capturedVersion === undefined; attempt += 1) {
-    const captured = JSON.parse(await readFileAsync(manifestPath, 'utf8'));
-    capturedVersion = captured.extensions['publisher.extension']?.version;
-  }
-  assert.equal(capturedVersion, '1.0.0');
+  await captureSignal;
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'].version, '1.0.0');
   assert.equal(kill.mock.calls.length, 1);
 
   for (const subscription of subscriptions) subscription.dispose();

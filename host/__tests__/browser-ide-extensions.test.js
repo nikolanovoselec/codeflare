@@ -63,7 +63,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2: captures bounded extension registry without settings loss', () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss', () => {
   const { extensionsDir, manifest: manifestPath } = fixture();
   const originalSettings = {
     'yaml.validate': true,
@@ -102,7 +102,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2: captures bounded extension registry
   assert.deepEqual(readdirSync(join(manifestPath, '..')), ['ide-extensions.json']);
 });
 
-test('REQ-IDE-036 AC1: malformed or unsafe manifests stay byte-for-byte unchanged', () => {
+test('REQ-IDE-036 AC2: malformed or unsafe manifests stay byte-for-byte unchanged', () => {
   const invalidBodies = [
     '{not-json',
     `${' '.repeat(65 * 1024)}\n`,
@@ -148,7 +148,7 @@ test('REQ-IDE-036 AC1: malformed or unsafe manifests stay byte-for-byte unchange
   assert.equal(readFileSync(target, 'utf8'), original);
 });
 
-test('REQ-IDE-036 AC2+AC4: an absent manifest awaits security acknowledgement', () => {
+test('REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement', () => {
   const { extensionsDir, manifest: manifestPath } = fixture();
   writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
     registryEntry('publisher.extension', '1.2.3', 'linux-x64'),

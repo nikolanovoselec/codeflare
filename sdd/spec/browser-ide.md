@@ -495,7 +495,7 @@ A full code-server browser editor for an advanced running session. The editor op
 1. UI snapshot capture starts only after the editor generation is reaped. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC1: captures UI state only after the code-server generation exits) -->
 2. UI restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 3. User-extension restore begins from the built-in welcome extension after workbench startup and never delays code-server launch. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-016 AC3: welcome activation starts lazy extension persistence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
-4. Debounced in-session capture is backed by one post-reap registry capture, so closing during the debounce window cannot lose an install or uninstall. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_capture_extensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4: extension-host changes debounce one capture) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC4: captures the extension registry exactly once after a generation exits) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2: captures bounded extension registry without settings loss) -->
+4. Debounced in-session capture is backed by one post-reap registry capture, so closing during the debounce window cannot lose an install or uninstall. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_capture_extensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4: extension-host changes debounce one capture) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC4: captures the extension registry exactly once after a generation exits) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
 
 **Constraints:**
 
@@ -1029,21 +1029,22 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Persisted extension intent and contributed User settings are bounded, versioned, credential-free, and fail closed: malformed, oversized, redirected, noncanonical, or unknown content remains unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2: captures bounded extension registry without settings loss) -->
-2. Capture records canonical non-fixed extension identities and observed versions/platforms, preserves contributed settings during final capture, and removes intent only after explicit uninstall evidence. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC2: capture preserves intent, filters settings, warns once, and signals after atomic change) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2: captures bounded extension registry without settings loss) -->
-3. User extension installation and restoration proceed without a blocking publisher-trust prompt while managed operator policy remains authoritative. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-036 AC3: every inventory permits user extensions without a publisher modal) -->
-4. The first capture that would persist a user extension requires an accepted warning before writing that identity. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC2+AC4: an absent manifest awaits security acknowledgement) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC4+AC6: warns once before the first persisted user extension across fresh activations) -->
-5. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: unacknowledged manifest intent never executes before the warning is accepted) -->
-6. An accepted warning is not repeated across later restores, captures, removals, or fresh activations. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC4+AC6: warns once before the first persisted user extension across fresh activations) -->
+1. Persisted extension intent and contributed User settings remain inside the documented size, count, type, and version bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
+2. Malformed, oversized, redirected, noncanonical, or unknown persisted content remains byte-for-byte unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC2: malformed or unsafe manifests stay byte-for-byte unchanged) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
+3. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
+4. Final capture preserves bounded contributed settings recorded by the live editor. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
+5. Capture removes persisted intent only after explicit uninstall evidence. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extension registry without settings loss) -->
+6. User extension installation and restoration proceed without a blocking publisher-trust prompt while managed operator policy remains authoritative. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-036 AC6: every inventory permits user extensions without a publisher modal) -->
 
 **Constraints:**
 
 - The container remains the security boundary: user extensions execute arbitrary root-capable container code, and code-server admits proposed APIs to all extensions.
 - Open VSX is the only gallery; Microsoft Marketplace and user-configurable/private galleries are unsupported.
 - code-server disables VSIX signature verification, and the workbench install path does not expose artifact bytes for Codeflare hashing; TLS to Open VSX is the v1 transport boundary.
-- `~/.codeflare/ide-extensions.json` is a mode-0600 version-1 regular file bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of bounded settings. Extension records require `version`; optional `targetPlatform`, UTC RFC3339 `installedAt`, and lowercase hexadecimal `sha256` fields are bounded, and unknown fields are invalid.
-- Capture excludes fixed identities, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically. Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
-- Declining or failing the warning preserves the manifest unchanged and executes no restored user extension.
+- `~/.codeflare/ide-extensions.json` is a mode-0600 version-1 regular file bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of bounded settings.
+- Extension records require `version`; optional `targetPlatform`, UTC RFC3339 `installedAt`, and lowercase hexadecimal `sha256` fields are bounded, and unknown fields are invalid.
+- Capture excludes fixed identities, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically.
+- Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
 - Enable/disable state, private VSIX persistence, artifact CAS, multi-writer coordination, dashboard policy UI, keybindings, snippets, extension global/workspace storage, SecretStorage, Accounts, and secondary downloads are out of scope.
 - Whole-file newest-wins convergence matches the existing UI snapshot and R2 bisync contract.
 
@@ -1057,7 +1058,6 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-<a id="req-ide-037-lazy-extension-restoration-and-warning-acknowledgement"></a>
 ### REQ-IDE-037: Lazy extension restoration
 
 **Intent:** Persisted user-extension intent restores after workbench startup without losing contributed settings or failed intent.
@@ -1075,13 +1075,42 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Restoration runs only from the built-in welcome extension after `onStartupFinished`; gallery latency never delays code-server readiness.
-- Persisted versions use exact `id@version` selectors; only structured version-not-found errors admit one unpinned fallback. Restore uses two workers, has no retry loop, and does not resolve target platforms independently.
+- Restore performs no retry loop beyond the single fallback in AC3.
+- code-server alone resolves target platforms.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-016](#req-ide-016-bounded-ide-state-capture-and-restore-ordering), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
 
 **Verification:** GitHub Actions runs exact-version/fallback, concurrency, failure-preservation, settings-ordering, welcome-activation, and complete-image tests without local, browser-automation, Chromium, or manual gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-038: Extension warning acknowledgement
+
+**Intent:** User-extension code never executes or becomes persistent before the user acknowledges its root-capable security boundary, and that acknowledgement is not repeatedly requested.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The first capture that would persist a user extension requires an accepted warning before writing that identity. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC3: warns once before the first persisted user extension across fresh activations) -->
+2. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2: unacknowledged manifest intent never executes before the warning is accepted) -->
+3. An accepted warning is not repeated across later restores, captures, removals, or fresh activations. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC3: warns once before the first persisted user extension across fresh activations) -->
+
+**Constraints:**
+
+- The durable `securityWarningShown` field records acknowledgement but grants no additional extension capability.
+- Declining or failing the warning preserves the manifest unchanged and executes no restored user extension.
+- The warning states that extensions execute root-capable code and that contributed global settings are synchronized.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
+
+**Verification:** GitHub Actions runs first-capture, pre-restore, non-repetition, reap-backstop, and complete-image tests without local, browser-automation, Chromium, or manual gates.
 
 **Status:** Implemented
 
