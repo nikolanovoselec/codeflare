@@ -212,7 +212,7 @@ test('REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls 
   ]);
 });
 
-test('REQ-IDE-038 AC2: unacknowledged manifest intent never executes before the warning is accepted', async () => {
+test('REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const original = JSON.stringify(validManifest({
     'publisher.extension': { version: '1.0.0' },
@@ -237,6 +237,10 @@ test('REQ-IDE-038 AC2: unacknowledged manifest intent never executes before the 
   assert.equal(acknowledgedAtInstall, true);
   assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), ['publisher.extension@1.0.0']);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
+
+  const warningCount = host.warnings.length;
+  await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  assert.equal(host.warnings.length, warningCount);
 });
 
 test('REQ-IDE-037 AC5: contributed settings restore after their missing extension registers', async () => {
@@ -305,7 +309,7 @@ test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), [...ids].sort());
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, settings, and uninstall evidence', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -365,7 +369,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5: capture preserves intent, setti
   assert.equal(kill.mock.calls.length, 2);
 });
 
-test('REQ-IDE-038 AC1+AC3: warns once before the first persisted user extension across fresh activations', async () => {
+test('REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
   writeFileSync(syncPidFile, '2222\n');
@@ -377,6 +381,26 @@ test('REQ-IDE-038 AC1+AC3: warns once before the first persisted user extension 
 
   host.warnings = [];
   await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  assert.deepEqual(host.warnings, []);
+});
+
+test('REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ 'publisher.extension': { version: '1.0.0' } }),
+    securityWarningShown: true,
+  }));
+
+  for (let activation = 0; activation < 2; activation += 1) {
+    const subscriptions: Array<{ dispose(): void }> = [];
+    await activateExtensionPersistence(
+      { subscriptions } as never,
+      { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
+    );
+    for (const subscription of subscriptions) subscription.dispose();
+  }
+
   assert.deepEqual(host.warnings, []);
 });
 
@@ -402,9 +426,12 @@ test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () =>
     { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
   );
   kill.mockClear();
+  const extensionChange = host.extensionChange;
+  assert.ok(extensionChange);
+  for (const subscription of subscriptions.splice(0)) subscription.dispose();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
-  host.extensionChange?.();
-  host.extensionChange?.();
+  extensionChange();
+  extensionChange();
 
   await vi.advanceTimersByTimeAsync(1_999);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'], undefined);
@@ -412,6 +439,4 @@ test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () =>
   await captureSignal;
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['publisher.extension'].version, '1.0.0');
   assert.equal(kill.mock.calls.length, 1);
-
-  for (const subscription of subscriptions) subscription.dispose();
 });
