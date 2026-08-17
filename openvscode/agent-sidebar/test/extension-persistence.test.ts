@@ -81,17 +81,19 @@ function fixture() {
 
 function writeRegistry(
   extensionsDir: string,
-  entries: Array<{ id: string; version: string; targetPlatform?: string }> = [],
+  entries: Array<{ id: string; version: string; targetPlatform?: string; omitMetadata?: boolean }> = [],
 ) {
   writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify(entries.map((entry) => ({
     identifier: { id: entry.id },
     version: entry.version,
     location: { scheme: 'file', path: `/tmp/${entry.id}` },
     relativeLocation: entry.id,
-    metadata: {
-      targetPlatform: entry.targetPlatform ?? 'universal',
-      installedTimestamp: 1_786_921_200_000,
-    },
+    ...(entry.omitMetadata ? {} : {
+      metadata: {
+        targetPlatform: entry.targetPlatform ?? 'universal',
+        installedTimestamp: 1_786_921_200_000,
+      },
+    }),
   }))));
 }
 
@@ -375,9 +377,9 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture prese
   assert.equal(kill.mock.calls.length, 2);
 });
 
-test('REQ-IDE-036 AC6: obsolete evidence removes an extension that remains in the registry', async () => {
+test('REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
-  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0', omitMetadata: true }]);
   writeFileSync(manifestPath, JSON.stringify({
     ...validManifest({ 'publisher.extension': { version: '1.0.0', targetPlatform: 'universal' } }),
     securityWarningShown: true,
@@ -432,7 +434,7 @@ test('REQ-IDE-038 AC1: declining a scheduled warning does not prompt again durin
   host.acknowledgeSecurity = false;
   const subscriptions: Array<{ dispose(): void }> = [];
 
-  await activateExtensionPersistence(
+  const deactivate = await activateExtensionPersistence(
     { subscriptions } as never,
     { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
   );
@@ -443,8 +445,42 @@ test('REQ-IDE-038 AC1: declining a scheduled warning does not prompt again durin
   extensionChange();
 
   await vi.advanceTimersByTimeAsync(2_000);
-  await flushMicrotasks();
+  await deactivate();
   assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent', async () => {
+  vi.useFakeTimers();
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  writeRegistry(extensionsDir);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({}),
+    securityWarningShown: true,
+  }));
+  const subscriptions: Array<{ dispose(): void }> = [];
+  const deactivate = await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
+  );
+  const extensionChange = host.extensionChange;
+  assert.ok(extensionChange);
+  for (const subscription of subscriptions.splice(0)) subscription.dispose();
+
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0', omitMetadata: true }]);
+  writeFileSync(manifestPath, JSON.stringify(
+    validManifest({ 'publisher.extension': { version: '1.0.0', targetPlatform: 'universal' } }),
+  ));
+  writeFileSync(join(extensionsDir, '.obsolete'), JSON.stringify({
+    'publisher.extension-1.0.0-universal': true,
+  }));
+  host.acknowledgeSecurity = false;
+  host.warnings = [];
+  extensionChange();
+
+  await vi.advanceTimersByTimeAsync(2_000);
+  await deactivate();
+  assert.deepEqual(host.warnings, []);
+  assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
 });
 
 test('REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore', async () => {

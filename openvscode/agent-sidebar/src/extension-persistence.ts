@@ -204,9 +204,18 @@ async function loadObsolete(extensionsDir: string): Promise<Set<string>> {
   }
 }
 
-function obsoleteProvesUninstall(id: string, record: ExtensionRecord, obsolete: Set<string>): boolean {
-  const stem = `${id}-${record.version}`;
-  return obsolete.has(stem) || (record.targetPlatform !== undefined && obsolete.has(`${stem}-${record.targetPlatform}`));
+function obsoleteProvesUninstall(
+  id: string,
+  observed: ExtensionRecord,
+  obsolete: Set<string>,
+  persisted?: ExtensionRecord,
+): boolean {
+  const records = persisted?.version === observed.version ? [observed, persisted] : [observed];
+  return records.some((record) => {
+    const stem = `${id}-${record.version}`;
+    return obsolete.has(stem)
+      || (record.targetPlatform !== undefined && obsolete.has(`${stem}-${record.targetPlatform}`));
+  });
 }
 
 function stableValue(value: JsonValue | ExtensionManifest): unknown {
@@ -325,17 +334,22 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
   const loaded = await loadExtensionManifest(options.manifestPath);
   if (loaded.state === 'invalid') return false;
   if (loaded.state === 'valid' && loaded.manifest.securityWarningShown === true) return true;
-  let present: Record<string, ExtensionRecord>;
-  try {
-    present = await loadRegistry(options.extensionsDir);
-  } catch {
-    return false;
-  }
-  if (Object.keys(present).length === 0) return true;
-  if (!(await acknowledgeExtensionSecurity())) return false;
   const current: ExtensionManifest = loaded.state === 'valid'
     ? loaded.manifest
     : { version: 1, extensions: {}, settings: {} };
+  let present: Record<string, ExtensionRecord>;
+  let obsolete: Set<string>;
+  try {
+    present = await loadRegistry(options.extensionsDir);
+    obsolete = await loadObsolete(options.extensionsDir);
+  } catch {
+    return false;
+  }
+  const effectivePresent = Object.entries(present).filter(([id, observed]) => (
+    !obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])
+  ));
+  if (effectivePresent.length === 0) return true;
+  if (!(await acknowledgeExtensionSecurity())) return false;
   const next: ExtensionManifest = { ...current, securityWarningShown: true };
   const payload = stableJson(next);
   if (!isManifest(next) || Buffer.byteLength(payload) > policy.manifestMaxBytes) return false;
@@ -358,7 +372,7 @@ export async function captureExtensionManifest(options: Required<Pick<Persistenc
       if (present[id] === undefined && !obsoleteProvesUninstall(id, record, obsolete)) extensions[id] = record;
     }
     for (const [id, observed] of Object.entries(present)) {
-      if (obsoleteProvesUninstall(id, observed, obsolete)) continue;
+      if (obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])) continue;
       const digest = current.extensions[id]?.sha256;
       extensions[id] = digest === undefined ? observed : { ...observed, sha256: digest };
     }
