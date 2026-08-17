@@ -620,7 +620,7 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
-  it('REQ-AGENT-146 AC1+AC2+AC5: enforces bounded ADR index labels and summaries', () => {
+  it('REQ-AGENT-146 AC1+AC2: enforces bounded ADR index labels and summaries', () => {
     const fixture = [
       '# Architecture Decisions', '', '## Decision Index', '',
       '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
@@ -674,7 +674,7 @@ describe('optimized documentation lane shapes', () => {
     }
   });
 
-  it('REQ-AGENT-146 AC3+AC4+AC5: rejects semantically empty and state-incomplete ADR summaries', () => {
+  it('REQ-AGENT-146 AC3+AC5: rejects ungrounded summaries and state-incomplete ADR history', () => {
     const active = [
       '# Decisions', '', '## Decision Index', '',
       '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
@@ -691,16 +691,24 @@ describe('optimized documentation lane shapes', () => {
       activeResult.stdout,
     );
 
-    const noDriver = active.replace(
+    const inventedDriver = active.replace(
       'Cloud storage encrypts unrelated account data to reduce credential exposure.',
-      'Each terminal tab receives a dedicated container in the current system design.',
+      'Each terminal tab receives a dedicated container to reduce monthly licensing fees for operators.',
     );
-    const noDriverResult = runFixture({ 'documentation/decisions/README.md': noDriver });
-    assert.equal(noDriverResult.status, 1, noDriverResult.stdout);
+    const inventedDriverResult = runFixture({ 'documentation/decisions/README.md': inventedDriver });
+    assert.equal(inventedDriverResult.status, 1, inventedDriverResult.stdout);
     assert.ok(
-      JSON.parse(noDriverResult.stdout).findings.some(({ rule }) => rule === 'adr-index-summary-driver-missing'),
-      noDriverResult.stdout,
+      JSON.parse(inventedDriverResult.stdout).findings
+        .some(({ rule }) => rule === 'adr-index-summary-body-support-missing'),
+      inventedDriverResult.stdout,
     );
+
+    const supported = active.replace(
+      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
+      'Each terminal tab receives a dedicated container to prevent cross-tab CPU contention during shared work.',
+    );
+    const supportedResult = runFixture({ 'documentation/decisions/README.md': supported });
+    assert.equal(supportedResult.status, 0, `${supportedResult.stdout}\n${supportedResult.stderr}`);
 
     const historical = [
       '# Decisions', '', '## Decision Index', '',
@@ -718,6 +726,21 @@ describe('optimized documentation lane shapes', () => {
     const rules = JSON.parse(historicalResult.stdout).findings.map(({ rule }) => rule);
     for (const rule of ['adr-index-summary-successor-missing', 'adr-index-summary-retained-scope-missing', 'adr-index-summary-destination-missing']) {
       assert.ok(rules.includes(rule), `${rule} missing from ${rules.join(', ')}`);
+    }
+
+    const mismatchedStates = [
+      active.replace(' | Architecture | Active |', ' | Architecture | Superseded |'),
+      historical.replace(' | Architecture | Superseded |', ' | Architecture | Active |'),
+      historical.replace(' | Architecture | Partially superseded |', ' | Architecture | Active |'),
+      historical.replace(' | Architecture | Redirect anchor |', ' | Architecture | Active |'),
+    ];
+    for (const fixture of mismatchedStates) {
+      const result = runFixture({ 'documentation/decisions/README.md': fixture });
+      assert.equal(result.status, 1, result.stdout);
+      assert.ok(
+        JSON.parse(result.stdout).findings.some(({ rule }) => rule === 'adr-index-state-mismatch'),
+        result.stdout,
+      );
     }
   });
 

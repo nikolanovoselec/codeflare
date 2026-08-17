@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-shape
 description: SDD documentation structural enforcement for canonical lane records, navigation, and traceability. Invoked by doc-enforce for changed lanes or scope=all.
-version: 5.1.0
+version: 5.1.1
 ---
 
 # Documentation Enforcement — Structural shape
@@ -123,7 +123,7 @@ Decision history must be readable without interpreting parenthetical jargon:
 - **Partially superseded** records stay unstruck because their remaining decision still governs; the section status names the exact replaced clause and links its successor.
 - **Redirect anchor** means a stable historical AD identifier whose content was merged into another ADR or reclassified into a canonical lane. Use that exact label and link the destination; bare `(redirect)` or `(redirected)` is ambiguous and invalid.
 
-Every index uses `ID | Decision | Summary | Category | State`. Decision is a concise label of at most 90 rendered characters. Summary is one source-line sentence of 40–180 rendered characters, differs from the label, starts with a named component or boundary rather than a pronoun, and states the choice plus a specific driver or operational consequence. For active decisions, the summary remains grounded in the ADR's Decision and the reviewer verifies its reason/effect against Context or Consequences. Superseded summaries link the successor; partially superseded summaries name retained scope and link the replaced clause or successor; redirect summaries link the destination. Markdown syntax does not count toward rendered-character limits.
+Every index uses `ID | Decision | Summary | Category | State`. Decision is a concise label of at most 90 rendered characters. Summary is one source-line sentence of 40–180 rendered characters, differs from the label, starts with a named component or boundary rather than a pronoun, and states the choice plus a specific driver or operational consequence. For active decisions, shape enforcement matches the stated choice to Decision and the explanatory clause to Decision, Context, or Consequences; the reviewer verifies that the resulting reason or effect is semantically truthful rather than merely sharing keywords. Superseded summaries link the successor; partially superseded summaries name retained scope and link the replaced clause or successor; redirect summaries link the destination. Markdown syntax does not count toward rendered-character limits.
 
 Clean may add deterministic links, labels, or strikethrough. It never deletes a superseded body, removes its heading, or guesses whether a record is fully versus partially superseded.
 

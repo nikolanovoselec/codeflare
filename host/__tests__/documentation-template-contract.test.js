@@ -96,14 +96,38 @@ describe('optimized SDD documentation templates', () => {
     }
   });
 
-  it('REQ-AGENT-146 AC6: emits the canonical bounded ADR summary contract', () => {
-    const template = readFileSync(join(TEMPLATES, 'documentation-decisions-readme.md'), 'utf8');
-    assert.match(template, /^\| ID \| Decision \| Summary \| Category \| State \|$/m);
-    assert.match(template, /\{DECISION_LABEL\}/);
-    assert.match(template, /\{DECISION_SUMMARY\}/);
-    assert.match(template, /at most 90 rendered characters/);
-    assert.match(template, /40–180 rendered characters/);
-    assert.match(template, /specific driver or consequence supported by the ADR body/);
+  it('REQ-AGENT-146 AC6: emits a decision row accepted by canonical shape enforcement', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdd-adr-template-contract-'));
+    const decisionsDir = join(root, 'documentation', 'decisions');
+    const decisionsPath = join(decisionsDir, 'README.md');
+    try {
+      mkdirSync(decisionsDir, { recursive: true });
+      const replacements = {
+        DECISION_ID: 'AD1',
+        DECISION_SLUG: 'ad1-isolate-terminal-sessions',
+        DECISION_LABEL: 'Isolate terminal sessions',
+        DECISION_SUMMARY: 'Each terminal tab gets a dedicated container to prevent cross-tab CPU contention during shared work.',
+        DECISION_CATEGORY: 'Architecture',
+        DECISION_TITLE: 'Isolate terminal sessions',
+        DECISION: 'Give each terminal tab a dedicated container.',
+        CONTEXT: 'Shared containers create cross-tab CPU contention.',
+        ALTERNATIVES: 'Share one container across terminal tabs.',
+        RATIONALE: 'Isolation keeps contention and teardown scoped to one tab.',
+        CONSEQUENCES: 'Teardown removes the complete tab runtime.',
+        REQUIREMENT_LINK: '[REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-example)',
+      };
+      const template = readFileSync(join(TEMPLATES, 'documentation-decisions-readme.md'), 'utf8');
+      const rendered = template.replace(/\{([A-Z_]+)\}/g, (match, key) => replacements[key] ?? match);
+      writeFileSync(decisionsPath, rendered);
+      assert.deepEqual(await checkDocuments([decisionsPath]), { ok: true, findings: [] });
+
+      writeFileSync(decisionsPath, rendered.replace(replacements.DECISION_SUMMARY, 'Too short.'));
+      const rejected = await checkDocuments([decisionsPath]);
+      assert.equal(rejected.ok, false);
+      assert.ok(rejected.findings.some(({ rule }) => rule === 'adr-index-summary-too-short'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('emits only selected lane rows', async () => {

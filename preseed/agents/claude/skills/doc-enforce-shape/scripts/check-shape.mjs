@@ -92,7 +92,7 @@ const ADR_SUMMARY_MAX_CHARS = 180;
 const ADR_SEMANTIC_STOP_WORDS = new Set([
   'about', 'after', 'again', 'against', 'also', 'among', 'because', 'before', 'being',
   'between', 'could', 'decision', 'does', 'each', 'from', 'have', 'into', 'only',
-  'other', 'should', 'that', 'their', 'these', 'this', 'those', 'through', 'under',
+  'other', 'should', 'that', 'their', 'these', 'this', 'those', 'through', 'to', 'under',
   'uses', 'using', 'very', 'what', 'when', 'where', 'which', 'while', 'with', 'would',
 ]);
 
@@ -260,8 +260,11 @@ function hasTokenOverlap(left, right) {
   return [...adrSemanticTokens(left)].some((token) => expected.has(token));
 }
 
-function adrSummaryHasDriver(value) {
-  return /\b(?:because|so|to|prevent\w*|avoid\w*|keep\w*|reduc\w*|mak\w*|without|rather|instead|while|allow\w*|preserv\w*|limit\w*|protect\w*|remain\w*|replac\w*|move\w*|enabl\w*|fail\w*|retain\w*|trad\w*|simplif\w*|isolat\w*|central\w*|bound\w*|risk\w*|expos\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i.test(adrRenderedText(value));
+function hasAdrBodySupport(summary, support) {
+  const rendered = adrRenderedText(summary);
+  const driver = rendered.match(/\b(?:because|so|to|prevent\w*|avoid\w*|without|rather|instead|while|preserv\w*|protect\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i);
+  const explanation = driver ? rendered.slice(driver.index) : rendered;
+  return hasTokenOverlap(explanation, support);
 }
 
 function adrField(bodyLines, field) {
@@ -278,6 +281,13 @@ function adrField(bodyLines, field) {
 
 function markdownHrefs(value) {
   return [...value.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
+}
+
+function adrStateFromStatus(status) {
+  if (/^\*\*Status:\*\*\s+(?:Reclassified|Merged)\b/i.test(status)) return 'Redirect anchor';
+  if (/^\*\*Status:\*\*\s+Superseded\b/i.test(status)) return 'Superseded';
+  if (/\bPartially superseded\b/i.test(status)) return 'Partially superseded';
+  return 'Active';
 }
 
 function validateAdrIndexRow(row, file, findings) {
@@ -789,23 +799,34 @@ function scanDecisions(lines, file, findings) {
       continue;
     }
 
-    if (row.summary && row.state === 'Active') {
+    const sectionState = adrStateFromStatus(status);
+    if (row.state !== sectionState) {
+      findings.push({
+        rule: 'adr-index-state-mismatch', file, line: row.line,
+        collection: 'decision-index', item: id, missing: [`State ${sectionState} from ADR Status`],
+      });
+    }
+
+    if (row.summary && sectionState === 'Active') {
       const decision = adrField(bodyLines, 'Decision');
+      const support = [decision, adrField(bodyLines, 'Context'), adrField(bodyLines, 'Consequences')]
+        .filter(Boolean).join(' ');
       if (decision && !hasTokenOverlap(row.summary, decision)) {
         findings.push({
           rule: 'adr-index-summary-choice-unrelated', file, line: row.line,
           collection: 'decision-index', item: id, missing: ['summary grounded in Decision'],
         });
       }
-      if (!adrSummaryHasDriver(row.summary)) {
+      if (decision && !hasAdrBodySupport(row.summary, support)) {
         findings.push({
-          rule: 'adr-index-summary-driver-missing', file, line: row.line,
-          collection: 'decision-index', item: id, missing: ['specific driver or operational consequence in Summary'],
+          rule: 'adr-index-summary-body-support-missing', file, line: row.line,
+          collection: 'decision-index', item: id,
+          missing: ['driver or operational consequence grounded in Decision, Context, or Consequences'],
         });
       }
     }
 
-    if (row.summary && row.state === 'Superseded') {
+    if (row.summary && sectionState === 'Superseded') {
       const successors = markdownHrefs(status);
       if (successors.length > 0 && !markdownHrefs(row.summary).some((href) => successors.includes(href))) {
         findings.push({
@@ -815,7 +836,7 @@ function scanDecisions(lines, file, findings) {
       }
     }
 
-    if (row.summary && row.state === 'Partially superseded') {
+    if (row.summary && sectionState === 'Partially superseded') {
       const sectionHrefs = markdownHrefs(bodyLines.join(' '));
       const summaryHrefs = markdownHrefs(row.summary);
       if (!/(?:remain|retain)/i.test(adrRenderedText(row.summary))
@@ -828,7 +849,7 @@ function scanDecisions(lines, file, findings) {
       }
     }
 
-    if (row.summary && row.state === 'Redirect anchor') {
+    if (row.summary && sectionState === 'Redirect anchor') {
       const destinations = markdownHrefs(status);
       if (destinations.length === 0 || !markdownHrefs(row.summary).some((href) => destinations.includes(href))) {
         findings.push({
