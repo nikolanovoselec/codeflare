@@ -944,6 +944,12 @@ async function verifyUserExtensionPersistence(welcomeRoot, piRoot) {
     ], { encoding: 'utf8', timeout: 20_000 });
     runBackstop();
     captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions).sort(), ['fixture.user-extension', 'missing.fixture']);
+    await writeFile(join(extensionsDir, '.obsolete'), JSON.stringify({
+      'fixture.user-extension-1.0.0': true,
+    }));
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.deepEqual(Object.keys(captured.extensions), ['missing.fixture']);
     assert.equal(createHash('sha256').update(await readFile(join(piRoot, 'dist', 'extension.cjs'))).digest('hex'), fixedHashBefore);
     assert.equal((await lstat(join(extensionsDir, 'codeflare-agent-sidebar'))).isSymbolicLink(), true);

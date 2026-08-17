@@ -220,8 +220,12 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
             if not _parent_chain_is_safe(manifest_path):
                 raise UnsafeInput("manifest parent redirects through a symlink")
             current = {"version": 1, "extensions": {}, "settings": {}}
-        present = _read_registry(extensions_dir, policy)
         obsolete = _read_obsolete(extensions_dir, policy)
+        present = {
+            extension: record
+            for extension, record in _read_registry(extensions_dir, policy).items()
+            if not _obsolete_proves_uninstall(extension, record, obsolete)
+        }
 
         next_extensions: dict[str, dict[str, Any]] = {}
         warning_acknowledged = current.get("securityWarningShown") is True

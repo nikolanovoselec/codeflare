@@ -76,6 +76,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5: captures bounded extens
   }, originalSettings)));
   writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
     registryEntry('RedHat.VSCode-YAML', '1.24.0'),
+    registryEntry('dbaeumer.vscode-eslint', '3.0.34'),
     registryEntry('codeflare.codeflare-agent-sidebar', '0.0.0'),
     registryEntry('anthropic.claude-code', '2.1.224', 'linux-x64'),
     registryEntry('codeflare.codeflare-welcome', '0.0.0'),
