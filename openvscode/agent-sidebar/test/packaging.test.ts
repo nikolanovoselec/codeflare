@@ -56,6 +56,12 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
+test('REQ-IDE-039 AC4: packaged brand icon matches the product icon', async () => {
+  const participantIcon = await readFile(new URL('../media/agent.svg', import.meta.url), 'utf8');
+  const productIcon = await readFile(new URL('../../../web-ui/public/favicon.svg', import.meta.url), 'utf8');
+  assert.equal(participantIcon, productIcon);
+});
+
 interface TreeEntry {
   readonly path: string;
   readonly kind: 'directory' | 'file';

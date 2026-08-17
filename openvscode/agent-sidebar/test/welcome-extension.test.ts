@@ -9,6 +9,7 @@ const host = vi.hoisted(() => ({
   revealed: 0,
   executed: [] as Array<{ command: string; arguments: unknown[] }>,
   html: '',
+  panel: undefined as { iconPath?: { fsPath: string } } | undefined,
 }));
 
 vi.mock('node:crypto', () => ({
@@ -46,8 +47,9 @@ vi.mock('vscode', () => ({
           return { dispose() { host.messageHandler = undefined; } };
         },
       };
-      return {
+      const panel = {
         webview,
+        iconPath: undefined as { fsPath: string } | undefined,
         reveal: () => { host.revealed += 1; },
         dispose: () => host.disposeHandler?.(),
         onDidDispose: (handler: () => void) => {
@@ -55,6 +57,8 @@ vi.mock('vscode', () => ({
           return { dispose() {} };
         },
       };
+      host.panel = panel;
+      return panel;
     },
   },
 }));
@@ -71,6 +75,18 @@ afterEach(() => {
   host.revealed = 0;
   host.executed = [];
   host.html = '';
+  host.panel = undefined;
+});
+
+test('REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon', async () => {
+  vi.useFakeTimers();
+  process.env.CODEFLARE_SIDEBAR_AGENT = 'pi';
+  const subscriptions: Array<{ dispose(): void }> = [];
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+
+  await vi.runOnlyPendingTimersAsync();
+  assert.deepEqual(host.panel?.iconPath, { fsPath: '/extension/media/agent.svg' });
+  for (const subscription of subscriptions) subscription.dispose();
 });
 
 test('REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action', async () => {

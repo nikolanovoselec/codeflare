@@ -102,22 +102,24 @@ jobs:
       # while the required check still reported green. Any future trigger the
       # filter does not handle now defaults to running everything.
       full: ${{ steps.filter.outcome == 'skipped' }}
-      backend: ${{ steps.filter.outputs.backend }}
-      webui: ${{ steps.filter.outputs.webui }}
-      landing: ${{ steps.filter.outputs.landing }}
-      host: ${{ steps.filter.outputs.host }}
-      ide: ${{ steps.filter.outputs.ide }}
-      workflows: ${{ steps.filter.outputs.workflows }}
+      backend: ${{ steps.filter_fallback.outputs.backend || steps.filter.outputs.backend }}
+      webui: ${{ steps.filter_fallback.outputs.webui || steps.filter.outputs.webui }}
+      landing: ${{ steps.filter_fallback.outputs.landing || steps.filter.outputs.landing }}
+      host: ${{ steps.filter_fallback.outputs.host || steps.filter.outputs.host }}
+      ide: ${{ steps.filter_fallback.outputs.ide || steps.filter.outputs.ide }}
+      workflows: ${{ steps.filter_fallback.outputs.workflows || steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - id: filter
         # Diff-based filtering needs a diff: when the nightly wrapper calls this
         # workflow, and on manual dispatch, every lane runs unconditionally, so
         # the step is skipped and its
         # (empty) outputs are never consulted.
         if: github.event_name == 'pull_request' || github.event_name == 'push'
+        continue-on-error: true
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           # `shared` is an anchor, not a lane: anything that can change what ANY
@@ -196,6 +198,17 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'
+
+      # GitHub's pull-request files API can return diff/not_available for a
+      # large generated graph even though the exact commits are checked out.
+      # Fail safe by proving both commit identities through local git, recording
+      # the changed-file set for diagnostics, and selecting every lane.
+      - id: filter_fallback
+        if: steps.filter.outcome == 'failure'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/ci/path-filter-fallback.sh
 
   quality:
     name: Quality (lint / knip / audit)

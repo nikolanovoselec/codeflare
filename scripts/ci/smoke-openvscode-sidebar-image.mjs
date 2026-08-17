@@ -295,6 +295,7 @@ async function verifyCodeServerWorkspaceProjection() {
     '--disable-proxy',
     '--disable-getting-started-override',
     '--disable-workspace-trust',
+    '--app-name', 'Codeflare',
     '--user-data-dir', join(root, 'data'),
     '--extensions-dir', join(ROOT, 'extensions', 'none'),
     '/home/user/workspace',
@@ -328,6 +329,9 @@ async function verifyCodeServerWorkspaceProjection() {
     const matches = [...projected.matchAll(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/g)];
     assert.equal(matches.length, 1);
     const config = JSON.parse(matches[0][1].replaceAll('&quot;', '"'));
+    // REQ-IDE-039 AC1: packaged code-server exposes the Codeflare product name
+    assert.equal(config.productConfiguration?.nameShort, 'Codeflare');
+    assert.equal(config.productConfiguration?.nameLong, 'Codeflare');
     assert.deepEqual(config.folderUri, {
       scheme: 'vscode-remote',
       authority: browserAuthority,

@@ -16,13 +16,15 @@ type BoundarySurfaces = {
   event?: ReviewBoundaryEvent;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
+type TranscriptBoundary = {
+  toolUseId: string;
+  command: string;
+  toolName: string;
+  toolArguments: Record<string, unknown>;
+};
 export type TranscriptFacts = {
-  boundary?: {
-    toolUseId: string;
-    command: string;
-    toolName: string;
-    toolArguments: Record<string, unknown>;
-  };
+  boundary?: TranscriptBoundary;
+  latestBoundary?: TranscriptBoundary;
   reviewHead?: string;
   reviewRange?: string;
   reviewRepo?: string;
@@ -31,9 +33,11 @@ export type TranscriptFacts = {
   reviewBase?: "main" | "master" | "develop";
   reviewBoundaryToolUseId?: string;
   reviewCiEvent?: ReviewBoundaryEvent;
+  reviewRequiredLanes?: ReviewLane[];
   bypassed: boolean;
   ciLaunched: boolean;
   triageComplete: boolean;
+  fixDelivered: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
@@ -467,6 +471,7 @@ type ReviewWindow = {
   base?: "main" | "master" | "develop";
   boundaryToolUseId?: string;
   ciEvent?: ReviewBoundaryEvent;
+  requiredLanes?: ReviewLane[];
 };
 
 function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
@@ -492,7 +497,12 @@ function reviewWindow(entry: Record<string, any>): ReviewWindow | undefined {
   const ciEvent = entry.details?.ciEvent === "push" || entry.details?.ciEvent === "pr-create"
     ? entry.details.ciEvent
     : undefined;
-  return { head, range, repo, branch, prNumber, base, boundaryToolUseId, ciEvent };
+  const requiredLanes = Array.isArray(entry.details?.requiredLanes)
+    ? entry.details.requiredLanes.filter((lane: unknown): lane is ReviewLane => (
+      typeof lane === "string" && ALL_REVIEW_LANES.includes(lane as ReviewLane)
+    ))
+    : undefined;
+  return { head, range, repo, branch, prNumber, base, boundaryToolUseId, ciEvent, requiredLanes };
 }
 
 export function reviewTranscriptFacts(input: {
@@ -506,6 +516,12 @@ export function reviewTranscriptFacts(input: {
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
+  const reconciledBoundaryIds = new Set(entries
+    .filter((entry) => entry.type === "custom"
+      && entry.customType === "pr-boundary-evaluated"
+      && entry.data?.disposition === "launch"
+      && typeof entry.data?.toolUseId === "string")
+    .map((entry) => entry.data.toolUseId));
   const successfulSubagentToolIds = new Set(entries
     .filter((entry) => entry.type === "message"
       && entry.message?.role === "toolResult"
@@ -518,7 +534,8 @@ export function reviewTranscriptFacts(input: {
   entries.forEach((entry, index) => {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
-        if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
+        if ((successfulToolIds.has(call.id) || reconciledBoundaryIds.has(call.id))
+          && classifyReviewBoundaryCommand(command).settled) {
           const value = {
             toolUseId: call.id,
             command,
@@ -532,13 +549,10 @@ export function reviewTranscriptFacts(input: {
       }
     }
   });
+  const latestBoundary = boundary;
   const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
     && boundaries.has(candidate.boundaryToolUseId));
-  const latestHasWindow = windows.some((candidate) => candidate?.boundaryToolUseId === boundary?.toolUseId);
-  const latestWasEvaluated = entries.some((entry) => entry.customType === "pr-boundary-evaluated"
-    && entry.data?.toolUseId === boundary?.toolUseId);
-  const reviewHead = input.reviewHead
-    ?? (latestHasWindow || latestWasEvaluated ? windows.at(-1)?.head : undefined);
+  const reviewHead = input.reviewHead ?? windows.at(-1)?.head;
   const selectedWindow = reviewHead
     ? windows.find((candidate) => candidate?.head === reviewHead)
     : undefined;
@@ -551,7 +565,15 @@ export function reviewTranscriptFacts(input: {
   }
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
-  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, triageComplete: false, closedNotified: false, lanes };
+  if (boundaryIndex < 0) return {
+    latestBoundary,
+    bypassed: false,
+    ciLaunched: false,
+    triageComplete: false,
+    fixDelivered: false,
+    closedNotified: false,
+    lanes,
+  };
   const later = entries.slice(boundaryIndex + 1);
   const terminalIndexes = new Map<ReviewLane, number>();
   const resultRequests = new Map<string, string>();
@@ -585,7 +607,10 @@ export function reviewTranscriptFacts(input: {
     const candidate = reviewWindow(entry);
     if (!candidate) return current;
     if (candidate.boundaryToolUseId && candidate.boundaryToolUseId !== boundary?.toolUseId) return current;
-    return candidate;
+    return {
+      ...candidate,
+      requiredLanes: candidate.requiredLanes ?? current?.requiredLanes,
+    };
   }, undefined);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
@@ -656,11 +681,15 @@ export function reviewTranscriptFacts(input: {
     }
   })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
+  const fixDelivered = later.some((entry) => entry.type === "custom_message"
+    && entry.customType === "pr-boundary-fix-follow-up"
+    && entry.details?.head === window?.head);
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
   return {
     boundary,
+    latestBoundary,
     reviewHead: window?.head,
     reviewRange: window?.range,
     reviewRepo: window?.repo,
@@ -669,9 +698,11 @@ export function reviewTranscriptFacts(input: {
     reviewBase: window?.base,
     reviewBoundaryToolUseId: window?.boundaryToolUseId,
     reviewCiEvent: window?.ciEvent,
+    reviewRequiredLanes: window?.requiredLanes,
     bypassed,
     ciLaunched,
     triageComplete,
+    fixDelivered,
     closedNotified,
     lanes,
   };
