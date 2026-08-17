@@ -489,7 +489,7 @@ export function patchPiGoalSettingsSource(source) {
 
 export function patchPiGoalRuntimeSource(source) {
   const usesConfigurablePauseRequest = source.includes(
-    '| { kind: "explicit_pause"; expectedGoalId: string }',
+    'stopActiveGoal(ctx: StatusContext, request: GoalStopRequest)',
   );
   if (
     isCompleteMarkedPatch(

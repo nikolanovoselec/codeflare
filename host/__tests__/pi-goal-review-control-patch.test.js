@@ -221,6 +221,51 @@ const fixtureRuntimeSource = `export class GoalRuntime {
 }
 `;
 
+const fixtureNextRuntimeSource = [
+  `export type GoalStopRequest =\n\t| { kind: "explicit_pause"; expectedGoalId: string };`,
+  fixtureRuntimeSource
+    .replace(
+      '\tmenuGeneration = 0;',
+      '\tmenuGeneration = 0;\n\ttoolPolicy = { toolsAvailable: () => true };',
+    )
+    .replace('this.goalToolsAvailable()', 'this.toolPolicy.toolsAvailable()')
+    .replace(
+      '\tconstructor(pi) {\n\t\tthis.pi = pi;\n\t}',
+      `\tconstructor(pi) {
+\t\tthis.pi = pi;
+\t}
+
+\trecordGoalUsage() {}
+\tclearGoalRecoveryForGoal() {}
+\tclearBudgetWrapUp() {}
+\tblockStaleGoalToolCalls() {}
+\tpersistGoal() {}
+\tupdateStatus() {}
+
+\tstopActiveGoal(ctx: StatusContext, request: GoalStopRequest) {
+\t\tconst currentGoal = this.activeGoal;
+\t\tif (!currentGoal || currentGoal.id !== request.expectedGoalId) return undefined;
+\t\tlet goal = currentGoal;
+\t\tlet status;
+\t\tswitch (request.kind) {
+\t\t\tcase "explicit_pause":
+\t\t\t\tthis.recordGoalUsage(goal, ctx);
+\t\t\t\tthis.cancelContinuationWork();
+\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);
+\t\t\t\tthis.clearBudgetWrapUp();
+\t\t\t\tthis.blockStaleGoalToolCalls();
+\t\t\t\tabortCurrentTurn(ctx);
+\t\t\t\tstatus = "paused";
+\t\t\t\tbreak;
+\t\t}
+\t\tthis.activeGoal = transitionGoal(goal, status);
+\t\tthis.persistGoal(this.activeGoal);
+\t\tthis.updateStatus(ctx, this.activeGoal);
+\t\treturn this.activeGoal;
+\t}`,
+    ),
+].join('\n');
+
 function executablePatchedController(abortCurrentTurn = () => {}) {
   const patched = patchPiGoalCommandsSource(fixtureCommandsSource)
     .replace('export class GoalCommandController', 'class GoalCommandController')
@@ -394,6 +439,38 @@ function executablePatchedRuntime(scheduler) {
   );
 }
 
+function executablePatchedNextRuntime(scheduler, abortCurrentTurn = () => {}) {
+  const patched = patchPiGoalRuntimeSource(fixtureNextRuntimeSource)
+    .replace(
+      'export type GoalStopRequest =\n\t| { kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean };\n',
+      '',
+    )
+    .replace('export class GoalRuntime', 'class GoalRuntime')
+    .replace('\tcompletionStatusTimer?: NodeJS.Timeout;', '\tcompletionStatusTimer;')
+    .replace(/\tcontinuationTimer\?: NodeJS\.Timeout;[^\n]*/, '\tcontinuationTimer;')
+    .replace('\tcontinuationIntent?: ContinuationTicket;', '\tcontinuationIntent;')
+    .replace('\tcontinuationDelivery?: ContinuationTicket;', '\tcontinuationDelivery;')
+    .replace('stopActiveGoal(ctx: StatusContext, request: GoalStopRequest)', 'stopActiveGoal(ctx, request)')
+    .replace('dispatchContinuationIfSettled(ctx: StatusContext)', 'dispatchContinuationIfSettled(ctx)')
+    .replace('private clearContinuationTimer()', 'clearContinuationTimer()');
+  return Function(
+    'setTimeout',
+    'clearTimeout',
+    'hasPendingMessages',
+    'formatError',
+    'abortCurrentTurn',
+    'transitionGoal',
+    `${patched}\nreturn GoalRuntime;`,
+  )(
+    scheduler.setTimeout,
+    scheduler.clearTimeout,
+    (ctx) => ctx.hasPendingMessages?.() ?? false,
+    (error) => String(error),
+    abortCurrentTurn,
+    (goal, status) => ({ ...goal, status }),
+  );
+}
+
 function runtimeHarness(minIntervalMs) {
   const scheduler = createScheduler();
   const messages = [];
@@ -515,6 +592,30 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     controller.pauseGoal({ session: 'review' }, { abortTurn: false });
     assert.equal(aborts, 1);
     assert.equal(continuationCancellations, 2);
+    assert.equal(runtime.activeGoal.status, 'paused');
+  });
+
+  it('REQ-AGENT-144: preserves the pause abort contract through the successor stop request', () => {
+    let aborts = 0;
+    const scheduler = createScheduler();
+    const Runtime = executablePatchedNextRuntime(scheduler, () => { aborts += 1; });
+    const runtime = new Runtime({ sendUserMessage() {} });
+
+    runtime.activeGoal = { id: 'goal-a', status: 'active' };
+    runtime.stopActiveGoal({ session: 'manual' }, {
+      kind: 'explicit_pause',
+      expectedGoalId: 'goal-a',
+    });
+    assert.equal(aborts, 1);
+    assert.equal(runtime.activeGoal.status, 'paused');
+
+    runtime.activeGoal = { id: 'goal-b', status: 'active' };
+    runtime.stopActiveGoal({ session: 'review' }, {
+      kind: 'explicit_pause',
+      expectedGoalId: 'goal-b',
+      abortTurn: false,
+    });
+    assert.equal(aborts, 1);
     assert.equal(runtime.activeGoal.status, 'paused');
   });
 
@@ -728,6 +829,16 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
 
     patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     assert.deepEqual(readFixturePackage(root, 'lifecycle'), first);
+
+    const damagedRuntime = first['src/runtime.ts'].replace(
+      'if (request.abortTurn !== false) abortCurrentTurn(ctx);',
+      'abortCurrentTurn(ctx);',
+    );
+    writeFileSync(join(root, 'src/runtime.ts'), damagedRuntime);
+    assert.throws(
+      () => patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root),
+      /continuation runtime marker is present but 1 patched anchor\(s\) are missing/,
+    );
   });
 
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
