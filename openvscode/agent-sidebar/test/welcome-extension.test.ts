@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 
-const persistence = vi.hoisted(() => ({ activations: 0 }));
+const persistence = vi.hoisted(() => ({ activations: 0, deactivations: 0 }));
 
 const host = vi.hoisted(() => ({
   commandHandler: undefined as (() => void) | undefined,
@@ -19,7 +19,10 @@ vi.mock('node:crypto', () => ({
 }));
 
 vi.mock('../src/extension-persistence.ts', () => ({
-  activateExtensionPersistence: async () => { persistence.activations += 1; },
+  activateExtensionPersistence: async () => {
+    persistence.activations += 1;
+    return async () => { persistence.deactivations += 1; };
+  },
 }));
 
 vi.mock('vscode', () => ({
@@ -69,7 +72,7 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { activate } from '../src/welcome-extension.ts';
+import { activate, deactivate } from '../src/welcome-extension.ts';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -83,6 +86,7 @@ afterEach(() => {
   host.html = '';
   host.panel = undefined;
   persistence.activations = 0;
+  persistence.deactivations = 0;
 });
 
 test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', () => {
@@ -92,6 +96,15 @@ test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', ()
   activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
 
   assert.equal(persistence.activations, 1);
+  for (const subscription of subscriptions) subscription.dispose();
+});
+
+test('REQ-IDE-036 AC5: welcome deactivation flushes extension persistence', async () => {
+  const subscriptions: Array<{ dispose(): void }> = [];
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+  await deactivate();
+
+  assert.equal(persistence.deactivations, 1);
   for (const subscription of subscriptions) subscription.dispose();
 });
 

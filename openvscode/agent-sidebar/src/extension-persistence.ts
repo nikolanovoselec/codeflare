@@ -321,24 +321,27 @@ async function signalSync(syncPidFile: string): Promise<void> {
   }
 }
 
-async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise<void> {
+async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise<boolean> {
   const loaded = await loadExtensionManifest(options.manifestPath);
-  if (loaded.state === 'invalid' || (loaded.state === 'valid' && loaded.manifest.securityWarningShown === true)) return;
+  if (loaded.state === 'invalid') return false;
+  if (loaded.state === 'valid' && loaded.manifest.securityWarningShown === true) return true;
   let present: Record<string, ExtensionRecord>;
   try {
     present = await loadRegistry(options.extensionsDir);
   } catch {
-    return;
+    return false;
   }
-  if (Object.keys(present).length === 0 || !(await acknowledgeExtensionSecurity())) return;
+  if (Object.keys(present).length === 0) return true;
+  if (!(await acknowledgeExtensionSecurity())) return false;
   const current: ExtensionManifest = loaded.state === 'valid'
     ? loaded.manifest
     : { version: 1, extensions: {}, settings: {} };
   const next: ExtensionManifest = { ...current, securityWarningShown: true };
   const payload = stableJson(next);
-  if (!isManifest(next) || Buffer.byteLength(payload) > policy.manifestMaxBytes) return;
+  if (!isManifest(next) || Buffer.byteLength(payload) > policy.manifestMaxBytes) return false;
   await atomicWrite(options.manifestPath, payload);
   await signalSync(options.syncPidFile);
+  return true;
 }
 
 export async function captureExtensionManifest(options: Required<Pick<PersistenceOptions, 'extensionsDir' | 'manifestPath' | 'syncPidFile'>>): Promise<boolean> {
@@ -355,6 +358,7 @@ export async function captureExtensionManifest(options: Required<Pick<Persistenc
       if (present[id] === undefined && !obsoleteProvesUninstall(id, record, obsolete)) extensions[id] = record;
     }
     for (const [id, observed] of Object.entries(present)) {
+      if (obsoleteProvesUninstall(id, observed, obsolete)) continue;
       const digest = current.extensions[id]?.sha256;
       extensions[id] = digest === undefined ? observed : { ...observed, sha256: digest };
     }
@@ -497,33 +501,57 @@ function resolveOptions(options: PersistenceOptions = {}): ResolvedOptions {
   };
 }
 
+function affectsUserExtensionConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
+  for (const extension of vscode.extensions.all) {
+    if (fixedExtensionIds.has(extension.id.toLowerCase())) continue;
+    for (const key of configurationProperties(extension)) {
+      if (!excludedSettingKeys.has(key) && event.affectsConfiguration(key)) return true;
+    }
+  }
+  return false;
+}
+
 export async function activateExtensionPersistence(
   context: Pick<vscode.ExtensionContext, 'subscriptions'>,
   options: PersistenceOptions = {},
-): Promise<void> {
+): Promise<() => Promise<void>> {
   const resolved = resolveOptions(options);
   await restoreExtensionManifest(resolved);
   let timer: NodeJS.Timeout | undefined;
+  let capturePending = false;
   let captureChain = Promise.resolve();
-  let acknowledgementChain = Promise.resolve();
+  let operationChain = Promise.resolve();
   const capture = () => {
     captureChain = captureChain
       .then(() => captureExtensionManifest(resolved))
       .then(() => undefined, () => undefined);
     return captureChain;
   };
-  const scheduleCapture = () => {
-    acknowledgementChain = acknowledgementChain
-      .then(() => persistSecurityAcknowledgement(resolved))
+  const runPendingCapture = () => {
+    operationChain = operationChain
+      .then(async () => {
+        if (!capturePending) return;
+        capturePending = false;
+        if (await persistSecurityAcknowledgement(resolved)) await capture();
+      })
       .then(() => undefined, () => undefined);
+    return operationChain;
+  };
+  const scheduleCapture = () => {
+    capturePending = true;
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      void acknowledgementChain.then(capture);
+      void runPendingCapture();
     }, resolved.debounceMs);
   };
 
-  context.subscriptions.push(vscode.extensions.onDidChange(scheduleCapture));
+  context.subscriptions.push(
+    vscode.extensions.onDidChange(scheduleCapture),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (affectsUserExtensionConfiguration(event)) scheduleCapture();
+    }),
+  );
   try {
     const watcher = watch(resolved.extensionsDir, (_event, filename) => {
       const name = filename?.toString();
@@ -540,4 +568,12 @@ export async function activateExtensionPersistence(
     },
   });
   await capture();
+  return async () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    await runPendingCapture();
+    await captureChain;
+  };
 }

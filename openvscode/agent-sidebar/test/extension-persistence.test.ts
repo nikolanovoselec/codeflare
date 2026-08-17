@@ -9,6 +9,7 @@ const host = vi.hoisted(() => ({
   execute: async (_command: string, ..._args: unknown[]): Promise<unknown> => undefined,
   extensions: [] as Array<{ id: string; packageJSON: Record<string, unknown> }>,
   extensionChange: undefined as (() => void) | undefined,
+  configurationChange: undefined as ((event: { affectsConfiguration(key: string): boolean }) => void) | undefined,
   inspected: new Map<string, unknown>(),
   settingsUpdates: [] as Array<{ key: string; value: unknown; target: unknown }>,
   updateSetting: async (_key: string, _value: unknown, _target: unknown): Promise<void> => undefined,
@@ -44,6 +45,10 @@ vi.mock('vscode', () => ({
     },
   },
   workspace: {
+    onDidChangeConfiguration: (listener: (event: { affectsConfiguration(key: string): boolean }) => void) => {
+      host.configurationChange = listener;
+      return { dispose: () => { host.configurationChange = undefined; } };
+    },
     getConfiguration: () => ({
       inspect: (key: string) => ({ globalValue: host.inspected.get(key) }),
       update: async (key: string, value: unknown, target: unknown) => {
@@ -111,6 +116,7 @@ beforeEach(() => {
   host.execute = async () => undefined;
   host.extensions = [];
   host.extensionChange = undefined;
+  host.configurationChange = undefined;
   host.inspected.clear();
   host.settingsUpdates = [];
   host.updateSetting = async () => undefined;
@@ -128,7 +134,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-036 AC1+AC2: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
+test('REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const malformed = JSON.stringify({
     version: 1,
@@ -309,7 +315,7 @@ test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), [...ids].sort());
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -369,6 +375,21 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC3+AC4+AC5 + REQ-IDE-038 AC5: capture prese
   assert.equal(kill.mock.calls.length, 2);
 });
 
+test('REQ-IDE-036 AC6: obsolete evidence removes an extension that remains in the registry', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ 'publisher.extension': { version: '1.0.0', targetPlatform: 'universal' } }),
+    securityWarningShown: true,
+  }));
+  writeFileSync(join(extensionsDir, '.obsolete'), JSON.stringify({
+    'publisher.extension-1.0.0-universal': true,
+  }));
+
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
+  assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
+});
+
 test('REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
@@ -402,6 +423,65 @@ test('REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning',
   }
 
   assert.deepEqual(host.warnings, []);
+});
+
+test('REQ-IDE-038 AC1: declining a scheduled warning does not prompt again during capture', async () => {
+  vi.useFakeTimers();
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  writeRegistry(extensionsDir);
+  host.acknowledgeSecurity = false;
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
+  );
+  const extensionChange = host.extensionChange;
+  assert.ok(extensionChange);
+  for (const subscription of subscriptions.splice(0)) subscription.dispose();
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  extensionChange();
+
+  await vi.advanceTimersByTimeAsync(2_000);
+  await flushMicrotasks();
+  assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore', async () => {
+  vi.useFakeTimers();
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ 'publisher.extension': { version: '1.0.0' } }, { 'fixture.enabled': false }),
+    securityWarningShown: true,
+  }));
+  host.extensions = [{
+    id: 'publisher.extension',
+    packageJSON: {
+      contributes: {
+        configuration: { properties: { 'fixture.enabled': { type: 'boolean' } } },
+      },
+    },
+  }];
+  host.inspected.set('fixture.enabled', false);
+  const subscriptions: Array<{ dispose(): void }> = [];
+  const deactivate = await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, syncPidFile, debounceMs: 2_000 },
+  );
+  const configurationChange = host.configurationChange;
+  assert.ok(configurationChange);
+
+  host.inspected.set('fixture.enabled', true);
+  configurationChange({ affectsConfiguration: (key) => key === 'fixture.enabled' });
+  await deactivate();
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).settings['fixture.enabled'], true);
+
+  host.inspected.clear();
+  host.settingsUpdates = [];
+  await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+  assert.deepEqual(host.settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
+  for (const subscription of subscriptions) subscription.dispose();
 });
 
 test('REQ-IDE-016 AC4: extension-host changes debounce one capture', async () => {

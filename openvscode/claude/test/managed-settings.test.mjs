@@ -112,7 +112,7 @@ test("REQ-IDE-009: Claude settings also carry the base workspace-trust and recom
   assert.equal(settings["chat.titleBar.signIn.enabled"], false);
 });
 
-test("REQ-IDE-036 AC6: every inventory permits user extensions without a publisher modal", () => {
+test("REQ-IDE-040 AC1+AC2+AC3: every inventory applies the managed user-extension allowance", () => {
   const expected = { "*": true, "codeflare.codeflare-agent-sidebar": true };
   assert.deepEqual(buildPiOpenVscodeSettings()["extensions.allowed"], expected);
   assert.deepEqual(buildUnsupportedOpenVscodeSettings()["extensions.allowed"], expected);
