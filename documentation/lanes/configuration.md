@@ -4,20 +4,37 @@ Environment variables, secrets, CORS configuration, and API token permissions, o
 
 **Audience:** Operators
 
-Codeflare runs in four deployment modes. **Default mode** is self-contained — a single-developer fork needs only the configuration in that section. **Onboarding**, **SaaS**, and **Enterprise** are additive layers that document only the extra configuration each requires on top of Default. The **Reference** section (user token scopes, tooling, spec coverage) applies to every mode.
+**Owns:** public settings, defaults, configuration source, consumers, and security consequences. **Does not own:** request flows, credential-containment mechanics, migration state machines, or private non-default deployment values.
+
+Codeflare runs in four deployment modes. **Default mode** is self-contained — a single-developer fork needs only the configuration in that section. **Onboarding**, **SaaS**, and **Enterprise** are additive layers that document only the extra configuration each requires on top of Default. The **Reference** section (user token scopes and tooling) applies to every mode.
 
 ---
 
 ## Contents
 
+- [Configuration Sources and Precedence](#configuration-sources-and-precedence)
 - [Default mode](#default-mode)
 - [Onboarding mode](#onboarding-mode)
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ---
+
+## Configuration Sources and Precedence
+
+| Source | Scope | Change mechanism | Precedence / authority |
+|---|---|---|---|
+| Source defaults and `wrangler.toml` | Public baseline | Reviewed source change and deployment | Lowest runtime precedence |
+| GitHub repository/environment variables | Deployment/build selection | Repository or environment administration | Applied by the reviewed workflow |
+| Worker secrets | Credential/config material that must not be public | GitHub deployment workflow or setup-owned secret operation | Runtime secret binding; exact non-default placement remains private |
+| Setup KV (`setup:*`) | Runtime-reconfigurable deployment policy | Authenticated setup/admin flow | Preferred runtime value where the consumer defines KV-first resolution |
+| User preferences/records | Per-user behavior and entitlement projection | Authenticated user/admin flow | Bounded to the verified user's authority |
+| Generated container environment | Per-session projection | Worker/DO constructs from authoritative sources | Never an independent configuration source |
+
+Every table below identifies default, required state, consumer, and requirement. Sensitive values are never written into public documentation. When a setting exists in more than one source, its row or specialist owner states the exact precedence; do not infer a global fallback rule.
 
 ## Default mode
 
@@ -27,8 +44,8 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 |----------|---------|---------|----------|-------------|------------|
 | `SERVICE_TOKEN_EMAIL` | Email for service token auth | - | no | Optional | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
 | `CLOUDFLARE_API_TOKEN` | R2 bucket creation | - | yes | Wrangler secret | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
-| `R2_ACCESS_KEY_ID` | R2 auth for containers | - | yes | Wrangler secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
-| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | - | yes | Wrangler secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
+| `R2_ACCESS_KEY_ID` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
+| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ACCOUNT_ID` | R2 endpoint construction | - | no | Dynamic (env with KV fallback) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ENDPOINT` | S3-compatible endpoint | - | no | Dynamic (env with KV fallback) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `ALLOWED_ORIGINS` | CORS patterns (comma-separated) | - | no | wrangler.toml | [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response) |
@@ -37,14 +54,14 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 | `REVIEW_LANE_WAVE_BUDGET` | Turns a review lane may use before the runner notes it on stderr. Advisory only — a lane is never stopped, because truncating a review mid-investigation is a worse failure than an expensive one. | `4` | no | Lane process env | [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy) |
 | `REVIEW_LANE_TRIAGE_MAX_BYTES` | Largest Phase 0 triage block inlined into a lane's opening prompt; an oversized one would sit in the prompt prefix of every turn. Above this, `config.raw` is shed first and resolved decisions kept; still over the cap, the lane derives Phase 0 itself. | `32768` | no | Lane process env | [REQ-AGENT-103](../../sdd/spec/agents.md#req-agent-103-deterministic-lane-triage) |
 | `REVIEW_LANE_PACKET_MAX_BYTES` | Largest review packet inlined into a lane's opening prompt. Above this the lane builds its own packet, so a very large diff cannot force an oversized prompt onto a lane that may exit early. | `131072` | no | Lane process env | [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport) |
-| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | - | yes | GitHub Actions variable / Worker runtime env | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes), [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) |
+| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | `codeflare` | no | GitHub Actions variable / Worker runtime env <!-- @impl: .github/workflows/deploy.yml::prepare --> | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes), [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) |
 | `CODING_AGENTS` | Comma-separated shared coding-agent CLIs included in the environment's image. Accepted values: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`; unset installs all. Bash, native IDE inventories, and Pi prewarm/Jiti assets remain present. | all six coding agents | no | Environment-scoped GitHub Actions variable / Worker runtime env | [REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-OPS-039](../../sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation) |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | `3` | no | wrangler.toml | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | `10` | no | wrangler.toml | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) |
 | `MAX_USERS` | **Removed** - replaced by KV key `setup:max_users` (admin-configurable via User Management page). | - | no | - | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) |
 | `SERVICE_AUTH_SECRET` | Worker secret for service automation auth (stress tests/CLI, `X-Service-Auth` header) | - | no | Worker secret (optional) | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | inactive | no | Worker env var | [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy) |
-| `ENCRYPTION_KEY` | AES-256-GCM key for `llm-keys:*`/`deploy-keys:*`/`r2token:*` KV entries and the R2 SSE-C key; also the HKDF master input for the per-bucket vault key (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)`; vault bootstrap fails 500 if absent). | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
+| `ENCRYPTION_KEY` | AES-256-GCM key for protected KV values and R2 SSE-C; also the HKDF master input for the per-bucket Vault key. Without it, AD32 permits plaintext fallback for the covered values; current source emits a critical warning, and Vault bootstrap fails with HTTP `500`. | - | conditionally required | Optional Wrangler secret | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [AD32](../decisions/README.md#ad32-encryption_key-is-optional) |
 
 There is no development authentication-bypass variable or separate bypass path. Development and production requests use the same identity and authorization middleware in `src/middleware/auth.ts`; admin routes additionally use `requireAdmin`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
@@ -97,17 +114,21 @@ Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_A
 
 Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
 
+The `workers.dev` URL is only the initial setup surface. After setup configures the custom domain, operators route normal traffic through that domain and its configured authentication. In Cloudflare Access mode, gate the `workers.dev` URL behind one-click Access in the Cloudflare dashboard so it cannot remain an unprotected alternate entry ([REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) AC7).
+
 `R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
 
 ### Container Specs
 
-| Tier | Config | Max Instances | Notes |
-|------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 12 GB | 10 | Higher parallelism |
+| Tier | Config | Notes |
+|------|--------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
+| default or `saas` | 1 vCPU, 3 GiB, 6 GB | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
+| `high` | 2 vCPU, 6 GiB, 12 GB | Higher parallelism |
 
-Selected via the `RESSOURCE_TIER` GitHub Actions repo variable at deploy time (`low` / `default` / `high`). The misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
+One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
+
+The `RESSOURCE_TIER` misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
 
 Base image: Node.js 24 Debian (bookworm-slim).
 
@@ -304,7 +325,7 @@ Additional details:
 
 `setup:enterprise_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs. A user in **any** configured group is admitted (any-of gate); a user in no configured group receives 403 (fail-closed). When the key is unset, any user the Access application policy admits is provisioned on their valid Access JWT alone.
 
-Every matched group is forwarded to the customer's AI Gateway as a per-group `cf-aig-metadata.group_<sanitized>_<hash>=1` tag (alongside `cf-aig-metadata.user` = the user's email), within CF's 5-entry metadata cap (`user` + up to 4 groups, excess truncated deterministically in configured order), so gateway rules can branch routing, cost, and rate-limit policies per group ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). No group metadata is stamped when no groups are configured. The same matched-group list also drives per-group dynamic routing when configured ([REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)).
+Every matched group from the configured `setup:enterprise_access_group` user-access list is forwarded to the customer's AI Gateway as a `cf-aig-metadata.group_<sanitized>_<hash>=1` tag (alongside `cf-aig-metadata.user` = the user's email), within CF's 5-entry metadata cap (`user` + up to 4 groups, excess truncated deterministically in configured-list order), so gateway rules can branch routing, cost, and rate-limit policies per group ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). Unconfigured IdP memberships and `setup:enterprise_admin_access_group` memberships are not stamped. No group metadata is stamped when no user-access groups are configured. The same ordered matched-user-group list also drives per-group dynamic routing when configured ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)).
 
 **Tag-key format (what you see in AI Gateway logs and what your Dynamic Route must filter on).** The metadata key is `group_<sanitized>_<hash>`, not the raw group name, and its value is always `1`. Example: the Access group `codeflare_admins` is stamped as `group_codeflare_admins_150f5d1` with value `1` — in the AI Gateway log it reads `group_codeflare_admins_150f5d1:1`. The key is built by `sanitizeGroupKey` (`src/llm-interceptor.ts`) in two parts: `<sanitized>` is the group name lower-cased with every run of non-`[a-z0-9]` characters collapsed to `_` (so `Dev Team` → `dev_team`), and `<hash>` is a deterministic djb2 hash of the **original** name in base-36.
 
@@ -324,7 +345,7 @@ Admin groups widen the entry gate too: when `setup:enterprise_access_group` is s
 
 ### Governed Mode (R2 SSE-C disable)
 
-Governed Mode is an enterprise-only, **default-OFF** policy that disables R2 SSE-C deployment-wide so corporate-owned bucket data is readable/scannable by the company's own security tooling (REQ-ENTERPRISE-018, [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)).
+Governed Mode is an enterprise-only, **default-OFF** policy that disables R2 SSE-C deployment-wide so corporate-owned bucket data is readable/scannable by the company's own security tooling. [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) is the current migration authority; [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) remains the superseded historical design.
 
 - **Where it is set:** the Setup wizard "Data Governance" toggle, persisted in KV at `setup:r2_sse_disabled` (`'active'`/`'inactive'`; absent ⇒ OFF). No redeploy is needed to flip it. Enterprise-only — never written in non-enterprise mode.
 - **`ENCRYPTION_KEY` is unaffected as a secret.** The key keeps serving the vault HKDF master and secret-at-rest KV crypto; Governed Mode gates only the R2 SSE-C header path. Disabling SSE-C does not weaken secret storage or the vault.
@@ -481,40 +502,20 @@ Additional details:
 
 **`GRAPHIFY_SEMANTIC_MAX_PARALLEL`:** Maximum number of semantic-extraction Task subagents dispatched per wave by the `/graphify` skill. Caps the parallel fan-out on full-semantic builds so a dense repo (with hundreds of non-code files) cannot flood the Task-tool concurrency or trip Anthropic API rate limits in a single burst. Higher values finish a build faster; lower values smooth the rate-limit / token-budget surface.
 
-### Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) - ENTERPRISE_MODE forces unlimited tier and Pro mode
-- [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) - Governed Mode toggle and configuration surface (setup:r2_sse_disabled; ENCRYPTION_KEY omitted when active)
-- [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) - Agent allowlist in Enterprise Mode
-- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway (AIG_GATEWAY_URL, AIG_TOKEN)
-- [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) - Deploy-time AIG secrets and ENTERPRISE_MODE var (AIG_GATEWAY_URL, AIG_TOKEN; now an optional fallback)
-- [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard) - AI Gateway configured in the Setup wizard (setup:aig_gateway_url, setup:aig_token; KV-first, deploy-secret fallback)
-- [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning) - Gateway route-pinning (catalog-driven handle -> dynamic/<route> mapping)
-- [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) - Setup-configured dynamic-route catalog and access-group list (KV, no redeploy)
-- [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (setup:group_routing, first-match by configured order)
-- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning (setup:enterprise_access_group)
-- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin access via Cloudflare Access groups (setup:enterprise_admin_access_group)
-- [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable) - View-Only Storage: enterprise anti-exfil toggle (setup:downloads_disabled), attachment downloads blocked (403), inline view of allowlisted types only
-- [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) - Wizard-governed active coding agents (setup:active_agents, minimum one, capable-agents-only); enforcement in [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)
-- [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) - Onboarding login shell
-- [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) - Onboarding OAuth secrets and access-request confirmation email (Resend)
-- [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
-- [REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) - Claude browser-run MCP server (read-surface parity)
-- [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) - Pi interactive browser via chrome-devtools through the pi-mcp-adapter
-- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (Setup wizard)
-- [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) - GitHub token capture and storage (App vs OAuth precedence; GITHUB_APP_CLIENT_ID/SECRET, GITHUB_HOST, GITHUB_API_HOST)
-- [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (GH_TOKEN via the deploy-keys path)
-- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - GitHub provider configuration via Setup, admin-gated any mode (setup:github_*, KV-first resolution)
-- [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Cloudflare Connect (OAuth): operator client (setup:cloudflare_oauth_client_*) + per-user token, tier->scope
-- [REQ-AGENT-079](../../sdd/spec/agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) - Advanced Cloudflare OAuth tier scope catalog (the user-token Advanced tier above)
-- [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise (connect decoupled from panel gate; advanced-session entitlement moved to dashboard frontend)
-- [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
-- [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
-- [REQ-SETUP-006](../../sdd/spec/setup.md#req-setup-006-setup-streams-progress-via-ndjson) - Setup streams progress via NDJSON
-- [REQ-SETUP-007](../../sdd/spec/setup.md#req-setup-007-custom-domain-with-dns-validation) - Custom domain with DNS validation
-- [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection) - Subscribe page with tier selection
-- [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
-- [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
+Exhaustive status belongs to the active SDD domains. Configuration tables carry clause-local requirement links; this map identifies source classes and specialist owners without duplicating an incomplete requirement ledger.
+
+| Configuration concern | Source owner | Normative domains | Specialist owner |
+|---|---|---|---|
+| Default Worker/container settings | `wrangler.toml`, deploy workflow, Worker types | Setup, Operations, Session Lifecycle | [Deployment](deployment.md), [Container](container.md) |
+| Setup KV and mode overlays | setup key catalogue and setup routes | Setup, Enterprise, Authentication | [Authentication](authentication.md), [User Provisioning](user-provisioning.md) |
+| Provider clients and user credentials | setup/provider/deploy-key routes | Agents, GitHub, Browser Run, Security | [Security](security.md), [API Reference](api-reference.md) |
+| Resource/capacity settings | deployment workflow and tier resolver | Operations, Subscription | [CI/CD](ci-cd.md), [Billing](billing.md) |
+| Graphify/tooling | preseed manifests and runtime configuration | Agents, Memory | [Preseed](preseed.md), [Vault](vault.md) |
+
+Every row's current default and consumer must be validated against source during changes; this map does not imply requirements absent from it are uncovered.
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

@@ -7,6 +7,7 @@ import type { Env, UsageRecord } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
 import { getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../lib/kv-keys';
 import { getTierConfig, getUserTier, getEffectiveTier } from '../lib/subscription';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
@@ -19,6 +20,7 @@ app.get('/', async (c) => {
   // CF-004: Use billing-aware tier resolution so canceled users see free-tier quotas
   const tierValue = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
   const tier = getUserTier(tierValue, tiers);
+  const monthlyQuotaSeconds = isSaasModeActive(c.env.SAAS_MODE) ? tier.monthlySeconds : null;
 
   // Try real-time data from Timekeeper DO (includes pending unflushed seconds)
   if (c.env.TIMEKEEPER) {
@@ -31,7 +33,7 @@ app.get('/', async (c) => {
         return c.json({
           dailySeconds: live.dailySeconds,
           monthlySeconds: live.monthlySeconds,
-          monthlyQuotaSeconds: tier.monthlySeconds,
+          monthlyQuotaSeconds,
           tier: tier.displayName || tier.id,
           mode: user.subscribedMode ?? 'default',
         });
@@ -55,7 +57,7 @@ app.get('/', async (c) => {
   return c.json({
     dailySeconds,
     monthlySeconds,
-    monthlyQuotaSeconds: tier.monthlySeconds,
+    monthlyQuotaSeconds,
     tier: tier.displayName || tier.id,
     mode: user.subscribedMode ?? 'default',
   });

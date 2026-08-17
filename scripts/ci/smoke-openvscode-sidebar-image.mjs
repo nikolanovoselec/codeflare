@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import {
   lstat,
@@ -11,6 +12,7 @@ import {
   readlink,
   rm,
   stat,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = '/opt/codeflare/openvscode';
 const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
+const WELCOME_EXTENSION_NAME = 'codeflare-welcome';
 const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
 const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
@@ -27,6 +30,56 @@ const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'copilot', directory: '@github', prefix: 'copilot', keep: Object.freeze(['copilot', 'copilot-linux-x64']) }),
   Object.freeze({ agent: 'opencode', directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
 ]);
+
+export class VscodeEventEmitter {
+  #listeners = new Set();
+
+  event = (listener) => {
+    this.#listeners.add(listener);
+    return { dispose: () => this.#listeners.delete(listener) };
+  };
+
+  fire(value) {
+    for (const listener of this.#listeners) listener(value);
+  }
+
+  dispose() {
+    this.#listeners.clear();
+  }
+}
+
+export function createVscodeSmokeApi(api) {
+  return new Proxy({ EventEmitter: VscodeEventEmitter, ...api }, {
+    get(target, property, receiver) {
+      assert.notEqual(property, 'authentication');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+export async function loadExtensionWithVscode(extensionMain, vscode, moduleOverrides = {}) {
+  const require = createRequire(import.meta.url);
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  try {
+    Module._load = function load(request, parent, isMain) {
+      if (request === 'vscode') return vscode;
+      if (Object.hasOwn(moduleOverrides, request)) return moduleOverrides[request];
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    const resolved = require.resolve(extensionMain);
+    delete require.cache[resolved];
+    return require(resolved);
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
+export async function activateExtensionWithVscode(extensionMain, vscode, context, moduleOverrides = {}) {
+  const extension = await loadExtensionWithVscode(extensionMain, vscode, moduleOverrides);
+  await extension.activate(context);
+  return extension;
+}
 
 export async function verifySelectedAgentLaunchers(
   selection,
@@ -101,6 +154,18 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
+  const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
+  const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
+  assert.equal(welcomeManifest.name, WELCOME_EXTENSION_NAME);
+  assert.equal(welcomeManifest.publisher, 'codeflare');
+  assert.equal(welcomeManifest.main, './dist/welcome-extension.cjs');
+  assert.deepEqual(welcomeManifest.activationEvents, [
+    'onStartupFinished',
+    'onCommand:codeflare.welcome.open',
+  ]);
+  assert.equal(welcomeManifest.contributes.chatParticipants, undefined);
+  assert.equal(welcomeManifest.contributes.languageModelChatProviders, undefined);
+  await assertImmutable(welcomeRoot);
   const inventoriesRoot = join(ROOT, 'extensions');
   const unsupportedInventory = join(inventoriesRoot, 'none');
   assert.deepEqual((await readdir(inventoriesRoot)).sort(), ['claude', 'none', 'pi']);
@@ -151,6 +216,7 @@ async function main() {
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
   await verifyUiStateHelper();
+  const userExtensionPersistence = await verifyUserExtensionPersistence(welcomeRoot, piRoot);
   const { CODING_AGENT_COMMANDS, hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
   const selection = process.env.CODEFLARE_CODING_AGENTS;
   const agentPackages = await verifySelectedAgentPackages(selection, { hasCodingAgent });
@@ -166,6 +232,8 @@ async function main() {
     extensionHash,
     nativeChat,
     officialClaude,
+    welcomeExtension: WELCOME_EXTENSION_NAME,
+    userExtensionPersistence,
     codeServerRuntime,
     agentPackages,
     agentVersions,
@@ -236,6 +304,7 @@ async function verifyCodeServerWorkspaceProjection() {
     '--disable-proxy',
     '--disable-getting-started-override',
     '--disable-workspace-trust',
+    '--app-name', 'Codeflare',
     '--user-data-dir', join(root, 'data'),
     '--extensions-dir', join(ROOT, 'extensions', 'none'),
     '/home/user/workspace',
@@ -263,14 +332,18 @@ async function verifyCodeServerWorkspaceProjection() {
     const { projectVscodeWorkbenchWorkspace } = await import(
       pathToFileURL('/app/host/dist/vscode-proxy.js').href
     );
-    const projected = projectVscodeWorkbenchWorkspace(html);
+    const browserAuthority = 'codeflare-smoke.invalid';
+    const projected = projectVscodeWorkbenchWorkspace(html, browserAuthority);
     assert.ok(projected, 'packaged Code OSS workbench configuration shape is incompatible');
     const matches = [...projected.matchAll(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/g)];
     assert.equal(matches.length, 1);
     const config = JSON.parse(matches[0][1].replaceAll('&quot;', '"'));
+    // REQ-IDE-039 AC1: packaged code-server exposes the Codeflare product name
+    assert.equal(config.productConfiguration?.nameShort, 'Codeflare');
+    assert.equal(config.productConfiguration?.nameLong, 'Codeflare');
     assert.deepEqual(config.folderUri, {
       scheme: 'vscode-remote',
-      authority: config.remoteAuthority,
+      authority: browserAuthority,
       path: '/home/user/workspace',
     });
     await waitForUnsupportedInventoryInitialization(join(ROOT, 'extensions', 'none'));
@@ -291,10 +364,68 @@ async function verifyCodeServerWorkspaceProjection() {
   }
 }
 
+function createInlineEditRpcChild() {
+  const child = new EventEmitter();
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const stdin = new EventEmitter();
+  let closed = false;
+  stdin.destroyed = false;
+  stdin.write = (line, _encoding, callback) => {
+    const envelope = JSON.parse(line);
+    assert.equal(envelope.type, 'prompt');
+    callback?.();
+    queueMicrotask(() => {
+      const events = [{ id: envelope.id, type: 'response', command: 'prompt', success: true }];
+      if (String(envelope.message).startsWith('/codeflare-inline-edit ')) {
+        const encoded = String(envelope.message).split(/\s+/, 2)[1] ?? '';
+        const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+        events.push({
+          type: 'tool_execution_start',
+          toolName: 'codeflare_submit_inline_edits',
+          args: {
+            requestId: payload.requestId,
+            summary: 'Replaced the packaged value because the previous value was stale.',
+            edits: [{
+              startLine: 0,
+              startCharacter: 0,
+              endLine: 0,
+              endCharacter: 19,
+              newText: 'const packaged = 42;',
+            }],
+          },
+        });
+      } else {
+        events.push({
+          type: 'message_update',
+          assistantMessageEvent: { type: 'text_delta', delta: 'packaged panel response' },
+        });
+      }
+      events.push({ type: 'agent_settled' });
+      stdout.emit('data', Buffer.from(`${events.map((event) => JSON.stringify(event)).join('\n')}\n`));
+    });
+    return true;
+  };
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.stdin = stdin;
+  child.kill = () => {
+    if (!closed) {
+      closed = true;
+      stdin.destroyed = true;
+      queueMicrotask(() => child.emit('close', 0, null));
+    }
+    return true;
+  };
+  queueMicrotask(() => child.emit('spawn'));
+  return child;
+}
+
 async function verifyPackagedNativeChat(extensionRoot) {
   const manifest = JSON.parse(await readFile(join(extensionRoot, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.enabledApiProposals, [
     'chatParticipantAdditions',
+    'chatParticipantPrivate',
     'chatProvider',
     'defaultChatParticipant',
   ]);
@@ -329,18 +460,18 @@ async function verifyPackagedNativeChat(extensionRoot) {
   }]);
   assert.equal(manifest.contributes?.views, undefined);
 
-  const require = createRequire(import.meta.url);
-  const Module = require('node:module');
-  const originalLoad = Module._load;
   let activeEditorUri;
+  let activeEditorDocument;
   let executedCommand;
   const contextValues = new Map();
+  const diagnosticLines = [];
+  let diagnosticChannel;
   let handler;
   const hostModelProviders = new Map();
   let reviewFile;
   const disposable = () => ({ dispose() {} });
   const uri = (path) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
-  const vscode = new Proxy({
+  const vscode = createVscodeSmokeApi({
     Uri: {
       file: (path) => uri(path),
       joinPath: (base, ...parts) => uri(join(base.fsPath ?? base.path, ...parts)),
@@ -376,22 +507,49 @@ async function verifyPackagedNativeChat(extensionRoot) {
         return disposable();
       },
     },
+    MarkdownString: class MarkdownString {
+      constructor() {
+        this.value = '';
+      }
+      appendText(value) {
+        this.value += value;
+        return this;
+      }
+    },
+    Range: class Range {
+      constructor(startLine, startCharacter, endLine, endCharacter) {
+        this.start = { line: startLine, character: startCharacter };
+        this.end = { line: endLine, character: endCharacter };
+      }
+    },
+    TextEdit: {
+      replace: (range, newText) => ({ range, newText }),
+    },
     window: {
+      createOutputChannel: (name) => {
+        diagnosticChannel = name;
+        return { appendLine: (line) => diagnosticLines.push(line), dispose() {} };
+      },
+      tabGroups: {
+        all: [{ isActive: true, tabs: [] }],
+        onDidChangeTabs: () => disposable(),
+      },
       get activeTextEditor() {
-        return activeEditorUri ? { document: { uri: activeEditorUri } } : undefined;
+        return activeEditorDocument ?? (activeEditorUri ? { document: { uri: activeEditorUri } } : undefined);
       },
       showWarningMessage: async () => undefined,
+      showInformationMessage: async () => undefined,
       showTextDocument: async () => undefined,
     },
     workspace: {
+      getConfiguration: () => ({
+        get: (key) => key === 'accessibility.openChatEditedFiles'
+          ? false
+          : key === 'chat.disableAIFeatures' ? true : undefined,
+      }),
       getWorkspaceFolder: (resource) => resource.fsPath.startsWith('/home/user/workspace/') ? {} : undefined,
       textDocuments: [],
       openTextDocument: async () => ({}),
-    },
-  }, {
-    get(target, property, receiver) {
-      assert.notEqual(property, 'authentication');
-      return Reflect.get(target, property, receiver);
     },
   });
   let extension;
@@ -400,14 +558,32 @@ async function verifyPackagedNativeChat(extensionRoot) {
   await writeFile(reviewPath, 'export const reviewSmoke = true;\n');
 
   try {
-    Module._load = function load(request, parent, isMain) {
-      if (request === 'vscode') return vscode;
-      return originalLoad.call(this, request, parent, isMain);
-    };
-    extension = require(join(extensionRoot, String(manifest.main).replace(/^\.\//, '')));
     const subscriptions = [];
-    extension.activate({ extensionUri: uri(extensionRoot), subscriptions });
+    const actualChildProcess = createRequire(import.meta.url)('node:child_process');
+    const spawnedRpcChildren = [];
+    extension = await activateExtensionWithVscode(
+      join(extensionRoot, String(manifest.main).replace(/^\.\//, '')),
+      vscode,
+      { extensionUri: uri(extensionRoot), subscriptions },
+      {
+        'node:child_process': {
+          ...actualChildProcess,
+          spawn: (executable, args, options) => {
+            assert.equal(executable, '/usr/local/bin/pi');
+            assert.deepEqual(args, ['--mode', 'rpc', '--no-session', '--no-themes']);
+            assert.equal(options?.cwd, '/home/user/workspace');
+            const child = createInlineEditRpcChild();
+            spawnedRpcChildren.push(child);
+            return child;
+          },
+        },
+      },
+    );
     assert.equal(typeof handler, 'function', 'packaged extension did not register native Pi Chat');
+    assert.equal(diagnosticChannel, 'Codeflare Inline Chat');
+    assert.match(diagnosticLines[0] ?? '', /revision=uri-authority-probe-v2/);
+    assert.match(diagnosticLines[0] ?? '', /openChatEditedFiles=false/);
+    assert.equal(contextValues.get('chatSetupHidden'), true, 'packaged Pi inventory did not suppress Code OSS Copilot setup chrome');
     assert.equal(contextValues.get('chatSetupCompleted'), true, 'packaged Pi inventory did not suppress Code OSS account setup actions');
     assert.deepEqual([...hostModelProviders.keys()], ['copilot', 'codeflare'], 'packaged extension did not register both host adapters');
     const fallbackProvider = hostModelProviders.get('copilot');
@@ -443,6 +619,79 @@ async function verifyPackagedNativeChat(extensionRoot) {
     assert.deepEqual(executedCommand?.options.attachFiles.map((file) => file.fsPath), [reviewResource.fsPath]);
     assert.match(executedCommand?.options.query, /^@codeflare\b/);
     assert.equal(executedCommand?.options.mode, 'ask');
+    const source = 'const packaged = 0;\n';
+    const inlineDocument = {
+      uri: reviewResource,
+      isClosed: false,
+      isDirty: false,
+      version: 1,
+      languageId: 'typescript',
+      lineCount: 2,
+      getText: () => source,
+      lineAt: (line) => ({ text: line === 0 ? source.trimEnd() : '' }),
+    };
+    const inlineSelection = {
+      isEmpty: true,
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 0 },
+    };
+    activeEditorDocument = {
+      document: {
+        ...inlineDocument,
+        uri: uri('/home/user/workspace/focused-elsewhere.ts'),
+        getText: () => 'const focusedElsewhere = true;\n',
+      },
+      selection: inlineSelection,
+    };
+    executedCommand = undefined;
+    const rendered = [];
+    await handler(
+      {
+        location: 4,
+        location2: {
+          document: inlineDocument,
+          selection: inlineSelection,
+          wholeRange: inlineSelection,
+        },
+        prompt: 'replace packaged value',
+        references: [],
+      },
+      { history: [] },
+      {
+        markdown: () => assert.fail('inline request emitted hidden markdown'),
+        progress: () => undefined,
+        textEdit: (target, edits) => rendered.push({ target, edits }),
+        confirmation: () => assert.fail('packaged inline request emitted review confirmation'),
+      },
+      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
+    );
+    assert.equal(spawnedRpcChildren.length, 1, 'packaged inline request did not use one IDE Pi process');
+    assert.equal(rendered.length, 3);
+    assert.deepEqual(rendered[0], { target: reviewResource, edits: [] });
+    assert.equal(rendered[1]?.target, reviewResource);
+    assert.deepEqual(rendered[1]?.edits.map((edit) => ({
+      start: edit.range.start,
+      end: edit.range.end,
+      newText: edit.newText,
+    })), [{
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 19 },
+      newText: 'const packaged = 42;',
+    }]);
+    assert.deepEqual(rendered[2], { target: reviewResource, edits: true });
+    assert.match(diagnosticLines.find((line) => line.includes('request=')) ?? '', /codeflare-review-smoke\.ts/);
+    assert.match(diagnosticLines.find((line) => line.includes('snapshot=immediate')) ?? '', /groups=1/);
+    assert.equal(executedCommand, undefined, 'packaged inline request invoked extension-owned review command');
+    const panelMarkdown = [];
+    await handler(
+      { location: 1, prompt: 'continue in panel', references: [] },
+      { history: [] },
+      { markdown: (value) => panelMarkdown.push(value), progress: () => undefined },
+      { isCancellationRequested: false, onCancellationRequested: () => disposable() },
+    );
+    assert.equal(spawnedRpcChildren.length, 1, 'packaged panel request did not reuse the IDE Pi process');
+    assert.deepEqual(panelMarkdown, ['packaged panel response']);
+    assert.ok((await stat('/opt/codeflare/pi-agent/extensions/inline-edit.ts')).size > 0, 'image omitted the inline proposal extension');
     await handler(
       { prompt: 'cancelled smoke', references: [] },
       { history: [] },
@@ -452,7 +701,6 @@ async function verifyPackagedNativeChat(extensionRoot) {
     return 'DEFAULT_NATIVE_PI_OK';
   } finally {
     await extension?.deactivate?.();
-    Module._load = originalLoad;
     await rm(reviewPath, { force: true });
   }
 }
@@ -520,6 +768,8 @@ async function verifyOpenVscodeSettings() {
     await preparation.prepareBaseOpenVscodeSettings(piDataRoot);
     const piSettings = JSON.parse(await readFile(join(piDataRoot, 'data', 'User', 'settings.json'), 'utf8'));
     assert.deepEqual(piSettings, managed.buildPiOpenVscodeSettings());
+    assert.equal(piSettings['chat.disableAIFeatures'], true);
+    assert.equal(piSettings['accessibility.openChatEditedFiles'], false);
     assert.deepEqual(piSettings['chat.agentFilesLocations'], { '~/.claude/agents': false });
 
     const unsupportedDataRoot = join(root, 'unsupported-data');
@@ -529,9 +779,186 @@ async function verifyOpenVscodeSettings() {
 
     for (const dataRoot of [serverDataRoot, piDataRoot, unsupportedDataRoot]) {
       const profileState = JSON.parse(await readFile(join(dataRoot, 'data', 'User', 'State', 'storage.json'), 'utf8'));
-      assert.equal(profileState['workbench.statusbar.hidden'], '["chat.statusBarEntry"]');
+      assert.equal(profileState['workbench.statusbar.hidden'], undefined);
       assert.equal(profileState['workbench.activity.showAccounts'], 'false');
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyUserExtensionPersistence(welcomeRoot, piRoot) {
+  const helper = join(ROOT, 'browser-ide-extensions.py');
+  const policy = join(ROOT, 'extension-persistence-policy.json');
+  const helperInfo = await stat(helper);
+  const policyInfo = await stat(policy);
+  assert.equal(helperInfo.uid, 0);
+  assert.equal(helperInfo.mode & 0o222, 0);
+  assert.equal(helperInfo.mode & 0o111, 0o111);
+  assert.equal(policyInfo.uid, 0);
+  assert.equal(policyInfo.mode & 0o222, 0);
+
+  const root = await mkdtemp(join(tmpdir(), 'user-extension-image-smoke-'));
+  try {
+    const extensionsDir = join(root, 'extensions');
+    const manifestPath = join(root, 'persistent', 'ide-extensions.json');
+    const syncPidFile = join(root, 'sync-daemon.pid');
+    const fixtureRoot = join(root, 'fixture');
+    const fixturePackage = join(fixtureRoot, 'extension', 'package.json');
+    const vsixPath = join(root, 'fixture.user-extension-1.0.0.vsix');
+    await mkdir(extensionsDir, { recursive: true });
+    await mkdir(join(fixturePackage, '..'), { recursive: true });
+    await symlink(piRoot, join(extensionsDir, 'codeflare-agent-sidebar'));
+    await writeFile(fixturePackage, JSON.stringify({
+      name: 'user-extension',
+      publisher: 'fixture',
+      version: '1.0.0',
+      engines: { vscode: '^1.100.0' },
+      main: './extension.js',
+      activationEvents: ['*'],
+    }));
+    await writeFile(join(fixtureRoot, 'extension', 'extension.js'), 'exports.activate = () => {};\n');
+    await writeFile(join(fixtureRoot, '[Content_Types].xml'), '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="js" ContentType="application/javascript"/><Default Extension="vsixmanifest" ContentType="text/xml"/></Types>\n');
+    await writeFile(join(fixtureRoot, 'extension.vsixmanifest'), '<?xml version="1.0"?><PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Language="en-US" Id="user-extension" Version="1.0.0" Publisher="fixture"/><DisplayName>Fixture User Extension</DisplayName><Description>Image-smoke fixture</Description><Properties><Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.100.0"/></Properties></Metadata><Installation><InstallationTarget Id="Microsoft.VisualStudio.Code"/></Installation><Assets><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true"/></Assets></PackageManifest>\n');
+    execFileSync('python3', ['-c', [
+      'import pathlib, sys, zipfile',
+      'root, target = map(pathlib.Path, sys.argv[1:])',
+      'with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:',
+      '  for path in root.rglob("*"):',
+      '    if path.is_file(): archive.write(path, path.relative_to(root))',
+    ].join('\n'), fixtureRoot, vsixPath]);
+
+    const listExtensions = () => execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--list-extensions',
+      '--show-versions',
+    ], { encoding: 'utf8', timeout: 20_000 }).trim().split('\n').filter(Boolean).sort();
+    assert.deepEqual(listExtensions(), ['codeflare.codeflare-agent-sidebar@0.0.0']);
+    const fixedHashBefore = createHash('sha256').update(await readFile(join(piRoot, 'dist', 'extension.cjs'))).digest('hex');
+    execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--install-extension', vsixPath,
+      '--force',
+    ], { encoding: 'utf8', timeout: 30_000 });
+    assert.deepEqual(listExtensions(), [
+      'codeflare.codeflare-agent-sidebar@0.0.0',
+      'fixture.user-extension@1.0.0',
+    ]);
+    await mkdir(join(manifestPath, '..'), { recursive: true });
+    await writeFile(manifestPath, `${JSON.stringify({
+      version: 1,
+      securityWarningShown: true,
+      extensions: {},
+      settings: {},
+    })}\n`, { mode: 0o600 });
+
+    const runBackstop = () => execFileSync('python3', [
+      helper,
+      'capture',
+      '--extensions-dir', extensionsDir,
+      '--manifest', manifestPath,
+      '--policy', policy,
+    ], { encoding: 'utf8', timeout: 10_000 });
+    runBackstop();
+    let captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions), ['fixture.user-extension']);
+    assert.deepEqual(captured.settings, {});
+
+    captured = {
+      ...captured,
+      securityWarningShown: true,
+      extensions: {
+        ...captured.extensions,
+        'missing.fixture': { version: '2.0.0', targetPlatform: 'universal' },
+      },
+      settings: { 'fixture.enabled': true },
+    };
+    await writeFile(manifestPath, `${JSON.stringify(captured)}\n`, { mode: 0o600 });
+    const commandSelectors = [];
+    const settingsUpdates = [];
+    const vscode = createVscodeSmokeApi({
+      ConfigurationTarget: { Global: 1 },
+      ProgressLocation: { Notification: 15 },
+      commands: {
+        executeCommand: async (command, selector, options) => {
+          assert.equal(command, 'workbench.extensions.installExtension');
+          assert.deepEqual(options, { donotSync: true });
+          commandSelectors.push(selector);
+          if (selector === 'missing.fixture@2.0.0') {
+            const registryPath = join(extensionsDir, 'extensions.json');
+            const missingDirectory = join(extensionsDir, 'missing.fixture-2.0.0');
+            const registry = JSON.parse(await readFile(registryPath, 'utf8'));
+            await mkdir(missingDirectory, { recursive: true });
+            await writeFile(join(missingDirectory, 'package.json'), JSON.stringify({
+              name: 'fixture',
+              publisher: 'missing',
+              version: '2.0.0',
+              engines: { vscode: '^1.100.0' },
+            }));
+            await writeFile(registryPath, JSON.stringify([
+              ...registry,
+              {
+                identifier: { id: 'missing.fixture' },
+                version: '2.0.0',
+                location: { scheme: 'file', path: missingDirectory },
+                relativeLocation: 'missing.fixture-2.0.0',
+                metadata: { targetPlatform: 'universal' },
+              },
+            ]));
+            return undefined;
+          }
+          throw new Error(`unexpected selector: ${selector}`);
+        },
+      },
+      extensions: {
+        all: [],
+        onDidChange: () => ({ dispose() {} }),
+      },
+      window: {
+        showWarningMessage: async (_message, ...actions) => actions.includes('I understand') ? 'I understand' : undefined,
+        withProgress: async (_options, task) => task({ report() {} }),
+      },
+      workspace: {
+        getConfiguration: () => ({
+          inspect: () => ({ globalValue: undefined }),
+          update: async (key, value, target) => settingsUpdates.push({ key, value, target }),
+        }),
+        onDidChangeConfiguration: () => ({ dispose() {} }),
+      },
+    });
+    const welcome = await loadExtensionWithVscode(join(welcomeRoot, 'dist', 'welcome-extension.cjs'), vscode);
+    assert.equal(typeof welcome.activateExtensionPersistence, 'function');
+    const subscriptions = [];
+    await welcome.activateExtensionPersistence({ subscriptions }, {
+      extensionsDir,
+      manifestPath,
+      syncPidFile,
+      debounceMs: 2_000,
+    });
+    assert.deepEqual(commandSelectors, ['missing.fixture@2.0.0']);
+    assert.deepEqual(settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
+    for (const subscription of subscriptions) subscription.dispose();
+
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions).sort(), ['fixture.user-extension', 'missing.fixture']);
+    assert.deepEqual(captured.settings, { 'fixture.enabled': true });
+    execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--uninstall-extension', 'fixture.user-extension',
+    ], { encoding: 'utf8', timeout: 20_000 });
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions).sort(), ['fixture.user-extension', 'missing.fixture']);
+    await writeFile(join(extensionsDir, '.obsolete'), JSON.stringify({
+      'fixture.user-extension-1.0.0': true,
+    }));
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions), ['missing.fixture']);
+    assert.equal(createHash('sha256').update(await readFile(join(piRoot, 'dist', 'extension.cjs'))).digest('hex'), fixedHashBefore);
+    assert.equal((await lstat(join(extensionsDir, 'codeflare-agent-sidebar'))).isSymbolicLink(), true);
+    return 'USER_EXTENSION_PERSISTENCE_OK';
   } finally {
     await rm(root, { recursive: true, force: true });
   }

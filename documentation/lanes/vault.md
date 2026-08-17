@@ -4,30 +4,31 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 
 **Audience:** Developers
 
+**Owns:** Vault path ownership, capture and user-edit extraction, cumulative graph publication, SilverBullet user/runtime behavior, and initialization tiers. **Does not own:** HTTP envelopes, authentication controls, bisync algorithms, or agent-manifest delivery.
+
 ---
 
 ## Contents
 
-- [Overview](#overview-req-vault-001)
-- [Directory Layout](#directory-layout)
-- [Capture Path](#capture-path-req-vault-002)
-- [User-edit Path](#user-edit-path-req-vault-003)
-- [Unified Global Graph](#unified-global-graph-req-vault-004)
-- [SilverBullet Editor](#silverbullet-editor-req-vault-005)
-- [Vault encryption and IDB lifecycle](#vault-encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023)
-- [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
-- [Preseed Integration](#preseed-integration-req-vault-007)
-- [First-session Expectations](#first-session-expectations)
-- [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)
-- [PDF-Ingestion E2E Plan](#pdf-ingestion-e2e-plan-req-vault-011)
+- [Data Model and Boundaries](#data-model-and-boundaries)
+- [Capture and Edit Flows](#capture-and-edit-flows)
+- [Graph Publication and Merge](#graph-publication-and-merge-req-vault-004)
+- [Editor and Proxy Contract](#editor-and-proxy-contract-req-vault-005)
+- [Encryption and IDB Lifecycle](#encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023)
+- [Persistence and Finalization](#persistence-and-finalization-req-vault-006)
+- [Bootstrap and Seed Integration](#bootstrap-and-seed-integration-req-vault-007)
+- [Attachments and Ingestion](#attachments-and-ingestion)
 - [Memory Capture System](#memory-capture-system)
-- [Troubleshooting](#troubleshooting)
-- [Specification Coverage](#specification-coverage)
+- [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ---
 
-## Overview (REQ-VAULT-001)
+## Data Model and Boundaries
+
+<a id="overview-req-vault-001"></a>
+### Overview (REQ-VAULT-001)
 
 The vault lives at `/home/user/Vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is available on the next session you start.
 
@@ -60,7 +61,7 @@ The R2 storage browser surfaces four directories as "special folders" at the buc
 
 The tooltip shows the folder's purpose and its in-container path so users know where to look inside a session.
 
-## Directory Layout
+### Directory Layout
 
 Inside the container, three sibling directories live under `/home/user/` alongside the workspace:
 
@@ -99,7 +100,10 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 
 **Hidden-root constraint (see [AD54](../decisions/README.md#ad54-vault-directory-must-use-a-non-hidden-basename)):** The vault directory must use a non-hidden basename. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk when the root basename begins with `.`, returning an empty file listing even when notes are present on disk. This is why the path is `/home/user/Vault/`, not `/home/user/.user_vault/`.
 
-## Capture Path (REQ-VAULT-002)
+## Capture and Edit Flows
+
+<a id="capture-path-req-vault-002"></a>
+### Capture Path (REQ-VAULT-002)
 
 On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` carrier naming the window and the capture file, and launches `run-memory-capture.sh` detached. The main session spends nothing: it does not dispatch a subagent, wait, or read the result. The runner prefilters the transcript slice, builds one self-contained request, and runs the capture as a headless `claude -p` bounded to six turns, with fidelity selected by `CODEFLARE_MEMORY_MODEL` (default `sonnet`) per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) and [AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block). That capture runs `memory-agent-prompt.md` end to end:
 
@@ -117,7 +121,7 @@ Compaction is manual: the vault grows append-only and no automated compactor shi
 
 Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so graphify's external-label dedup unifies them across the vault and per-repo code graphs. File paths, code symbols, and PR references stay as prose -- they namespace per-project and would never auto-link meaningfully.
 
-## User-edit Path (REQ-VAULT-003)
+### User-edit Path (REQ-VAULT-003)
 
 Implements [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
 
@@ -140,7 +144,7 @@ The in-flight sentinel's TTL is 30 minutes. It was raised from 5 minutes in 2026
 
 The exclusion set — `Raw/Sessions/`, `Raw/Graphs/`, `graphify-out/`, `Library/Codeflare/`, `.silverbullet/` (agent-owned; the served graph-viz copy the extractor's own final step re-renders; derived; vendored SilverBullet plug bundles; editor-config) — lives in `vault-manifest.py` (a parallel Python copy of `VAULT_GENERATED_PREFIXES` + `VAULT_PRESEED_ROOT_FILES`, code-commented "MUST stay identical to memory-vault-helpers.ts") and Pi's `vault-manifest-fs.ts` (which imports the predicate from `memory-vault-helpers.ts` directly) — kept in parity by convention on the Python side, by direct import on the TypeScript side.
 
-A mismatch re-triggers a spurious extraction cycle on the extractor's own output (observed live 2026-07-02 for `Raw/Graphs/vault-graph.html`). It also excludes the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, but content-hash detection ignores an unchanged page regardless, and the by-name exclusion keeps even a genuinely-rewritten page from counting as a user edit ([REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) AC1).
+A mismatch re-triggers a spurious extraction cycle on the extractor's own output (observed live 2026-07-02 for `Raw/Graphs/vault-graph.html`). It also excludes the three always-managed root pages (`CONFIG.md`, `README.md`, `STYLES.md`) and the create-if-missing dashboard `Index.md`. `init_user_vault()` overwrites only the managed three; `Index.md` becomes editor-owned after first seed. The by-name exclusion keeps these product-supplied roots from counting as user-edit extraction input ([REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) AC1).
 
 On the first durable initialization of a newly created vault, `init_user_vault()` baselines the manifest from current content before the daemon starts, then writes `graphify-out/vault-extract-initialized`; the first tick therefore finds nothing. An existing or restored vault without that marker is a migration, not a first initialization: init writes the marker but never baselines current content. If its manifest is absent, or later goes missing after initialization, all eligible files remain full-delta candidates. On ordinary later boots the manifest is restored from R2 and never re-baselined, so prior-session unextracted edits are still detected.
 
@@ -173,7 +177,8 @@ The Pi subagent authors a request-specific canonical chunk, then holds one 300-s
 
 **PDFs are the exception:** the Pi Read tool cannot render PDF pages as images, so a PDF on the Pi path yields only a bare document node. The heading/title/entity extraction the Claude runtime performs (see [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)) is Claude-only, and scanned/image-only PDFs are inherently out of reach on Pi. For markdown and plain-text files (`.md`/`.txt`/`.json`/`.yaml`/`.yml`), the text/structural output matches the Claude path. The canonical-schema and viz-publish contract these steps satisfy is [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema).
 
-## Unified Global Graph (REQ-VAULT-004)
+<a id="unified-global-graph-req-vault-004"></a>
+## Graph Publication and Merge (REQ-VAULT-004)
 
 `~/.graphify/global-graph.json` is the hash-keyed merge of every per-source graph plus the vault's own graph. The graphify MCP wrapper prefers this graph when present, so `mcp__graphify__*` tool calls return a unified view across vault + active repos.
 
@@ -199,7 +204,9 @@ All five serialize on `/tmp/graphify-global.lock`. Claude, boot init, and active
 4. **Reconcile ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1/AC5)**: read the manifest's repo tags, remove every one that is neither `user_vault` nor the active checkout's tag, and add the active checkout's graph when its recorded `source_hash` differs or the tag is new.
 5. **Sentinel advance ([REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) AC1)**: both sentinels are rewritten and the path sentinel `touch`-bumped only after the whole reconciliation succeeded, so a failure leaves the prior state in place and the next tool call retries.
 
-Step 4's removals and addition run inside one `flock -w 5 /tmp/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely. In a worktree the branch is read through the `gitdir:` pointer in `.git`, since HEAD does not live under the checkout ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC7).
+Step 4's removals and addition run inside one `flock -w 5 /tmp/graphify-global.lock` critical section, so a lock timeout or either graphify failure aborts the whole step. The fast path avoids spawning the graphify CLI, including hundreds of MB of Python imports, on every Bash/Edit/Write/ctx_execute tool call. Branch and graph presence sit in the comparison because mtime cannot see either: a checkout does not touch `graphify-out/`, and a deleted graph moves its mtime backwards to zero, which reads as "not rebuilt" and would leave a dead tag published indefinitely. This behavior implements [REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation).
+
+In a worktree the branch is read through the `gitdir:` pointer in `.git`, since HEAD does not live under the checkout ([REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC7).
 
 The removal set is enumerated from the manifest rather than derived from the previous sentinel value. That is what lets the hook collect entries no transition diff can name: a tag a crashed run left behind, or a phantom tag minted back when a bare `graphify-out/` directory still resolved as a repo root. Drift self-heals on the next tool call. `user_vault` is excluded by name, since the vault is registered exclusively by entrypoint init and by the capture and extract pipelines, never as a repo.
 
@@ -217,7 +224,8 @@ The two binaries report their absence differently, because `flock` is the proces
 
 Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. A branch switch triggers reconciliation, not a rebuild: the hook re-evaluates which tags belong in the global graph, so a branch where the graph is absent stops publishing, but the graph's contents are refreshed only when the user rebuilds (`graphify update` or `/graphify`). Until that rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
 
-## SilverBullet Editor (REQ-VAULT-005)
+<a id="silverbullet-editor-req-vault-005"></a>
+## Editor and Proxy Contract (REQ-VAULT-005)
 
 The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/local/bin/silverbullet`, pinned by version + SHA256. `start_silverbullet_supervisor` in entrypoint.sh runs the server on `127.0.0.1:3030` against the vault, supervised with a 5s restart loop so an editor crash never requires a container restart.
 
@@ -239,29 +247,23 @@ Removing the prewarm iframe orphans the top-level document: `document.hasFocus()
 
 The on-demand prewarm therefore does not steal focus while the user types or has the mobile keyboard open; it is not paused on focus. `injectVaultPrewarmBridge()` marks the runtime as headless without using SilverBullet's upstream `?headless` URL flag because that flag disables service worker registration. The bridge is injected into the generic shell because the service worker may serve the precached shell instead of a fresh Worker response.
 
-The button remains guarded until a same-origin/current-attempt bridge ready signal also proves current-device local readiness: recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker. The bridge holds this proof across `requiredReadyStreak` (2) consecutive polls before it arms the control, and a single not-ready poll resets the streak. That prevents a momentary index-queue-empty mid-sync from arming the control prematurely ([REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC6).
+The first click enters the bootstrap hop. For the v3 clean cutover, that page enumerates same-origin service-worker registrations, unregisters every older same-origin worker whose scope path starts with `/api/vault/`, except the exact new canonical scope, re-enumerates to verify none remains, and only then registers the native worker at the canonical scope. Unrelated workers are untouched. Historical IndexedDB databases are not migrated or deleted; the new scope derives fresh current stores and R2 remains authoritative ([REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) AC1-AC3, AC7).
 
-Timeout/error states stay guarded and retry in the background; the button stays visible and click/tap feedback explains that this browser is preparing or retrying the Vault cache. On the reload-skip path, where the control is already green from a prior session, a click rechecks local readiness and key recoverability before opening. An evicted or cleared cache drops back into a fresh on-demand prepare instead of opening a stale editor. On the cold path, the arming poll has already verified the prewarm proof and key before the control went green, so that click opens synchronously.
+The button remains guarded until the mounted same-origin/current-attempt iframe bridge emits a content proof whose scope exactly matches that iframe document's canonical base: SilverBullet runtime ready, completed space sync, current object index with an empty queue, and a local `/.fs/` listing containing `CONFIG.md`, `Index.md`, and `STYLES.md`. The bridge holds this proof across `requiredReadyStreak` (2) consecutive polls before arming, and a single not-ready poll resets the streak. It does not use session-specific metadata embedded in the shell because SilverBullet precaches that shell and can serve it in later sessions ([REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC5-AC6).
 
-On a successful full prewarm the bridge's complete ready proof (runtime ready + space sync + object index complete + `/.fs/` file listing) records a persistent per-browser marker, `vault-session-<sid>-prewarmed`, in `localStorage`. On a later page load, where the in-memory prewarm status has reset, `Layout.tsx` skips re-mounting the bootstrap iframe and marks the control armed (green) directly with no click.
+Timeout/error states stay guarded and never retry in the background. The next user click starts the next bounded attempt. Every fresh dashboard load begins white/available and mounts no prewarm iframe automatically, even when the canonical worker and databases already exist. This preserves explicit user control and prevents a stale browser marker from bypassing full current content proof ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2-AC3).
 
-That reload-skip happens only when the marker is present and live local readiness still holds. `checkVaultLocalReadiness` verifies recorded `sb_data_*`/`sb_files_*` plus an active service worker, not evicted, with the liveness probe bounded by a short timeout. If the probe does not settle, or the marker is absent, the control stays 'available' for an on-demand click and is never auto-mounted.
+The button surfaces the flow as a breathing affordance (`VaultButton.tsx`, the same breathing the "Return to Dashboard" icon uses). Server-ready is `available`: white, clickable, no breathing. The first click breathes the codeflare accent while preparation runs. When the proof and key-recoverability check complete, the icon breathes green and shows a five-second ready tooltip; the second click opens instantly. `prefers-reduced-motion` keeps the state colours without animation.
 
-This stops a reload of an already-initialized device from re-running service-worker registration, space sync, and indexing, and from contending with the terminal for keyboard focus during that re-init. An interrupted first-init (stores + SW present but no recorded full proof) deliberately stays 'available' until the user clicks, rather than opening onto an unbuilt index. The marker shares the `vault-session-*` cache namespace, so `sweepOrphanVaultCaches`/`cleanupSessionVaultCache` preserve it for an active session and remove it on session delete/orphan (see Cache cleanup below). ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2)
-
-The button surfaces this on-demand flow as a breathing affordance (`VaultButton.tsx`, the same breathing the "Return to Dashboard" icon uses). Server-ready is `available`: clickable, no breathing. The first click breathes the codeflare accent and auto-surfaces a focus-loss warning tooltip while indexing runs (`preparing`). When indexing completes, the icon breathes green and auto-surfaces a "ready" tooltip that hides after 5s, and the second click opens the vault instantly (`armed`).
-
-Once the vault is ready (`pw === 'ready'` in `Layout.tsx`'s `vaultButtonStatus`) the button is green and stays green for the rest of the session. A warm session therefore shows green immediately and opens on a single click, identical on mobile, tablet, and desktop because green carries no reload-dependent settle state ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC5). A reload of an already-warm device shows `armed` immediately (one click to open). Known residual: the readiness marker is keyed by the precache-frozen session id, so a NEW session on a warm device needs one on-demand click before it greens (see [troubleshooting](troubleshooting.md#vault-button-re-indexes-on-every-click-after-the-first-then-returns-gr)).
-
-The "ready" tooltip auto-shows only on the genuine `preparing` -> `armed` transition, tracked via `prevStatus` in `VaultButton.tsx`. It never fires on a fresh already-armed mount, warm reload, or return from the vault tab, so it no longer re-pops on every mobile standalone-PWA reload.
+Once ready in the current dashboard lifetime (`pw === 'ready'`), the button stays green across dashboard departure/return while the session remains running, and subsequent clicks open directly with no re-verification. A page reload deliberately resets it to white/available and requires the explicit first-click prepare again; SilverBullet can still reuse the permanent v3 scope and current local stores internally.
 
 The open itself (`openVaultTab`) targets the bootstrap-hop `/api/vault/<sid>/.codeflare-bootstrap`, never the bare shell. The hop posts the AES key to the service worker and waits for SW activation before redirecting to the editor, so the first open never races the worker's single-shot `__cfRecover` into SilverBullet's top-level `/.auth` navigation (the old "first open shows /.auth 'Authentication not enabled'; close-and-reopen works" symptom). After the open click, `openVaultTab` clears the per-session open-intent so the control falls back to that same steady green 'ready' state, still clickable to reopen, rather than any transient armed-intent. `prefers-reduced-motion` keeps the state colours without the breathing animation ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC3).
 
-On the real top-level open, never the headless prewarm iframe, `rewriteVaultHtmlResponse` injects a one-time controlled reload (`injectVaultControlledReload` wrapping the exported `installVaultControlledReload`) only when the request carries no prewarm id. A present valid prewarm ID positively identifies the hidden preparation path and remains inert; absence identifies the real top-level open. When an already-warmed vault is opened before its vault-scoped service worker controls the page (`navigator.serviceWorker.controller` null on first paint), SilverBullet would otherwise boot without the SW-backed local space and render an empty/partial editor until a manual reload (the old "reload one or two times to see your files").
+On the real top-level open, never the headless prewarm iframe, `rewriteVaultHtmlResponse` injects the authored one-time controlled-reload browser source through `injectVaultControlledReload` only when the request carries no prewarm id. A present valid prewarm ID positively identifies the hidden preparation path and remains inert; absence identifies the real top-level open. When an already-warmed vault is opened before its vault-scoped service worker controls the page (`navigator.serviceWorker.controller` null on first paint), SilverBullet would otherwise boot without the SW-backed local space and render an empty/partial editor until a manual reload (the old "reload one or two times to see your files").
 
 The safety net reloads the page exactly once, gated by a `sessionStorage` one-shot (`cf-vault-sw-controlled-reload`) so it can never loop. It is inert in the prewarm iframe, on a genuine first boot with no vault SW yet, for a non-vault service-worker scope, and without service-worker support. It clears the one-shot once the worker already controls the page so a later in-tab navigation can self-heal again ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC4).
 
-Codeflare also calls `navigator.storage.persisted()` / `persist()` / `estimate()` before prewarm as a best-effort mobile-hardening step. This reduces eviction risk on browsers that grant persistent storage, but it is not part of readiness and denial is not fatal. If a mobile browser clears origin storage under pressure, the next click-time local-readiness recheck detects the missing IndexedDB evidence and prepares the current browser cache again.
+Codeflare also calls `navigator.storage.persisted()` / `persist()` / `estimate()` before prewarm as a best-effort mobile-hardening step. This reduces eviction risk on browsers that grant persistent storage, but it is not part of readiness and denial is not fatal. If a mobile browser clears origin storage under pressure, the next explicit prepare rebuilds the current browser cache from R2.
 
 The landing page on every Vault button click is `Index.md` (the Codeflare dashboard), set by exporting `SB_INDEX_PAGE=Index` in the supervisor before launching the binary ([REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) AC3). The SilverBullet Go server hardcodes the default to lowercase `"index"` (`server/cmd/server.go` in SilverBullet's source) and ignores any `indexPage` key in `.silverbullet/config.yaml` -- the env var is the only override. The dashboard leads with `Notes/` and `References/` because those are the durable user-curated areas used by note-capture and reference workflows; broader recent-content widgets remain below. The README is one click away via a link at the top of the dashboard.
 
@@ -271,7 +273,7 @@ SilverBullet 2.x emits `<base href="/" />` in its index HTML, so under the `/api
 
 `handleVaultRequest` in `src/routes/vault/index.ts` is the proxy adapter. On every response with Content-Type `text/html`, it rewrites `<base href="/" />` to `<base href="/api/vault/<token>/" />`, where `<token>` is the bucket-stable token for this user. The token is identical on every request for a given user, which keeps the SilverBullet IndexedDB names and service-worker scope stable across sessions ([REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)).
 
-The injected boot recorder/prewarm bridge are keyed separately by the real session id, passed to `rewriteVaultHtmlResponse` as `bootSessionId`, so their `vault-session-<sid>-*` localStorage markers match what the dashboard reads. The path is not gated because SilverBullet 2.x serves its SPA shell as a catch-all on every non-API URL. A `location.reload()` from a deep page (`/Notes/Today`) lands on that same path and the shell HTML returned there must also be rewritten.
+Shell rewriting injects no session-specific readiness metadata. The prewarm bridge derives the canonical scope from `document.baseURI`, so a shell served from SilverBullet's service-worker cache cannot freeze a former session id into the current readiness decision. The path rewrite is not root-gated because SilverBullet 2.x serves its SPA shell as a catch-all on every non-API URL; a deep-page reload must receive the same base-href adaptation.
 
 Without the rewrite, every relative fetch from `client.js` resolves to the Worker root, the tab goes blank, and any in-flight PUT to `.fs/<page>.md` misses the `/api/vault/<token>` prefix entirely, silently losing the write. The text/html guard alone is sufficient because SilverBullet's API endpoints (`.fs/`, `index.json`, `.attachment/`) return non-HTML content types (text/markdown, application/json, image MIMEs) and never reach the rewriter.
 
@@ -287,9 +289,11 @@ SilverBullet's client registers a Service Worker for offline caching. Browsers m
 
 Serving the native worker (not the former key-shim) is the AD69 fix for codeflare#445: the native worker carries SilverBullet's sync engine and its persistent `sb_files_*` local-sync store, so the editor indexes incrementally and keeps a resumable local copy instead of re-indexing the whole vault over HTTP on every cold load. The worker bytes are identical across sessions and contain zero user data (the bucket-stable vault encryption key is posted in via `postMessage` from the auth-gated bootstrap-hop page to the worker's native `set-encryption-key` handler, never baked into the JS source), so bypassing auth on this exact request is safe.
 
-The native worker precaches the shell `/` plus its `/.client/*` static assets via `cache.addAll(...)` during `install`. That precache of `/` runs BEFORE the bootstrap-hop sets the `codeflare_vault_bootstrap` cookie, so the shell-path 302-to-hop would otherwise make `cache.addAll` reject atomically and hang the SW install. `handleVaultRequest` suppresses that redirect for Service-Worker-context fetches, identified by `isServiceWorkerContextFetch` (`Sec-Fetch-Mode` header present and != `navigate` - the browser only sets `navigate` on top-level document loads). Top-level navigations and clients with no `Sec-Fetch-Mode` still get the hop (fail-safe), so a real first navigation never boots without the encryption key wired.
+The native worker precaches the shell `/` plus its `/.client/*` static assets via `cache.addAll(...)` during `install`. That precache of `/` runs BEFORE the bootstrap-hop sets the `codeflare_vault_bootstrap` cookie, so the shell-path 302-to-hop would otherwise make `cache.addAll` reject atomically and hang the SW install. `handleVaultRequest` suppresses that redirect for Service-Worker-context fetches, identified by `isServiceWorkerContextFetch` (`Sec-Fetch-Mode` header present and != `navigate` - the browser only sets `navigate` on top-level document loads).
 
-The served worker is not the verbatim upstream bytes. `graftVaultKeyRecovery` (`src/routes/vault/native-sw.ts`) injects a `__cfRecover()` helper and calls it at the worker's two key-empty checkpoints to re-fetch the key from `/.vault-key` when its in-memory key is empty (see the encryption section below). This graft is mandatory, not optional: the native worker flushes its key 5s after the last client disconnects and the browser can idle-terminate the worker at any time.
+The same exact shell/client, cache-versioned, non-navigation signature skips per-asset session-activity refreshes, preventing the complete precache from becoming a same-key write burst while unrelated GETs still count as activity ([REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) AC4). Top-level navigations and clients with no `Sec-Fetch-Mode` still get the hop (fail-safe), so a real first navigation never boots without the encryption key wired.
+
+The served worker is not the verbatim upstream bytes. `graftVaultKeyRecovery` (`src/routes/vault/native-sw.ts`) injects a `__cfRecover()` helper and calls it at the worker's two key-empty checkpoints to re-fetch the key from `/.vault-key` when its in-memory key is empty (see the encryption section below). This graft is mandatory, not optional: the upstream worker flushes its key 5s after the last client disconnects, so Codeflare's served graft neuters that proactive flush. The browser can still idle-terminate the worker at any time, which clears module memory and requires recovery.
 
 Without recovery, the key is gone before the shell boots and SB bounces to `.auth`. The first integration deploy reproduced exactly that on cold boot, and a graft on `get-encryption-key` alone did not fix it because the actual trigger is the `config`-message auth-gate, which reads the key directly. The same graft also removes no-client info spam and demotes expected auth/sync startup retries while leaving client messages and unexpected proxy errors intact.
 
@@ -321,7 +325,8 @@ The actual 2nd-start fix is moving `Index.md` into the create-if-missing tier (b
 
 `container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
 
-## Vault encryption and IDB lifecycle (REQ-VAULT-008, REQ-VAULT-024, REQ-VAULT-015, REQ-VAULT-021, REQ-VAULT-023)
+<a id="vault-encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023"></a>
+## Encryption and IDB Lifecycle (REQ-VAULT-008, REQ-VAULT-024, REQ-VAULT-015, REQ-VAULT-021, REQ-VAULT-023)
 
 SilverBullet 2.10.0 ships full client-side IDB encryption via `EncryptedKvPrimitives` (`client/data/encrypted_kv_primitives.ts`). Activation requires three independent conditions checked in `client/boot.ts`:
 
@@ -341,47 +346,46 @@ The Worker bridges the gap between codeflare's auth model (no SB passphrase, key
 - The dashboard's pre-open recoverability check fetches the session-keyed `/api/vault/<sid>/.vault-key`, which 302-redirects here.
 - The service worker is SilverBullet's native worker (`VAULT_NATIVE_SERVICE_WORKER_JS`) with the codeflare `graftVaultKeyRecovery` patch applied.
 
-The bootstrap page registers SilverBullet's native service worker, posts the bucket-derived AES-CTR key to its native `set-encryption-key` handler, and persists `localStorage["enableEncryption"]` before setting the `codeflare_vault_bootstrap` cookie and redirecting to `/api/vault/<token>/`. If browser storage rejects the flag write, the page shows the bootstrap error and emits neither the completion cookie nor the redirect. The key comes from `getVaultEncryptionKey`: HKDF-SHA256 over `ENCRYPTION_KEY` + the bucket name, see [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key). The SB shell handler 302-redirects to this hop on any shell-path request without the bootstrap cookie, so first visits always traverse it. After the hop completes, the cookie suppresses redirects and the shell handler proxies the SB binary normally.
+The bootstrap page first unregisters every stale same-origin Vault worker and verifies none remains, then registers SilverBullet's native service worker at the exact canonical scope, posts the bucket-derived AES-CTR key to its native `set-encryption-key` handler, and persists `localStorage["enableEncryption"]` before setting the `codeflare_vault_bootstrap` cookie and redirecting to `/api/vault/<token>/`.
+
+If browser storage rejects the flag write, the page shows the bootstrap error and emits neither the completion cookie nor the redirect. The key comes from `getVaultEncryptionKey`: HKDF-SHA256 over `ENCRYPTION_KEY` + the bucket name, see [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key). The SB shell handler 302-redirects to this hop on any shell-path request without the bootstrap cookie, so first visits always traverse it. After the hop completes, the cookie suppresses redirects and the shell handler proxies the SB binary normally.
 
 The hop page guards against missing `navigator.serviceWorker`, failing loud if the API is absent. It uses a 10-second activation timeout (`VAULT_SW_ACTIVATION_TIMEOUT_MS`) instead of the indefinite `navigator.serviceWorker.ready`, and detects the "redundant" SW state (install failure) as an explicit error. On any failure the hop shows a user-visible error and aborts without setting the cookie or flag.
 
 The `.vault-key` endpoint is used by the grafted native worker to recover the encryption key whenever its in-memory key is gone ([REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5). It uses the same auth chain as `.codeflare-bootstrap`.
 
-The native worker is the full SB sync engine plus its native `set-encryption-key` / `get-encryption-key` message handlers. It stores the posted key in a module-local var and flushes it 5s after the last client disconnects, and loses it on any idle-termination, with no upstream recovery.
+The native worker is the full SB sync engine plus its native `set-encryption-key` / `get-encryption-key` message handlers. Upstream stores the posted key in a module-local variable, proactively flushes it 5s after the last client disconnects, and has no recovery after idle termination. Codeflare's served graft neuters the proactive flush and adds recovery when genuine worker termination clears module memory.
 
-Two paths then read the key and fail hard when it is empty. The **`config`** message handler, gate `if(t.enableClientEncryption&&!y)`, posts an auth-error and the client navigates to `.auth`; this fires on cold boot because the client posts `config` while the key is still absent from the bootstrap-hop -> shell transition flush. The `get-encryption-key` reply is the other path.
+Two upstream paths read the key and fail hard when it is empty. The **`config`** message handler, gate `if(t.enableClientEncryption&&!y)`, posts an auth-error and the client navigates to `.auth`; before Codeflare neutered the proactive transition flush, this fired on cold boot when the client posted `config` after the bootstrap-hop -> shell transition. The `get-encryption-key` reply is the other path. The served graft now retains the key across that no-client gap and recovers it after genuine worker termination.
 
 The graft injects a shared `__cfRecover()` helper. When the key is empty, it fetches `/api/vault/<token>/.vault-key` with `{credentials:'same-origin'}`, scope-relative to the bucket-stable SW, so the fetch carries the `cf_vault_sid` cookie. It decodes with SB's own decoder, sets the key, and calls the helper at both sites before either gives up. This is the same fallback the old key-shim had, and it keeps cold boot and idle-reopen from bouncing to `.auth`. The former key-shim (`VAULT_KEY_SHIM_SERVICE_WORKER_JS`) has been removed now that the native-worker path is verified on integration (AD69).
 
 SilverBullet maintains two IndexedDB databases per (spaceFolderPath, baseURI, encryptionKeyPart) tuple: `sb_data_<hash>` (client-context, opened by `client/client.ts`) and `sb_files_<hash>` (SW-context, opened by `client/service_worker.ts`). With the native worker now served (AD69), BOTH are created: `sb_files_*` is the persistent local-sync store that makes indexing incremental and survives cold loads (the codeflare#445 fix). Both stores are encrypted through the same key. (Under the former key-shim only `sb_data_*` existed and `sb_files_*` was never created, which is why the editor re-indexed over the network on every cold load.)
 
+The current token salt is deliberately versioned. The v3 cutover changes `baseURI` once, making SilverBullet derive a fresh encrypted `sb_data_*`/`sb_files_*` pair and one permanent canonical worker scope. On the first explicit prepare, the authored `VAULT_UNREGISTER_STALE_WORKERS_SOURCE` browser script removes every prior same-origin Vault registration, leaves unrelated workers alone, and fails closed if re-enumeration still finds a stale Vault scope. Historical IndexedDB databases are not migrated or deleted; they remain orphaned browser caches. Every future session and ordinary worker update reuses the stable v3 scope ([REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) AC1-AC3, AC7). [AD126](../decisions/README.md#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions) makes the authored browser-source boundary permanent: injected Vault scripts cannot be serialized from Worker-bundled functions or depend on bundler-only helpers. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_UNREGISTER_STALE_WORKERS_SOURCE -->
+
 Cleanup runs at two surfaces (`web-ui/src/lib/vault-cache.ts`):
 
-Reconciled by [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap): the `sb_data_*`/`sb_files_*` IndexedDB stores and the vault service worker are now **bucket-stable** — one set per user, shared across all of that user's sessions — so cleanup deletes NEITHER the IndexedDB databases NOR the service worker. Deleting them on a per-session DELETE or orphan sweep would erase the next session's vault and force a full re-index (the exact persistence REQ-VAULT-023 provides). Cleanup is therefore localStorage-marker bookkeeping only. The boot recorder still records the IDB names (keyed by the real session id) for the readiness check; it just no longer drives a deletion.
+Reconciled by [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap): ordinary per-session DELETE and orphan sweeping remain localStorage-marker bookkeeping only; they never enumerate or delete IndexedDB and never unregister workers. The explicit v3 bootstrap cutover is the sole worker-removal exception. It removes old registrations before installing the permanent scope but leaves every database untouched.
 
-- `cleanupSessionVaultCache(sid)` -- called from `deleteSession()`. Removes the `vault-session-<sid>`, `vault-session-<sid>-idbs`, and `vault-session-<sid>-prewarmed` localStorage keys. Does not touch IndexedDB or the service worker.
+- `cleanupSessionVaultCache(sid)` -- called from `deleteSession()`. Removes the `vault-session-<sid>`, `vault-session-<sid>-idbs`, `vault-session-<sid>-scope`, and `vault-session-<sid>-prewarmed` localStorage keys. Does not touch IndexedDB or any service worker.
 - `sweepOrphanVaultCaches(activeSessionIds)` -- called only after an authoritative `loadSessions()` fetch succeeds. Removes marker keys for sessions absent from `activeSessionIds`.
 
-`sweepOrphanVaultCaches` iterates every `vault-session-*`, `vault-session-*-idbs`, and `vault-session-*-prewarmed` entry in localStorage. `listSessionMarkers` strips the `-idbs`/`-prewarmed` suffixes so all three map to the same sid. The sweep catches sessions deleted via API in another tab or after a browser crash. Dashboard mount does not sweep, because it can see the initial empty store before the session list is known.
+`sweepOrphanVaultCaches` iterates the plain, `-idbs`, `-scope`, and `-prewarmed` entries under `vault-session-*`. `listSessionMarkers` strips those suffixes so they map to the same sid. The sweep catches sessions deleted via API in another tab or after a browser crash. Dashboard mount does not sweep, because it can see the initial empty store before the session list is known.
 
 All operations are fail-safe: a missing global (SSR, fresh tab) or malformed `-idbs` JSON value is swallowed silently because cleanup is best-effort and must never block the delete UI or a successful session-list refresh.
 
-**Principled-rejection invariant (load-bearing):** the cleanup helpers MUST NEVER enumerate IDBs via `indexedDB.databases()` and never derive names from the `sb_<type>_<hash>` formula. They work exclusively from the recorded localStorage list. An earlier version parsed `parts[2]` of the IDB name as the sid and nuked every SB IDB on every Dashboard mount, forcing a full SB resync on every reopen. The new design avoids the bug entirely by recording observed names at boot rather than re-deriving them.
+**Principled-rejection invariant (load-bearing):** the session cleanup helpers MUST NEVER enumerate IDBs via `indexedDB.databases()` and never derive names from the `sb_<type>_<hash>` formula. An earlier version parsed `parts[2]` of an IDB name as the sid and deleted every SB database on Dashboard mount, forcing a full resync on every reopen. The v3 cutover changes only the URL-derived database identity and intentionally leaves those older databases untouched.
 
-## Shutdown Bisync Reliability (REQ-VAULT-006)
+<a id="shutdown-bisync-reliability-req-vault-006"></a>
+## Persistence and Finalization (REQ-VAULT-006)
 
-The vault's persistence guarantee depends on the final bisync running to completion on session shutdown. Pre-vault, this was a known weak point: the shutdown handler had no timeout on the bisync call, and the DO destroy() SIGKILLed at 25s. A vault edit made in the last seconds before shutdown would be silently truncated if the bisync ran long, leaving R2 in a partial state. The next session loaded that partial state and looked stale, forcing a manual session delete.
+Vault durability depends on the lifecycle-owned final persistence drain documented in [Storage & Sync](storage-and-sync.md#manual-sync-triggers-req-stor-015). `Container.destroy()` is the authority: it requests the audited host drain with a 120-second sync budget, permits the host a 125-second internal boundary, and keeps teardown within the 135-second ceiling from [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync). The `entrypoint.sh` signal trap is only a best-effort backstop, not the primary shutdown path. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS -->
 
-Two paired fixes bundled with the vault PR:
+A failed or timed-out drain leaves recent Vault edits at risk because local disk is ephemeral. Operators should correlate the final-sync audit result and `shutdownElapsedMs`, then use [Storage & Sync failure recovery](storage-and-sync.md#troubleshooting) rather than treating SilverBullet readiness as persistence evidence.
 
-- `shutdown_handler` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s. Vault-monitor and SilverBullet supervisor PIDs are also terminated.
-- `Container.destroy()` in `src/container/container-lifecycle.ts` uses `timeoutMs = 135_000`: 120s for bisync plus a 15s buffer.
-
-The shutdown watchdog was raised from 60s in [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) because the 15-minute cadence from [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) lets a single bisync accumulate up to 15 minutes of writes. `onStop()` logs `shutdownElapsedMs`, and a `logger.warn` fires at 110 s elapsed so sessions approaching the budget surface in logs; repeated warnings are the trigger to retune the budget.
-
-If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognisable string for operators triaging stale-session reports.
-
-## Preseed Integration (REQ-VAULT-007)
+<a id="preseed-integration-req-vault-007"></a>
+## Bootstrap and Seed Integration (REQ-VAULT-007)
 
 The vault plugin and supporting rule ship as preseed entries that land in every advanced-mode session at container boot:
 
@@ -395,9 +399,9 @@ The model pin prevents silent downgrade via a Task tool override. Delivery uses 
 
   Vault layout, wikilink conventions, and prohibited operations live in `preseed/agents/claude/skills/vault-operations/SKILL.md`, which is advanced-mode only.
 - `preseed/agents/claude/rules/vault-note-capture.md` + `preseed/agents/claude/skills/vault-note-capture/SKILL.md` -- minimal trigger rule plus on-demand skill for "take a note" / "note this down" requests into `Notes/<Category>/`. Advanced-mode only.
-- `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), and the four preseed-managed pages.
+- `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), three always-managed root pages, and the create-if-missing `Index.md` dashboard.
 
-The note-capture rule stays small to keep always-in-context bloat minimal; the skill loads on demand with category inference, filename format, body template, and wikilink convention. The preseed-managed pages are `Index.md`, `README.md`, `CONFIG.md`, and `STYLES.md`. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/`, and `init_user_vault()` syncs from there on every boot. `config.yaml` was removed because SilverBullet 2.x ignores `.silverbullet/config.yaml` entirely; runtime config goes through `CONFIG.md` and env vars only.
+The note-capture rule stays small to keep always-in-context bloat minimal; the skill loads on demand with category inference, filename format, body template, and wikilink convention. The always-managed pages are `README.md`, `CONFIG.md`, and `STYLES.md`; `Index.md` is copied only when missing and is then editor-owned. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/`, and `init_user_vault()` applies the matching ownership tier on every boot. `config.yaml` was removed because SilverBullet 2.x ignores `.silverbullet/config.yaml` entirely; runtime config goes through `CONFIG.md` and env vars only.
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
@@ -465,7 +469,7 @@ On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet
 
 `Library/Codeflare/` is reserved for codeflare-managed plugs. User-installed plugs go under other `Library/` subdirectories (e.g. `Library/Personal/`); the boot-time overwrite never touches those paths.
 
-## First-session Expectations
+### First-session Expectations
 
 A brand-new session boots with a pre-populated vault. `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. `Index.md`, `Notes.md`, and `References.md` are seeded from preseed only when absent (create-if-missing). `Index.md` is no longer force-overwritten because the editor normalizes and autosaves the dashboard, so a boot-time revert produced a perpetual `Index.conflicted:*.md` sync conflict; see [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5).
 
@@ -477,19 +481,23 @@ A returning session inherits R2-restored content for user-owned paths: `Notes/`,
 
 On first browser open after a fresh vault, SilverBullet must build this browser's IndexedDB stores, complete its service-worker space sync, and build the object index. Codeflare does that work on demand, on the user's first click: the Vault button stays guarded ('idle') until the server probe succeeds, then becomes clickable ('available'). The first click mounts the hidden same-origin prewarm iframe, and the button breathes 'preparing' until that iframe emits the current-device bridge ready signal ([REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC1-AC6).
 
-That ready signal requires local `sb_data_*`/`sb_files_*` proof, an active per-session service worker, a `space-sync-complete` signal from SilverBullet, SilverBullet's current object-index version complete with the index queue empty, and a local `/.fs/` listing containing the codeflare-authoritative files (`CONFIG.md`, `Index.md`, `STYLES.md`). The arming poll verifies `/.vault-key` before the button breathes green ('armed'): it stays in the non-openable preparing state until local readiness and key recoverability both hold.
+That ready signal names the canonical same-origin Vault scope and requires a `space-sync-complete` signal from SilverBullet, SilverBullet's current object-index version complete with the index queue empty, and a local `/.fs/` listing containing the codeflare-authoritative files (`CONFIG.md`, `Index.md`, `STYLES.md`). The bootstrap has already removed stale workers and registered the canonical native worker; the arming poll verifies `/.vault-key` before the button breathes green ('armed'). It stays non-openable until content readiness and key recoverability both hold ([REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) AC3-AC4, AC7; [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) AC5-AC7).
 
-The second click then opens synchronously inside the gesture, and on the reload-skip path that click re-verifies readiness and key first ([REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate)). The hidden prewarm shell is focus-inert, so the on-demand prewarm runs while the user types in the terminal without dismissing the mobile keyboard ([REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety)). Subsequent user clicks open a tab against an already-prepared browser cache instead of showing the indexing state first.
+The user-visible lifecycle is unchanged: white static means available but unprepared; the first click starts prewarm and breathes in the theme accent; completed proof breathes green; the second click opens synchronously inside the gesture with no per-open re-verification ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC1, [REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) AC6). The hidden prewarm shell is focus-inert, so the on-demand prewarm runs while the user types in the terminal without dismissing the mobile keyboard ([REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety)). Subsequent user clicks open a tab against the already-prepared current browser cache.
 
 Visual confirmation that the preseed theme is wired correctly: the editor renders on a zinc-950 base (`#09090b`), wikilinks and modal selection use a blue-500 accent (`hsl(217, 91%, 60%)`), body type is Inter and code spans are JetBrains Mono. If the editor shows SilverBullet's default white/cream palette, `STYLES.md` is missing or targeting variables SB does not consume (the previous `--cf-*`-only regression).
 
 The vault-monitor daemon does not fire a spurious extraction when a newly created vault completes its first durable initialization: `init_user_vault()` baselines the content-hash manifest, then writes `vault-extract-initialized`. A preseed update alone also does not fire it because the four managed pages are excluded by name. Existing or restored vault migration is deliberately different: init records the durable marker without baselining, and a missing manifest remains full-delta eligible. The five-prompt, zero-hook expectation applies to a new untouched vault and to a returning vault whose manifest was restored, not to a vault whose durable high-water state is missing.
 
-## Attachment Cost Caveat (REQ-VAULT-011 AC1)
+## Attachments and Ingestion
+
+<a id="attachment-cost-caveat-req-vault-011-ac1"></a>
+### Attachment Cost Caveat (REQ-VAULT-011 AC1)
 
 SilverBullet writes pasted / drag-dropped attachments next to the note that referenced them (a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces attachments at `Inbox/2026-05-18/*.pdf`, `.png`, etc.). On Claude, vault-extract reads PDFs through the native PDF-capable Read tool (rendering pages as images, capped at 20 pages per PDF), emits a `document` node plus visible title/heading/entity concepts, and can cite a sibling Markdown wikilink. Image-only PDFs and screenshots cost vision tokens per page on every Claude ingestion pass. Pi has no PDF page reader and emits only a metadata-derived bare document node; it does not claim content/citation parity. Move attachments to `Raw/Pasted/` manually if you want them grouped outside the date-folder rhythm.
 
-## PDF-Ingestion E2E Plan (REQ-VAULT-011)
+<a id="pdf-ingestion-e2e-plan-req-vault-011"></a>
+### PDF-Ingestion E2E Plan (REQ-VAULT-011)
 
 Manual verification for runtime-specific PDF handling. Claude's content/vision/citation behavior is agent-prompt behavior driven by its `vault-extract-prompt.md`; Pi's prompt deliberately remains metadata-only. There is no synthetic PDF reader or shader-like internal test.
 
@@ -541,7 +549,9 @@ then synthesises the final vault note. One locked fail-closed command merges
 the cumulative graph, publishes `user_vault`, and only then removes the
 carrier. Merge or publication failure leaves it retryable. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
-switch from haiku to sonnet). Every attempt appends its capture exit status,
+switch from haiku to sonnet).
+
+Every attempt appends its capture exit status,
 the publisher's verdict, and — on failure — the stderr tail and the result
 envelope's failure subtype (a byte count when unparseable, never the response
 text) to
@@ -600,22 +610,25 @@ Cross-reference: the verified Cloudflare-Containers ephemerality contract
 this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`
 in the user's vault.
 
-### Specification Coverage (Memory)
+<a id="specification-coverage-memory"></a>
+### Memory Requirement Cross-links
 
-- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact) - Capture requests are re-delivered under a bound and committed only against an artifact
+- [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound) - Capture requests are re-delivered under a bound.
+- [REQ-MEM-021](../../sdd/spec/memory.md#req-mem-021-capture-publication-requires-its-artifact) - Capture publication requires its artifact.
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
-## Troubleshooting
+<a id="troubleshooting"></a>
+## Failure Diagnosis and Recovery
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Vault button missing from header | Not in terminal view, or no active session | Open a session terminal; the button renders only when both are true. |
+| Vault button missing from header | Not in terminal view, no active session, or the selected session mode is not advanced | Open an advanced-mode session terminal; all three conditions are required. |
 | `curl http://127.0.0.1:3030/` returns nothing inside the container | SilverBullet supervisor not yet up | Wait 5s and retry; check `/tmp/silverbullet.log` for the restart-loop output. |
 | `mcp__graphify__query_graph` returns no vault nodes | Global graph not built yet, or wrapper still pointing at per-repo graph | Check `~/.graphify/global-graph.json` exists; if it does, restart the MCP wrapper (it polls on a 2s loop). |
 | Edits don't appear in graph queries within 60s | Vault-extract manifest already covers the file (content unchanged) | Run `python3 ~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py changed /home/user/Vault /home/user/Vault/graphify-out/vault-extract-manifest.json`; a genuine content edit under `Notes/` should appear. |
 | Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 120s` (or the `logger.warn` at 110 s elapsed) in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if it fires routinely. |
-| `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | Wait for the readiness probe to mark Vault available, then click the button to start prewarm. The button reports preparing and retrying states. |
-| Vault button shows armed (green, one-click-to-open) immediately after a page reload, with no prewarm iframe visible | This device completed a full prewarm earlier, so the persistent `vault-session-<sid>-prewarmed` localStorage marker plus a live local-readiness check let `Layout.tsx` skip re-mounting the bootstrap iframe ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2). | Expected, not stale: the skip requires live `checkVaultLocalReadiness` proof (recorded `sb_data_*`/`sb_files_*` + active service worker). After origin-storage eviction the probe fails or times out, the button stays 'available', and clicking re-prepares the cache. |
+| `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | Wait for the readiness probe to mark Vault available, then click the button to start prewarm. The button reports preparing, timeout, or error; timeout/error retries require another click. |
+| Vault button is white/available after a page reload even though this browser used Vault before | Fresh dashboard loads never auto-prewarm or trust persistent readiness markers ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2). | Expected: click once to run canonical-scope sync/index/content proof, wait for green, then click again to open. Existing v3 stores are reused internally. |
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault/index.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
 | Drag-dropping a PDF or image into SilverBullet returns 401; attachment never saves | Older image: `maybeSynthesizeCsrfHeader` skipped synthesis when `Origin` was absent (SilverBullet's same-origin fetch and SW-controlled paths omit it), so the PUT landed at `authenticateRequest` without `X-Requested-With` ([REQ-VAULT-009](../../sdd/spec/vault.md#req-vault-009-vault-writes-succeed-end-to-end-for-silverbullet-attachment-uploads)). | Redeploy. After the fix, a missing `Origin` header is treated as same-origin and synthesis proceeds. A present-but-disallowed `Origin` still returns 403. |
 | SilverBullet opens lowercase "index" (empty editor) instead of the Codeflare dashboard | Supervisor not exporting `SB_INDEX_PAGE=Index` before launching the binary | Confirm the env var is set in `entrypoint.sh start_silverbullet_supervisor`. SB's Go server hardcodes the default to `"index"` (`server/cmd/server.go` in SilverBullet's source); the env var is the only override. |
@@ -639,11 +652,11 @@ in the user's vault.
 | Same file appears in overlapping extraction requests | A change arrived before/while a public Pi launch was being recorded | Prelaunch edits coalesce; launched snapshots stay frozen and during-run edits become one follow-up. Graph writes serialize on `/tmp/graphify-global.lock`, with Pi holding one required lock across merge and global publication. |
 | A one-file Pi extraction runs for minutes or consumes review-scale tokens | The live agent predates AD103 or inherited broad tools/reasoning and reread skills/input | Verify generated agent frontmatter has `tools: bash` and `thinking: medium`, the public request carries `max_turns: 4`, then remirror and `/reload`. A current worker reads each frozen input once; visualization cannot exceed 15 seconds. |
 
-Vault readiness requires all proofs before click-through: the button stays visible but `aria-disabled`; `probeVaultReady()` must see `{ vaultReady: true }`; `startVaultPrewarm()` and the `codeflare-vault-prewarm` iframe must receive the same-origin ready message; local `sb_data_*`/`sb_files_*` and service-worker proof must exist; `space-sync-complete` must fire; the current object-index queue must be empty; and `/.fs/` must list `CONFIG.md`, `Index.md`, and `STYLES.md`. If it opens early, recheck those paths.
+Vault readiness requires all proofs before click-through: the button stays visible but `aria-disabled`; `probeVaultReady()` must see `{ vaultReady: true }`; `startVaultPrewarm()` and the `codeflare-vault-prewarm` iframe must exchange a same-origin/current-attempt proof naming the canonical 32-hex Vault scope; `space-sync-complete` must fire; the current object-index queue must be empty; and `/.fs/` must list `CONFIG.md`, `Index.md`, and `STYLES.md`. If it opens early, recheck those paths and confirm the bootstrap removed stale Vault workers before registering the canonical one.
 
-For encryption desync, `injectVaultEncryptionConfig` may rewrite `/.config` with a fresh `vaultEncryptionKey` while the bootstrap-hop key message is stale. Causes include an old tab kept across rotation, or a partial deploy that rewrote config without restarting the SW. Reload end-to-end (`Cmd-Shift-R` / `Ctrl-Shift-R`); if rotation is in progress, force-unregister from DevTools, drop the bootstrap cookie, and reload. The key-shim SW holds the key in module memory only, so tearing it down and re-running the hop is safe.
+For encryption desync, `injectVaultEncryptionConfig` may rewrite `/.config` with a fresh `vaultEncryptionKey` while the bootstrap-hop key message is stale. Causes include an old tab kept across rotation, or a partial deploy that rewrote config without restarting the SW. Reload end-to-end (`Cmd-Shift-R` / `Ctrl-Shift-R`); if rotation is in progress, force-unregister from DevTools, drop the bootstrap cookie, and reload. The native SilverBullet worker holds the posted key in module memory and carries the Codeflare recovery graft, so tearing it down and re-running the bootstrap hop is safe.
 
-For `.auth` 403s, the failure window is between bootstrap-hop posting the key and shell booting, or after an idle reopen flushes memory. AD69 grafts key recovery into the served worker: `get-encryption-key` re-fetches from auth-gated `GET /.vault-key` when the in-memory key is empty, then replies. Pre-graft images can clear the bootstrap cookie in DevTools and reload so the hop re-posts the key.
+For `.auth` 403s, the failure window is between bootstrap-hop posting the key and shell booting, or after genuine worker termination clears module memory. AD69 grafts key recovery into the served worker: `get-encryption-key` re-fetches from auth-gated `GET /.vault-key` when the in-memory key is empty, then replies. Pre-graft images can clear the bootstrap cookie in DevTools and reload so the hop re-posts the key.
 
 For empty second sessions, older images reconciled full sync while the in-container SilverBullet server was still warming. The console showed `[sync] File deleted on secondary, deleting from primary` right after `Performing a full sync cycle...`; empty/non-array `fetchFileList()` made every local file look deleted. The editor then churned re-syncing and never handed focus back. The not-ready guard now aborts that sync cycle until the real list is served, so the second session no longer wipes the vault.
 
@@ -656,36 +669,19 @@ For mobile return behavior, the old settle-on-return icon state was persisted in
 For hook registration, attribution-blocking, review-spawn enforcement,
 or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#troubleshooting).
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions) - Persistent vault directory survives across sessions
-- [REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) - Conversation captures land in the vault as markdown
-- [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) - User-curated edits are detected and ingested within ~60s
-- [REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) - Unified global graph merges vault and active repos
-- [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) - Worker proxy exposes the in-container vault editor
-- [REQ-VAULT-006](../../sdd/spec/vault.md#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill) - Shutdown bisync completes vault writes before SIGKILL
-- [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session) - Vault rules and plugin are preseeded into every advanced session
-- [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) - Zero-UI vault encryption
-- [REQ-VAULT-009](../../sdd/spec/vault.md#req-vault-009-vault-writes-succeed-end-to-end-for-silverbullet-attachment-uploads) - Vault writes succeed end-to-end for SilverBullet attachment uploads
-- [REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) - Codeflare-authoritative files preseeded into the vault on every boot
-- [REQ-VAULT-011](../../sdd/spec/vault.md#req-vault-011-vault-extract-handles-pdfs-by-runtime-capability) - Vault-extract handles PDFs by runtime capability
-- [REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) - Vault button render and dashboard landing
-- [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger) - Vault control gating and on-demand prewarm trigger
-- [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate) - Vault key-recoverable open gate
-- [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety) - Vault prewarm focus safety
-- [REQ-VAULT-013](../../sdd/spec/vault.md#req-vault-013-silverbullet-subpath-adapter) - SilverBullet subpath adapter
-- [REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) - Graphify active-repo invariant and lock serialisation
-- [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) - Vault IDB lifecycle and listing filters
-- [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema) - Vault graph extraction emits the canonical shared schema
-- [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) - SilverBullet native service worker
-- [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) - SilverBullet native service worker runtime graft
-- [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) - Bucket-stable vault URL and bucket-derived key
-- [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) - Vault armed-state open flow and persistence
-- [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) - Bucket-stable vault store persistence and content bootstrap
-- [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) - Vault bootstrap-hop key arming and service-worker retention
-- [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest) - Vault-extract change detection survives container restart (content-hash manifest)
-- [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) - Pi Vault extraction delivery is visible and transactional
-- [REQ-VAULT-028](../../sdd/spec/vault.md#req-vault-028-vault-edits-remain-isolated-after-extraction-starts) - During-run Vault edits remain isolated
+Exhaustive Vault status remains in `sdd/spec/vault.md`; section-local links provide clause detail.
+
+| Vault concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Path/bootstrap/persistence | REQ-VAULT-001/006/007/010 | entrypoint, seed, storage finalization | Initialization tiers and final-drain tests |
+| Capture/edit/extraction | REQ-VAULT-002/003/026/027/028 | capture hooks and `vault-extract` | Content-hash, transactional publication, isolation tests |
+| Graph merge/publication | REQ-VAULT-004/014/016 | Vault plugin and Graphify scripts | Active-repo lock and canonical schema checks |
+| SilverBullet proxy/runtime | REQ-VAULT-005/009/012/013/017/018/019/020/025 | Vault routes/view graft and UI | Proxy, upload, prewarm, service-worker tests |
+| Encryption and IDB | REQ-VAULT-008/015/021/022/023/024 | Vault crypto/view/bootstrap | Key/open/store lifecycle tests |
+| Attachments/PDF | REQ-VAULT-011 | extraction runtime | Capability-dependent ingestion evidence |
 
 ---
 

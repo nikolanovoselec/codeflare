@@ -70,7 +70,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, package path, package URL, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
-7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-002 AC7: packaged-image smoke activates an extension through its VS Code EventEmitter shim) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
 
 **Constraints:**
 
@@ -110,7 +110,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
-- Lanes run in parallel, each gated by a path filter over the diff (all lanes run on manual dispatch); the `summary` job publishes the required `test` status context and fails on any failed or cancelled lane while passing skipped (unaffected) lanes.
+- Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
+- If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
+- The `summary` job publishes the required `test` status, failing for failed or cancelled lanes and passing skipped lanes.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.
 - Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); backend and frontend coverage run only when their path filter is affected or the workflow is a full run.
 
@@ -327,7 +329,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -523,6 +525,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-020-agent-toolchain-shadow-pin-freshness"></a>
 ### REQ-OPS-020: Shadow-pin version bump automation
 
 **Intent:** Every release pin outside a package manifest has one explicit weekly update owner and a fail-closed verification path.
@@ -547,7 +550,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual release-job verification
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -575,6 +578,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<a id="req-ops-033-generated-seed-and-prewarm-lock-integrity"></a>
 ### REQ-OPS-033: Lock-Backed NPM Bump Coherence
 
 **Intent:** Automated npm release bumps must reject stale inputs and move each exact manifest pin with its owning committed lock.
@@ -677,7 +681,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1103,7 +1107,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Provenance verifies against Codeflare's reusable image workflow and SLSA provenance predicate. <!-- @impl: scripts/ci/verify-container-provenance.sh::SIGNER_WORKFLOW --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (cryptographically verifies the digest against the owned reusable workflow) -->
 3. Successful verification publishes reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::reused=true --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 4. A reused deployment binds the exact verified digest rather than its mutable tag. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (binds retained deployments to the verified digest instead of the mutable tag) -->
-5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::warning = Existing image has no valid Codeflare build provenance --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
+5. Failed verification publishes no reuse. <!-- @impl: scripts/ci/select-container-reuse.sh::Existing image has no valid Codeflare build provenance --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (publishes reuse only when provenance verification succeeds) -->
 6. Build, packaged smoke, vulnerability scan, and push are each gated on no reuse. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-reuse-provenance.test.js (gates required fresh-image stages on no reuse) -->
 
 **Constraints:** Cache bust and uncovered Dockerfile sources disable reuse before provenance selection; registry credentials remain short-lived and step-scoped; retained-image deployment requires the exported verified digest.
@@ -1179,6 +1183,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
 3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
+5. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
+6. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
 
 **Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 
@@ -1186,7 +1192,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
 
-**Verification:** Automated direct-start and matrix-concurrency tests; manual exact-head duration check
+**Verification:** Automated direct-start, matrix-concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration check
 
 **Status:** Implemented
 

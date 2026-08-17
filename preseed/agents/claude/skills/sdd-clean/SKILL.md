@@ -1,7 +1,7 @@
 ---
 name: sdd-clean
 description: Workflow for /sdd clean — rescuing a rotted spec. Mode-aware behaviors (interactive/auto/unleashed), safety nets, what gets cleaned (incl. per-AC @impl AND @test anchor backfill at parity, gated by enforce_tdd), JUDGMENT auto-resolution rules. Invoked when /sdd clean runs. Requires the spec-driven-development skill for REQ format and Status semantics, and the spec-enforce skill family for the detection mechanics.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # /sdd clean — rescuing a rotted spec
@@ -105,12 +105,17 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 5. **Test-anchor backfill** (REQ-ID comments on the test `describe`/`it` blocks of every annotated symbol, AND per-AC `<!-- @test: ... -->` anchors written into the spec at parity with `@impl`, gated by `enforce_tdd`) — described below.
 6. Status revaluation — CQ-TEST runs on the now-anchored spec + now-annotated tests. Implemented REQs whose tests now reference the REQ ID pass; the residual flows to Coverage gaps triage. Status drift caught here is the TRUE coverage gap, not an artefact of the legacy anchor-less shape.
 7. Implementation leakage extraction, false-positive ADR reclassification, changelog archival, doc backlink generation, fake-Deprecated cleanup.
+8. Documentation normalization through `doc-enforce`, using the bundled `spec-driven-development/references/templates/documentation-*.md` files as the target shapes.
 
 Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors, every AC carries a `@test` anchor (when `enforce_tdd: true`), and every test already mentions its REQ IDs they are both inert no-ops.
 
+**Documentation normalization is collection-scoped.** Architecture component dossiers, API registers, configuration variables, security registers, deployment runbooks, observability signals, troubleshooting recipes, and ADR index/state records normalize toward the same templates `/sdd init` emits. Do not apply one dominant shape to an entire file. Preambles, narrative sections, diagrams, aliases, requirement/source maps, and project-lane subject matter remain intact. Existing `Command`/`Verifies` deployment fields are readable aliases for canonical `Action`/`Verify`; translate only by moving values byte-for-byte. Superseded ADR index entries are struck through without deleting their sections; partially superseded entries remain unstruck; merged or reclassified tombstones use the explicit `Redirect anchor` label and keep their destination links.
+
+Before any documentation rewrite, account for every paragraph, table row, list item, diagram, link, compatibility fragment, REQ/ADR reference, and source anchor in the affected collection. If a destination is ambiguous or two facts conflict, emit a finding and leave the collection unchanged. `/sdd clean` never creates a baseline suppression or deletes content to satisfy shape.
+
 ### Per-category mechanics
 
-- **Strikethrough text** → stripped (git history is the strikethrough).
+- **Strikethrough text** → stripped (git history is the strikethrough), except the ID and decision cells of a fully superseded ADR index row.
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).

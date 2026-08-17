@@ -108,7 +108,7 @@ Multi-agent support, preseed system, and session modes.
 
 - Goal remains the exact-pinned upstream 0.46.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
 - A future Goal upgrade requires deliberate review of the exact-version contract and source anchors.
-- The weekly shadow-pin workflow runs the transform against the candidate installation before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) -->
+- The weekly shadow-pin workflow runs the transform against the candidate installation before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration) -->
 - Version or layout drift fails before any patched Goal source is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->
 
 **Priority:** P1
@@ -129,13 +129,13 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A zero continuation delay dispatches immediately at an eligible settled boundary. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: zero delay dispatches immediately) -->
-2. A configured positive continuation delay waits its full duration before dispatch. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: waits the configured 60 seconds before continuation dispatch) -->
-3. Supported continuation delays above 2147483647ms wait their full duration. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: safely re-arms delays beyond the Node timer maximum) -->
-4. Repeated settled events retain one pending continuation timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: keeps repeated settled events single-flight) -->
-5. Existing continuation cancellation owners remove a pending timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: cancellation prevents a delayed continuation) -->
-6. Timer expiry rejects stale session generation, Goal identity, or continuation markers. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC6: stale menu, marker, and replacement-goal timers cannot dispatch) -->
-7. Timer expiry retains intent when only idle eligibility changed. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC7: a busy timer retains intent for the next settled boundary) -->
+1. A zero continuation delay dispatches immediately at an eligible settled boundary. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: zero delay dispatches immediately) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: successor zero delay dispatches immediately) -->
+2. A configured positive continuation delay waits its full duration before dispatch. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: waits the configured 60 seconds before continuation dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: successor direct dispatch waits the configured interval) -->
+3. Supported continuation delays above 2147483647ms wait their full duration. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: safely re-arms delays beyond the Node timer maximum) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: successor scheduler re-arms delays beyond the Node timer maximum) -->
+4. Repeated settled events retain one pending continuation timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: keeps repeated settled events single-flight) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: successor repeated dispatch remains single-flight) -->
+5. Existing continuation cancellation owners remove a pending timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: cancellation prevents a delayed continuation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: successor cancellation clears its pending dispatch) -->
+6. Timer expiry rejects stale session generation, Goal identity, or continuation markers. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC6: stale menu, marker, and replacement-goal timers cannot dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC6: successor scheduler rejects a replacement continuation marker) -->
+7. Timer expiry retains intent when only idle eligibility changed. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC7: a busy timer retains intent for the next settled boundary) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC7: successor busy expiry retains intent for the next settled boundary) -->
 
 **Constraints:**
 
@@ -274,9 +274,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Bridge-controlled resume suppresses Goal's separate continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
+1. Bridge-controlled resume suppresses Goal's separate continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
 2. The FIX follow-up owns the continuation turn after FIX-triggered resume. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
-3. FIX-triggered continuation does not populate user input. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
+3. FIX-triggered continuation does not populate user input. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
 4. Closure-triggered release schedules no continuation turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-058/REQ-AGENT-113/REQ-AGENT-114: a merged PR releases Goal without consuming bypass or acknowledging) -->
 
 **Constraints:**
@@ -307,7 +307,7 @@ Multi-agent support, preseed system, and session modes.
 4. Missing Goal control does not block review launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: fails open when the Goal extension is unavailable) -->
 5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: keeps FIX delivery fail-open when Goal is removed during review) -->
 6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race) -->
-7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121: resumed sessions recover once through FIX and restore Goal pause) -->
+7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121/REQ-AGENT-141: resumed sessions keep a visible plan inert through FIX and restore Goal pause) -->
 
 **Constraints:** A failure in detached Goal pause control cannot block review or CI work.
 
@@ -316,6 +316,31 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
 **Verification:** Review-enforcement behavioral tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-144: Review-owned Goal pause command compatibility
+
+**Intent:** Trusted review control must preserve pi-goal's native pause behavior without aborting unrelated Pi work.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A trusted review-owned pause does not abort the current Pi turn. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+2. A trusted review-owned pause cancels pending Goal continuation work. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+3. A trusted review-owned pause transitions the active Goal to paused. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+4. A manual Goal pause retains pi-goal's current-turn abort behavior. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-144: preserves manual pause aborts while trusted review pause can suppress them) -->
+
+**Constraints:** Only the trusted session-local review-control channel may select the non-aborting pause path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-114](#req-agent-114-review-owned-goal-continuation), [REQ-AGENT-117](#req-agent-117-non-disruptive-review-owned-goal-control)
+
+**Verification:** pi-goal compatibility-transform behavioral tests
 
 **Status:** Implemented
 
@@ -345,6 +370,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-119-bounded-settled-review-follow-ups"></a>
 ### REQ-AGENT-119: Settled review follow-up accounting
 
 **Intent:** Missing PR-boundary launch recovery must be bounded independently for each PR head in a normal checkout.
@@ -369,6 +395,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<a id="req-agent-120-claude-protected-base-review-boundaries"></a>
 ### REQ-AGENT-120: Claude review enforcement lifecycle
 
 **Intent:** Claude must complete an eligible review through bounded enforcement, tool-free triage, exact-head acknowledgement, and a separate FIX handoff.
@@ -403,12 +430,11 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Successful executable `git push` and `gh pr create` commands are automatic delivery boundaries. Other successful executable `git` or `gh` commands require confirmation, except Claude automatically resumes the same PR when its authoritative synchronized head descends from that PR's local acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::ACK_IS_PR_SPECIFIC --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::BOUNDARY_KIND --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies delivery commands for automatic review and other Git activity for confirmation) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (asks before review for non-delivery Git activity but auto-launches after push or PR creation) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not treat a repository-global legacy acknowledgement as same-PR continuation evidence) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not accept a repository-global legacy acknowledgement for the current PR exact head) -->
-2. A successful delivery command launches automatically only when the checked-out branch has an open `main`, `master`, or `develop` PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::CURRENT_PR_HEAD --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
+2. A successful delivery command launches automatically only when the checked-out branch has an open protected-base PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::CURRENT_PR_HEAD --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121: automatically launches after PR creation without prompting) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
 3. Other successful Git or GitHub activity asks for an explicit launch or acknowledgement choice only when no same-PR acknowledged ancestor proves an active Claude review-fix continuation; choices are neutral and agent self-verification never recommends bypass. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::ACK_IS_PR_SPECIFIC --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: asks before reviewing an existing PR and acknowledges the exact head when declined) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (asks before review for non-delivery Git activity but auto-launches after push or PR creation) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not treat a repository-global legacy acknowledgement as same-PR continuation evidence) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not accept a repository-global legacy acknowledgement for the current PR exact head) -->
 4. Cancelling the choice asks again without launching or acknowledging the head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: repeats a cancelled review question until the user launches) -->
 5. Choosing acknowledgement revalidates the live PR identity and routes through the existing exact-head acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: asks before reviewing an existing PR and acknowledges the exact head when declined) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (prompts on branch navigation and acknowledges the exact head after the user declines) -->
 6. Choosing launch continues the existing review and CI paths, with CI launched after reviewers and before the boundary turn ends. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (asks before review for non-delivery Git activity but auto-launches after push or PR creation) -->
-7. Detached HEAD, nonstandard worktrees, absent PRs, non-protected bases, malformed metadata, and remote heads not synchronized locally remain inert. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::GIT_DIR --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — authoritative checked-out branch state) -->
 
 **Constraints:** The existing structural tokenizer distinguishes automatic delivery commands from confirmation-required activity; GitHub PR state and exact local-head equality decide eligibility. Claude additionally reuses the PR-specific acknowledgement to recover an automatic review-fix continuation when the original delivery directive was missed.
 
@@ -422,10 +448,34 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-145: Failed PR creation reconciliation
+
+**Intent:** Pi recovers bounded failed PR creation outcomes only when authoritative checked-out-branch state proves the exact created PR head.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A failed `gh pr create` reporting HTTP 5xx reconciles only when the checked-out branch has an open protected-base PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ambiguousPrCreateFailure --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121/REQ-AGENT-145 AC1: reconciles an ambiguous failed PR creation against authoritative exact-head state) -->
+2. A failed `gh pr create` reporting an already-existing PR reconciles only through the same authoritative exact-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ambiguousPrCreateFailure --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-145 AC2: reconciles an already-existing PR failure against authoritative exact-head state) -->
+3. Every other failed command remains inert. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-145 AC3: keeps non-ambiguous failed commands inert) -->
+
+**Constraints:** Reconciliation never bypasses protected-base, branch, local-head, or authoritative-PR identity checks.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent)
+
+**Verification:** Automated Pi boundary behavior tests.
+
+**Status:** Implemented
+
+---
+
 <a id="req-agent-121-downstream-boundary-after-develop-merge"></a>
 ### REQ-AGENT-121: Checked-out branch boundary synchronization
 
-**Intent:** Pi and Claude must use authoritative checked-out-branch state while distinguishing automatic PR delivery from user-confirmed review of an existing head.
+**Intent:** Pi and Claude must use authoritative checked-out-branch state to determine whether a PR head is eligible for review.
 
 **Applies To:** User
 
@@ -434,12 +484,8 @@ Multi-agent support, preseed system, and session modes.
 1. Any successful executable `git` or `gh` command requests an authoritative check for the command repository's checked-out branch, while the existing tokenizer marks only `git push` and `gh pr create` for automatic launch. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::BOUNDARY_KIND --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies delivery commands for automatic review and other Git activity for confirmation) -->
 2. The checked-out branch name and local full `HEAD` are resolved without deriving a source or destination from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD) -->
 3. Automatic or confirmed review applies only to an open protected-base PR whose branch and authoritative head exactly equal the checked-out branch and local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CURRENT_PR_HEAD --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
-4. Non-delivery activity requires an explicit choice for the eligible exact head; cancellation repeats the choice, declining revalidates and writes the existing PR-specific acknowledgement, accepting launches the existing review and CI plan, and automatic delivery never prompts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: repeats a cancelled review question until the user launches) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: asks before reviewing an existing PR and acknowledges the exact head when declined) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121: launches the existing review and CI plan when confirmation is accepted) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121: automatically launches after PR creation without prompting) -->
-5. Within one active session, an existing launch plan or acknowledgement for the unchanged authoritative head remains inert, so later Git and GitHub CLI commands cannot duplicate review or CI. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::PLAN_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not repeat the launch reminder for the same unacknowledged head) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
-6. The first genuinely new authoritative candidate after session resume may recover one same-head launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121: resumed sessions recover once through FIX and restore Goal pause) -->
-7. A delivery whose authoritative head is still synchronizing retains bounded retries of the authoritative query, so its round opens once the head matches and a head that never matches stays ineligible. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (opens the round once the authoritative head catches up) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (gives up silently when the head never synchronizes) -->
-8. Non-delivery activity never retries the authoritative query and never waits. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::BOUNDARY_KIND --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (never retries for non-delivery activity) -->
-9. Retroactive checkpoint recovery never claims the current head, so the live path acknowledges it and issues the fix handoff. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::RETRO_SHA --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (hands off to FIX when an upstream makes the just-written ack look fresh) -->
+4. A delivery whose authoritative head is still synchronizing retains bounded retries of the authoritative query, so its round opens once the head matches and a head that never matches stays ineligible. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (opens the round once the authoritative head catches up) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (gives up silently when the head never synchronizes) -->
+5. Non-delivery activity never retries the authoritative query and never waits. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::BOUNDARY_KIND --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (never retries for non-delivery activity) -->
 
 **Constraints:**
 
@@ -449,6 +495,33 @@ Multi-agent support, preseed system, and session modes.
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent)
+
+**Verification:** Automated Pi and Claude boundary behavior tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-141: Authoritative-head review launch continuity
+
+**Intent:** An eligible authoritative head must preserve explicit launch and acknowledgement choices without duplicating a review round during the active session or its first recovery.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Non-delivery activity requires an explicit choice for the eligible exact head; cancellation repeats the choice, declining revalidates and writes the existing PR-specific acknowledgement, accepting launches the existing review and CI plan, and automatic delivery never prompts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: repeats a cancelled review question until the user launches) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: asks before reviewing an existing PR and acknowledges the exact head when declined) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121: launches the existing review and CI plan when confirmation is accepted) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-120/REQ-AGENT-121: automatically launches after PR creation without prompting) -->
+2. Before queued follow-up delivery becomes transcript-visible, one accepted launch for the unchanged authoritative head remains single-flight. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::PLAN_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-141: queues one same-head plan while follow-up delivery is not yet transcript-visible) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (does not repeat the launch reminder for the same unacknowledged head) -->
+3. Startup or resume recovers one accepted-but-undelivered same-head launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-110/REQ-AGENT-141: startup and resume recover one evaluated plan whose queued follow-up was lost) -->
+4. Retroactive checkpoint recovery never claims the current head, so the live path acknowledges it and issues the fix handoff. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::RETRO_SHA --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (hands off to FIX when an upstream makes the just-written ack look fresh) -->
+5. A transcript-visible launch plan for the unchanged authoritative head remains inert across normal resume and later Git or GitHub activity. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::PLAN_FILE --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-141: normal resume keeps a visible exact-head plan inert) -->
+6. An acknowledgement for the unchanged authoritative head remains inert during later Git or GitHub activity. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
+
+**Constraints:** The user workflow uses a normal checked-out branch; detached HEAD and linked-worktree execution are unsupported and inert.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent)
 
 **Verification:** Automated Pi and Claude boundary behavior tests
 
@@ -1251,7 +1324,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Behavioral tests and manual check
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1655,7 +1728,7 @@ None.
 1. Successful executable `git` and `gh` commands request one authoritative branch-state evaluation. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies delivery commands for automatic review and other Git activity for confirmation) -->
 2. Evaluation resolves the checked-out branch and local full `HEAD`, then queries that branch's PR without deriving refs from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD) -->
 3. Review launches only when the PR is open, targets `main`, `master`, or `develop`, names the checked-out branch, and reports local `HEAD` as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks authoritative current-branch state after any git or gh command) -->
-4. Failed commands, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
+4. Failed commands other than bounded ambiguous `gh pr create` reconciliation, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-121/REQ-AGENT-145 AC1: reconciles an ambiguous failed PR creation against authoritative exact-head state) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: checks an absent matching PR only once) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-068: acknowledged current branch state stays inert) -->
 5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved `.init-triage.md` contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: binds git -C review and acknowledgement to the boundary repository) -->
@@ -2060,7 +2133,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Audit trail --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
+1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) --> <!-- @manual -->
 2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-clean half)) --> <!-- @manual -->
 
 **Constraints:** None.
@@ -2680,7 +2753,7 @@ None.
 4. Complete successful reviewer completion followed by root triage in live session state acknowledges the reminder head at agent end, even before the session file flushes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074: agent end acknowledges triage from live session state before disk flush) -->
 5. Terminal evidence for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head) -->
 6. Child sessions are inert, and shutdown or reload alone writes no acknowledgement or replacement request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
-7. After reload or newer unpublished local work, persisted delayed terminal evidence acknowledges its reminder head only while the authoritative PR head still matches that reviewed head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::completedTriageReadyAfterResume --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) -->
+7. After reload or newer unpublished local work, delayed terminal evidence acknowledges its reminder head only while the authoritative PR head still matches that reviewed head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::completedTriageReadyAfterResume --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) -->
 
 **Constraints:**
 
@@ -2700,16 +2773,17 @@ None.
 
 ### REQ-AGENT-075: Cloudflare Platform Skills Bundled into the Advanced Seed
 
-**Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE). The bundle is **slimmed for the Worker bundle budget**: the cloudflare mega-skill's 319-file `references/` tree is dropped (it is retrieval-first — agents fetch live docs), keeping only its decision-tree `SKILL.md`. The bundled remote-MCP config is excluded (strict-egress + interactive OAuth incompatible); retrieval is via WebFetch of `developers.cloudflare.com`.
+**Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, stable and preview Sandbox SDK lines, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE). The bundle is **slimmed for the Worker bundle budget**: the cloudflare mega-skill's 319-file `references/` tree is dropped (it is retrieval-first — agents fetch live docs), keeping only its decision-tree `SKILL.md`. The bundled remote-MCP config is excluded (strict-egress + interactive OAuth incompatible); retrieval is via WebFetch of `developers.cloudflare.com`.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) --> <!-- @manual -->
-2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) --> <!-- @manual -->
-3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) --> <!-- @manual -->
-4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) --> <!-- @manual -->
+1. The 13 skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-stable`, `sandbox-next`, `sandbox-migrate-to-next`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) and both build commands reach every skill-capable runtime in advanced mode only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (all 13 current Cloudflare skills are seeded to Claude and are advanced-only) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (bundles the 2 Cloudflare commands (advanced-only)) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (is seeded to non-Claude agents too (not Claude-only) — e.g. Pi gets the cloudflare skill) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) --> <!-- @manual -->
+2. Stable Sandbox work, 1.0-preview work, and migration use distinct `sandbox-stable`, `sandbox-next`, and `sandbox-migrate-to-next` skills; the ambiguous `sandbox-sdk` skill is absent. <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-stable/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-next/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-migrate-to-next/SKILL.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (keeps stable, next, and migration Sandbox APIs as separate skills) --> <!-- @manual -->
+3. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) --> <!-- @manual -->
+4. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) --> <!-- @manual -->
+5. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -2722,6 +2796,32 @@ None.
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-138: Bundled Turnstile Scripts Fail Closed
+
+**Intent:** Bundled Turnstile automation must bound external requests, distinguish missing authorization from valid payload rejection, and remove transient persistence state after failure.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Every Turnstile API request applies bounded connection and total deadlines. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::probe_response --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/widget-create.sh::API_RESPONSE --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/validate.sh::WIDGET_RESPONSE --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds the auth probe and reports curl timeout failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds cleanup after an unexpected widget creation) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget creation and returns structured network failure) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds widget metadata validation requests) --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (bounds dummy-token Siteverify requests) -->
+2. Error code 10000 is classified as missing scope regardless of HTTP status. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::first_code --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (classifies Cloudflare code 10000 over HTTP 400 as missing scope) -->
+3. Skill persistence removes its temporary clone after failure. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-spin-scripts.test.js (removes its temporary clone after persistence fails) -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
+
+**Verification:** Automated tests ([Turnstile script tests](../../host/__tests__/turnstile-spin-scripts.test.js))
 
 **Status:** Implemented
 
@@ -2963,11 +3063,12 @@ None.
 **Acceptance Criteria:**
 
 1. Settled follow-up requests only missing reviewer lanes while unmatched calls remain in flight. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-074: requests missing reviewers together without duplicating unmatched public calls) -->
-2. Settled follow-up requests a missing CI wave without duplicating in-flight reviewers. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068/REQ-AGENT-074: requests a missing CI launch without duplicating in-flight reviewers) -->
+2. Settled follow-up requests one missing CI wave without duplicating in-flight reviewers or its queued message. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-068/REQ-AGENT-074: requests a missing CI launch without duplicating in-flight reviewers) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-110 AC2: keeps a queued CI-only recovery single-flight before delivery) -->
 3. Required successful reviewer completion plus post-notification triage proof is the only reviewer-bearing acknowledgement condition. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
 4. The first settled recovery after an initial plan defers when no reviewer or CI launch is recorded. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->
 5. After reload, a persisted successful boundary that was not evaluated by its live handler and has no correlated launch plan emits that initial plan exactly once. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::persistedBoundary --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-110 AC5: reload recovers one launch plan for a successful boundary whose live handler was missed) -->
 6. A live-evaluated ineligible boundary remains inert after reload. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::boundaryWasEvaluated --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-110 AC6: reload does not reconsider a live-evaluated ineligible boundary) -->
+7. Existing-session startup or resume recovers one exact-head launch whose accepted evaluation was persisted but whose queued follow-up is absent, without asking again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::persistedBoundary --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-110/REQ-AGENT-141: startup and resume recover one evaluated plan whose queued follow-up was lost) -->
 
 **Constraints:**
 
@@ -3307,7 +3408,7 @@ None.
 
 1. A reviewer-bearing boundary plan orders `REVIEWERS → CI → TRIAGE + ACK → FIX` and instructs the root to publish triage, make no mutation, and end that turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->
 2. Agent-end enforcement acknowledges and emits one FIX follow-up only after every required terminal result and a structural triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: recognizes structural triage only after all reviewer notifications) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074: agent end acknowledges triage from live session state before disk flush) -->
-3. Later same-head boundary candidates do not replace the active review window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
+3. Later same-head or unpublished local boundary candidates do not replace or hide the active persisted review window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074/REQ-AGENT-126: a newer unpublished Git candidate does not hide completed review triage) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
 4. Settled enforcement provides the acknowledgement fallback when agent-end enforcement did not complete it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
 
 **Constraints:** Review acknowledgement remains independent of CI completion; fixes begin only in the post-acknowledgement follow-up turn.
@@ -3330,9 +3431,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. A persisted acknowledgement suppresses duplicate FIX follow-ups across later agent-end, settled, and reload events. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) -->
+1. A persisted acknowledgement suppresses duplicate delivered or queued FIX follow-ups across later agent-end, settled, and reload events. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/055/074 + REQ-AGENT-080 AC6: delayed completion acknowledges the pushed review head, not unpublished local work) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074/REQ-AGENT-126 AC1+AC3: a delivered FIX does not emit stale drift after the next push) -->
 2. The FIX follow-up requests no reviewer or CI launch for the acknowledged head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage) -->
-3. If the live PR head differs after complete triage, agent-end writes no acknowledgement or FIX handoff and emits one visible triggering handoff naming both heads. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendHeadDriftFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-126 AC3: reports head drift instead of acknowledging a superseded review) -->
+3. Before matching acknowledgement and FIX delivery, a live PR head change after complete triage writes neither checkpoint and emits one visible triggering handoff naming both heads. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendHeadDriftFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-126 AC3: reports head drift instead of acknowledging a superseded review) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074/REQ-AGENT-126 AC1+AC3: a delivered FIX does not emit stale drift after the next push) -->
+4. Existing-session startup or resume resends one transcript-proven acknowledged FIX handoff when its queued message is absent and the authoritative head is unchanged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074: existing-session startup recovers an acknowledged review whose FIX follow-up was not delivered) -->
 
 **Constraints:** A superseded review remains historical evidence only; it never acknowledges the replacement head.
 
@@ -3665,6 +3767,140 @@ None.
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** Automated test ([Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-139: Optimized Documentation Lane Rendering and Delivery
+
+**Intent:** Greenfield and imported SDD projects must receive the same concise documentation lanes through the existing initialization and seed-delivery workflows.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The bundled templates cover Architecture, API, Configuration, Deployment, Security, Observability, Troubleshooting, and the shared envelope for optional indexed project lanes. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-architecture.md::System Components --> <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Templates location --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
+2. Greenfield and Import Mode pass their evidence-selected lanes through one renderer. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @test: host/__tests__/documentation-template-contract.test.js (renders every canonical lane and a project lane consistently in both init modes) -->
+3. Rendering emits only selected lane files and matching index rows. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (emits only selected lane rows) -->
+4. Rendering requires a fresh non-symlink staging path. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
+5. A rendering failure removes its partial staging output. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates --> <!-- @test: host/__tests__/documentation-template-contract.test.js (requires fresh non-symlink staging and removes partial render output) -->
+6. Checked promotion keeps the live documentation tree restorable until post-promotion validation succeeds. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Greenfield — lean two-confirm flow --> <!-- @manual: On a disposable Import Mode fixture with existing documentation, force post-promotion validation to fail and confirm the original tree is restored from the sibling backup. -->
+7. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-139 AC7: optimized documentation templates reach Claude and Pi seeds) -->
+
+**Constraints:** Existing discovery, Import Mode triage, and review ownership remain unchanged. Architecture and the ADR ledger remain universal; other lanes require source evidence. Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership. No project schema engine or replacement migration subsystem is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render)
+
+**Verification:** Automated test ([documentation template contract tests](../../host/__tests__/documentation-template-contract.test.js), [generated seed parity tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts)) and manual promotion/rollback validation
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-140: Lossless Documentation Lane Cleanup and Enforcement
+
+**Intent:** Existing SDD projects must converge toward the optimized lane structures without hiding genuine defects or losing project knowledge.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/sdd clean` normalizes a recognized collection only when every load-bearing clause, link, diagram, compatibility fragment, requirement, decision, and source anchor is preserved. <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::What gets cleaned --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Pass 6 — Collection rendering consistency --> <!-- @manual: On a disposable advanced-mode fixture, run `/sdd clean --scope=all` over a mixed-shape collection containing each protected artifact and confirm the normalized output preserves all of them byte-for-byte or defers unchanged. -->
+2. Shape enforcement validates positively recognized lane records. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (optimized documentation lane shapes) -->
+3. Shape enforcement accepts documented legacy field aliases. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts Description as a legacy configuration Purpose alias) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts legacy deployment field aliases without making them canonical) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts minimal and legacy API sections and validates detailed standard-method sections) -->
+4. Shape enforcement exempts unrelated headings and tables. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (does not confuse unrelated tables with governed collections) -->
+5. The reusable checker contains no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (accepts the current indexed Codeflare lane corpus without product inventory names) -->
+6. Indexed first-level project lanes retain the shared ownership, navigation, evidence-map, and related-document envelope. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanProjectLane --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (checks the shared envelope of first-level project lanes) -->
+
+**Constraints:** Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged. Ambiguous or conflicting content is reported and left intact. No suppression baseline or separate migration subsystem is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement), [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js)) and manual cleanup validation
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-142: Unambiguous Documentation Decision History
+
+**Intent:** SDD-generated and cleaned decision ledgers must make historical state understandable while preserving stable references and useful history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every decision-index identifier links to a matching stable ADR section, and every ADR section has an index row. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires ADR index/section pairing and retained superseded history) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked ADR IDs to target their matching section anchors) -->
+2. A fully superseded ADR retains substantive historical content beyond its status in the stable section. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires ADR index/section pairing and retained superseded history) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (does not use later unrelated sections as superseded ADR history) -->
+3. A fully superseded ADR has both its linked ID and decision cells visibly struck through in the decision index. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires superseded ADR index entries to be visibly struck through) -->
+4. A partially superseded ADR remains unstruck in the decision index. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (keeps partial ADRs unstruck and requires a linked successor with clause detail) -->
+5. A partially superseded ADR names the replaced clause and links its successor in the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (keeps partial ADRs unstruck and requires a linked successor with clause detail) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (independently requires partial clause detail and redirect destinations) -->
+6. A merged or reclassified ADR uses the explicit `Redirect anchor` state instead of parenthetical redirect shorthand. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects ambiguous redirect category labels in ADR indexes) -->
+7. A merged or reclassified ADR links its destination from the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (independently requires partial clause detail and redirect destinations) -->
+
+**Constraints:** Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded. Existing inbound AD anchors remain stable. Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-146: Self-contained ADR decision index summaries
+
+**Intent:** Decision indexes must explain each architectural choice, its driver or consequence, and its current state without requiring readers to open every ADR body.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every ADR index row renders `ID`, `Decision`, `Summary`, `Category`, and `State` on one source line. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC1+AC2: enforces bounded ADR index labels and summaries) -->
+2. A Decision label is at most 90 rendered characters; its distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC1+AC2: enforces bounded ADR index labels and summaries) -->
+3. For an active row, shape enforcement rejects a Summary unrelated to the ADR Decision. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC3+AC5: rejects unrelated summaries and state-incomplete ADR history) -->
+4. Documentation review verifies that each Summary's driver, consequence, and material trade-off are semantically supported rather than accepted through keywords alone. <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::ADR index semantic review --> <!-- @manual: During documentation review, cross-check every changed Summary against its ADR body and report unsupported rationale as adr-index-summary-semantic-gap. -->
+5. A historical Summary links its successor, retained scope plus replaced clause, or redirect destination, and its State matches the section Status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC3+AC5: rejects unrelated summaries and state-incomplete ADR history) -->
+6. SDD initialization and shape enforcement use the same ADR index contract. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md::Decision Index --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @test: host/__tests__/documentation-template-contract.test.js (REQ-AGENT-146 AC6: emits a decision row accepted by canonical shape enforcement) -->
+
+**Constraints:** Existing ADR bodies and stable anchors remain intact. Counts exclude Markdown syntax. Enforcement carries no product-specific ADR inventory, and no new schema, skill, checker, configuration, or framework file is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
+
+**Verification:** Automated documentation-shape and template-contract tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-143: Resolvable Documentation Evidence References
+
+**Intent:** Documentation evidence maps must resolve each requirement and decision reference without forcing readers to interpret shorthand.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every ADR identifier in a Security verification/source map links directly to its decision anchor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+2. Every REQ or CON identifier in a Security verification/source map links directly to its specification anchor. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+3. Requirement-domain references in a Security verification/source map link the exact specification file instead of using unexplained `SDD` labels. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanTables --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (requires linked AD references and rejects vague SDD labels in security source maps) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (rejects Security source-map links with wrong files or anchors) -->
+
+**Constraints:** The reusable checker recognizes reference syntax and contains no product-specific decision or requirement inventory.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
+
+**Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
 
 **Status:** Implemented
 

@@ -317,9 +317,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
-### REQ-MEM-020: Capture requests are re-delivered under a bound and committed only against an artifact
+<a id="req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred"></a>
+### REQ-MEM-020: Capture requests are re-delivered under a bound
 
-**Intent:** A capture directive that the agent does not act on must come back rather than disappear, and a capture that never produced a file must not be recorded as done. Replaces the removed hard block, which bought the first guarantee by making one hook able to wedge the session.
+**Intent:** A capture directive that the agent does not act on must come back rather than disappear without making one hook able to wedge the session.
 
 **Applies To:** Agent
 
@@ -329,10 +330,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Arming does not advance the committed counter, so a capture that fails leaves its window uncommitted for a later request to cover. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (does not advance the counter when arming, so a failed capture is retried not lost) -->
 3. While a request is outstanding the hook relaunches it once per user prompt and counts each launch, instead of arming a second request. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MAX_ATTEMPTS --> <!-- @test: host/__tests__/memory-capture-hook.test.js (re-delivers an outstanding request on the next prompt instead of dropping it) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (an armed request suppresses a second arm without closing the window) -->
 4. After six launches the request latches, consumes no further launch, and the hook falls silent until a replacement may arm. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::LATCH_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (latches after the sixth delivery and stops reminding) -->
-5. Publication refuses and retains the carrier when the request's capture file is absent. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (refuses to publish and keeps the carrier when the capture file is absent) -->
-6. Publication commits the counter and drains the carrier once the capture file exists, and never moves the counter backwards. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::COUNTER_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (commits the counter and drains the carrier once the artifact exists) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (never drags the committed counter backwards) -->
-7. A prompt arriving while a capture is still running spends no launch, and leaves an outstanding request intact. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::capture_running --> <!-- @test: host/__tests__/memory-capture-hook.test.js (spends no attempt on a prompt that arrives while a capture is running) -->
-8. No hook blocks tool calls on behalf of memory capture. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
+5. A prompt arriving while a capture is still running spends no launch, and leaves an outstanding request intact. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::capture_running --> <!-- @test: host/__tests__/memory-capture-hook.test.js (spends no attempt on a prompt that arrives while a capture is running) -->
+6. No hook blocks tool calls on behalf of memory capture. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode registers each managed hook on its own event type) -->
 
 **Constraints:**
 
@@ -344,6 +343,32 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages)
 
 **Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js), [entrypoint hook merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-021: Capture publication requires its artifact
+
+**Intent:** A capture that never produced its requested file must not be recorded as committed.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Publication refuses and retains the carrier when the request's capture file is absent. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (refuses to publish and keeps the carrier when the capture file is absent) -->
+2. Publication commits the counter and drains the carrier once the capture file exists, and never moves the counter backwards. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::COUNTER_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (commits the counter and drains the carrier once the artifact exists) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (never drags the committed counter backwards) -->
+
+**Constraints:**
+
+- The capture agent carries no `model:` pin; fidelity is selected by `CODEFLARE_MEMORY_MODEL`.
+- The capture contract is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound)
+
+**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js))
 
 **Status:** Implemented
 
@@ -459,6 +484,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+<a id="req-mem-016-vault-extraction-runs-on-bounded-one-pass-inputs"></a>
 ### REQ-MEM-016: Pi extraction requests have a bounded execution profile
 
 **Intent:** Pi memory and Vault extraction requests must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
@@ -487,6 +513,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
+<a id="req-mem-018-background-extraction-agents-are-bounded-and-visible"></a>
 ### REQ-MEM-018: Pi extraction agent definitions have a bounded profile
 
 **Intent:** Generated Pi memory and Vault extraction agent definitions expose only the tools and reasoning profile required by their bounded background work.

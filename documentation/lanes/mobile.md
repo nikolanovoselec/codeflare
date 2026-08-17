@@ -4,26 +4,28 @@ Technical reference for the mobile terminal implementation covering keyboard han
 
 **Audience:** Developers
 
+**Owns:** mobile keyboard, touch, viewport, fit, scroll-ownership adaptations, platform limits, and deployed-device verification. **Does not own:** generic terminal protocol, WebSocket contracts, or landing-canvas implementation.
+
 ---
 
 ## Contents
 
-- [MultiView Availability](#multiview-availability)
-- [Cursor Visibility](#cursor-visibility)
-- [Keyboard Management](#keyboard-management)
-- [Touch Input](#touch-input)
-- [xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)](#xterm-61-color-scheme-report-suppression-git-fix-21)
+- [Interaction and Focus Model](#interaction-and-focus-model)
+- [Terminal Compatibility](#terminal-compatibility)
 - [Scroll Stability](#scroll-stability)
-- [WebSocket Recovery](#websocket-recovery)
-- [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
-- [Specification Coverage](#specification-coverage)
+- [Transport Recovery](#transport-recovery)
+- [Behavioral Test Matrix](#behavioral-test-matrix)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-## MultiView Availability
+## Interaction and Focus Model
+
+<a id="multiview-availability"></a>
+### MultiView Availability
 
 Mobile phone viewports implement [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace) and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) as single-session terminal surfaces. `web-ui/src/lib/mobile.ts::getTerminalViewportClass` supplies the shared capacity class, and `web-ui/src/components/SessionDropdown.tsx::SessionDropdown` hides the MultiView control when that capacity is zero, so mobile users cannot enter MultiView selection or open tiled session panes. Existing browser-local MultiView membership is preserved while hidden; returning to tablet or desktop can show and reopen the saved `MultiView #1` if at least two member sessions are still running or initializing.
 
-## Cursor Visibility
+### Cursor Visibility
 
 The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+). Previously, the cursor was hidden via CSS `display: none` on `.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, and `.xterm-cursor-underline`, and via transparent theme colors.
 
@@ -37,9 +39,9 @@ The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+
 
 **Historical note:** Previous versions hid the xterm cursor on mobile to avoid "orange square" duplication. The iframe compositor jail remains for the Android IME native caret problem.
 
-## Keyboard Management
+### Keyboard Management
 
-### VirtualKeyboard API
+#### VirtualKeyboard API
 
 The `overlaysContent` flag must be managed carefully throughout the terminal lifecycle:
 
@@ -47,7 +49,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 - **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing — but NOT on a pane-to-pane focus handoff (see [Multi-pane focus handoff](#multi-pane-focus-handoff))
 - `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 
-### Multi-pane focus handoff
+#### Multi-pane focus handoff
 
 The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused terminal pane. When several terminal panes are visible (tiling layouts, tablet MultiView) and focus moves between panes while the keyboard is open, the keyboard must stay open and the newly focused pane keeps keyboard mode rather than dropping to keyboard-closed/freescroll.
 
@@ -59,11 +61,11 @@ The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` 
 
 A real exit (focus on a non-terminal element, or terminal unmount) is not a handoff, so those sites — and the unconditional iframe-removal cleanup in `setupMobileInput` — still tear the keyboard down. Implements [REQ-MOB-015](../../sdd/spec/mobile.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff).
 
-### Background prewarm focus safety
+#### Background prewarm focus safety
 
 Vault browser prewarm runs in a hidden same-origin iframe while the user may already be typing in the terminal. It is intentionally not delayed by terminal focus or an open virtual keyboard. Instead, `injectVaultPrewarmFocusGuard()` makes only the valid-token prewarm shell focus-inert before SilverBullet app scripts run: script `focus()`, `select()`, and `window.focus()` calls are no-ops, focus-in events inside the hidden document are blurred, and `startVaultPrewarm()` restores the previously focused terminal/input element if the outer iframe captures parent focus. Normal user-opened Vault tabs do not carry prewarm parameters and keep regular editor focus behavior. Vault browser prewarm implements [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) and [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety).
 
-### Samsung Internet Quirks
+#### Samsung Internet Quirks
 
 Samsung Internet's bottom navigation bar inflates viewport height, causing the VirtualKeyboard API to report incorrect dimensions.
 
@@ -98,13 +100,13 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 
 **Fix:** Removed ALL `baselineInnerHeight` updates from keyboard-close, `forceResetKeyboardState()`, and `resetKeyboardStateIfStale()`. Baseline only changes at module initialization and the Galaxy Fold screen-switch resize handler (`delta > 200px`) which handles genuine physical screen changes.
 
-### Samsung Focusout Handler
+#### Samsung Focusout Handler
 
 Samsung doesn't fire `geometrychange` when the back button dismisses the keyboard. Without detection, keyboard state signals stay stale (git: Fix 1).
 
 **Solution:** `useTerminal.ts` registers a `focusout` listener on the terminal input element (only on Samsung). When `focusout` fires it defers one tick for the focus transition to settle, then — only if focus has left the terminal (`isFocusOnTerminalInput()` is false, i.e. not a pane-to-pane handoff) and `isVirtualKeyboardOpen()` is true — calls `forceResetKeyboardState()` to zero all signals. A handoff to a sibling terminal pane keeps the keyboard (see [Multi-pane focus handoff](#multi-pane-focus-handoff)). The listener is cleaned up on terminal deactivation.
 
-### Visibility Return Reset
+#### Visibility Return Reset
 
 When the browser is backgrounded and returned to, keyboard state signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) can be stale because (git: Fix 6):
 - `disableVirtualKeyboardOverlay()` fires on blur (backgrounding) but does NOT reset signals
@@ -135,7 +137,7 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 **Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by the 50ms ignore window from the delayed toggle.
 
 
-### FitAddon Management
+#### FitAddon Management
 
 Three code paths can trigger `fitAddon.fit()` (git: Fix 3):
 1. **Keyboard refit** (debounced 150ms)
@@ -154,15 +156,15 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 
 `resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
-## Touch Input
+### Touch Input
 
-### Swipe Gestures
+#### Swipe Gestures
 
 Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` repeat timer that fires every 80ms while the finger is held. `touchstart`/`touchmove` were registered in capture phase, but `touchend`/`touchcancel` were in bubble phase. When xterm.js's internal Gesture handler (on `.xterm-screen`) called `stopPropagation()` on `touchend` during its own gesture processing, the bubble-phase listener on the container never fired, leaving the repeat timer running indefinitely (git: Fix 7).
 
 **Solution:** Register `touchend`/`touchcancel` in capture phase (`{ capture: true }`) matching `touchstart`/`touchmove`. Our handler now fires before xterm's, guaranteeing the repeat timer is always cleared.
 
-**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.291`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
+**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.292`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
 
 Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-or-scrollback-snaps-to-an-edge)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
 
@@ -170,7 +172,7 @@ Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmo
 
 The route applies only while the keyboard is closed: with the keyboard open, vertical swipes always send arrow keys (the typing-mode scroll-lock — Fix 22's original keyboard-open wheel routing regressed it and was reverted). Normal-buffer swipes scroll the buffer service directly via `scrollBufferLines()` (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1, [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC7)
 
-### Input Architecture
+#### Input Architecture
 
 The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
@@ -193,14 +195,15 @@ The mobile terminal input system uses several techniques to work around browser/
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 6. **Touch scroll routing**
 
-   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.291` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
+   With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll xterm's buffer service directly through `scrollBufferLines()` (`xterm-internals.ts`) — never the public viewport-relative `terminal.scrollLines()`, whose DOM scroll state can desync and yank the viewport (see [Viewport DOM Desync](#viewport-dom-desync-instant-yank-to-top)). The gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics; the pinned xterm `6.1.0-beta.292` scroll layer is JS-based (`SmoothScrollableElement`), not native overflow.
 
    An alternate-screen application with wheel-capable mouse tracking owns its own history. `attachSwipeGestures()`'s `scrollTouchLines()` helper (`web-ui/src/lib/touch-gestures.ts`) turns the same accumulated lines into DOM wheel events on xterm's terminal element, allowing xterm to encode application mouse reports instead of attempting to move nonexistent terminal scrollback.
 7. **Floating page navigation**
 
    The page-up and down-arrow controls query the focused terminal's live buffer type on each click. Normal-buffer controls scroll the buffer service via `scrollBufferLines()` with buffer-derived page/bottom deltas (the public `scrollPages`/`scrollToBottom` resolve against desync-prone DOM scroll state). Alternate-screen controls send the PageUp/PageDown input sequences so fullscreen applications such as Claude Code move their application-owned history instead of nonexistent terminal scrollback. The same target resolver preserves focused MultiView pane routing. ([REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) AC7)
 
-## xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
+<a id="xterm-61-color-scheme-report-suppression-git-fix-21"></a>
+## Terminal Compatibility
 
 Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-019` AC2, fixed in `useTerminal.ts`, not `touch-gestures.ts`).
 
@@ -212,7 +215,7 @@ Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constr
 
 ### Root Cause
 
-`@xterm/xterm` is pinned to `6.1.0-beta.291`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
+`@xterm/xterm` is pinned to `6.1.0-beta.292`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
 
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 
@@ -236,7 +239,7 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 2. **READ_SCROLLBACK** -- wheel, pointer, navigation-key, touch-drag, and registered external intent transfer ownership to the user until the viewport returns to the live bottom.
 
-While ownership is active, `flushWriteBuffer()` defers streamed output (bounded by a 2M-character cap) so trimming cannot move the owned viewport; returning to bottom releases the held output in one write. xterm alone applies any trimming that does occur (e.g. a cap-exceeding flush), and no restoration is ever injected.
+While ownership is active, `flushWriteBuffer()` defers streamed output (bounded by a 2M-character cap) so trimming cannot move the owned viewport; returning to bottom releases whole held units toward a 65,536-character per-tick target. Overflow beyond the 2M-character cap drops the oldest whole held units rather than writing through beneath the reader; xterm applies any later trimming, and no restoration is ever injected.
 
 3. **MOBILE_INPUT_LOCKED** -- opening the touch keyboard keeps the established fit-and-bottom transition in `useTerminal()`.
 
@@ -260,9 +263,9 @@ The short intent window now serves only to correlate a wheel, pointer, navigatio
 
 When the scrollback (capped at 5,000 lines) is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
 
-Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — releases the entire held batch in one write.
+Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — uses a 65,536-character release target per tick while preserving whole held units; one unit may exceed the target. It rechecks ownership before each later slice.
 
-A 2,000,000-character cap bounds held memory; a cap-exceeding flush proceeds and may then trim beneath the reader (bounded regression, preferable to unbounded memory). Alternate-buffer output is never deferred: fullscreen applications own their history and have no scrollback to read. `useScrollCorrection()` retains manual ownership throughout so a post-cap zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
+A 2,000,000-character cap bounds held memory. Overflow drops the oldest whole held units with ring-buffer semantics; it never writes through beneath the reader. Alternate-buffer output is never deferred: fullscreen applications own their history and have no scrollback to read. `useScrollCorrection()` retains manual ownership throughout so a post-cap zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
 
 ### Viewport DOM Desync (instant yank to top)
 
@@ -309,7 +312,8 @@ Earlier iterations introduced overlapping correction mechanisms that fought each
 - Explicit touch-keyboard lifecycle ownership
 - A 5,000-line scrollback cap with agent-side virtual scrolling disabled
 
-## WebSocket Recovery
+<a id="websocket-recovery"></a>
+## Transport Recovery
 
 ### Retryable Close Codes
 
@@ -317,7 +321,8 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ---
 
-## Scroll-Stability Integration Test Plan
+<a id="scroll-stability-integration-test-plan"></a>
+## Behavioral Test Matrix
 
 [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), and [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics) define one scroll owner per terminal mode across `terminal.ts`, `useScrollCorrection.ts`, `useTerminal.ts`, and `touch-gestures.ts`. Behavioral unit tests compose batched writes with native-like `onScroll` feedback and verify keyboard lifecycle/gesture routing. The deployed-browser checklist below covers visual stability and device event ordering that have no genuine unit-test seam.
 
@@ -326,7 +331,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 5,000-line cap, and confirm a bottom follower remains at the live prompt.
 2. **Manual ownership freezes streamed output.** Scroll into history and continue output beyond the intent-correlation window.
 
-The reading position must stay perfectly still (output is deferred — no trims, no drift toward the top), and scrolling back to the prompt must release the held output in one batch.
+The reading position must stay perfectly still (output is deferred — no trims, no drift toward the top), and scrolling back to the prompt must release held output in bounded chunks while ownership remains at the bottom.
 3. **Returning to bottom restores following.** Scroll back to the live prompt, continue output, and confirm bottom following resumes.
 4. **Viewport overflow style.** Confirm `.xterm .xterm-viewport` retains `overflow: hidden`; xterm's scroll layer remains the sole scroller.
 
@@ -346,27 +351,16 @@ The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) poin
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) - Terminal fully usable on mobile devices
-- [REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) - Virtual keyboard opens reliably on tap
-- [REQ-MOB-003](../../sdd/spec/mobile.md#req-mob-003-samsung-internet-keyboard-viewport-state) - Samsung Internet keyboard viewport state
-- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll-drop detection during burst output
-- [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll
-- [REQ-MOB-006](../../sdd/spec/mobile.md#req-mob-006-sticky-ctrl-button-for-mobile) - Sticky Ctrl button for mobile
-- [REQ-MOB-007](../../sdd/spec/mobile.md#req-mob-007-voice-input-via-web-speech-api) - Voice input via Web Speech API
-- [REQ-MOB-008](../../sdd/spec/mobile.md#req-mob-008-cursor-visible-for-all-supported-agents) - Cursor visible for all supported agents
-- [REQ-MOB-009](../../sdd/spec/mobile.md#req-mob-009-visibility-return-recovers-keyboard-state) - Visibility return recovers keyboard state
-- [REQ-MOB-010](../../sdd/spec/mobile.md#req-mob-010-fitaddon-fit-calls-are-coordinated) - FitAddon fit calls are coordinated
-- [REQ-MOB-011](../../sdd/spec/mobile.md#req-mob-011-samsung-internet-keyboard-state-recovery) - Samsung Internet keyboard state recovery
-- [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) - Scroll anchoring during keyboard transitions
-- [REQ-MOB-013](../../sdd/spec/mobile.md#req-mob-013-mobile-input-system-platform-compatibility) - Mobile input-system platform compatibility
-- [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) - Mobile background-surface focus isolation
-- [REQ-MOB-015](../../sdd/spec/mobile.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff) - Virtual keyboard persists across terminal pane focus handoff
-- [REQ-MOB-016](../../sdd/spec/mobile.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls) - Mobile terminal input compositor and autocorrect controls
-- [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) - Fullscreen application touch scrolling
-- [REQ-MOB-018](../../sdd/spec/mobile.md#req-mob-018-decorative-webgl-canvas-retirement) - Decorative WebGL canvas retirement
-- [REQ-MOB-019](../../sdd/spec/mobile.md#req-mob-019-keyboard-mode-swipe-semantics) - Keyboard-mode swipe semantics
+| Mobile concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Focus/keyboard/viewport | REQ-MOB-001/002/003/009/010/011/013/014/015/016 | terminal store, mobile-input, viewport utilities | Unit/integration checks plus deployed-device matrix |
+| Touch and fullscreen input | REQ-MOB-005/006/007/017/019 | gesture/input components and xterm integration | Gesture-mode behavioral tests |
+| Cursor/render compatibility | REQ-MOB-008 and terminal rendering contract | terminal setup/CSS/xterm version | Agent/device verification |
+| Scroll ownership and anchoring | REQ-MOB-004/012 | scroll controller, terminal store, trim/resize handlers | Burst, resize, keyboard-transition scenarios |
+| Retired decorative surface | REQ-MOB-018 | landing/web UI source | Absence checks and current composition docs |
 
 ---
 

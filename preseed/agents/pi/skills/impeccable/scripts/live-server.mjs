@@ -689,16 +689,24 @@ function isLoopbackOrigin(origin) {
 function createRequestHandler({ detectScript, liveScriptParts }) {
   return (req, res) => {
     const url = new URL(req.url, `http://localhost:${state.port}`);
-    // Loopback-restricted CORS. Reflect the caller's Origin only when it is a
-    // loopback origin, always paired with `Vary: Origin` so an intermediary
-    // cache never serves a response authorized for one origin to another. A
-    // remote page (e.g. https://evil.example probing the port from a tab open
-    // on the same machine) gets no Access-Control-Allow-Origin, so its
-    // JS-initiated fetch cannot read any response. Requests with no Origin
-    // header (script tags, curl, the agent's own fetches) are not subject to
-    // CORS and keep working; no ACAO header is needed for them.
+    // Token-or-loopback CORS. Reflect the caller's Origin when it is a
+    // loopback origin OR the request carries the valid session token, always
+    // paired with `Vary: Origin` so an intermediary cache never serves a
+    // response authorized for one origin to another. A remote page (e.g.
+    // https://evil.example probing the port from a tab open on the same
+    // machine) has no token and gets no Access-Control-Allow-Origin, so its
+    // JS-initiated fetch cannot read any response. The token branch exists for
+    // dev servers on non-localhost loopback aliases (ddev's *.ddev.site,
+    // Valet's *.test, hosts-file entries): the injected classic <script src>
+    // delivers the token to the page regardless of origin, every overlay
+    // request carries it in the query string (preflights included, since
+    // OPTIONS hits the same URL), and a token bearer is already fully
+    // authorized on every route — the token is the security boundary, not the
+    // origin. Requests with no Origin header (script tags, curl, the agent's
+    // own fetches) are not subject to CORS and keep working; no ACAO header
+    // is needed for them.
     const origin = req.headers.origin;
-    if (origin && isLoopbackOrigin(origin)) {
+    if (origin && (isLoopbackOrigin(origin) || url.searchParams.get('token') === state.token)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
@@ -865,7 +873,7 @@ function createRequestHandler({ detectScript, liveScriptParts }) {
     //                            { present, parsed, sidecar, hasMd, hasSidecar,
     //                              mdNewerThanJson, parseError?, sidecarError? }
     //                          - parsed: output of parseDesignMd (frontmatter
-    //                            + six canonical sections) when DESIGN.md exists.
+    //                            + the canonical sections) when DESIGN.md exists.
     //                          - sidecar: .impeccable/design.json contents when present.
     //                            Expected shape: schemaVersion 2, carrying
     //                            extensions + components + narrative.

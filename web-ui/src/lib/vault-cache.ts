@@ -5,7 +5,8 @@
 //
 //   - cleanupSessionVaultCache(sid): called from deleteSession() to drop the
 //     per-session localStorage markers (`vault-session-<sid>`,
-//     `vault-session-<sid>-idbs`, `vault-session-<sid>-prewarmed`).
+//     `vault-session-<sid>-idbs`, `vault-session-<sid>-scope`,
+//     `vault-session-<sid>-prewarmed`).
 //   - sweepOrphanVaultCaches(activeSessionIds): called after an authoritative
 //     session-list fetch succeeds. For every `vault-session-<sid>*` marker whose
 //     sid is not in activeSessionIds, drop the markers. Handles sessions deleted
@@ -30,6 +31,7 @@
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
+const VAULT_SCOPE_SUFFIX = '-scope';
 const VAULT_PREWARMED_SUFFIX = '-prewarmed';
 
 function getLS(): Storage | null {
@@ -52,15 +54,14 @@ function listSessionMarkers(ls: Storage): string[] {
     const key = ls.key(i);
     if (!key) continue;
     if (!key.startsWith(VAULT_MARKER_PREFIX)) continue;
-    // Strip the prefix, then strip a trailing `-idbs` or `-prewarmed` suffix if
-    // present so `vault-session-<sid>`, `vault-session-<sid>-idbs`, and
-    // `vault-session-<sid>-prewarmed` all contribute the same sid. Without the
-    // `-prewarmed` arm the full-prewarm marker is read as a bogus sid
-    // (`<sid>-prewarmed`), which never matches an active session and is swept as
-    // an orphan - silently erasing the reload-skip marker (REQ-VAULT-022 AC2).
+    // Strip the prefix and any known readiness-record suffix so every marker
+    // contributes the real session id. This preserves active scope/prewarm
+    // records while allowing orphan marker cleanup without touching SW/IDB state.
     let sid = key.slice(VAULT_MARKER_PREFIX.length);
     if (sid.endsWith(VAULT_IDBS_SUFFIX)) {
       sid = sid.slice(0, -VAULT_IDBS_SUFFIX.length);
+    } else if (sid.endsWith(VAULT_SCOPE_SUFFIX)) {
+      sid = sid.slice(0, -VAULT_SCOPE_SUFFIX.length);
     } else if (sid.endsWith(VAULT_PREWARMED_SUFFIX)) {
       sid = sid.slice(0, -VAULT_PREWARMED_SUFFIX.length);
     }
@@ -72,6 +73,7 @@ function listSessionMarkers(ls: Storage): string[] {
 function removeSessionMarkers(ls: Storage, sid: string): void {
   for (const key of [
     `${VAULT_MARKER_PREFIX}${sid}${VAULT_IDBS_SUFFIX}`,
+    `${VAULT_MARKER_PREFIX}${sid}${VAULT_SCOPE_SUFFIX}`,
     `${VAULT_MARKER_PREFIX}${sid}`,
     `${VAULT_MARKER_PREFIX}${sid}${VAULT_PREWARMED_SUFFIX}`,
   ]) {

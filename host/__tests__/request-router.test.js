@@ -252,7 +252,7 @@ describe('REQ-IDE-001 AC3: code-server HTTP caller routing and proxy identity', 
   });
 });
 
-describe('REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection', () => {
+describe('REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection', () => {
   const auth = { authorization: 'Bearer seam-test-token' };
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
   const savedMode = process.env.SESSION_MODE;
@@ -279,7 +279,7 @@ describe('REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection', () 
       upstreamRequests.push({ url: req.url, acceptEncoding: req.headers['accept-encoding'] });
       const body = req.headers['x-test-malformed']
         ? '<!doctype html><title>missing configuration</title>'
-        : '<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="{&quot;remoteAuthority&quot;:&quot;codeflare.ch&quot;,&quot;productConfiguration&quot;:{&quot;nameShort&quot;:&quot;Code&quot;},&quot;opaqueServerSetting&quot;:{&quot;nested&quot;:[&quot;preserve&quot;,{&quot;value&quot;:7}]}}"><title>Code</title>';
+        : '<!doctype html><meta id="vscode-workbench-web-configuration" data-settings="{&quot;remoteAuthority&quot;:&quot;remote&quot;,&quot;productConfiguration&quot;:{&quot;nameShort&quot;:&quot;Code&quot;},&quot;opaqueServerSetting&quot;:{&quot;nested&quot;:[&quot;preserve&quot;,{&quot;value&quot;:7}]}}"><title>Code</title>';
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
@@ -322,6 +322,7 @@ describe('REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection', () 
     });
     const encoded = response.body.match(/id="vscode-workbench-web-configuration" data-settings="([^"]+)"/)?.[1];
     const config = JSON.parse(encoded.replaceAll('&quot;', '"'));
+    assert.equal(config.remoteAuthority, 'remote');
     assert.deepEqual(config.folderUri, {
       scheme: 'vscode-remote',
       authority: 'codeflare.ch',

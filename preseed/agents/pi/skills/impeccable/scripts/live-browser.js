@@ -97,23 +97,20 @@
     return { value: c.value, label: c.label };
   });
 
-  const LIVE_CHROME_MOUNT_CONTRACT = ['root', 'transport', 'state', 'actions'];
-  const LIVE_UI_SURFACES = [
-    { key: 'global-bottom-bar', ids: [PREFIX + '-global-bar', PREFIX + '-global-bar-brand', PREFIX + '-pick-toggle', PREFIX + '-insert-toggle', PREFIX + '-detect-toggle', PREFIX + '-detect-badge', PREFIX + '-design-toggle', PREFIX + '-page-chat', PREFIX + '-page-chat-input', PREFIX + '-page-chat-voice', PREFIX + '-page-chat-send'] },
-    { key: 'pending-copy-edit-dock', ids: [PREFIX + '-pending-dock'] },
-    { key: 'element-selection-chrome', ids: [PREFIX + '-highlight', PREFIX + '-tooltip', PREFIX + '-bar', PREFIX + '-selection-pill', PREFIX + '-input', PREFIX + '-configure-voice', PREFIX + '-configure-bar-tooltip'] },
-    { key: 'action-picker', ids: [PREFIX + '-picker'] },
-    { key: 'edit-chrome', ids: [PREFIX + '-edit-badge'] },
-    { key: 'generating-row', ids: [PREFIX + '-bar', PREFIX + '-shader'] },
-    { key: 'variant-cycling-row', ids: [PREFIX + '-bar', PREFIX + '-params-panel'] },
-    { key: 'variant-params-panel', ids: [PREFIX + '-params-panel'] },
-    { key: 'saving-confirmed-rows', ids: [PREFIX + '-bar'] },
-    { key: 'insert-mode-chrome', ids: [PREFIX + '-insert-line', PREFIX + '-insert-placeholder', PREFIX + '-placeholder-resize', PREFIX + '-insert-input', PREFIX + '-insert-voice', PREFIX + '-insert-create', PREFIX + '-insert-create-tooltip'] },
-    { key: 'annotation-chrome', ids: [PREFIX + '-annot', PREFIX + '-annot-svg', PREFIX + '-annot-pins', PREFIX + '-annot-clear'] },
-    { key: 'design-system-panel', ids: [PREFIX + '-design-host'] },
-    { key: 'toasts-and-errors', ids: [PREFIX + '-toast', PREFIX + '-mount-error'] },
-    { key: 'css-isolation-boundary', ids: [PREFIX + '-root'] },
-  ];
+  // The Live chrome inventory (which surfaces exist, and the element ids each
+  // one owns) comes from the canonical source, skill/scripts/live/ui-surfaces.mjs,
+  // which the /live.js assembler serializes into these globals alongside the
+  // token/port/vocabulary. This file is served raw and injected as a classic
+  // script, so it cannot import that module; the private impeccable-site repo
+  // imports it directly to check its Live UI lab holds a snapshot for every
+  // surface, which only works while the list has exactly one definition.
+  // Add a surface in ui-surfaces.mjs, not here.
+  const LIVE_CHROME_MOUNT_CONTRACT = Array.isArray(window.__IMPECCABLE_LIVE_MOUNT_CONTRACT__)
+    ? window.__IMPECCABLE_LIVE_MOUNT_CONTRACT__
+    : ['root', 'transport', 'state', 'actions'];
+  const LIVE_UI_SURFACES = Array.isArray(window.__IMPECCABLE_LIVE_UI_SURFACES__)
+    ? window.__IMPECCABLE_LIVE_UI_SURFACES__
+    : [];
   const LIVE_UI_COMPONENT_IDS = [...new Set(LIVE_UI_SURFACES.flatMap((surface) => surface.ids))];
 
   //
@@ -3766,7 +3763,10 @@
     const container = copyEditContainerContext(contextElement);
     if (container) for (const op of ops) op.container = container;
     try {
-      const res = await fetch('http://localhost:' + PORT + '/manual-edit-stash', {
+      // Token in the query string as well as the body: the URL token is what
+      // authorizes the CORS preflight when the page runs on a non-loopback
+      // dev host (ddev, Valet), since the preflight carries no request body.
+      const res = await fetch('http://localhost:' + PORT + '/manual-edit-stash?token=' + encodeURIComponent(TOKEN), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7150,7 +7150,10 @@
       console.debug('[impeccable] Dropped optional live event:', err);
       return null;
     }
-    const doSend = () => fetch('http://localhost:' + PORT + '/events', {
+    // Token in the query string as well as the body: the URL token is what
+    // authorizes the CORS preflight when the page runs on a non-loopback
+    // dev host (ddev, Valet), since the preflight carries no request body.
+    const doSend = () => fetch('http://localhost:' + PORT + '/events?token=' + encodeURIComponent(TOKEN), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg),
@@ -11969,7 +11972,9 @@ void main() {
       rules: [
         ...(md.colors?.rules || []).map((r) => ({ ...r, section: 'colors' })),
         ...(md.typography?.rules || []).map((r) => ({ ...r, section: 'typography' })),
+        ...(md.layout?.rules || []).map((r) => ({ ...r, section: 'layout' })),
         ...(md.elevation?.rules || []).map((r) => ({ ...r, section: 'elevation' })),
+        ...(md.shapes?.rules || []).map((r) => ({ ...r, section: 'shapes' })),
       ],
       dos: md.dosDonts?.dos || [],
       donts: md.dosDonts?.donts || [],

@@ -88,14 +88,15 @@ export class container extends Container<Env> implements ContainerEnvState {
   // collectMetrics(), which polls the in-container /activity endpoint every 60s
   // and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref.
   //
-  // Why: @cloudflare/containers v0.3.5 refreshes the SDK timer on every
-  // WebSocket message in both directions (client<->container)
+  // Why: the pinned Containers SDK refreshes its timer on every WebSocket
+  // message in both directions (client<->container)
   // (parseTimeExpression('24h') = 86400s). That means the SDK timer tracks
   // "any activity", whereas we want "user-input activity" - a container running
   // `tail -f` or `yes` should still sleep when the user walks away.
-  // collectMetrics reads lastInputAt from the in-container terminal server,
-  // which tracks PTY input only, giving us the correct semantics independent of
-  // the SDK.
+  // collectMetrics reads lastInputAt from the in-container host. That timestamp
+  // advances for classified PTY input and client-to-server Browser IDE frames,
+  // but not terminal output or server-to-client editor traffic, giving us the
+  // required semantics independently of the SDK.
   //
   // NOTE: pinning the SDK timer does NOT stop Cloudflare from reaping an idle
   // container instance at the platform level. That reap arrives as onError
@@ -159,10 +160,10 @@ export class container extends Container<Env> implements ContainerEnvState {
   _sessionId: string | null = null;
   _userEmail: string | null = null;
   /**
-   * The user's matched Cloudflare Access groups (REQ-ENTERPRISE-004 revised),
-   * populated by the internal-config handler alongside _userEmail. Passed as the
-   * LlmInterceptor `groups` prop so cf-aig-metadata carries one tag per group for
-   * per-group gateway policies.
+   * The user's matches from the configured Cloudflare user-access group list
+   * (REQ-ENTERPRISE-004 revised), populated by the internal-config handler
+   * alongside _userEmail. Passed as the LlmInterceptor `groups` prop so
+   * cf-aig-metadata carries one tag per configured user group for gateway policy.
    */
   _userGroups: string[] = [];
   /**
@@ -417,12 +418,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    *                        session to stopped and then sticks (REQ-SESSION-018
    *                        AC3). A monitor `Network connection lost` first enters
    *                        bounded DO reconstruction so a surviving container can
-   *                        be rediscovered. Other errors, or exhausted recovery,
-   *                        open the not-running confirmation window and re-arm
-   *                        collectMetrics, which
-   *                        confirms a genuine exit to 'stopped' within the window
-   *                        and clears it on recovery. Empirically onError is the
-   *                        COMMON way idle containers die: over a 96h prod sample
+   *                        be rediscovered. Other errors open the not-running
+   *                        confirmation window. Exhausted recovery returns a
+   *                        genuinely not-running container to that window; if the
+   *                        SDK instead leaves `running` stale at true, another
+   *                        complete probe failure writes `stopped`, requests
+   *                        `SIGTERM`, and retains non-billable retry ownership
+   *                        until both terminal operations succeed. Empirically
+   *                        onError is the COMMON way idle containers die: over a 96h prod sample
    *                        onActivityExpired fired 0x and the idle-stop 3x, while
    *                        onError fired on every unexpected exit (including a
    *                        near-daily ~00:00 UTC platform reap and any deploy

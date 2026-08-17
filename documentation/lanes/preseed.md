@@ -8,23 +8,23 @@ it gets there" content. Memory-system specifics live in
 [vault.md](vault.md#memory-capture-system); container runtime details live in
 [container.md](container.md).
 
+**Owns:** manifest inputs, session-mode delivery, seed generation/reconciliation, runtime adaptation, seeded reviewer/CI agent policy, settings/plugin assembly, and image-baked delivery. **Does not own:** GitHub workflow topology, Vault extraction state, public endpoint contracts, or container supervision.
+
 ## Contents
 
-- [Session Modes](#session-modes)
-- [Preseed Components](#preseed-components)
-- [Preseed Deployment](#preseed-deployment)
-- [Multi-Agent Preseed](#multi-agent-preseed)
-- [Settings.json Merge](#settingsjson-merge)
-- [Plugin Enablement](#plugin-enablement)
-- [Third-party plugin: context-mode](#third-party-plugin-context-mode)
-- [Graphify](#graphify-req-agent-023)
-- [/sdd init Modes](#sdd-init-modes)
-- [Troubleshooting](#troubleshooting)
-- [Specification Coverage](#specification-coverage)
-- [Image-baked seed (Governed Mode delta sync)](#image-baked-seed-governed-mode-delta-sync)
+- [Mode and Manifest Model](#mode-and-manifest-model)
+- [Artifact Inventory and Sources](#artifact-inventory-and-sources)
+- [Runtime Delivery Pipeline](#runtime-delivery-pipeline)
+- [Agent-Specific Projection](#agent-specific-projection)
+- [Graphify Toolchain](#graphify-req-agent-023)
+- [SDD Bootstrap Contract](#sdd-bootstrap-contract)
+- [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
+- [Image-Baked Delivery Alias](#image-baked-delivery-alias)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-## Session Modes
+<a id="session-modes"></a>
+## Mode and Manifest Model
 
 Users choose between **Default** and **Advanced** session modes via
 Settings > Session Defaults. The mode controls which preseed files are
@@ -54,7 +54,9 @@ deployed on Recreate or new bucket creation.
 
 The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes context-mode's disabled Pi package marker, so `ctx_*` tools and its steering hooks remain absent until the user runs `/ctx on`. A state-changing `/ctx on` or `/ctx off` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start restores the disabled default.
 
-After explicit opt-in, package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly. Codeflare does not patch either upstream package's lifecycle or ownership implementation; separate image-build transforms add the ESM compatibility shim and suppress the upstream update probe ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [AD107](../decisions/README.md#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
+After explicit opt-in, package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly.
+
+Codeflare does not patch either upstream package's lifecycle or ownership implementation; separate image-build transforms add the ESM compatibility shim and suppress the upstream update probe ([AD101](../decisions/README.md#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports), [AD107](../decisions/README.md#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety), [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC7, [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
 
 The managed Pi extension packages are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. This includes the exact-pinned native Goal package for session-scoped autonomous completion. Every Pi skill treats `ctx_*` tools as optional; `/ctx off` switches root workflows to documented native fallbacks without narrowing work.
 
@@ -68,11 +70,15 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 `pi-web-access` 0.18 provides filtered zero-config Exa routing and configurable public tool names without changing Codeflare's default `web_search`, `source_check`, `fetch_content`, or paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the workflow as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
-`pi-evaluate` is exact-pinned at 0.1.5 from its reviewed [MIT npm tarball](https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-0.1.5.tgz). Its whole extension registers the packaged skill directory on `resources_discover`; the package ships no tool, no command, and nothing that runs unless the user invokes `/skill:evaluate`. The skill is an adversarial post-execution reviewer: it reads the contract (a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a contract the user pastes) together with the produced outputs, and returns a per-capability satisfied/partial/unsatisfied/unclear verdict plus triage guidance. It deliberately does not read implementation intent, and it reports gaps rather than fixing them. Codeflare applies no patch or fork. Image construction explicitly loads the declared `extensions/evaluate.ts` entrypoint and requires its path-correct JITI artifact, so the first invocation does not cold-transpile ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-evaluate` releases in weekly shadow-pin proposals.
+`pi-evaluate` is exact-pinned at 0.1.5 from its reviewed [MIT npm tarball](https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-0.1.5.tgz). Its whole extension registers the packaged skill directory on `resources_discover`; the package ships no tool, no command, and nothing that runs unless the user invokes `/skill:evaluate`. The skill is an adversarial post-execution reviewer: it reads the contract (a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a contract the user pastes) together with the produced outputs, and returns a per-capability satisfied/partial/unsatisfied/unclear verdict plus triage guidance.
+
+It deliberately does not read implementation intent, and it reports gaps rather than fixing them. Codeflare applies no patch or fork. Image construction explicitly loads the declared `extensions/evaluate.ts` entrypoint and requires its path-correct JITI artifact, so the first invocation does not cold-transpile ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-evaluate` releases in weekly shadow-pin proposals.
 
 `@narumitw/pi-usage` is exact-pinned at 0.50.0 from its reviewed [MIT npm tarball](https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-0.50.0.tgz) and registers `src/index.ts` as `/usage`. Its reviewed source validates official Codex, GitHub Copilot, and OpenRouter origins, bounds and redacts responses, and requires explicit confirmation before consuming a Codex reset. The package and its `@narumitw/pi-tui-kit` dependency are integrity-locked. Image construction explicitly loads the installed entrypoint and requires its path-correct JITI artifact, preventing a silent cold first command ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-usage` releases in weekly shadow-pin proposals.
 
-`@narumitw/pi-goal` remains the normal upstream package, exact-pinned at 0.46.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.46.0.tgz). Codeflare does not vendor or fork it. The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. At startup, Codeflare merges three missing values into `~/.pi/agent/pi-goal.json`: `toolVisibility: "after-first-goal"`, `continuationLimits.automaticTurns: 10`, and `continuationLimits.minIntervalMs: 60000`. Explicit values, including valid null and custom limits, win. Unknown fields, `rpc`, and existing visibility settings survive the merge. A malformed file is left byte-for-byte alone rather than being "repaired" by startup. There is no settings-panel patch for these Codeflare-owned startup values.
+`@narumitw/pi-goal` remains the normal upstream package, exact-pinned at 0.46.0 after review of the [published npm tarball](https://registry.npmjs.org/@narumitw/pi-goal/-/pi-goal-0.46.0.tgz). Codeflare does not vendor or fork it. The MIT package declares `src/index.ts` as its sole Pi extension and provides `/goal`, `goal_complete`, and `goal_blocked` without managing subagent files. At startup, Codeflare merges three missing values into `~/.pi/agent/pi-goal.json`: `toolVisibility: "after-first-goal"`, `continuationLimits.automaticTurns: 10`, and `continuationLimits.minIntervalMs: 60000`. Explicit values, including valid null and custom limits, win. Unknown fields, `rpc`, and existing visibility settings survive the merge. <!-- @impl: entrypoint.sh::PI_GOAL_STARTUP_CONFIG -->
+
+A malformed file is left byte-for-byte alone rather than being "repaired" by startup. There is no settings-panel patch for these Codeflare-owned startup values.
 
 On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
@@ -80,15 +86,21 @@ Startup removes the retired `pi-goal-list-loop-audit` package from persisted set
 
 The image warms the declared entrypoint through its real npm path and fails unless the exact jiti artifact exists ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC2/AC3).
 
-Before jiti warm-up, the image build runs the version-aware `scripts/patch-pi-goal-review-control.mjs` transform against exact 0.46.0 source. One part adds the existing session-local control channel and delegates pause and resume to pi-goal's own command controller. FIX-triggered resume suppresses pi-goal's separate continuation prompt because the existing FIX follow-up owns the next turn. Closure-triggered resume also suppresses that prompt but schedules no continuation turn. Neither path enables Managed Run RPC, populates the user's input field, or turns command text into model input ([REQ-AGENT-114](../../sdd/spec/agents.md#req-agent-114-review-owned-goal-continuation) AC1-AC4).
+Before jiti warm-up, the image build runs the version-aware `scripts/patch-pi-goal-review-control.mjs` transform against the exact locked 0.46.0 source. The weekly bump preflight also admits reviewed 0.49.7, whose split lifecycle module carries the same control contract; every other version or source layout fails closed before writes. One part adds the existing session-local control channel and delegates pause and resume to pi-goal's own command controller. Trusted review-owned pause uses the controller's non-aborting option, so it changes Goal state and cancels Goal continuation work without aborting the independently queued review turn; manual pause keeps the controller's default current-turn abort ([REQ-AGENT-144](../../sdd/spec/agents.md#req-agent-144-review-owned-goal-pause-command-compatibility) AC1-AC4).
+
+FIX-triggered resume suppresses pi-goal's separate continuation prompt because the existing FIX follow-up owns the next turn. Closure-triggered resume also suppresses that prompt but schedules no continuation turn. Neither path enables Managed Run RPC, populates the user's input field, or turns command text into model input ([REQ-AGENT-114](../../sdd/spec/agents.md#req-agent-114-review-owned-goal-continuation) AC1-AC4).
 
 The same transform adds `continuationLimits.minIntervalMs` to pi-goal's normal settings loader and saver. Upstream's default remains zero, so an ordinary unconfigured installation dispatches immediately. Codeflare's startup merge chooses 60 seconds. A positive interval creates one timer for an eligible continuation; later settled events do not restart it. Existing pause, clear, replacement, prioritization, and shutdown paths cancel it through pi-goal's own continuation cleanup. At expiry, the timer checks the current session generation, exact marker, active Goal identity and status, and idle/pending state. If Pi became busy, the intent stays pending and a later settled boundary may schedule it again ([REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) AC5-AC7; [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) AC1-AC7).
 
-The transform calculates all four patched files before writing any of them and refuses every version except 0.46.0. Anchor or layout drift therefore leaves the installed package source untouched. The weekly Pi-extension shadow-pin job installs a proposed Goal release and runs this same preflight before it opens a bump PR. A future upstream upgrade will fail there until someone reviews the new source and deliberately updates both the version contract and anchors. That failure is the compatibility gate, not a reason to maintain a permanent fork.
+The transform calculates all four patched files before writing and admits only locked 0.46.0 or reviewed successor 0.49.7. The host suite verifies and extracts the exact 0.49.7 registry archive before patching those upstream files. Anchor or layout drift leaves source untouched. The weekly shadow-pin job runs the same preflight before opening a bump PR; later releases fail until their source, integrity, version contract, and anchors are reviewed ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation)). <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration) -->
 
-For reviewer-bearing PR boundaries, `review-enforcement.ts` emits the review launch plan independently. When an active Goal or matching review-owned pause exists, it schedules ownership and pause work after the boundary agent-end handler fully returns. This keeps pi-goal's native pause from aborting the boundary turn or its background tasks. If ownership cannot be recorded or Goal control is unavailable, review proceeds without pausing the Goal. An exact persisted pause retains release ownership even when the bridge response is missing or unsuccessful ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC3 and Constraints; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC1-AC4 and Constraints).
+For reviewer-bearing PR boundaries, `review-enforcement.ts` emits the review launch plan independently. When an active Goal or matching review-owned pause exists, it schedules ownership and pause work after the boundary agent-end handler fully returns. The trusted bridge pause does not abort Pi's queued launch-plan turn or its background tasks. If ownership cannot be recorded or Goal control is unavailable, review proceeds without pausing the Goal. An exact persisted pause retains release ownership even when the bridge response is missing or unsuccessful ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads) AC1-AC3 and Constraints; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC1-AC4 and Constraints; [REQ-AGENT-144](../../sdd/spec/agents.md#req-agent-144-review-owned-goal-pause-command-compatibility) AC1).
 
 Review completion requests resume immediately before the matching acknowledged `pr-boundary-fix-follow-up`. If a manual resume wins that request race, authoritative non-paused state clears stale ownership without a false error. PR closure requests resume during closure handling, and a failed replacement-head ownership write may request rollback. CI and individual reviewer notifications never request resume. Missing control, Goal replacement, and independent reactivation remain fail-open ([REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release) AC1-AC7; [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) AC5-AC6).
+
+Exact-head launch or acknowledgement choices are checkpointed in the existing session transcript before Pi queues their follow-up. Later Git/GitHub commands and normal resume reuse that disposition without another question; startup of an existing session recovers one accepted plan whose queued message is absent. Only ambiguous failed `gh pr create` results reporting HTTP 5xx or an already-existing PR are reconciled, and only through the same exact local/authoritative PR check ([REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) AC7; [REQ-AGENT-141](../../sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity) AC3/AC5-AC6; [REQ-AGENT-145](../../sdd/spec/agents.md#req-agent-145-failed-pr-creation-reconciliation) AC1-AC3).
+
+The latest persisted review window remains distinct from newer unpublished Git candidates, while an acknowledged, transcript-proven review resends one absent FIX handoff after startup or resume. A visible FIX retires that window before later head-drift handling. Runtime-local queued identities close the pre-delivery gap without adding a durable store, dispatcher, or review coordinator ([REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) AC7; [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) AC5-AC7; [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift) AC1/AC4; [REQ-AGENT-141](../../sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity) AC2).
 
 Missing-launch settled recovery emits at most five follow-ups for one unreviewed head, stores its count by PR number in the normal checkout's `.git` directory, and resets only for a different head ([REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting)).
 
@@ -182,14 +194,25 @@ reconcile overwrites live keys and removes retired ones. Files the build
 never seeded are never touched. Implements
 [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
 
-## Preseed Components
+<a id="preseed-components"></a>
+## Artifact Inventory and Sources
 
 ECC (Everything Claude Code)-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
 
-**Agents**: `architect`, `build-error-resolver`, `code-reviewer`,
-`deep-reviewer`, `doc-updater`, `refactor-cleaner`, `security-reviewer`,
-`spec-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md`
+| Artifact class | Canonical inventory / source | Generated or runtime target |
+|---|---|---|
+| Mode and feature selection | `preseed/agents/claude/manifest.json` | Per-agent projected files |
+| Agent definitions | `preseed/agents/claude/agents/` plus manifest membership | Claude/Pi/OpenCode agent directories |
+| Rules and commands | Claude seed directories plus manifest membership | Agent-specific rule/command surfaces |
+| Skills and plugins | Seed trees, `ORIGIN.md`, plugin manifests, lock/pin inputs | Runtime skill/plugin directories |
+| Pi runtime packages | `preseed/agents/pi/package.json` and lock | Image cache then `~/.pi/agent/npm` |
+| Generated seed | `scripts/generate-agent-seed.mjs` output | Image-baked `/opt/codeflare/preseed` |
+| Runtime projection | `entrypoint.sh` merge/copy functions | User-home agent configuration |
+
+Do not infer inclusion from a file's mere presence: manifest membership, mode gates, generator behavior, and agent-specific adapters are jointly authoritative.
+
+**Agents**: the manifests are authoritative. Representative advanced agents include `architect`, `code-reviewer`, `spec-reviewer`, `doc-updater`, `deep-reviewer`, `memory-capture`, and `vault-extract`. They are preseeded to `~/.claude/agents/*.md`
 (and adapted equivalents for other agents) via the manifest pipeline
 with `"modes": ["advanced"]`. `deep-reviewer` is invoked exclusively
 by `/review --deep`; it reads SDD REQ + impl + tests and judges
@@ -198,8 +221,7 @@ frontmatter with `name`, `description`, `tools` (emitted as a record
 `{read: true, write: true}` for OpenCode, instead of array format),
 and `model` (CC only).
 
-**Commands**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`.
-Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
+**Commands**: the manifest-defined command set includes `brainstorm`, `debug`, `deploy`, `review`, `sdd`, and the Cloudflare build helpers. Commands are preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
 support slash commands). Planning transitions are handled via Plan
 Mode (a built-in Claude Code primitive), not a slash command. `/review`
 takes mandatory scope flags (`--all` or `--diff`) plus optional
@@ -225,15 +247,32 @@ every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-
 `git-review-pipeline` (advanced-only), `pr-workflow`, and `deploy-credentials`.
 
 The design family (UI/frontend work) is `emil-design-eng` and
-`design-taste-frontend` (prose-only, adapted to every agent), plus `impeccable`.
-`impeccable` keeps its multi-command design skill and bundled offline/live detector
+`design-taste-frontend` (prose-only, adapted to every agent), plus `impeccable`. `impeccable` keeps its multi-command design skill and bundled offline/live detector
 scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
-verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
-The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
+verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation. The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
 checks `impeccable.style`, refreshes both agent copies, updates both manifests,
 and regenerates the seed.
+
+[Impeccable 4.1.0](https://github.com/pbakaus/impeccable/releases/tag/skill-v4.1.0)
+adds native-platform review inputs, comp-first/code-first workflow defaults,
+richer direction decisions, and a bounded degraded-agent path without changing
+Codeflare's Claude-and-Pi delivery boundary.
+
+The Apache-2.0 Cloudflare bundle tracks
+[`cloudflare/skills@f96bff7`](https://github.com/cloudflare/skills/commit/f96bff754e428838818017f75817f0f9428acd48).
+Its former ambiguous `sandbox-sdk` entry is replaced by `sandbox-stable`,
+`sandbox-next`, and `sandbox-migrate-to-next`, preventing stable string-command
+APIs from being mixed with the 1.0-preview argv/process-handle APIs. The
+Turnstile skill is refreshed from
+[`30553f8`](https://github.com/cloudflare/skills/commit/30553f89ae1ef1e3c2917cd09d72dac992bb4e9a),
+then locally hardens API calls with bounded deadlines and behavioral tests
+([REQ-AGENT-138](../../sdd/spec/agents.md#req-agent-138-bundled-turnstile-scripts-fail-closed));
+obsolete deployment templates are retired in favor of the current siteverify-first
+runbook and scripts. Codeflare keeps the mega-skill reference
+tree slimmed and excludes upstream MCP configuration as specified by
+[REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed).
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
@@ -246,7 +285,17 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. Adapter 2.20.1 provides JSONC configuration, direct-tool unregister cleanup, and MCP elicitation without changing Codeflare's proxy contract; its MCP transport runs on `@modelcontextprotocol/client`/`@modelcontextprotocol/core` 2.0.0 and pulls `jose`, `pkce-challenge`, `eventsource`, and `cross-spawn` into the container's dependency tree. Because adapter 2.15+
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy.
+[Adapter 2.21.0](https://github.com/nicobailon/pi-mcp-adapter/releases/tag/v2.21.0)
+retains the 2.20 proxy contract and modular MCP v2 transport while adding opt-in
+MCP 2026-07-28 discovery, Agent Plugins MCP loading, safer server-name ownership
+resolution, configurable panel saving, and an OAuth issuer-validation escape
+hatch. Codeflare leaves the legacy protocol default and plugin paths unchanged,
+so no owned MCP skill or configuration migration is required.
+
+The adapter's transport runs on `@modelcontextprotocol/client` and
+`@modelcontextprotocol/core` 2.0.0, with `jose`, `pkce-challenge`, `eventsource`,
+and `cross-spawn` in the container dependency tree. Because adapter 2.15+
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. The Pi entrypoint-owned
@@ -334,7 +383,8 @@ the official Anthropic plugin marketplace URL for user discovery.
 **Updates**: Preseed files update when the pipeline is redeployed
 and users click "Recreate AI agent skills & rules".
 
-## Preseed Deployment
+<a id="preseed-deployment"></a>
+## Runtime Delivery Pipeline
 
 All preseed content is deployed via the manifest pipeline:
 
@@ -463,6 +513,8 @@ export a default factory function. Pure helper modules such as
 factory alongside their named exports, or Pi aborts startup with
 `Extension does not export a valid factory function`.
 
+`inline-edit.ts` is the managed endpoint for [native Pi editor proposals](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits). It removes its proposal tool at session start, activates only that tool for a correlated `/codeflare-inline-edit` turn, dispatches the decoded prompt through Pi's `ExtensionAPI.sendUserMessage`, rejects duplicate or mismatched submissions, and restores the exact previous tool list at settlement. Panel turns therefore retain their unrestricted tool set without loading another Pi process. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+
 Native skill overrides include graphify
 ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
 AC7), `review`, `review-scope`, and the Pi spec/doc enforcement families.
@@ -519,7 +571,7 @@ The generated file is output, never a second ownership source.
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
 SDD PRs targeting `main`/`master`/`develop` ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions)). Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
-and `/sdd clean --all` are exhaustive.
+and `/sdd clean --all` are exhaustive. The shared packet builder records normalized hunk ranges and follows a changed input only when its range intersects the cited symbol or test. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects --> <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution -->
 
 `/sdd init` and `/sdd clean` are root-session mutation workflows, not reviewer
 invocations. The root keeps file and Git ownership; cleanup resolves the shared
@@ -542,7 +594,9 @@ For PR boundaries, required lanes are named only after GitHub's authoritative PR
 matches the pushed checkout; settled recovery retries during propagation. The root
 launches reviewers together without inherited context, waits for each correlated successful
 native notification or public result retrieval, publishes the fixed triage table in a tool-free
-response, and ends that turn without mutation. Agent-end enforcement reads live session
+response, and ends that turn without mutation.
+
+Code, specification, and documentation reviewers use the shared provider-neutral medium profile. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::thinking: medium --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::thinking: medium --> Agent-end enforcement reads live session
 state, records the full-SHA checkpoint, and emits one FIX follow-up; settled enforcement is
 the idempotent fallback, and only that separate turn applies accepted findings. Delayed
 terminal evidence may acknowledge its reviewed head after reload or newer unpublished work
@@ -558,13 +612,16 @@ This implements
 [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff),
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection),
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch),
-[REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
-[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
-[REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up),
+[REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), and
+[REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan).
+
+It also implements [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up),
 [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
 [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract),
 [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
+[REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile),
+[REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage),
 [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier),
 [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift), and
 [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate),
@@ -605,7 +662,7 @@ The unified graph is the only source either runtime queries: at the moment this 
 
 The whole handler is fail-silent — a failure in the child-session check, the digest build or the delivery is swallowed rather than raised, because it runs inside Pi's dispatch at the compaction boundary, where the session is least able to absorb a throw, for a feature that is a convenience. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall -->
 
-Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
+Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. `memory-vault.ts` derives the request-specific home-backed path and can discover an active legacy pointer before retry; the [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) shows the ownership boundary. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readActiveMemoryRequest -->
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
@@ -617,14 +674,17 @@ The public request and generated agent repeat that input boundary. Exact success
 
 Vault indexing retains the shared content-hash format and exclusion set. It promotes a request-specific pending manifest only after exact success and hash validation; prelaunch edits coalesce, while during-run edits produce one follow-up ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
-Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Pi session capture derives that chunk with the advanced-only `scripts/build-memory-graph.py` asset rather than model-authored graph JSON, keeping semantic IDs deterministic. Both runtimes' byte-identical merge script normalizes serialized edge tuples after Graphify conversion and writes the cumulative bytes to `vault-graph.json`, then copies them to the sibling `graph.json` that feeds the local visualization; only `vault-graph.json` is read back on the next merge and published as `user_vault`. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::main --> Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
+Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Pi session capture derives that chunk with the advanced-only `scripts/build-memory-graph.py` asset rather than model-authored graph JSON, keeping semantic IDs deterministic. <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::flock --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::flock --> <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::main -->
+
+Both runtimes' byte-identical merge script normalizes serialized edge tuples after Graphify conversion and writes the cumulative bytes to `vault-graph.json`, then copies them to the sibling `graph.json` that feeds the local visualization; only `vault-graph.json` is read back on the next merge and published as `user_vault`. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::main --> Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
 
 Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
   Claude agent definitions into `.pi/agent/agents/*.md`. The container image
   preinstalls Pi extension npm dependencies into an image-local cache, and
   entrypoint copies that cache into `~/.pi/agent/npm` after R2 restore.
 
-## Multi-Agent Preseed
+<a id="multi-agent-preseed"></a>
+## Agent-Specific Projection
 
 The generator produces adapted config files for all supported agents
 from CC's preseed as the default source of truth. Pi-specific runtime contracts
@@ -671,7 +731,8 @@ provider to measure the complete first-turn input, including active schemas and 
 | Grep | grep | search_file_content | search | search | grep |
 | Glob | glob | glob | search | glob | find |
 
-**What each agent gets:** Claude Code and Pi both receive the full capability set.
+**Runtime parity:** Claude Code and Pi receive the same supported workflow families, with intentional differences in commands, transport, PDF handling, provider tools, and transformed exclusions.
+
 Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses a compact
 always-on rule kernel, progressively disclosed adapted skills/agents, and native TypeScript
 extensions that reimplement the CC-only surfaces: slash commands, hooks, memory capture,
@@ -764,7 +825,7 @@ advanced mode (all rules including memory, ECC), with the same R2
 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
 
-## Settings.json Merge
+### Settings.json Merge
 
 Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC1, AC2, AC4, AC5.
 
@@ -826,7 +887,7 @@ checked by hand under the same pinned Claude Code version on
 The capture hooks depend on it and it would fail silently, so re-check
 it when `CLAUDE_CODE_VERSION` moves.
 
-## Plugin Enablement
+### Plugin Enablement
 
 (Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC3, [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
@@ -889,10 +950,7 @@ lanes spawn independently. Its Stop hook waits for every required lane's transcr
 completion; no lane depends on another lane's transcript. Claude in-flight
 suppression remains per lane, so a fresh in-flight lane does not mask missing peers.
 
-Each Claude PR reviewer exposes only `Skill`, Bash, and direct
-`mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
-consultation, and file mutation are unavailable. Reviewers return complete structured
-reports; the root persists triage content and applies fixes.
+Each Claude PR reviewer exposes only Bash. Its canonical review policy is embedded in the agent definition, and it uses bounded Bash/Node packet transport without file mutation or external consultation. Reviewers return complete structured reports; the root persists triage content and applies fixes.
 
 `/review` follows the
 same ownership boundary without adding agent types: its existing `refactor-cleaner`,
@@ -918,15 +976,15 @@ context-mode is active or not. Implements
 [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
-## Third-party plugin: context-mode
+### Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi installs context-mode but keeps it disabled by default. `/ctx on` enables the package for the current running container and reloads resources; `/ctx off` disables it again. The next Codeflare container start returns Pi to the disabled default.
 
 The npm package is installed and patched at image-build time in both the global Claude MCP tree and Pi's prewarmed package tree, so first invocation performs no package fetch. Entrypoint registers the Claude MCP server for every user. Custom-tier (`unlimited` subscription) delivery adds the plugin hooks, while Pi remains installed but disabled until `/ctx on`. The package source is pulled from npm rather than vendored.
 
-Claude's three PR reviewer definitions carry the full research toolset: native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback. Indexed retrieval keeps raw scan output out of reviewer context. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
+Claude's three PR reviewer definitions are Bash-only report lanes with embedded policies and no write surface. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
 
-Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
+Reasoning effort is pinned to `medium` for all three Claude reviewer lanes, and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
@@ -955,7 +1013,8 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-## Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+<a id="graphify-req-agent-023"></a>
+## Graphify Toolchain ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
 Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. The owned Claude and Pi query references preserve directed traversal as the default and never reinterpret an absent reverse path as permission to walk edges backwards.
 
@@ -983,10 +1042,7 @@ The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo
 
 ### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
-Pi has no MCP client, so Codeflare exposes `graphify_query`, `graphify_path`,
-and `graphify_explain` through `graphify-native.ts`. The extension shells the
-same upstream `graphify` CLI used by Claude's MCP server and passes the resolved
-`--graph` path explicitly.
+Graphify deliberately uses first-party native Pi tools rather than routing through Pi's separately installed MCP adapter. Codeflare exposes `graphify_query`, `graphify_path`, and `graphify_explain` through `graphify-native.ts`; the extension shells the same upstream `graphify` CLI used by Claude's MCP server and passes the resolved `--graph` path explicitly.
 
 Graph resolution is local-first: the cwd repo's `graphify-out/graph.json` wins,
 then the active-repo sentinel's graph, then `~/.graphify/global-graph.json`.
@@ -1064,7 +1120,8 @@ During `/sdd init`, a graph built for enrichment is still a repo artifact. The
 scaffold or same-turn graph commit must include the durable graph files and the
 ignore/merge wiring rather than leaving them as local-only files.
 
-## /sdd init Modes
+<a id="sdd-init-modes"></a>
+## SDD Bootstrap Contract
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
@@ -1097,6 +1154,12 @@ That draft includes actors, domains, design principles, REQs in canonical shape,
 CON-* constraints, founding ADRs, and glossary terms. The agent presents the full
 draft as one review surface and applies edits in place until the user accepts.
 The 10-15-turn one-domain-at-a-time confirmation chain is not used.
+
+**Documentation emission.** Greenfield and Import Mode use the same bundled lane renderer after source discovery selects the applicable canonical lanes and any source-backed first-level project lanes. Architecture and the ADR ledger remain universal; API, Configuration, Deployment, Security, Observability, and Troubleshooting emit only when evidence supports them. The `/sdd init` caller supplies a fresh sibling staging path outside the live documentation tree; the renderer rejects an existing destination, stages only selected files and matching index rows, and removes partial output after a rendering failure. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates -->
+
+The agent fills the staged files from verified evidence and promotes them under the existing full-draft acceptance; Import Mode backs up the live tree before the checked replacement and restores it if post-promotion validation fails. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 6 — Documentation lane emission and audit (binding) --> <!-- @impl: preseed/agents/claude/skills/sdd-init/references/render-documentation-templates.mjs::renderDocumentationTemplates -->
+
+The same templates are the normalization target for `/sdd clean`. Cleanup operates on positively recognized collections and defers when a clause, diagram, link, compatibility fragment, requirement, decision, or source anchor cannot be moved losslessly. Project-specific lanes retain their natural subject structure inside the shared audience, ownership, navigation, evidence, and related-document envelope. Implements [REQ-AGENT-139](../../sdd/spec/agents.md#req-agent-139-optimized-documentation-lane-rendering-and-delivery) and [REQ-AGENT-140](../../sdd/spec/agents.md#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement).
 
 **Enrichment pass.** After the draft is accepted, before any files are written,
 three passes run automatically in one in-memory cycle. All three query the
@@ -1169,7 +1232,8 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/spec/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
-## Troubleshooting
+<a id="troubleshooting"></a>
+## Failure Diagnosis and Recovery
 
 ### Common Issues
 
@@ -1226,19 +1290,27 @@ An unreadable payload or a classifier that will not run is refused rather than a
 
 `git commit` counts for the gate and not for the Stop path, which asks only about delivery boundaries. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::CLASSIFIER_LIB --> The window denies what would spoil the round, not investigation: judging a finding often turns on something only execution can settle ([AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)).
 
-A transient `gh` API failure during the PR-state check does not strand a live round: the hook caches the last successful `gh_pr_state` answer per branch and reuses it, but only while that PR's plan file is on disk and only for failures gh does not answer authoritatively. Since gh returns exit 1 for both "no PR" and a generic API error, `gh_pr_state` reads gh's stderr and remaps a non-not-found exit 1 to a distinct transient code, so only the authoritative answer keeps the old fail-safe silence — as does an idle branch, and a superseded cache is neutralized by the head-equality gate. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::PRINFO_CACHE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state -->
+A transient `gh` API failure during the PR-state check does not strand a live round: the hook caches the last successful `gh_pr_state` answer per branch and reuses it, but only while that PR's plan file is on disk and only for failures gh does not answer authoritatively. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::PRINFO_CACHE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state -->
+
+Since gh returns exit 1 for both "no PR" and a generic API error, `gh_pr_state` reads gh's stderr and remaps a non-not-found exit 1 to a distinct transient code, so only the authoritative answer keeps the old fail-safe silence — as does an idle branch, and a superseded cache is neutralized by the head-equality gate. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::PRINFO_CACHE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state -->
 
 When `mktemp` itself fails there is no stderr to read, so `gh_pr_state` cannot tell "no PR" from an error and conservatively reports the transient code (3) instead — the same fail-safe default the stderr-read path falls back to whenever it cannot positively match the not-found phrase, consistent with the fail-safe bias. Cleanup of the capture file is normal-path only: a killed hook can strand one tiny file in the container-lifetime `TMPDIR`, accepted because a sourced library must not own process-global signal traps. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh::gh_pr_state -->
 
 Stop directives are delivered on stderr with exit 2, not as a JSON `{"decision":"block"}`. Either JSON block or a bare exit 2 is recorded as a blocking error, and the client answers a blocking error by pushing an immediate notification reading "Stop hook error occurred", so every directive this gate issued — all of them working as designed — announced itself to the user as a failure. The notification is where that word came from, not the message body, which the Stop formatter already labels "Stop hook feedback".
 
-Exit 2 against a hook entry carrying `asyncRewake` takes the rewake path instead, and the difference is structural rather than cosmetic: the hook is backgrounded and the runner returns before an exit code exists, so no blocking error is recorded and the notification has nothing to fire on. The model is woken with the entry's `rewakeMessage` followed by the hook's stderr, and the entry's `rewakeSummary` names the line the user sees. The registration in `entrypoint.sh` must carry both, since the handler's own defaults are "Stop hook blocking error from command" for the woken text and "Stop hook feedback" for the user's line. Two constraints follow: the woken text is stderr-or-stdout with stderr first, which is why a stray shell message on that channel would prefix the directive; and the background path never parses stdout, so a `systemMessage` from this hook is dropped and the per-round notices the user sees come from the synchronous hooks instead. The full FIX contract is delivered once per PR and every later round gets a one-line form that keeps the load-bearing clauses. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::FIX_SHOWN_FILE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::emit_block -->
+Exit 2 against a hook entry carrying `asyncRewake` takes the rewake path instead, and the difference is structural rather than cosmetic: the hook is backgrounded and the runner returns before an exit code exists, so no blocking error is recorded and the notification has nothing to fire on. The model is woken with the entry's `rewakeMessage` followed by the hook's stderr, and the entry's `rewakeSummary` names the line the user sees. The registration in `entrypoint.sh` must carry both, since the handler's own defaults are "Stop hook blocking error from command" for the woken text and "Stop hook feedback" for the user's line.
 
-Background work announces itself through `systemMessage`, the one hook field the client renders straight to the terminal without routing it to the model. The PostToolUse push hook names the round it just opened — PR, head, how many lanes, which ones, and the range they were given — all read from the counts the directive was built from, so a doc-only push announces one lane rather than three; the consent path stays silent because it is about to raise an `AskUserQuestion`. The UserPromptSubmit memory hook names each launch with its live attempt number and says so when a request is abandoned, which is what makes a run of retries visible at all. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::NOTICE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context -->
+Two constraints follow: the woken text is stderr-or-stdout with stderr first, which is why a stray shell message on that channel would prefix the directive; and the background path never parses stdout, so a `systemMessage` from this hook is dropped and the per-round notices the user sees come from the synchronous hooks instead. The full FIX contract is delivered once per PR and every later round gets a one-line form that keeps the load-bearing clauses. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::FIX_SHOWN_FILE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::emit_block -->
+
+Background work announces itself through `systemMessage`, the one hook field the client renders straight to the terminal without routing it to the model. The PostToolUse push hook names the round it just opened — PR, head, how many lanes, which ones, and the range they were given — all read from the counts the directive was built from, so a doc-only push announces one lane rather than three; the consent path stays silent because it is about to raise an `AskUserQuestion`. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::NOTICE -->
+
+The UserPromptSubmit memory hook names each launch with its live attempt number and says so when a request is abandoned, which is what makes a run of retries visible at all. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::NOTICE --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context -->
 
 The gate applies to the main session only. Claude Code fires `PreToolUse` for a subagent's tool calls exactly as it does for the main agent's, and hands them the parent's `transcript_path`, so an unscoped gate reads the main session's review state and refuses a subagent work it takes no part in. A subagent payload carries `agent_type` and `agent_id` while a main-agent payload carries neither, so the script exits on the presence of `agent_type` before any transcript or sentinel handling; a subagent therefore also cannot consume the one-shot bypass the main session is owed. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::AGENT_TYPE -->
 
-The verdict contract mirrors the Pi runtime's, with a Claude delivery barrier at the asynchronous boundary. A terminal background record can be appended while the root model request is already running, before its native notification reaches that model. The first Stop observation of a newly complete round therefore ends silently; only a later Stop may demand triage. Missing reports remain retrievable with `Read` or `TaskOutput`, and only the final table is published as a tool-free message. The Stop hook then acknowledges the reviewed head and drives the following FIX turn. Recognition stays permissive (a table that persisted beside tool calls still counts, since refusing it could only wedge the session), and both runtimes key on one table shape, so a verdict is portable between them.
+The verdict contract mirrors the Pi runtime's, with a Claude delivery barrier at the asynchronous boundary. A terminal background record can be appended while the root model request is already running, before its native notification reaches that model. The first Stop observation of a newly complete round therefore ends silently; only a later Stop may demand triage. Missing reports remain retrievable with `Read` or `TaskOutput`, and only the final table is published as a tool-free message. The Stop hook then acknowledges the reviewed head and drives the following FIX turn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::write_acknowledgement -->
+
+Recognition stays permissive (a table that persisted beside tool calls still counts, since refusing it could only wedge the session), and both runtimes key on one table shape, so a verdict is portable between them.
 
 The gate caches its allow decision as a completed-notification count, a marker-length-rewound byte offset, and a 4KiB prefix fingerprint, so after a cleared round each tool call costs one size check plus a scan of only the appended transcript bytes — a rewritten or compacted transcript fails the fingerprint and takes the full pass instead of failing open. It never writes acknowledgement or counter state, reads `/tmp/review-bypass` without consuming it, and releases after five refused calls for the same round (an unwritable strike counter fails open rather than wedging).
 
@@ -1250,7 +1322,9 @@ An in-session subagent cannot be made cheap. Claude Code injects CLAUDE.md, ever
 
 A lane that owns no changed file in the range short-circuits before the model is invoked, costing zero tokens; the same ownership question the classifier already answers is simply asked again for free. Any uncertainty — unreadable range, missing classifier — falls through to a full review rather than silently skipping one.
 
-The round is user-visible and blocking. A successful push or PR creation auto-launches it without renewed consent. If that PostToolUse directive is missed, a later candidate command still auto-recovers the loop when the exact synchronized head is a descendant of that PR's PR-specific acknowledgement. The repository-global legacy fallback may still scope a user-confirmed review but never proves same-PR continuation; an unrelated existing head remains confirmation-required, and the agent presents that choice neutrally without treating self-verification as review. The directive requires the root session to print an overview before the lanes run, naming which lanes are about to run, why the others were excluded, and the exact range. It then issues the lane calls and **ends its turn**, doing nothing else until every lane has returned. Only then does it publish the fixed triage table with one row per finding across all lanes. A fully clean round publishes the header and divider without synthetic clean-lane rows. That tool-free response ends the turn.
+The round is user-visible and blocking. A successful push or PR creation auto-launches it without renewed consent. If that PostToolUse directive is missed, a later candidate command still auto-recovers the loop when the exact synchronized head is a descendant of that PR's PR-specific acknowledgement. The repository-global legacy fallback may still scope a user-confirmed review but never proves same-PR continuation; an unrelated existing head remains confirmation-required, and the agent presents that choice neutrally without treating self-verification as review. The directive requires the root session to print an overview before the lanes run, naming which lanes are about to run, why the others were excluded, and the exact range. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
+
+It then issues the lane calls and **ends its turn**, doing nothing else until every lane has returned. Only then does it publish the fixed triage table with one row per finding across all lanes. A fully clean round publishes the header and divider without synthetic clean-lane rows. That tool-free response ends the turn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
 
 The Stop hook acknowledges the head and injects the separate FIX directive for the following turn. The FIX directive applies only accepted rows; when they change files it verifies focused static checks, commits, and pushes the checked-out PR branch without asking. Stating that condition in a rule instead was the weaker half of the same idea: a hook directive outranks a standing rule, so with no order in the directive the round stopped after the commit and waited to be prodded.
 
@@ -1258,7 +1332,9 @@ If this head's terminal CI result has not landed, the FIX turn waits for it, so 
 
 That push is the delivery boundary that launches one incremental reviewer wave and one CI monitor. The FIX turn never merges, and a round with no accepted fix creates no commit and pushes nothing.
 
-A delivery landing while the authoritative head is still synchronizing is not treated as ineligible: `git-push-review-reminder.sh` retries the `gh pr view` query at bounded delays before conceding, so a push observed inside the API's lag window still opens its round once the head catches up, and gives up silently only if it never does. Only a delivery retries; ordinary Git activity pays no wait. Retroactive checkpoint recovery never claims the current head, because only the live path attaches the fix handoff to an acknowledgement ([REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization) AC7-AC9). <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::RETRO_SHA -->
+A delivery landing while the authoritative head is still synchronizing is not treated as ineligible: `git-push-review-reminder.sh` retries the `gh pr view` query at bounded delays before conceding, so a push observed inside the API's lag window still opens its round once the head catches up, and gives up silently only if it never does. Only a delivery retries; ordinary Git activity pays no wait. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY -->
+
+Retroactive checkpoint recovery never claims the current head, because only the live path attaches the fix handoff to an acknowledgement ([REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization) AC4-AC5; [REQ-AGENT-141](../../sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity) AC4). <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::RETRY_DELAY --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::RETRO_SHA -->
 
 The directive previously required the opposite: `[silent]`, "Do NOT mention these lanes to the user". That contradicted the constitution's review-result handoff gate, which has always required a user-facing summary, and it made an autofix arrive as an unexplained edit. The end-of-turn is what keeps the round legible — a lane result landing in the middle of unrelated work gets interleaved with it, and the reader loses the thread of what was actually reviewed.
 
@@ -1336,84 +1412,8 @@ Pi CI is not part of review completion or acknowledgement. After any successful 
 
 ---
 
-## Specification Coverage
-
-- [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) - Preseed Configs Generated from Single Source of Truth
-- [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) - Multi-Agent Adaptation Pipeline
-- [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) - Manifest-Driven Preseed Pipeline
-- [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
-- [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) - /review command for multi-perspective codebase review
-- [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) - Bubblewrap sandbox for Codex
-- [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) - Branded settings UI
-- [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) - LLM API key management UI
-- [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) - Advanced-Session-Mode Graph-First Discipline
-- [REQ-AGENT-127](../../sdd/spec/agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) - Graph Publication Artifacts and Optional Labels
-- [REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite) - Advanced Design Skill Suite
-- [REQ-AGENT-135](../../sdd/spec/agents.md#req-agent-135-ui-ux-pro-max-query-and-generation) - UI UX Pro Max Query and Generation
-- [REQ-AGENT-136](../../sdd/spec/agents.md#req-agent-136-ui-ux-pro-max-persistence) - UI UX Pro Max Persistence
-- [REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-ui-ux-pro-max-data-validation) - UI UX Pro Max Data Validation
-- [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) - Graph Visualization Node Limits
-- [REQ-AGENT-129](../../sdd/spec/agents.md#req-agent-129-goal-continuation-settings-policy) - Goal Continuation Settings Policy
-- [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing) - Goal Continuation Runtime Pacing
-- [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions) - Native Usage Workflow in Pi Sessions
-- [REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions) - Native Evaluation Workflow in Pi Sessions
-- [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) - Advanced-Session Graph-First Runtime Reminders
-- [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) - Post-Clone Graph Triage
-- [REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git) - Knowledge-Graph Persistence via Git
-- [REQ-AGENT-027](../../sdd/spec/agents.md#req-agent-027-context-mode-interoperability) - Context-Mode Interoperability
-- [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) - Deploy Credential Token-Creation UX
-- [REQ-AGENT-029](../../sdd/spec/agents.md#req-agent-029-deploy-credential-propagation-to-container) - Deploy Credential Propagation to Container
-- [REQ-AGENT-030](../../sdd/spec/agents.md#req-agent-030-multi-agent-format-transforms) - Multi-Agent Format Transforms
-- [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity) - consult-llm Key Isolation, Subscription Backend, and Multi-Agent Parity
-- [REQ-AGENT-032](../../sdd/spec/agents.md#req-agent-032-starter-documentation-manually-recreatable-from-settings) - Starter Documentation Manually Recreatable from Settings
-- [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) - `/sdd clean` Rescue and Autonomy Modes
-- [REQ-AGENT-038](../../sdd/spec/agents.md#req-agent-038-resume-mode-drain-workflow) - Resume Mode Drain Workflow
-- [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) - `/sdd init` Phase 7b Enumeration-Coverage Verifier Gate
-- [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) - PR-Boundary Lane Classification and Agent Dispatch
-- [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) - PR-Boundary Review Bypass Surfaces
-- [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) - Graphify Build Mode Dispatch
-- [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) - Review-Agent Discipline Enforcement
-- [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
-- [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
-- [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) - Pi-Native `/review` Workflow Skill
-- [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) - PR-Boundary Review Trigger Conditions
-- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) - Pi Native Review Result Correlation
-- [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) - Pi Session-Scoped Review Window
-- [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
-- [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) - Supported Boundary Recovery
-- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) - Pi Native Review Findings Handoff
-- [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-candidate-detection) - PR-Boundary Candidate Detection
-- [REQ-AGENT-116](../../sdd/spec/agents.md#req-agent-116-heredoc-safe-pr-boundary-classification) - Heredoc-safe PR-boundary classification
-- [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control) - Non-disruptive review-owned Goal control
-- [REQ-AGENT-118](../../sdd/spec/agents.md#req-agent-118-enterprise-consult-llm-unavailability) - Enterprise consult-LLM unavailability
-- [REQ-AGENT-119](../../sdd/spec/agents.md#req-agent-119-settled-review-follow-up-accounting) - Settled review follow-up accounting
-- [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
-- [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
-- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
-- [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) - Pi CI Result and Launch Checkpoint
-- [REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring) - Pi consult-llm MCP lazy wiring
-- [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) - Claude on-demand CI monitoring policy
-- [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
-- [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) - Pi Settled Review Handoff
-- [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) - Unified Pi PR-Boundary Launch Plan
-- [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up) - Pi PR-Boundary Missing-Launch Follow-Up
-- [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
-- [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
-- [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
-- [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-reviewer-policy-contract) - Reviewer Policy Contract
-- [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
-- [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
-- [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier) - Pi Review Triage Acknowledgement Barrier
-- [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift) - Pi Review Checkpoint Persistence and Head Drift
-- [REQ-AGENT-107](../../sdd/spec/agents.md#req-agent-107-deterministic-round-limit-gate) - Deterministic Round-Limit Gate
-- [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
-- [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) - Pi Extraction Request Profile
-- [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile) - Pi Extraction Agent Definition Profile
-- [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic) - Deterministic Session Memory Graph Identity
-
----
-
-## Image-baked seed (Governed Mode delta sync)
+<a id="image-baked-seed-governed-mode-delta-sync"></a>
+## Image-Baked Delivery Alias
 
 In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
 
@@ -1432,6 +1432,26 @@ In addition to seeding the agent config into R2 at session start, the container 
   - Under SSE-C, the default path remains byte-identical to before: no lay-down and `--size-only`.
   - This avoids relying on `--size-only`, which could not detect a same-size edit to a seed file.
   - It also prevents the bake from overwriting an in-container edit.
+
+---
+
+<a id="specification-coverage"></a>
+## Requirement and Source Map
+
+Exhaustive Agents and Memory status remains in the active SDD; section-local links identify clause details.
+
+| Delivery concern | Requirements | Source owner | Evidence |
+|---|---|---|---|
+| Manifest and generated seed | REQ-AGENT-006/007/014/030/049 | manifest, seed generator, generated TypeScript | freshness and byte/manifest membership tests |
+| Session modes and advanced tools | REQ-AGENT-024/091/127-137 | manifest mode gates, selected skills/plugins | mode-specific projection and validation tests |
+| Review/CI/governance runtime | REQ-AGENT-015/036-126 as linked in sections | rules, skills, Pi extension, agent definitions | policy contract and workflow behavioral tests |
+| Graphify | REQ-AGENT-023/025/026/043/127/128 | Graphify plugin/scripts and Pi tools | build-mode, publication, and graph-limit checks |
+| Provider/tool integration | REQ-AGENT-017/019/020/027-032/067/069/118 | entrypoint, setup, skills, MCP adapters | agent-specific projection and isolation tests |
+| Native editor proposal mode | REQ-IDE-025/026 | `inline-edit.ts`, Pi manifest, generated seed | proposal-only mode and exact-restoration tests |
+| Memory capture/extraction | REQ-MEM-013/016/017/018 | hooks and capture/extract agent definitions | bounded profile and deterministic identity tests |
+| SDD bootstrap and cleanup | REQ-AGENT-037/039 and related SDD controls | SDD skills/templates/scripts | behavioral contract tests; Phase C owns reusable collection schema |
+
+---
 
 ## Related Documentation
 

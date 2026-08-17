@@ -11,7 +11,7 @@
  * (documentation/decisions/README.md).
  *
  * KEY-RECOVERY + FLUSH-NEUTER GRAFT (AD69, REQ-VAULT-024 AC4/AC5; REQ-VAULT-025 AC4).
- * The native worker holds the per-session AES-CTR key in a module-local var `v`
+ * The native worker holds the bucket-derived AES-CTR key in a module-local var `v`
  * with NO recovery, and upstream actively drops it: a `setInterval` flushes `v`
  * 5s after the last window client disconnects, and the browser can idle-terminate
  * the worker at any time. TWO code paths read `v` and fail hard when it is empty:
@@ -64,13 +64,6 @@ export const VAULT_NATIVE_SW_SHA256 = "caae72f32c92e402e08199def85840b56e1aad037
 // a no-op when `v` is already populated.
 const CF_RECOVER_HELPER =
   'async function __cfRecover(){if(v!==void 0)return;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){v=await et(cfb.key),console.info("Recovered encryption key from codeflare")}}}catch(cfe){}}';
-
-// The page-context recorder can observe sb_data_* opens directly, but sb_files_*
-// opens inside the native service worker. Wrap the worker's IDB open too and
-// notify controlled clients so cleanup/readiness use observed DB names instead
-// of deriving SilverBullet's hash formula.
-const CF_IDB_RECORDER =
-  'try{var __cfOpen=indexedDB.open.bind(indexedDB);indexedDB.open=function(name,version){if(typeof name==="string"&&name.indexOf("sb_")===0){try{self.clients.matchAll({type:"window",includeUncontrolled:true}).then(function(clients){clients.forEach(function(client){client.postMessage({type:"codeflare-vault-idb-open",name:name})})})}catch(cfe){}}return __cfOpen(name,version)}}catch(cfe){}';
 
 // Anchors (exact upstream minified substrings) and their grafted replacements.
 const ANCHOR_VARY = ";var v;setInterval(";
@@ -153,7 +146,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     }
   }
   return verbatim
-    .replace(ANCHOR_VARY, ";var v;" + CF_RECOVER_HELPER + CF_IDB_RECORDER + "setInterval(")
+    .replace(ANCHOR_VARY, ";var v;" + CF_RECOVER_HELPER + "setInterval(")
     // Neuter the proactive 5s key flush: keep the no-client log, drop the `v=void 0`
     // wipe so the key survives the bootstrap-hop -> editor transition (REQ-VAULT-024 AC4).
     .replace(

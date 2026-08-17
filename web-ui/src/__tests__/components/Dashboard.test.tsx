@@ -240,29 +240,27 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     mockMultiView = null;
   });
 
-  // === Enterprise dropdown gating (REQ-ENTERPRISE-008 AC2/AC8/AC9) ===
+  // === Deployment-mode account actions (REQ-SUB-023 AC2-AC7) ===
 
-  it('shows Guided Setup + Logout and hides Usage outside enterprise mode', () => {
+  it('shows Usage, Guided Setup, and Logout outside enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(false);
     render(() => <Dashboard {...defaultProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
     expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
     expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
-    // Not SaaS and not enterprise -> Usage hidden.
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
   });
 
-  it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
+  it('opens a Usage-only dropdown in enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(true);
     render(() => <Dashboard {...defaultProps} />);
-    // Avatar/username trigger stays rendered so the user sees their identity.
     expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
-    // Every dropdown entry is gated away in enterprise (Usage 0-reports, Subscription
-    // is SaaS billing, Guided Setup + Logout are admin/SSO concerns), so clicking the
-    // avatar is inert — no dropdown opens.
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
   });
 
   // === Initialization Tests ===
@@ -932,7 +930,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Session Limit Tests ===
 
-  it('shows SessionLimitPopup instead of CreateSessionDialog when at limit', () => {
+  it('REQ-SUB-013 AC3 / REQ-SUB-019: shows limit feedback without opening the create dialog', () => {
     (sessionStore as any)._setTestLimit(true, 3);
     render(() => <Dashboard {...defaultProps} />);
 

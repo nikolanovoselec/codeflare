@@ -91,10 +91,10 @@ describe('filterTips (mode-aware)', () => {
   const hasText = (tips: { text: string }[], needle: string) =>
     tips.some((t) => t.text.includes(needle));
 
-  it('hides SaaS-only tips (Pro mode, Usage page) outside SaaS mode', () => {
+  it('hides plan tips but keeps personal Usage outside SaaS mode', () => {
     const tips = filterTips(false);
     expect(hasText(tips, 'Pro mode')).toBe(false);
-    expect(hasText(tips, 'Usage page')).toBe(false);
+    expect(hasText(tips, 'Usage page')).toBe(true);
   });
 
   it('keeps SaaS-only tips in SaaS mode', () => {

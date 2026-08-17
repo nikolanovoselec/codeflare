@@ -1,225 +1,132 @@
 ---
 name: doc-enforce-shape
-description: SDD documentation structural shape enforcement — the canonical cross-agent contract. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
-version: 4.1.0
+description: SDD documentation structural enforcement for canonical lane records, navigation, and traceability. Invoked by doc-enforce for changed lanes or scope=all.
+version: 5.1.3
 ---
 
 # Documentation Enforcement — Structural shape
 
-This skill enforces the rules that police HOW canonical lane files are rendered: per-section field presence, file-wide shape uniformity, and the strict per-endpoint binding template for `api-reference*.md` files. Invoked by `doc-enforce` (the spine) when an api-reference file or canonical lane file is in the diff.
+Validate the repeated records that a lane owns. Do not force every heading in a file into one shape. Preambles, collection headings, narrative explanations, aliases, source maps, and unrelated tables remain exempt unless another rule governs them.
 
 ## Inputs
 
-- `purpose`: `review` | `clean` (inherited from parent — `review` never edits; `clean` preserves content while normalizing shape)
-- `diff`: git diff against base
+- `purpose`: `review` | `clean`
+- `diff`: bounded patch
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
-- `files`: list of canonical lane files in diff (when scope=diff)
-- `layout`: `nested` | `flat` (auto-detected by parent `doc-enforce` via `test -d documentation/lanes`)
+- `files`: canonical lane files selected by `doc-enforce`
+- `layout`: nested `documentation/lanes/` or flat legacy `documentation/`
 
-Run on the canonical/index/API file set supplied by `doc-enforce`; run every canonical file only for `scope=all`.
-
-**Layout-awareness.** Canonical lane file resolution is layout-aware:
-- Nested: `documentation/lanes/{architecture,api-reference*,configuration,deployment,security,observability,troubleshooting}.md`
-- Flat: `documentation/{architecture,api-reference*,configuration,deployment,security,observability,troubleshooting}.md`
-- ADR ledger: `documentation/decisions/README.md` in both layouts.
-
-Per-lane format templates and the binding endpoint template apply identically across layouts; only the file globs change.
+Review is report-only. Clean may normalize a recognized record only when every load-bearing clause, link, diagram, compatibility fragment, requirement, and source anchor has a destination.
 
 ## Output
 
-Returns findings array + auto-fix actions. Writes evidence-count rows back to the spine's manifest:
-- `Pass 5 — Format-template field presence`: `ran (S sections, M findings)`
-- `Pass 6 — File-level shape consistency`: `ran (K files, M findings)`
-- `Pass 7 — Canonical per-endpoint rendering`: `ran (E endpoints, M findings)` or `inert (no api-reference*.md present)`
+Return findings and any permitted clean actions. Populate:
 
-## Per-lane format templates
+- `Pass 5 — Format-template field presence`
+- `Pass 6 — Collection rendering consistency`
+- `Pass 7 — API contract rendering`
 
-| File | Required per-section fields |
-|---|---|
-| `api-reference*.md` | Per endpoint: `**Method:**`, `**Path:**`, `**Auth:**`, `**Request:**` (or "no body"), `**Response:**`, `**Implements:** (REQ-X-NNN)` |
-| `configuration.md` | Per env var: `**Variable:**`, `**Default:**`, `**Required:**`, `**Consumed by:**`, `**Implements:**` |
-| `deployment.md` | Per runbook: `**When:**`, `**Command:**` (fenced block), `**Verifies:**`, `**Rollback:**` |
-| `security.md` | Per policy: `**Threat:**`, `**Mitigation:**`, `**Verification:**`, `**Implements:**` |
-| `architecture.md` | Per component: `**Responsibility:**`, `**Inputs:**`, `**Outputs:**`, `**Source:**` |
-| `troubleshooting.md` | Per recipe: `**Symptom:**`, `**Cause:**`, `**Fix:**`, `**Prevention:**` (optional) |
-| `decisions/README.md` | Per ADR section: `**Status:**` (`Proposed`/`Accepted`/`Superseded`/`Reclassified` + date), `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**` |
+## Canonical lane records
 
-**Rules of engagement:**
-- Templates apply to positively recognized **items**, not to every Markdown heading. Top-of-file preambles, collection/area headings, and unrelated headings are exempt.
-- Per-item collections recognize a child heading when it is an exact governed inventory item or its body starts the lane's field shape. Once any shape field starts an item, missing sibling fields are findings; malformed items cannot disappear from traversal merely because they are incomplete.
-- Grouped collections recognize tables by their item discriminator (`Component`, `Recipe`/`Symptom`, or `Method`/`Path`) and validate the complete header contract.
-- Sections describing a different concern than their lane are handled separately by `doc-enforce-lanes` Pass 4 rather than being coerced into this template.
-- An item with no value for a field uses an explicit marker (`**Auth:** none (public endpoint)`).
-- Missing fields: Pass 5 MEDIUM.
-
-The binding implementation is the narrow checker at `scripts/check-shape.mjs`. Run `node scripts/check-shape.mjs <lane files...>` for item shape and add `--inventory` when validating Codeflare's governed 21-item regression set. Consume its JSON findings; do not substitute a general Markdown parser or a walk over all headings.
-
-**Two equivalent shapes per FILE.** A section satisfies the template in either shape:
-- **Per-item shape**: one section per item with bolded label/value pairs.
-- **Grouped-table shape**: one section per area with a markdown table whose column headers contain the required fields.
-
-Choice is made once per FILE via dominant-shape detection (>=60% of sections match one shape; first-content-section tiebreak otherwise). Pass 6 enforces consistency against that resolved shape.
-
-Required-field set is the same in both shapes. For `api-reference*.md`, grouped tables must carry columns >= `Method`, `Path`, `Auth`, `Implements`. For `configuration.md`: `Variable`, `Default`, `Required`, `Consumed by`, `Implements`. For `security.md`: `Threat`, `Mitigation`, `Verification`, `Implements`. For `troubleshooting.md`: `Symptom`, `Cause`, `Fix`. For `architecture.md`: `Component`, `Responsibility`, `Inputs`, `Outputs`, `Source`. For `deployment.md`: `When`, `Command`, `Verifies`, `Rollback`.
-
-## Jump-TOC at file top (lane files, binding)
-
-Any lane file with **>=5 `##` top-level sections** MUST carry a `## Contents` section immediately after the file's preamble, before the first content section. Flat markdown link list; one link per `##` section in document order, using section heading text as label.
-
-```
-## Contents
-
-- [Conventions](#conventions)
-- [Pages](#pages)
-- [Authentication](#authentication)
-```
-
-Rules:
-- One link per `##` section. `###` sub-sections NOT in TOC.
-- Link labels match heading text verbatim.
-- Anchor slugs follow GitHub-flavoured Markdown.
-- Auto-maintained by doc-updater.
-- TOC carries NO section descriptions or commentary; jump list, not summary.
-
-Files under 5 sections exempt.
-
-Pass 5: missing TOC on file with >=5 sections: MEDIUM `missing-jump-toc`. Out-of-sync entries: MEDIUM `toc-out-of-sync`. **Position drift** — TOC exists but is NOT the first `##` heading after the file's preamble (any non-Contents `##` heading appears before `## Contents`): MEDIUM `toc-out-of-position`. All three auto-fix in `auto`/`unleashed`: relocate TOC to position immediately after preamble (before any `##` content section), regenerate entries.
-
-## TOC content rule (binding)
-
-Contents/TOC blocks in any `documentation/**.md` file MUST NOT contain `REQ-*` or `CON-*` references. These IDs belong on individual sections as `**Implements:**` fields, not in the navigation block.
-
-Detection: any `(REQ|CON)-[A-Z]+-\d+` token inside a `## Contents` block (or any `^##\s+(Contents|Table of Contents)` block).
-
-Severity: MEDIUM `toc-contains-req-ref`. Auto-fix in `auto`/`unleashed`: strip the REQ/CON token from the TOC entry (keeping the section-heading link); add the token as `**Implements:** REQ-X-NNN` on the target section if not already present there.
-
-Body content (tables, prose, per-endpoint `**Implements:**` lines) is unaffected; the rule only forbids these IDs inside `## Contents` navigation blocks.
-
-## Index-table link rule (binding)
-
-Tables in `documentation/decisions/README.md` and any file matching `*-index.md` MUST hyperlink ID cells (AD-*, REQ-*, CON-*, or filename) to their target anchors. Plain-text ID cells in index tables are a MEDIUM finding `index-table-id-not-linked`.
-
-Forms:
-- AD index row: `| [AD-12](ad-12-some-decision.md) | Some Decision | Accepted | ... |`
-- REQ index row: `| [REQ-AUTH-001](../sdd/authentication.md#req-auth-001-...) | ... |`
-
-Detection: in any table inside `decisions/README.md` or `*-index.md`, scan each row for a leading or first-column cell matching `(AD|REQ|CON)-[A-Z]*-?\d+`. Bare ID without surrounding `[...]( ... )`: finding.
-
-Auto-fix in `auto`/`unleashed`: wrap the bare ID with a markdown link to the resolved target.
-
-## Implements-column link rule (binding)
-
-Any grouped table inside a canonical lane file (`api-reference*.md`, `configuration.md`, `security.md`, `architecture.md`, `deployment.md`, `observability.md`, `troubleshooting.md`) whose header includes an `Implements` column MUST render every `(REQ|CON)-[A-Z]+-\d+` token in that column as a markdown link to the spec target. Bare-text REQ/CON IDs and the placeholder string `TBD` are both MEDIUM findings.
-
-Resolution targets:
-- Nested layout: `[REQ-X-NNN](../../sdd/spec/<domain>.md#req-x-nnn)`
-- Flat layout: `[REQ-X-NNN](../sdd/<domain>.md#req-x-nnn)`
-- Domain mapping: `SESSION` → `session-lifecycle.md`; `AUTH` → `authentication.md`; `MEM` → `memory.md`; `VAULT` → `vault.md`; `STOR` → `storage.md`; `TERM` → `terminal.md`; `AGENT` → `agents.md`; `SUB` → `subscription.md`; `OPS` → `operations.md`; `SEC` → `security.md`; `SETUP` → `setup.md`; `MOB` → `mobile.md`.
-
-Forms:
-- API row: `| GET | \`/api/sessions\` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001) | List sessions |`
-- Config row: `| \`CLOUDFLARE_API_TOKEN\` | R2 bucket creation | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002) | yes | Wrangler secret | provisioning |`
-
-Detection: in any table whose header row contains a cell named exactly `Implements`, walk every data-row's Implements cell. Match `(REQ|CON)-[A-Z]+-\d+` tokens; if a token is NOT inside a `[...](...)` markdown link, finding `implements-cell-id-not-linked`. The literal cell value `TBD` (case-insensitive, optionally whitespace-padded) is finding `implements-cell-tbd`. Both severities MEDIUM.
-
-Multiple REQs in one cell are separated by `, ` (comma-space); each token must be individually wrapped.
-
-Auto-fix in `auto`/`unleashed`: for `implements-cell-id-not-linked`, wrap each bare ID with the resolved target per the domain mapping above. For `implements-cell-tbd`, defer to JUDGMENT (the human must supply the REQ ID; auto-mode does not guess); leave the cell unchanged and emit a `documentation/.doc-coverage.md` row with the row's METHOD+PATH (api-reference) or Variable name (configuration) so the next `/sdd clean` pass can backfill.
-
-## Pass 5 — Format-template field presence
-
-**Scope:** Pass 5 (and Pass 6, Pass 7) operate on canonical lane files. Framework metadata files excluded by name: any basename starting with `.` (`.doc-coverage.md`, `.review-needed.md`, `.cold-read-tasks.yml`), `documentation/README.md` index. `documentation/decisions/README.md` is covered by the **Index-table link rule** above and by the per-ADR-section template in the per-lane templates table.
-
-Run the item-aware checker over each in-scope canonical lane file. Verify only recognized per-item and grouped-table collections against the lane template; do not treat preamble, area, or unrelated headings as items. Missing fields produce MEDIUM `template-field-missing` findings naming the item and missing fields. For Codeflare's architecture, troubleshooting, and API lanes, `--inventory` additionally requires the exact governed 8 + 8 + 5 items.
-
-Pass 5 also enforces:
-- The jump-TOC rule on the file as a whole (>=5 `##` sections: required TOC).
-- The **TOC content rule** above.
-- The **Index-table link rule** above.
-
-Shape detection per section:
-1. Section contains a markdown table whose header row matches >=3 of the lane's required fields: enforce **grouped-table shape**.
-2. Otherwise: enforce **per-item shape**.
-
-Auto-fix in `auto`/`unleashed` requires inferable content from source; otherwise stays as a finding.
-
-## Pass 6 — File-level shape consistency
-
-Verify each canonical lane file's recognized items against its expected shape declared by the per-lane format templates table (resolved by filename). Every recognized item that deviates produces MEDIUM `rendering-shape-mismatch`, naming the item, deviant shape, and expected file shape. Exempt headings never participate in dominant-shape resolution.
-
-**Content-preservation guarantee:** auto-fix preserves all original prose verbatim. Restructuring a per-item section to grouped-table shape collapses the bolded pairs into table rows; extended prose preserved as body prose below the table. Reverse direction splits table rows into sections. Either direction, no clause dropped or paraphrased. If a section's prose cannot be split or merged without semantic loss (>200 words of inline prose that does not fit any single cell), auto-fix DEFERS that one section, emits MEDIUM `shape-conversion-content-bloat`. Rare residual JUDGMENT.
-
-Auto-fix in `auto`/`unleashed`: mechanical re-render; commit `[doc-updater] re-render: {file} to canonical shape`.
-
-## Pass 7 — Canonical per-endpoint rendering
-
-**Binding scope:** Pass 7 fires on every `documentation/api-reference*.md` file; the entire family (`api-reference.md`, `api-reference-admin.md`, and any future split sibling). Pass 5's per-lane format templates and Pass 13's three within-section triggers also apply, but Pass 7 adds the stricter per-endpoint binding template below: file-level shape uniformity, the prose paragraph cap, the fenced `METHOD path` block in place of bolded Method/Path lines, and the canonical Authentication / Origin check vocabularies.
-
-**File-level shape uniformity.** Within a single `api-reference*.md` file, every endpoint section MUST use the SAME shape (per-item OR grouped-table; per-item is the binding default below). A file mixing both is `rendering-shape-mismatch` per-section against the file's dominant resolved shape, MEDIUM, per Pass 6.
-
-**Per-field rendering uniformity within file.** Within a single `api-reference*.md` file, every endpoint section's `Response` field MUST render in the SAME sub-shape: either all inline `**Response:** {value}` OR all heading-plus-table (`**Response**\n\n| Status | Outcome | Body |\n...`). Same rule for `Request`. Mixing both sub-shapes within one file is `response-rendering-mixed` (or `request-rendering-mixed`), MEDIUM. Auto-fix in `auto`/`unleashed`: re-render all minority-shape sections to the majority shape; ties resolved to heading-plus-table (carries more contract).
-
-**Field-order uniformity within file.** Within one `api-reference*.md` file, every endpoint section MUST present its bolded field labels in the same order. Canonical order: `Authentication`, `Origin check`, `Path parameters` (optional), `Query parameters` / `Request body` (optional), `Response`, `Error codes` (optional), `Rate limit` (optional), `Implements`, `Notes` (optional). A section whose label sequence does not match canonical order is `endpoint-field-order-drift`, MEDIUM. Auto-fix: re-order to canonical; field values move with their labels verbatim.
-
-**Prose paragraph cap per endpoint section.** Outside the optional `**Notes**` block (<=3 paragraphs), an endpoint section MUST NOT carry standalone prose. A paragraph that is not (a) a field line, (b) a fenced block, (c) a table, or (d) inside `**Notes**` is MEDIUM `endpoint-section-prose-leakage`. Auto-fix in `auto`/`unleashed`: move prose into a `**Notes**` block at the section bottom; prose spanning >=3 endpoints relocates to `## Conventions` via Pass 13 Trigger 3. Three-paragraph operational descriptions signal architectural rationale leakage; escalate to `documentation/.review-needed.md`.
-
-### Binding endpoint template
-
-Every endpoint section in any `api-reference*.md` file MUST use this exact structure:
-
-```
-### {METHOD path} ({optional descriptive title})
-
-{One-sentence operational summary.}
-
-```
-{METHOD} {path}
-```
-
-**Authentication:** {none | session | refresh cookie | state cookie | session + admin email | dev-bypass token}
-**Origin check:** {applies | exempt | n/a}
-
-[OPTIONAL — present only when endpoint accepts a body or parameters:
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| ... | ... | ... | ... |
-]
-
-**Response**
-
-| Status | Outcome | Body |
+| Lane | Positively recognized record | Required canonical fields |
 |---|---|---|
-| `200` | ... | ... |
-| `4xx` | ... | error envelope |
+| `architecture.md` | H3 component dossier under `Components` or `System Components` | `Responsibility`, `Inputs`, `Outputs`, `Source` |
+| `api-reference*.md` | Table carrying `Method` and `Path` | `Method`, `Path`, `Auth`, `Implements`; canonical templates also include `Description` |
+| `configuration.md` | Table carrying `Variable` | `Variable`, `Purpose`, `Default`, `Required`, `Consumed by`, `Implements` |
+| `configuration.md` | Table carrying `Binding` | `Binding`, `Purpose`, `Required`, `Consumed by`, `Implements` |
+| `security.md` | Threat table carrying `Asset / boundary` | `Asset / boundary`, `Threat or failure`, `Control and failure posture`, `Residual risk / owner` |
+| `security.md` | Residual-risk table carrying `Exception / residual risk` | `Exception / residual risk`, `Current decision`, `Owner / review signal` |
+| `security.md` | Evidence table carrying `Control family` | `Control family`, `Requirements / decisions`, `Implementation`, `Evidence` |
+| `deployment.md` | H2 runbook carrying at least two runbook fields | `When`, `Action`, `Verify`, `Rollback` |
+| `observability.md` | Table carrying `Signal` | `Signal`, `Meaning / non-evidence`, `Observed at`, `Escalate when`, `Runbook` |
+| `troubleshooting.md` | H3 recipe under `Common Issues`, `Recipes`, or `Troubleshooting Recipes` | `Symptom`, `Cause`, `Fix`; canonical detailed recipes also include `Diagnose`, `Verify`, and `Escalate` |
+| `decisions/README.md` | ADR index row paired with its stable `ADN` section | Linked stable ID, bounded Decision label, self-contained Summary, Category, explicit State, retained history for full supersession, successor detail for partial supersession, and linked destinations for redirects |
+| project lane | File indexed by `documentation/README.md` | `Audience`, `Owns`, navigation, requirement/source map, and related links; add `Does not own` when an adjacent ownership boundary could be confused; its subject-specific body follows its natural axis |
 
-[OPTIONAL — present only when rate-limited:
-**Rate limit:** {N}/{window} per {scope}, fail-{open|closed}
-]
+Architecture state, flow, failure, observability, security, and decision collections have their own tables or diagrams. They are not component records. Configuration permission or binding tables are not variable records. Security control prose is not a threat-table row. Deployment aliases and development references are not runbooks unless their fields begin a runbook record.
 
-**Implements:** [REQ-X-NNN]({backlink})
+## Compatibility
 
-[OPTIONAL — present only when caveats not captured above:
-**Notes**
+Nested and flat layouts remain readable. Grouped tables and per-item records remain valid where the lane historically supports both.
 
-{1-3 prose paragraphs.}
-]
+Accepted migration aliases:
 
----
+- API: `Authentication` for `Auth`, `Response 200` for `Response`, `Error responses` for `Errors`, and `Implementation` for `Source` in legacy per-endpoint records.
+- Configuration: `Description` may carry legacy `Purpose` content during migration.
+- Deployment: `Command` for `Action`; `Verifies` for `Verify`.
+- Architecture areas: `Components` and `System Components`.
+- Troubleshooting areas: `Common Issues`, `Recipes`, and `Troubleshooting Recipes`.
+
+`/sdd init` emits canonical names. `/sdd clean` may translate an alias only when its value moves byte-for-byte. Compatibility is not authority to invent project-specific field vocabularies.
+
+## Binding checker
+
+Run:
+
+```sh
+node scripts/check-shape.mjs <lane.md> [...]
 ```
 
-**Canonical Authentication vocabulary** is exactly the six values listed; any other value: MEDIUM. **Canonical Origin check vocabulary** is exactly three values: `applies`, `exempt`, `n/a`. Exempt requires a parenthetical justification on the same line.
+The checker handles Markdown tables, fenced code, inline code, and HTML comments. It recognizes records by discriminator or by a partial field prefix so malformed records cannot disappear. It contains no product-specific component, endpoint, or recipe inventory.
 
-**Tombstoned endpoints** use a distinct minimal shape: only heading + `**Status:** Tombstoned` + `**Replacement:**`. No Method/Path/Auth fields.
+A missing field produces MEDIUM `template-field-missing` with file, line, collection, item, and missing fields. Unrelated headings and tables produce no finding.
 
-**Conventions section.** A file-level `## Conventions` section at the top of an `api-reference*.md` file factors out error envelope shape, Authentication vocabulary, Origin check vocabulary, Rate-limit format.
+## Pass 5 — Field presence
 
-Pass 7 validates the binding shape, not just field presence. A section with `**Auth:**` instead of `**Authentication:**`, or Method/Path as separate fields instead of a fenced code block, is MEDIUM even though content is present. Auto-fix: mechanical re-render; commit `[doc-updater] re-render: {file} to canonical shape`.
+Run the checker over in-scope canonical lanes. Then apply the navigation and traceability rules below. A field with no applicable value remains explicit, for example `Auth: none` or `Rollback: not applicable — immutable replacement only`.
 
-## Severity application
+Auto-fix only when content is directly inferable from the same record or verified source. Otherwise emit a finding.
 
-All shape findings are MEDIUM. (Pass 2 file-budget escalation removed; per-element caps in the spine's Pass 1 remain authoritative.)
+## Pass 6 — Collection rendering consistency
 
-Mode-dependent action mirrors the spine.
+Consistency is per recognized collection, not per file. A file may legitimately contain component dossiers, state tables, Mermaid flows, and decision maps together.
+
+Within one repeated collection, use one canonical representation unless a detailed record needs fields that the summary table cannot safely contain. Do not choose a file-wide dominant shape or convert unrelated sections.
+
+Clean preserves all original prose. If a conversion cannot account for every clause, defer with MEDIUM `shape-conversion-content-risk`; never delete the minority representation merely because another representation is more common.
+
+## Pass 7 — API contract rendering
+
+The canonical API template uses grouped endpoint registers by resource family:
+
+```markdown
+| Method | Path | Auth | Implements | Description |
+|---|---|---|---|---|
+```
+
+Add a detailed endpoint section only when request, response, error, or rate-limit behavior cannot fit safely in the register. A detailed section uses `Request`, `Response`, `Errors`, `Source`, and `Implements` fields. Do not require empty detailed sections for simple endpoints.
+
+Tombstoned endpoints state status and replacement without pretending they remain callable.
+
+## Jump navigation
+
+A lane with at least five H2 content sections carries a `## Contents` block immediately after its ownership preamble. Entries follow document order and GitHub-compatible fragments. H3 records are omitted from the jump list.
+
+Contents blocks contain navigation only. REQ and CON identifiers belong beside governed facts, not in navigation labels. Missing, stale, or misplaced navigation is MEDIUM and mechanically repairable.
+
+## Index and requirement links
+
+- Every first-level project lane is linked from `documentation/README.md`.
+- Every linked lane exists.
+- ADR and `*-index.md` ID cells link to their targets.
+- In a Security `Verification and Source Map`, every `ADN`, `REQ-*`, and `CON-*` token links to its exact anchor; domain references link the exact requirement file, and vague labels such as `Operations SDD` or `Browser IDE SDD` are findings.
+- Every REQ or CON token in an `Implements` table cell links to the corresponding specification anchor.
+- `TBD` in an `Implements` cell is a finding, not an auto-guessed requirement.
+
+## Decision ledger state rendering
+
+Decision history must be readable without interpreting parenthetical jargon:
+
+- **Active** rows render normally.
+- **Superseded** sections retain their full historical body and stable anchor, while both the ID and decision cells in the index are wrapped in Markdown strikethrough and the category/state says `Superseded`.
+- **Partially superseded** records stay unstruck because their remaining decision still governs; the section status names the exact replaced clause and links its successor.
+- **Redirect anchor** means a stable historical AD identifier whose content was merged into another ADR or reclassified into a canonical lane. Use that exact label and link the destination; bare `(redirect)` or `(redirected)` is ambiguous and invalid.
+
+Every index uses `ID | Decision | Summary | Category | State`. Decision is a concise label of at most 90 rendered characters. Summary is one source-line sentence of 40–180 rendered characters, differs from the label, starts with a named component or boundary rather than a pronoun, and states the choice plus a specific driver or operational consequence. For active decisions, shape enforcement rejects a Summary unrelated to Decision. The reviewer—not keyword matching—verifies that its reason or effect is supported by Context or Consequences and preserves material trade-offs. Superseded summaries link the successor; partially superseded summaries name retained scope and link the replaced clause or successor; redirect summaries link the destination. Markdown syntax does not count toward rendered-character limits.
+
+Clean may add deterministic links, labels, or strikethrough. It never deletes a superseded body, removes its heading, or guesses whether a record is fully versus partially superseded.
+
+## Severity
+
+All structural findings are MEDIUM. Review reports only. Interactive clean asks before repair; auto and unleashed repair only deterministic, lossless cases using the existing root-owned commit workflow.

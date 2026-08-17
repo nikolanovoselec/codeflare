@@ -1,85 +1,70 @@
 # Codeflare Landing
 
-The public marketing site for codeflare.ch: a prerendered Astro app served by
-the Worker at `/` for unauthenticated visitors in SaaS and onboarding modes
-(REQ-LANDING-001). Enterprise/default deployments never serve it.
+**Audience:** Landing contributors
+
+**Owns:** landing composition, content/tokens, browser behavior, build output, and contact-route client integration.
+
+**Does not own:** product-wide runtime, endpoint contracts/handlers, authentication, security controls, or Worker routing policy. Those remain in the canonical documentation lanes.
 
 ## Architecture
 
-Strict separation of concerns; each layer changes independently:
+The landing package is a prerendered Astro application. The Worker serves its output at `/` for unauthenticated visitors when SaaS or onboarding landing mode is active; valid deployment-mode combinations belong to [Configuration](../documentation/lanes/configuration.md).
 
-| Layer | Location | Rule |
+| Layer | Location | Responsibility |
 |---|---|---|
-| Design tokens | `src/styles/tokens.css` | The control panel: fonts, colors, the one accent, type/space scale, easings, layout constants. No raw values elsewhere. |
-| Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
-| Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
-| Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; marketing-page opt-in scripts (`scramble.ts`, `splash.ts` + the `splash-*` / `webgl-utils` fluid set, `proof.ts`, `type-on-view.ts`, `reveal.ts`, `agentfoot.ts`, `feature-terminals.ts`, and `orch.ts`) run only on `index.astro`, so the marketing page keeps its WebGL/motion/proof system while login/privacy keep a clean first paint. `splash.ts` sets `html.flare-on` to switch the marketing page onto glass surfaces only after WebGL is live; reduced-motion or no-WebGL visitors keep solid surfaces. `login.ts` is the only login-page script: it reads the `?status` / `?error` query parameters from the Worker's OAuth round-trip and reshapes the page (swaps in the confirmation panel or shows an error); it has no animation and no reduced-motion gate. |
-| Components | `src/components/*.astro` | Markup rendering content data; components never carry their own text (it comes from `src/content/site.ts`). Layout primitives (`Section`, `SectionHead`, `Header`, `Footer`); the terminal system (`Terminal` chrome + `Transcript` [last-line cursor / typed / roll-middle styler] + `GateSteps` [rolling-rows styler] + `LedgerTable` / `ReviewBoard` / `OrchTree` bodies); sections (`Hero` / `HeroHeadline`, `FeatureTerminals`, `FeatureGrid` / `FeatureCard`, `TrustStrip`, `MicroCta`, `ContactForm`); login UI (`LoginCard`, `SsoAccordion`, `RequestedPanel`). Pages are pure composition of these. |
-| Pages | `src/pages/*.astro` | `index.astro` (composition), `login.astro` (onboarding sign-in: GitHub OAuth + enterprise-SSO request flow), `privacy.astro`. |
+| Design tokens | `src/styles/tokens.css` | Fonts, colors, accent, type/space scales, easing, and layout constants |
+| Global styles | `src/styles/global.css` | Mobile-first layout and component styling resolved through tokens |
+| Content | `src/content/site.ts` | Typed page copy and shared proof identifiers |
+| Client integration | `src/config.ts` | Worker endpoints and application links consumed by the package |
+| Browser behavior | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Page-specific interaction, motion, WebGL, and contact behavior |
+| Components | `src/components/*.astro` | Content-driven layout primitives, proof artifacts, forms, and login UI |
+| Pages | `src/pages/*.astro` | Marketing, login, and privacy composition |
+
+### Browser logic
+
+Marketing-only modules (`scramble`, `splash`, `proof`, `type-on-view`, `reveal`, `agentfoot`, feature terminals, and orchestration) run only on `index.astro`. `contact-controller.ts` owns form submission behavior. `login.ts` alone interprets the Worker's OAuth status/error response on the login page.
+
+The marketing page server-renders its stable final state. WebGL, motion, and proof sequences are enhancements: reduced motion, unavailable WebGL, context loss, or coarse-pointer backgrounding retires the flare canvas to the CSS surface. Desktop backgrounding pauses the flare and resumes it on return. Login and privacy keep a clean static first paint and do not load the marketing motion system.
 
 ## Design
 
-Calm, confident enterprise dark-tech. Sans-serif carries all prose; monospace is
-reserved for ONE legible terminal demo (the hero) and two static code snippets
-(the review pipeline and the spec/TDD enforcement trace), where it signals real
-engineering. A single locked accent, generous whitespace, hairline borders, one
-corner-radius scale. Each section uses a distinct layout family (stat band,
-two-column compare, and a set of mono "proof artifacts" that show the engine
-working rather than describing it. The enforcement gate, egress-inspection strip,
-review board, and cost ledger are keyed to one spine PR (`REQ-PAY-014` /
-`PR #207`, sourced once in `site.ts`) so their IDs cannot drift; the boundary
-data-path and the isolation pipe are structural diagrams that read alongside
-them, so the set reads as camera angles on one run:
-a spec-driven-development "method" section whose self-healing enforcement gate
-visibly fails and then corrects a drift, with the three pillars as numbered
-clauses; security cards + a boundary data-path flow that also names what it makes
-impossible, plus an egress-inspection strip showing one model call inspected
-(guardrails pass, a DLP redaction, route approved); an operations section on
-policy-scoped infrastructure access; a context section whose browser-isolation
-pipe distils the open web to agent-ready markdown; a parallel review board of six
-reviewer lanes converging on one human triage gate; a cost attribution ledger
-that closes on zero unattributed, feature columns, cost layers, tenancy
-checklist, FAQ accordion). The governance sections carry the page; the platform
-capability sections follow as the payoff the boundary makes safe.
-The marketing page renders statically with no JS (every proof artifact ships its
-resolved final state in the markup). The motion: a quiet scroll-reveal, a
-scramble on the single hero accent word (the Codeflare ScrambleText effect, ported
-to vanilla DOM), one-shot proof-artifact reveal sequences armed on scroll-in
-(`proof.ts`), and a WebGL flare-fluid behind the whole page (a fixed full-page
-layer: vivid behind the hero, then veiled by a scroll-linked wash to a calm,
-legible background beneath the text-dense sections below; paused on a hidden tab).
-Desktop pointers drive it with the cursor; touch devices have no cursor, so the
-fluid is driven by page scroll (a virtual pointer sweeps a gentle path across the
-canvas as the page moves). When the fluid is live the content panels become
-translucent glass floating over it; no-JS / no-WebGL / reduced-motion visitors
-keep solid surfaces. All of it collapses under `prefers-reduced-motion`. The
-login page shares tokens, preloaded fonts, and nav chrome, but uses a static flare
-motif and omits the marketing motion/WebGL hooks so a cold browser does not
-visibly settle after first paint. Product brief and voice in `PRODUCT.md`.
+The package implements a calm enterprise dark-tech system with one accent, content-owned copy, token-owned values, and composition-only pages. Sans-serif carries prose; monospace is reserved for terminal/proof artifacts. Layouts remain mobile-first and every motion path yields under `prefers-reduced-motion`.
+
+Current visual details and proof content are source-owned by `src/content/site.ts`, components, and token files rather than duplicated as a prose inventory here. System-wide landing behavior and requirements remain in [Architecture Internals](../documentation/lanes/architecture-internals.md#landing-implementation) and the [Landing SDD domain](../sdd/spec/landing.md).
 
 ## Build & serving
 
-`astro build` outputs to `../web-ui/dist/landing/` with base `/landing`, so the
-Worker's existing `[assets]` binding serves it with zero wrangler changes. The
-Worker rewrites `GET /` → `/landing/` for unauthenticated visitors; if the
-landing build is absent, SPA `not_found_handling` falls back to the old in-SPA
-pages. Build order matters: web-ui first (it wipes `dist/`), landing second.
+`astro build` writes to `../web-ui/dist/landing/` with base `/landing`, which the Worker's existing static-assets binding serves. Build order is significant: build `web-ui` first because it replaces `dist/`, then build `landing`. Astro renders the pages, but no client-side JavaScript framework ships to the browser; interactive behavior uses the package's focused TypeScript modules.
 
-## Backend contract
+The package consumes `POST /public/contact` and `GET /public/contact-config` through `src/config.ts`. Exact request, response, rate-limit, and failure contracts belong to the [API Reference](../documentation/lanes/api-reference.md#public-landing).
 
-- `POST /public/contact` — demo-request form (Turnstile + Resend relay, never
-  persisted). Topics from the shared `src/lib/contact-topics.ts` (REQ-LANDING-002).
-- `GET /public/contact-config` — Turnstile site key for the form widget.
+<a id="backend-contract"></a>
+## Runtime boundary
 
-## Tests
+Landing source never owns authentication or contact-handler policy. The Worker decides whether landing assets are eligible, validates Turnstile and outbound relay configuration, and returns the public API contracts. The package owns only how those contracts are called and rendered.
 
-`npm test` (vitest, CI-run): behavioral component tests (Container-API render →
-parsed DOM, asserting structure and behaviour — caret placement, slot routing,
-row/column counts, variant wiring — never copy strings), structural oracles for
-the composed `index` / `login` pages and metadata (REQ-LANDING-001 AC4 +
-REQ-LANDING-003, REQ-AUTH-020), the privacy no-storage disclosure
-(REQ-LANDING-002), behavioral script tests under fake timers (`proof`, `type-on-view`,
-`feature-terminals`, `orch`, `reveal`, `scramble`, `agentfoot`, `login`), and unit
-tests for the contact controller using an injected `fetch`. No copy-string
-theater; no JS framework ships to the browser.
+<a id="tests"></a>
+## Develop and verify
+
+From `landing/`:
+
+```sh
+npm install
+npm run dev
+npm test
+npm run build
+```
+
+- `npm run dev` starts Astro's package development server.
+- `npm test` runs behavioral component, composition, metadata, and browser-script tests.
+- `npm run build` must produce the `/landing` output after the frontend build order described above.
+
+Tests assert rendered structure, behavior, and focused content passthrough rather than treating broad marketing copy as the contract. Protected deployment claims remain manual/browser evidence owned by [CI/CD](../documentation/lanes/ci-cd.md), not package-source regexes.
+
+## Canonical references
+
+- [Architecture Internals — Landing implementation](../documentation/lanes/architecture-internals.md#landing-implementation)
+- [API Reference — Public Landing](../documentation/lanes/api-reference.md#public-landing)
+- [Security](../documentation/lanes/security.md)
+- [Landing requirements](../sdd/spec/landing.md)
+- [Documentation router](../documentation/README.md)

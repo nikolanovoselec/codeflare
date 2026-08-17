@@ -216,7 +216,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     }
 
     // Store the matched Access groups for per-group gateway attribution (one
-    // cf-aig-metadata tag per group). REQ-ENTERPRISE-004 (revised).
+    // cf-aig-metadata tag per configured user-access group). REQ-ENTERPRISE-004 (revised).
     if (userGroups && userGroups.length > 0) {
       await host.ctx.storage.put('userGroups', userGroups);
       host._userGroups = userGroups;

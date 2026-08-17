@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Env } from '../../types';
+import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -451,6 +451,79 @@ describe('Container Lifecycle Routes', () => {
       expect(body.code).toBe('QUOTA_EXCEEDED');
     });
 
+    it('REQ-SESSION-007 AC6 / REQ-SUB-013 AC5: simultaneous starts can exceed the best-effort limit', async () => {
+      const secondSessionId = 'fedcba0987654321fedcba09';
+      mockKV._set(`session:test-bucket:${secondSessionId}`, {
+        id: secondSessionId,
+        name: 'Second Session',
+        userId: 'test-bucket',
+        status: 'stopped',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+
+      let arrivals = 0;
+      let releaseBoth = (): void => undefined;
+      const bothValidated = new Promise<void>((resolve) => { releaseBoth = resolve; });
+      vi.mocked(createBucketIfNotExists).mockImplementation(async () => {
+        arrivals += 1;
+        if (arrivals === 2) releaseBoth();
+        await bothValidated;
+        return { success: true, created: false };
+      });
+
+      const fetch = createLifecycleApp('test-bucket', { MAX_SESSIONS_USER: '1' });
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' }),
+        fetch(`/container/start?sessionId=${secondSessionId}`, { method: 'POST' }),
+      ]);
+
+      expect([firstResponse.status, secondResponse.status]).toEqual([200, 200]);
+      const first = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as Session | null;
+      const second = await mockKV.get(`session:test-bucket:${secondSessionId}`, 'json') as Session | null;
+      expect([first?.status, second?.status]).toEqual(['running', 'running']);
+    });
+
+    it('REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        user: { email: 'enterprise@example.com', authenticated: true, role: 'user' },
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ENTERPRISE_MODE: 'active' } as Partial<Env>,
+      });
+      const fetchEnterprise = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+      for (let i = 1; i <= 3; i++) {
+        const id = `enterprise${String(i).padStart(14, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Enterprise ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchEnterprise('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(402);
+    });
+
     it('allows start when under the limit', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });
@@ -560,13 +633,13 @@ describe('Container Lifecycle Routes', () => {
       expect(res.status).toBe(200);
     });
 
-    it('admin gets higher limit (DEFAULT_MAX_SESSIONS_ADMIN)', async () => {
+    it('REQ-SESSION-007 AC4: enterprise stored admin gets the role-based admin limit', async () => {
       const app = createTestApp({
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
         bucketName: 'test-bucket',
         user: { email: 'admin@example.com', authenticated: true, role: 'admin' },
-        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>,
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ENTERPRISE_MODE: 'active' } as Partial<Env>,
       });
 
       const fetchAdmin = (path: string, init?: RequestInit) => {
@@ -579,8 +652,7 @@ describe('Container Lifecycle Routes', () => {
         new Response(JSON.stringify({ bucketName: null }), { status: 200 })
       );
 
-      // Seed 5 running sessions (above user limit 3, below admin limit 10)
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 9; i++) {
         const id = `runningsession${String(i).padStart(8, '0')}`;
         mockKV._set(`session:test-bucket:${id}`, {
           id,
@@ -592,14 +664,27 @@ describe('Container Lifecycle Routes', () => {
         });
       }
 
-      const res = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
+      const allowed = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
         method: 'POST',
       });
+      expect(allowed.status).toBe(200);
 
-      expect(res.status).toBe(200);
+      const tenthId = 'runningsession00000010';
+      mockKV._set(`session:test-bucket:${tenthId}`, {
+        id: tenthId,
+        name: 'Running 10',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      const rejected = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(rejected.status).toBe(402);
     });
 
-    it('respects MAX_SESSIONS_USER env var override', async () => {
+    it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override', async () => {
       const app = createTestApp({
         routes: [{ path: '/container', handler: lifecycleRoutes }],
         mockKV,
@@ -635,6 +720,36 @@ describe('Container Lifecycle Routes', () => {
       });
 
       expect(res.status).toBe(200);
+    });
+
+    it('REQ-SESSION-007 AC7: respects MAX_SESSIONS_ADMIN env var override', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        user: { email: 'admin@example.com', authenticated: true, role: 'admin' },
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', MAX_SESSIONS_ADMIN: '2' } as Partial<Env>,
+      });
+      const fetchAdminOverride = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+      for (let i = 1; i <= 2; i++) {
+        const id = `adminoverride${String(i).padStart(11, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Admin Override ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchAdminOverride('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(res.status).toBe(402);
     });
 
     it('falls back to default when env var is invalid', async () => {

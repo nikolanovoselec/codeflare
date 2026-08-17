@@ -12,10 +12,19 @@ function currentIframe(): HTMLIFrameElement | null {
   return document.querySelector('iframe[title="Vault prewarm"]');
 }
 
+function primeIframeScope(scope: string): Window {
+  const iframe = currentIframe();
+  if (!iframe?.contentDocument || !iframe.contentWindow) throw new Error('prewarm iframe missing');
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(`<html><head><base href="${scope}"></head><body></body></html>`);
+  iframe.contentDocument.close();
+  return iframe.contentWindow;
+}
+
+const currentVaultScope = `${window.location.origin}/api/vault/0123456789abcdef0123456789abcdef/`;
+
 const readyProof = {
-  ready: true,
-  recordedDbs: ['sb_data_abc', 'sb_files_def'],
-  hasIndexedDbDatabasesApi: true,
+  scope: currentVaultScope,
   contentReady: true,
   spaceSyncCompleted: true,
   indexReady: true,
@@ -234,6 +243,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     window.dispatchEvent(new MessageEvent('message', {
       origin: 'https://attacker.example',
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
 
@@ -249,6 +259,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'other-attempt', status: 'ready', proof: readyProof },
     }));
 
@@ -257,13 +268,14 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
   });
 
-  it('ignores ready messages that do not include current-browser local readiness proof', () => {
+  it('ignores ready messages that do not include a runtime/content proof', () => {
     const onReady = vi.fn();
     const onError = vi.fn();
 
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready' },
     }));
 
@@ -272,14 +284,74 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
   });
 
-  it('ignores ready messages that only prove IndexedDB/service-worker readiness without content readiness', () => {
+  it('ignores ready messages that only contain obsolete IndexedDB/service-worker fields', () => {
     const onReady = vi.fn();
     const onError = vi.fn();
 
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: localOnlyProof },
+    }));
+
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
+  });
+
+  it('ignores a ready message from a different same-origin window', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    primeIframeScope(currentVaultScope);
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: window,
+      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
+    }));
+
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
+  });
+
+  it('rejects a ready proof that claims a cross-origin Vault scope', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
+      data: {
+        source: VAULT_PREWARM_SOURCE,
+        prewarmId: 'warm-1',
+        status: 'ready',
+        proof: { ...readyProof, scope: 'https://attacker.example/api/vault/0123456789abcdef0123456789abcdef/' },
+      },
+    }));
+
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
+  });
+
+  it('rejects a same-origin ready proof for a different Vault token', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
+      data: {
+        source: VAULT_PREWARM_SOURCE,
+        prewarmId: 'warm-1',
+        status: 'ready',
+        proof: { ...readyProof, scope: `${window.location.origin}/api/vault/fedcba9876543210fedcba9876543210/` },
+      },
     }));
 
     expect(onReady).not.toHaveBeenCalled();
@@ -294,6 +366,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
 
@@ -332,6 +405,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
 
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
     hasFocus.mockRestore();
@@ -364,6 +438,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
 
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: primeIframeScope(currentVaultScope),
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
     vi.advanceTimersByTime(250);
@@ -391,9 +466,11 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     const onError = vi.fn();
     const handle = startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
 
+    const frameSource = primeIframeScope(currentVaultScope);
     handle?.cancel();
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
+      source: frameSource,
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
 

@@ -1,7 +1,14 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each active record documents a real choice between alternatives and preserves its rationale, trade-offs, and consequences. AD identifiers remain stable because requirements, source, and historical documents link to them.
+
+## How to read this ledger
+
+- **Active:** the decision still governs the system.
+- **Superseded:** a newer linked decision or requirement replaced the whole record. Superseded entries are struck through in the index, while their original sections remain readable as history.
+- **Partially superseded:** only the explicitly named clause was replaced; the record remains active for everything else.
+- **Redirect anchor:** the numbered heading remains for inbound links, but its content moved to another ADR or canonical documentation lane. Follow the destination in the index and section status.
 
 **Audience:** Developers
 
@@ -9,133 +16,143 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 
 ## Decision Index
 
-| ID | Decision | Category |
-|----|----------|----------|
-| [AD1](#ad1-one-container-per-session) | One container per session | Architecture |
-| [AD2](#ad2-container-id-format) | Container ID format | Architecture |
-| [AD3](#ad3-per-user-r2-buckets) | Per-user R2 buckets | Architecture |
-| [AD4](#ad4-periodic-rclone-bisync) | _superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget)_ | (superseded) |
-| [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
-| [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
-| [AD7](#ad7-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup public endpoints_ | Security |
-| [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
-| [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
-| [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
-| [AD11](#ad11-suffix-pattern-cors-with-credentials) | Suffix-pattern CORS with credentials | Security |
-| [AD12](#ad12-kv-based-setup-lock-non-atomic) | KV-based setup lock (non-atomic) | Security |
-| [AD13](#ad13-per-user-scoped-r2-tokens) | Per-user scoped R2 tokens | Security |
-| [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
-| [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
-| [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) - `collectMetrics` atomicity_ | Architecture |
-| [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
-| [AD19](#ad19-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
-| [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
-| [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
-| [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
-| [AD23](#ad23-cors-origin-pattern-validation) | _reclassified - CORS admin-trust moved to inline + security.md_ | (redirect) |
-| [AD24](#ad24-predictable-session-ids) | _reclassified - session ID rationale moved to inline + security.md_ | (redirect) |
-| [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
-| [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
-| [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-merged-into-ad26) | _merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) - integration-only environment scoping_ | Security |
-| [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
-| [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
-| [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
-| [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup CSRF risk_ | Security |
-| [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
-| [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
-| [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
-| [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
-| [AD39](#ad39-max-users-capacity-cap-counts-paid-slots-only) | Max users capacity cap counts paid slots only | Billing |
-| [AD40](#ad40-webhook-route-order-publicstripe-before-public) | Webhook route order (`/public/stripe` before `/public`) | Billing |
-| [AD41](#ad41-custom-tier-uses-contact-flow-not-self-service-checkout) | Custom tier uses contact flow (not self-service checkout) | Billing |
-| [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
-| [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
-| [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
-| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- override mechanism ripped out_ | (superseded) |
-| [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
-| [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
-| [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
-| [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
-| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- doc-allow-large hatch ripped out_ | (superseded) |
-| [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
-| [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
-| [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
-| [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Vault directory must use a non-hidden basename | Storage |
-| [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Codeflare brands the vault editor via preseed-managed STYLES.md | Architecture |
-| [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | 15-minute bisync cadence with manual triggers (fan-out safe under newer-mtime-wins) | Storage |
-| [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | 135-second shutdown budget for final bisync | Storage |
-| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Sonnet (not haiku) for memory capture, plus jq-prefilter and chunked-scratchpad pipeline | Memory |
-| [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Zero-UI vault encryption with per-session DO-storage key | Security |
-| [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) contract and transcript prefilter | Memory |
-| [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
-| [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
-| [AD63](#ad63-pi-safe-graphify-updatesh-is-a-thin-bounded-upstream-update-wrapper) | Pi `safe-graphify-update.sh` is a thin bounded upstream-update wrapper | Architecture |
-| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | _superseded by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) -- lanes now run as detached headless Pi processes_ | (superseded) |
-| [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) _(no-preseed-lane clause superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored))_ | Architecture |
-| [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Security-sensitive rate limiters fail closed on KV outage | Security |
-| [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Antigravity reads the Gemini CLI config tree; preseed lane restored | Architecture |
-| [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | Service-token admin bypass must be environment-gated and hostname-restricted | Security |
-| [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) | SilverBullet vault runs its native service worker for persistent, encrypted client indexing (SB v2 has no server-side index) | Architecture |
-| [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Container exit writes KV `stopped`; no read-side reconciliation | Architecture |
-| [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded | Architecture |
-| [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing | Architecture, Security |
-| [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
-| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
-| [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
-| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
-| [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
-| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers), amended by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) for Pi execution | Agents |
-| [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
-| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
-| [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
-| [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Visible terminal panes own WebSockets, and MultiView is virtual | Architecture, UI/Frontend |
-| [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) | _superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) — vault IndexedDB IS now persisted across sessions, via a bucket-stable URL + HKDF key (not a key-only change)_ | Architecture |
-| [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) | Retain the vault SW encryption key in memory (neuter the proactive flush) and open a green Vault button directly | Architecture |
-| [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (wizard-toggled, default OFF) | Architecture, Security |
-| [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Platform-native Cloudflare primitives bypass strict Gateway egress (only direct-internet egress takes cf1:network) | Architecture, Security |
-| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | EgressController re-signs own-account R2 (container holds a placeholder key), bridges WebSocket upgrades, and resolves strict via props _(browser-run token sub-decision superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container))_ | Architecture, Security |
-| [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Bisync compares via server-modtime from fast-list (not per-object mtime HEADs) | Storage |
-| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode, deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration | Architecture, Security, Storage |
-| [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
-| [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
-| [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
-| [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
-| [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore) | Storage |
-| [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
-| [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
-| [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
-| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
-| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
-| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
-| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned after opt-in; in-process subagents use native transports | Agents, Architecture |
-| [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
-| [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
-| [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
-| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
-| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | SDD enforcement policy is one canonical cross-agent contract with per-AC manual verification; test-anchor cardinality amended by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Process, Agents |
-| [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | context-mode is opt-in in Pi pending upstream memory safety | Agents, Architecture, Reliability |
-| [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Per-AC test evidence permits multiple resolving anchors | Process, Agents, Testing |
-| [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | context-mode MCP registration is universal and entrypoint-owned | Agents, Architecture |
-| [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Terminal scrolling is buffer-authoritative on every route; held output ring-drops | Architecture |
-| [AD111](#ad111-synchronized-output-frames-are-delivered-atomically-at-the-write-boundary) | Synchronized-output frames are delivered atomically at the write boundary | Architecture, Reliability |
-| [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | CI runs as parallel path-filtered lanes and deploys reuse content-addressed container images | Architecture, Operations |
-| [AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty) | One owned Browser IDE extension uses Pi RPC and a Claude PTY (superseded by AD114) | Architecture, Security |
-| [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Native Pi Chat and the official Claude extension own editor integration | Architecture, Security, Supply Chain |
-| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Claude PR-boundary review lanes run as headless `claude -p` subprocesses | Architecture, Cost |
-| [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Review-lane Phase 0 is computed deterministically and handed to the lane | Architecture, Cost |
-| [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Review-lane cost is governed by turn count, so evidence gathering is structured in waves | Architecture, Cost |
-| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Seed provenance is carried in R2 custom metadata, verified before it was relied on | Storage, Agents |
-| [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Replace OpenVSCode with pinned code-server behind the existing session proxy | Architecture, Security, Build / Container |
-| [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Browser IDE uses fixed public workspace selection and exported UI-state continuity | Architecture, Security, Storage, Build / Container |
-| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | A review boundary is a delivery subcommand, not any Git invocation | Architecture, Build / Container |
-| [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | The CI monitor observes and reports; it does not cancel runs or chase the remote | Architecture, Build / Container |
-| [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | The Claude fix directive owns delivery; Pi leaves it to standing rules | Architecture, Cost |
-| [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Bounded re-delivery replaces the memory-capture hard block | Architecture, Cost, Agents |
+`Decision` is a concise label of at most 90 rendered characters. `Summary` is one sentence of 40–180 rendered characters naming the affected component or boundary, chosen mechanism, and a body-supported driver or operational consequence; historical rows also link the successor, retained scope, or redirect destination.
 
+| ID | Decision | Summary | Category | State |
+|----|----------|---------|----------|-------|
+| [AD1](#ad1-one-container-per-session) | Isolate each terminal session in its own container | Each terminal tab receives a dedicated 1-vCPU container, preventing noisy-neighbor contention and making teardown a clean-slate operation. | Architecture | Active |
+| [AD2](#ad2-container-id-format) | Derive container IDs from bucket and session IDs | Container IDs use `{bucketName}-{sessionId}` for direct Durable Object lookup without KV, and invalid session IDs never fall back to avoid orphans. | Architecture | Active |
+| [AD3](#ad3-per-user-r2-buckets) | Create an isolated R2 bucket for each user | The Worker derives and creates one S3-compatible bucket per email identity, isolating files and reducing user deletion to emptying and deleting that bucket. | Architecture | Active |
+| ~~[AD4](#ad4-periodic-rclone-bisync)~~ | ~~Replace the original periodic bisync policy~~ | The 60-second daemon cadence moved to [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), and final-drain timing moved to [AD57](#ad57-135-second-shutdown-budget-for-final-bisync). | Architecture | Superseded |
+| [AD5](#ad5-login-shell-autostart) | Autostart the configured agent from the login shell | The PTY launches `bash -l`, whose `.bashrc` starts the `TAB_CONFIG` agent unless `MANUAL_TAB=1` marks a user-created shell. | Architecture | Active |
+| [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | Accept KV races and keep metrics collection in one alarm | KV session state remains last-writer-wins, while one `alarm()` callback groups activity, health, and status work because stricter coordination adds unjustified latency. | Architecture | Active |
+| [AD7](#ad7-merged-into-ad10) | Redirect pre-setup endpoint risk to the bootstrap-window ADR | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) now contains the pre-setup public-endpoint risk acceptance formerly recorded here. | Security | Redirect anchor |
+| [AD8](#ad8-root-container-no-internal-auth) | Run root containers behind the Durable Object boundary | Containers run as root for rclone and trust a per-lifecycle proxy token because only the Durable Object can reach their internal port 8080. | Architecture | Active |
+| [AD9](#ad9-ressource_tier-spelling) | Redirect RESSOURCE_TIER compatibility to configuration docs | [Configuration](../lanes/configuration.md#container-specs) now owns the backward-compatible `RESSOURCE_TIER` spelling and its do-not-rename guidance. | Configuration | Redirect anchor |
+| [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Permit a bounded unauthenticated bootstrap window | Setup routes relax authentication and CSRF until `setup:complete` reaches KV, enabling self-hosted configuration before Cloudflare Access exists. | Security | Active |
+| [AD11](#ad11-suffix-pattern-cors-with-credentials) | Allow credentialed CORS through boundary-checked suffix patterns | `matchesPattern()` accepts configured suffixes such as `.workers.dev` with credentials while enforcing domain boundaries and leaving JWT validation as the primary gate. | Security | Active |
+| [AD12](#ad12-kv-based-setup-lock-non-atomic) | Use a non-atomic KV lock for one-time setup | Setup reads and then writes `setup:complete` in KV because its Cloudflare API steps are idempotent and a rare race causes redundant calls rather than corrupt state. | Security | Active |
+| [AD13](#ad13-per-user-scoped-r2-tokens) | Issue bucket-scoped R2 credentials per user | Each container receives an AES-256-GCM-cached R2 token limited to its user's bucket, reducing cross-user exposure despite requiring token-edit permission. | Security | Active |
+| ~~[AD14](#ad14-never-auto---resync-on-bisync-failure)~~ | ~~Replace the ban on automatic bisync resync~~ | [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) permits baseline re-establishment only after bounded recovery fails, while preserving deletion-safety concerns. | Storage | Superseded |
+| [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | Allow arbitrary bounded tab command strings | `TabConfigSchema` accepts command strings up to 200 characters because users already control a root shell inside their own ephemeral sandbox. | UI/Frontend | Active |
+| [AD16](#ad16-entrypointsh-1090-lines-complexity) | Retain the large entrypoint shell implementation | `entrypoint.sh` keeps its accumulated orchestration logic because rewriting production-tested migration, sync, PTY, and shutdown paths risks reviving solved defects. | Architecture | Active |
+| [AD17](#ad17-merged-into-ad6) | Redirect collectMetrics atomicity to the KV-races ADR | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) now owns the rationale for grouping `collectMetrics` work in one `alarm()` callback. | Architecture | Redirect anchor |
+| [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Keep untyped patterns inside isolated vendored WebGL modules | Vendored WebGL utilities retain confined `any` casts and an adapted constructor because upstream types are absent and refactoring visual code adds regression risk. | UI/Frontend | Active |
+| [AD19](#ad19-merged-into-ad18) | Redirect splash cursor casts to the vendored WebGL ADR | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) now contains the rationale for `as any` pointer and shader-uniform casts in `splash-cursor-logic.ts`. | UI/Frontend | Redirect anchor |
+| [AD20](#ad20-toctou-in-containerlifecyclets) | Treat lifecycle TOCTOU warnings as false positives | Durable Object serialization prevents `alarm()` and `fetch()` handlers for one ID from executing concurrently, so flagged lifecycle read/write races cannot occur. | Architecture | Active |
+| [AD21](#ad21-inconsistent-function-signatures) | Preserve mixed helper function signatures | Legacy helpers keep positional arguments and newer helpers use options objects because both contracts are typed, while normalization could regress callers. | Architecture | Active |
+| [AD22](#ad22-jwks-30s-cache-staleness) | Cache JWKS keys for 30 seconds | `jwt.ts` caches JWKS responses for 30 seconds because Cloudflare Access overlaps rotated keys and shorter caching would add verification latency without material benefit. | Security | Active |
+| [AD23](#ad23-cors-origin-pattern-validation) | Redirect CORS administrator trust rationale to security docs | [Security](../lanes/security.md#static-analyzer-false-positives) and the `isAllowedOrigin` docstring now own the administrator-trust basis for the CORS analyzer exception. | Security | Redirect anchor |
+| [AD24](#ad24-predictable-session-ids) | Redirect session ID rationale to security docs | [Security](../lanes/security.md#session-id-validation) and `src/lib/constants.ts` now explain that session IDs are KV namespace keys, while JWT remains the authentication gate. | Security | Redirect anchor |
+| [AD25](#ad25-e2e-service-email-hardcoded) | Redirect E2E fixture identity evidence to security docs | [Security](../lanes/security.md#static-analyzer-false-positives) and `src/lib/access.ts` now identify the hardcoded service email as a test fixture, not a credential. | Security, Testing | Redirect anchor |
+| [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Gate rate-limit bypass behind the integration environment | `STRESS_TEST_MODE=active` bypasses rate-limit I/O only in GitHub Actions' integration environment so shared-token k6 tests can exceed ordinary per-user limits. | Security | Active |
+| [AD27](#ad27-server-side-prefix-delete) | Delete R2 prefixes with server-side list and batch operations | `emptyR2Bucket()` lists objects and deletes batches of 1,000 through the S3 API, avoiding frontend rate limits that break large-folder deletion. | Storage | Active |
+| [AD28](#ad28-merged-into-ad26) | Redirect stress-test environment scoping to AD26 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) now owns the GitHub Actions environment boundary that keeps `STRESS_TEST_MODE` out of production. | Security | Redirect anchor |
+| [AD29](#ad29-container-secrets-as-env-vars) | Expose secrets as environment variables in single-tenant containers | The Container Durable Object injects scoped credentials and user keys as plaintext environment variables because the same user already controls the container's root shell. | Security | Active |
+| [AD30](#ad30-worker-name-from-host-header) | Derive the Worker name from Host during initial setup | Setup parses `.workers.dev` hosts for the Worker name and uses `CLOUDFLARE_WORKER_NAME` on custom domains, limiting spoofing exposure to an authenticated, idempotent setup window. | Security | Active |
+| [AD31](#ad31-root-container-is-intentional) | Redirect root-container rationale to security evidence | [Security](../lanes/security.md#static-analyzer-false-positives) and the Dockerfile now own the network-isolation rationale for intentionally omitting a non-root `USER`. | Security | Redirect anchor |
+| [AD32](#ad32-encryption_key-is-optional) | Make KV credential encryption optional | Deployments may omit `ENCRYPTION_KEY` and store credentials as plaintext JSON in KV, trading storage protection for simpler self-hosted onboarding. | Security | Active |
+| [AD33](#ad33-merged-into-ad10) | Redirect pre-setup CSRF risk to the bootstrap-window ADR | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) now owns the accepted CSRF risk while setup bypasses `X-Requested-With` checks. | Security | Redirect anchor |
+| [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | Maintain a parallel authentication path for WebSocket upgrades | The WebSocket handler mirrors authentication, CORS, rate limits, and tier gates before Hono because workerd upgrades cannot traverse the normal middleware chain. | Security | Active |
+| [AD35](#ad35-merged-into-ad18) | Redirect the legacy splash constructor to the vendored WebGL ADR | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) now owns the rationale for the `this: any` constructor and downstream untyped rendering code. | UI/Frontend | Redirect anchor |
+| [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | Permit originless WebSockets for non-browser clients | `terminal.ts` requires Origin only when `Sec-Fetch-Mode` signals a browser, allowing CLI clients while `authenticateRequest()` remains the mandatory credential gate. | Security | Active |
+| [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | Use Stripe as truth and KV as a billing read cache | Webhooks call `syncSubscriptionState()` to fetch and cache a complete Stripe snapshot, with `lastSyncedAt` preventing stale concurrent writes. | Billing | Active |
+| [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | Authenticate SaaS users with GitHub OIDC instead of Cloudflare Access | GitHub OIDC and HMAC session cookies remain active, but [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) replaced only the cookie-based OAuth state clause. | Billing | Partially superseded |
+| [AD39](#ad39-max-users-capacity-cap-counts-paid-slots-only) | Count only paid slots toward the user capacity cap | `countPaidSlots()` includes admins and active or trialing paid tiers while excluding free, pending, and blocked users so free accounts cannot consume paid capacity. | Billing | Active |
+| [AD40](#ad40-webhook-route-order-publicstripe-before-public) | Mount the Stripe webhook before the public catch-all route | Hono registers `/public/stripe` before `/public` so the catch-all router cannot intercept webhook requests or future specialized public sub-routes. | Billing | Active |
+| [AD41](#ad41-custom-tier-uses-contact-flow-not-self-service-checkout) | Route Custom-tier prospects through an email contact flow | The Custom tier sends a rate-limited Resend inquiry through `/api/auth/contact-team` instead of offering Stripe checkout because the plan requires enterprise discussion. | Billing | Active |
+| [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Allow the first internal bucket-name call without a token | The initial `/_internal/setBucketName` call relies on the non-public Durable Object binding because its per-lifecycle container token does not exist until afterward. | Security | Active |
+| [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Exclude vanished files before destructive bisync recovery | Bisync parses missing-file errors into a session filter and retries up to three times, reserving R2 object nuking for actual corruption rather than transient deletes. | Storage | Active |
+| [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | Ship SDD with three autonomy modes and conservative judgment handling | SDD provides interactive, auto, and unleashed modes under shared agent rules; unleashed marks unresolved spec conflicts Partial instead of overwriting intent. | Architecture | Active |
+| ~~[AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list)~~ | ~~Remove per-rule ADR overrides~~ | The SDD override mechanism moved to [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features), leaving recurring findings to rule or REQ fixes. | Process | Superseded |
+| [AD46](#ad46-review-reality-filter-as-phase-5) | Add a stateful Reality Filter to review | The `/review` pipeline adds a Phase 5 Reality Filter backed by `sdd/.review-decisions.md` to suppress repeat noise while preserving an audit log. | Architecture | Active |
+| [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | Keep PTY reaping subordinate to idle-stop policy | The PTY reaper uses a four-hour floor as a stuck-lifecycle safety net, so it cannot terminate an agent before the maximum `sleepAfter` policy. | Architecture | Active |
+| [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | Sign OAuth state in a stateless HMAC token | GitHub OAuth carries state as a 30-minute HMAC-SHA256 token, avoiding cookie loss under iOS ITP while retaining an expiry-bound CSRF check. | Security | Active |
+| [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | Preseed context-mode instead of installing it at runtime | The Custom-tier preseed hook path remains active, while MCP registration moved to [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). | Architecture | Partially superseded |
+| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Keep one ADR ledger with stable anchors | The unified `decisions/README.md` and stable AD anchors remain, while [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) removed `doc-allow-large`. | Process | Partially superseded |
+| [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Remove six overengineered SDD features | The SDD framework removes override, hatch, split-proposal, collision, commit-category, and annotation checks to reduce operator and authoring surface. | Architecture | Active |
+| [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Expose Graphify everywhere but gate proactive discipline | Graphify tools ship in every paid session, while advanced mode alone adds clone triage and graph-first nudges to avoid changing default agent behavior. | Architecture | Active |
+| [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Hot-reload Graphify across repositories | A lazy Graphify wrapper atomically swaps graph data and follows an advanced-mode active-repository sentinel, keeping one MCP process usable after clones and repo changes. | Architecture | Active |
+| [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Use a visible Vault directory basename | The vault lives at `/home/user/Vault/` because SilverBullet aborts walks of dot-prefixed roots, and the clean cutover restores file listing without a binary patch. | Storage | Active |
+| [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault `STYLES.md` from preseed on boot, binding SilverBullet theme variables to product tokens at the cost of in-editor theme customization. | Architecture | Active |
+| [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | Run bisync every 15 minutes with explicit triggers | The bisync daemon uses a 15-minute cadence plus manual and final-sync triggers, cutting idle R2 operations while accepting wider ungraceful-loss and convergence windows. | Storage | Active |
+| [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | Drain final bisync before container stop | Container teardown awaits an authenticated `/internal/final-sync` drain within 120 seconds and a 135-second hard cap, preserving recent writes before stop when possible. | Storage | Active |
+| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Use higher-fidelity, prefiltered memory capture | Memory capture filters raw transcript tool noise, processes bounded chunks, and uses Sonnet-tier synthesis to reduce recency bias and fabricated citations. | Memory | Active |
+| [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Encrypt Vault browser storage without a passphrase | Each session DO supplies a persisted random key to SilverBullet for encrypted IndexedDB, protecting offline browser profiles while accepting authenticated-page access. | Security | Active |
+| [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Reuse the memory-capture contract on Pi | Pi reads durable transcripts through the AD58 prefilter and shared prompt contracts, preserving citation discipline while AD103 bounds extraction to one pass. | Memory | Active |
+| [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Ship review as a native Pi skill | Pi deploys `/review` as a native 11-phase skill with report-only agents and root-owned persistence, because Claude slash commands do not transform into Pi workflows. | Architecture | Active |
+| [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Select Pi memory models through a generic lever | Pi uses optional `CODEFLARE_MEMORY_MODEL` for capture and extraction requests, avoiding vendor model literals while defaulting to the session model. | Architecture | Active |
+| [AD63](#ad63-pi-safe-graphify-updatesh-is-a-thin-bounded-upstream-update-wrapper) | Bound Graphify updates without forking output | Pi wraps upstream `graphify update` with memory and worker limits, leaving graph generation to Graphify so constrained containers avoid OOM without semantic drift. | Architecture | Active |
+| ~~[AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)~~ | ~~Move review lanes out of the additive extension model~~ | Detached review processes in [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) replaced in-process lanes and their `noExtensions` additive allowlist. | Architecture | Superseded |
+| [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Install Antigravity as the Google coding agent | The curl-installed `agy` replacement remains outside npm and V8 warm-up, while [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) restored its preseed lane. | Architecture | Partially superseded |
+| [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Fail security-sensitive rate limiters closed | Security-sensitive KV-backed limiters return 429 on store failure, accepting endpoint unavailability rather than multiplying abuse allowance across Worker isolates. | Security | Active |
+| [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Restore Antigravity's Gemini-compatible preseed lane | The seed generator writes rules, skills, and agents into Antigravity's home-scoped `.gemini` tree, replacing stale R2 artifacts with generated configuration. | Architecture | Active |
+| [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | Constrain the service-token admin bypass | The `X-Service-Auth` bypass requires stress-test mode, rejects SaaS mode, and restricts test hostnames so a misplaced secret cannot mint production admins. | Security | Active |
+| [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) | Run SilverBullet's grafted native service worker | The Vault serves SilverBullet's native worker with key-recovery grafts, preserving encrypted `sb_files_*` storage so cold loads sync incrementally instead of reindexing. | Architecture | Active |
+| [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Make persisted session status authoritative | Container exit paths write KV `stopped` and the dashboard removes heartbeat-age reconciliation, preventing both dangling sessions and false live-session kicks. | Architecture | Active |
+| [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Bundle the preseed corpus with a compressed-size guard | The Worker statically imports the agent preseed corpus while CI guards compressed bundle size, retaining a simple synchronous seed path until headroom shrinks. | Architecture | Active |
+| [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Intercept enterprise LLM traffic at container egress | A WorkerEntrypoint intercepts provider HTTPS and forwards with Worker-held AI Gateway credentials, keeping secrets out of containers and avoiding a public proxy route. | Architecture, Security | Active |
+| [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | Keep workers.dev enabled as the bootstrap host | Every deployment exposes its `workers.dev` URL so fresh accounts can run setup before a custom domain exists, with operators responsible for post-setup Access protection. | Security | Active |
+| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Route enterprise LLM calls through AI Gateway APIs | The LLM interceptor uses REST first with a 404 compat replay and catalog-driven routes, preserving streaming while covering providers absent from the REST surface. | Architecture, Security | Active |
+| [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Replace Pi's Graphify wrapper with a native extension | Pi registers first-party Graphify tools that call the same CLI engine as Claude, removing divergent query behavior and two npm dependencies. | Architecture | Active |
+| ~~[AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes)~~ | ~~Replace detached review lanes with visible agents~~ | Visible session-scoped agents in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) replaced detached headless Pi lanes and their disk-backed recovery machinery. | Agents | Superseded |
+| [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Bypass Access only for the Vault worker script | Enterprise setup creates a higher-precedence Access bypass for the non-sensitive Vault service-worker path so script fetches reach the Worker without credentials. | Architecture, Security | Active |
+| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | Run PR-boundary reviewers in parallel | PR-boundary lanes execute concurrently as report-only reviewers and return findings to the root, while mutation-owning `/sdd clean` remains sequential. | Agents | Active |
+| [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Bake Pi's path-correct extension transpile cache | The image warms Jiti at runtime-equivalent paths and verifies managed extension cache entries so first Pi output arrives under the pre-warm cap. | Performance | Active |
+| ~~[AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)~~ | ~~Remove the durable Pi merge gate~~ | The visible-agent model in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) replaced the hard pre-merge gate and its retroactive unreviewed-merge audit. | Architecture | Superseded |
+| [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Inject per-user GitHub tokens at container egress | Enterprise GitHub HTTPS interception replaces the container placeholder with a session-bound Worker token so the real credential never enters the container. | Architecture, Security | Active |
+| [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Let visible terminal panes own WebSockets | The frontend mounts terminal sockets only for visible panes and models MultiView as a local composition, preventing hidden sessions from reconnecting or resizing PTYs. | Architecture, UI/Frontend | Active |
+| ~~[AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket)~~ | ~~Persist Vault IndexedDB with a bucket-stable identity~~ | [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) replaced the rejection with a bucket-stable URL and HKDF key, enabling cross-session IndexedDB reuse. | Architecture | Superseded |
+| [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) | Retain the Vault worker key and open ready Vaults directly | The grafted Vault worker keeps its AES key until natural termination, and a green Vault control opens through the bootstrap hop without redundant readiness checks. | Architecture | Active |
+| [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Offer strict Gateway egress as a default-off boundary | An enterprise wizard toggle wires a fail-closed catch-all egress controller through the Workers VPC binding, applying customer Gateway policy to container web traffic. | Architecture, Security | Active |
+| [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Exempt own-account platform traffic from strict egress | Own-account platform traffic bypasses Gateway only after account-scoped matching, while EgressController preserves fail-closed direct-internet routing. | Architecture, Security | Active |
+| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing, WebSocket bridging, and props-based strict state remain; [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) moved browser-token injection to its per-host interceptor. | Architecture, Security | Partially superseded |
+| [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Compare bisync state with server modification times | Both bisync paths use `--use-server-modtime` with fast listings and 64 checkers, eliminating per-object HEAD storms while accepting R2 upload time as the conflict key. | Storage | Active |
+| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode controls deployment-wide R2 SSE-C policy | The enterprise-only KV toggle controls R2 SSE-C policy, separating deployment-wide encryption mode from the verified migration state machine. | Architecture, Security, Storage | Active |
+| [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Bake Governed Mode seed files for checksum delta sync | Governed Mode lays an image-baked agent seed down before checksum-based R2 sync, avoiding full seed downloads while preserving user deltas. | Storage | Active |
+| [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Run R2 regime migration as a verified chunked state machine | The R2 regime driver uses leased chunks, REPLACE self-copies, writer gates, verification, and dual-regime reads so policy flips remain resumable and readable. | Storage | Active |
+| [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Seed slim official Cloudflare skills in advanced mode | The advanced agent seed bundles 11 official skills and two commands but omits bulky references and MCP configuration to stay within Worker limits. | Agents | Active |
+| [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh Cloudflare OAuth tokens at the API egress boundary | The container interceptor replaces an OAuth placeholder with a fresh token on each api.cloudflare.com request, keeping real tokens out of live containers. | Architecture, Security | Active |
+| [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Track Vault extraction changes with a SHA-256 manifest | Vault extraction compares persisted path-to-SHA-256 entries instead of restored mtimes, preventing unchanged notes from being reprocessed after restart. | Storage | Active |
+| [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Keep Browser IDE runtime state session-isolated | The Browser IDE stays on a session-keyed route with ephemeral live state, preventing one session's workspace and editor state from bleeding into another. | Architecture, Security | Active |
+| [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Disable low-value CLI warm-ups to shrink the image | The Dockerfile skips Codex and Copilot V8 warming plus OpenCode database pre-init, saving about 147 MB while shifting cost to first launch. | Build / Container | Active |
+| ~~[AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk)~~ | ~~Retire the OpenVSCode vulnerability-risk acceptance~~ | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) replaces the pinned OpenVSCode runtime, removing the accepted upstream vulnerability posture and its scanner suppressions. | Security, Build / Container | Superseded |
+| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Run Pi PR review through visible session-scoped agents | Pi launches parallel report-only reviewers as public session agents and acknowledges an exact PR head only after root-published triage, avoiding a second durable lane system. | Agents | Active |
+| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Monitor Pi CI with one attached native subagent | A single resolver launches one public ci-monitor for the authoritative PR head, making CI independent of review and preventing duplicate detached monitors. | Agents | Active |
+| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Use upstream rpiv-todo 2.0.0 session isolation | The Pi seed pins rpiv-todo 2.0.0's session-keyed store and removes the temporary source override, so child lifecycle events cannot erase foreground tasks. | Agents | Active |
+| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | Give the foreground Pi session sole context-mode ownership | A managed process-global claim gives the root Pi session the only context-mode bridge, while in-process subagents use native or Bash transports to prevent helper leaks. | Agents, Architecture | Active |
+| [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Make Pi extraction root-owned and transactional | The root Pi session launches visible request-scoped extraction jobs and advances memory or Vault state only after validated artifacts and graph publication succeed. | Agents, Architecture | Active |
+| [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Bound Pi extraction to medium reasoning and one-pass inputs | Pi memory and Vault workers receive frozen inputs, Bash-only tools, medium reasoning, and four turns, bounding cost while preserving transactional graph publication. | Agents, Memory, Performance | Active |
+| ~~[AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming)~~ | ~~Retire xterm-owned trimming during manual scrollback~~ | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) retains mode ownership but replaces reader trimming and keyboard-open wheel routing after both failed in the field. | Architecture, Mobile | Superseded |
+| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Defer terminal output while users read scrollback | The terminal freezes normal-buffer writes during manual scrollback and routes navigation through buffer state, preventing trims and DOM drift from yanking the viewport. | Architecture, Mobile | Active |
+| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | Use one cross-agent SDD enforcement contract | Claude's canonical enforcement skills are transformed for Pi, and per-AC manual markers replace REQ-wide exemptions so both runtimes apply the same checks. | Process, Agents | Active |
+| [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | Keep context-mode opt-in for Pi sessions | Container startup disables context-mode until `/ctx on`, limiting exposure to its unsafe long-lived memory lifecycle while preserving explicit per-container access. | Agents, Architecture, Reliability | Active |
+| [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Permit multiple resolving test anchors per acceptance criterion | The SDD parser validates every comment-bounded `@test` anchor independently, allowing distributed behavioral evidence without splitting a coherent acceptance criterion. | Process, Agents, Testing | Active |
+| [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | Make entrypoint the sole Claude context-mode registrar | Container entrypoint always writes Claude's context-mode MCP registration, preventing tier-specific plugin metadata from creating duplicate servers. | Agents, Architecture | Active |
+| [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Make terminal scrolling buffer-authoritative on every route | Wheel, input, refit, and bottom-anchor paths use terminal buffer state, while held output drops oldest chunks at its cap so no write path can move a reader. | Architecture | Active |
+| [AD111](#ad111-synchronized-output-frames-are-delivered-atomically-at-the-write-boundary) | Deliver synchronized terminal frames as atomic writes | A per-terminal assembler emits each DEC 2026 synchronized frame in one write, preventing xterm's timeout from painting partial transcript rebuilds. | Architecture, Reliability | Active |
+| [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | Parallelize CI lanes and reuse verified container images | Path-filtered PR lanes run in parallel while deployment alone builds or reuses provenance-verified content-addressed images, reducing checks without weakening evidence. | Architecture, Operations | Active |
+| ~~[AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty)~~ | ~~Retire the owned dual-agent Browser IDE extension~~ | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) replaces the custom Pi RPC and Claude PTY sidebar with editor-native integrations that can access editor context. | Architecture, Security | Superseded |
+| [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Use native Pi Chat and the official Claude IDE extension | Native Pi and official Claude integrations retain panel, provider, runtime, and settings ownership, while [AD127](#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) replaces Pi Inline execution. | Architecture, Security, Supply Chain | Partially superseded |
+| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Run Claude review lanes as bounded headless subprocesses | Each review lane runs `claude -p` with isolated settings, its own model and effort, Bash-only tools, and validated guards to remove inherited prompt overhead. | Architecture, Cost | Active |
+| [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Precompute review-lane Phase 0 deterministically | The lane launcher computes SDD triage before model invocation and passes authoritative results in the opening prompt, eliminating repeated discovery turns. | Architecture, Cost | Active |
+| [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Gather review evidence in structured waves | Review lanes derive available evidence first and batch only named gaps into a second call, reducing quadratic turn cost without imposing a completeness cap. | Architecture, Cost | Active |
+| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Mark seeded R2 objects with verified provenance metadata | Seed writes stamp a build hash in R2 custom metadata, so cleanup deletes retired files only with positive product-ownership evidence and preserves user replacements. | Storage, Agents | Active |
+| [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Run pinned code-server behind the session proxy | The Browser IDE uses a checksum-verified unmodified code-server release on loopback while preserving authenticated session routes, fixed inventories, and lazy lifecycle. | Architecture, Security, Build / Container | Active |
+| [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Fix Browser IDE workspace selection and export safe UI state | The host rejects public workspace selectors and projects `/home/user/workspace`, while a bounded allowlist persists only safe UI preferences across sessions. | Architecture, Security, Storage, Build / Container | Active |
+| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | Anchor review coverage on delivery subcommands | Review candidacy still inspects any Git or GitHub CLI command, but lane coverage anchors only on push, PR creation, or merge to avoid read-only commands erasing earned coverage. | Architecture, Build / Container | Active |
+| [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | Keep the CI monitor observational | The CI monitor reports GitHub's terminal result with its head SHA and leaves cancellation to workflow concurrency, avoiding ambiguous branch-based remote control. | Architecture, Build / Container | Active |
+| [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | Let Claude's FIX directive own conditional delivery | Claude's FIX directive commits, handles any terminal CI result, and then pushes, while Pi keeps standing-rule delivery because its follow-up has different precedence. | Architecture, Cost | Active |
+| [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Redeliver memory capture requests within a fixed bound | Claude persists and reissues a capture request up to six times instead of blocking tools, preventing review-gate deadlocks while retrying failed publication. | Architecture, Cost, Agents | Active |
+| [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) | Rebuild bisync baseline after bounded recovery fails | The sync daemon tries resilient recovery and vanished-file repair before rebuilding its baseline after three failures, restoring persistence with bounded deletion risk. | Storage | Active |
+| [AD126](#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions) | Author Vault browser-realm scripts as explicit source | Vault bootstrap scripts cross the Worker-to-browser boundary as self-contained source with JSON-encoded inputs, avoiding bundler helpers leaked by function serialization. | Architecture, Security, Storage | Active |
+| [AD127](#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) | Use proposal-only Pi turns for native Inline edits | Proposal-only Pi execution and host-validated text edits remain active, while [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) replaces extension-owned confirmation and review lifecycle. | Architecture, Security | Partially superseded |
+| [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) | Give Inline review lifecycle to the pinned controller | Inline Chat binds edits to `request.location2.document` and lets the host controller own Keep, Close, settlement, and navigation, avoiding duplicate extension review UI. | Architecture, Security | Active |
+| ~~[AD129](#ad129-proxied-inline-uri-identity-must-be-observed-before-lifecycle-changes)~~ | ~~Retire the exact-URI Inline diagnostics evidence gate~~ | [AD131](#ad131-inline-diagnostics-retain-only-sanitized-resource-identity) replaces exact URI capture after the probe identified the authority mismatch and [AD130](#ad130-the-projected-workspace-uses-the-canonical-browser-authority) corrected it. | Architecture, Operations | Superseded |
+| [AD130](#ad130-the-projected-workspace-uses-the-canonical-browser-authority) | Project the workspace with canonical browser authority | The authenticated host uses its validated external authority in the fixed `folderUri`, making renderer and extension-host resources identical for native Inline review. | Architecture, Security | Active |
+| [AD131](#ad131-inline-diagnostics-retain-only-sanitized-resource-identity) | Sanitize retained Inline diagnostic identity | Inline diagnostics keep only scheme, stripped authority, basename, and input type, preserving rollout evidence without retaining paths, queries, fragments, or content. | Architecture, Security, Operations | Active |
+| [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) | Persist user extensions as a bounded intent manifest | The Browser IDE restores exact extension intent from one bounded R2-synced manifest over immutable base inventories, avoiding raw extension and credential-state persistence. | Architecture, Security, Storage, Build / Container | Active |
+| [AD133](#ad133-adr-indexes-use-bounded-self-contained-summaries) | Give ADR indexes bounded self-contained summaries | ADR indexes pair concise labels with body-supported one-sentence summaries so readers understand choices and state without opening every record. | Process | Active |
 ---
 
 ## Decisions
@@ -236,6 +253,8 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 
 Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccessedAt` is best-effort. KV doesn't support atomic read-modify-write. Durable Objects would add latency for negligible consistency gain in this use case.
 
+**Update (2026-08-14, explicit product decision):** concurrent-session admission remains best effort. A start counts KV list metadata before a later write marks its session `running`; simultaneous starts may both pass and exceed the nominal per-user limit until a session stops. This check discourages ordinary overuse but is not a lock or security boundary. Deployment `max_instances` remains the separate hard platform capacity. [Issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit, not atomic admission.
+
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
 **Update (2026-06-02, [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)):** the specific Dashboard-side revert this note worried about was the read-side `reconcileStaleStatus` heuristic (a separate later addition), which inferred `stopped` from a stale `metrics.updatedAt` heartbeat and could falsely kick a still-live session. That heuristic was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153); KV `status` is now authoritative and written on every container exit, so the Dashboard renders it verbatim with no reconciliation. The remaining `collectMetrics` RMW concern (overlapping writes to the same record) is unchanged and still last-writer-wins.
@@ -249,7 +268,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 ### AD7: Merged into AD10
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -281,7 +300,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 ### AD9: RESSOURCE_TIER spelling
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -394,20 +413,13 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Category:** Storage
 
-**Status:** Accepted (date not recorded)
+**Status:** Superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) (2026-08-14)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** This decision recorded the deletion-safety reason to avoid routine baseline resets. It did not match the daemon's already-existing fallback path and was later contradicted explicitly by [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6.
 
-**Decision:** `--resilient` + `--recover` for self-healing instead.
+**Historical decision:** Prefer resilient/recover semantics over automatic baseline reset because `--resync` can resurrect a deletion that has not propagated. Startup baseline establishment remains safe after the one-way restore.
 
-`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions -- if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.
-
-**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.
-
-**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.
-
-
-**Consequences:** The original compact ADR did not record a separate consequences field.
+**Consequences:** The deletion-resurrection risk remains current. AD125 narrows the disagreement: ordinary recovery still avoids `--resync`, while bounded baseline re-establishment is accepted only after the tracked failure budget is exhausted or the required listing state is absent.
 
 ---
 
@@ -447,7 +459,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD17: Merged into AD6
 
-**Category:** Architecture
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -485,7 +497,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ### AD19: Merged into AD18
 
-**Category:** UI/Frontend
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -551,7 +563,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD23: CORS origin pattern validation
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -566,7 +578,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD24: Predictable session IDs
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -581,7 +593,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD25: E2E service email hardcoded
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -632,7 +644,7 @@ Frontend folder deletion was subject to API rate limits (30/min browse, 20/min d
 
 ### AD28: Merged into AD26
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -681,7 +693,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ### AD31: Root container is intentional
 
-**Category:** (redirect)
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -694,6 +706,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ---
 
+<a id="ad32-encryption_key-is-optional"></a>
 ### AD32: ENCRYPTION_KEY is optional
 
 **Category:** Security
@@ -713,7 +726,7 @@ When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API t
 
 ### AD33: Merged into AD10
 
-**Category:** Security
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -745,7 +758,7 @@ WebSocket upgrades must be intercepted before the Hono middleware chain (documen
 
 ### AD35: Merged into AD18
 
-**Category:** UI/Frontend
+**Category:** Redirect anchor
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -798,7 +811,7 @@ Previous design had 6 webhook handlers incrementally patching KV fields, causing
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
-**Status:** Superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09) - oauth_state mechanism replaced
+**Status:** Partially superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09): only the `oauth_state` cookie mechanism was replaced; GitHub OIDC and the session-cookie decision remain active.
 
 **Decision:** CF Access costs $3/user/month beyond 50 users -- GitHub OIDC is free.
 
@@ -983,7 +996,7 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
-**Category:** (superseded)
+**Category:** Superseded
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -1200,7 +1213,7 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-10); MCP registration wiring superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). The Custom-tier hook decision remains active.
+**Status:** Partially superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned): MCP registration wiring only; accepted 2026-05-10, while the Custom-tier hook decision remains active.
 
 **Context:** [context-mode](https://github.com/mksglu/context-mode) reduces Claude Code's context-window pressure by routing tool calls through hooks that summarize before content lands in the conversation. It ships as an npm package whose Claude Code plugin metadata is normally written into the user's `~/.claude/plugins/` and `~/.claude/settings.json` by `claude plugin install context-mode`. During the first integration attempt (PR codeflare#293, since closed), a research subagent invoked that installer in the host's session and the upstream installer wrote `"matcher": null` for the SessionStart hook entry, which Claude Code 2.1.138 rejects with "Expected string, but received null", silently disabling every other hook in the file.
 
@@ -1279,11 +1292,11 @@ without the shim, `ctx_execute` and `ctx_batch_execute` fail on every dynamic `r
 **Consequences:** The original compact ADR did not record a separate consequences field.
 ### AD50: Unified ADR file with structural doc-allow-large exemption
 
-**Category:** (superseded)
+**Category:** Process, partially superseded
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
-**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
+**Status:** Partially superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` escape hatch was removed; the unified ADR ledger and stable-anchor decision remain active.
 
 **Decision:** (still in effect) All ADRs live in a single `decisions/README.md`. AD-N identifiers are referenced throughout the codebase, so splitting into one file per ADR would mean rewriting every inbound `README.md#ad-N` anchor for no product value. The file-size overage is an accepted, known LOW the operator defers; per-ADR budget enforcement still applies, so any new ADR over the per-ADR cap is split or compressed. Only the `<!-- doc-allow-large -->` hatch-exemption machinery was superseded ([AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)).
 
@@ -1740,6 +1753,7 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate.
 
+<!-- doc-allow-element: AD61 accepted decision paragraph is preserved verbatim -->
 The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set. Every `/review` subagent runs in binding report-only mode and returns its report; the root owns report persistence, external verification, triage/ADR/issue mutations, and approved fixes. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/agents/refactor-cleaner.md::Binding /review override --> <!-- @impl: preseed/agents/claude/agents/tdd-guide.md::Binding /review override --> <!-- @impl: preseed/agents/claude/agents/deep-reviewer.md::Binding /review override -->
 
 **Consequences:**
@@ -1853,7 +1867,7 @@ Alternative 2 — Self-guard `review-enforcement` to no-op when loaded in a lane
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-30); the no-preseed-lane clause is superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01).
+**Status:** Partially superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01): the no-preseed-lane clause only; accepted 2026-05-30, with the remaining decisions active.
 
 **Context:** `@google/gemini-cli` (npm, `gemini` command) was removed from the Dockerfile and entrypoint. The replacement is Antigravity (`agy`), Google's successor CLI, installed via `curl -fsSL https://antigravity.google/cli/install.sh | bash` as a Go-native binary. Because `agy` is not an npm package it is excluded from the V8 compile-cache warm-up step (same as `opencode`). The `~/.gemini/settings.json` auto-update suppressor written by Fast Start is also removed; `agy` has no equivalent config-file suppressor mechanism at this time.
 
@@ -1964,6 +1978,7 @@ The probe covers the SB-native half only; the codeflare-proxy half (serving the 
 
 **Integration finding (2026-06-01, `SB-fix`):** the first integration deploy served the native worker WITHOUT the recovery graft (to observe). It reproduced the keyless-`.auth` bounce predicted below - but on **cold boot**, not only after idle. Reading the vendored 2.8.1 worker explains why: it not only holds the key in module memory (lost on idle-termination) but actively flushes it `5s` after the last client disconnects (`"No more clients, flushing encryption key", y=void 0`). During the bootstrap-hop -> `location.replace('/')` transition the client count momentarily drops, so the key can be gone before the shell boots. The graft is therefore mandatory for cold boot too, not just the mobile idle case.
 
+<!-- doc-allow-element: AD69 accepted decision paragraph is preserved verbatim -->
 A first attempt grafted only the `get-encryption-key` handler and STILL bounced to `.auth` - because that is not the path that fails. The actual trigger is the worker's **`config`** message handler: when the client posts `config` with codeflare-injected `enableClientEncryption:true` while `y` is empty, the gate `if(t.enableClientEncryption&&!y)` posts `auth-error` -> client navigates to `.auth` (console: "Supposed to use encryption, but no phrase set yet, auth error"). It reads `y` directly, never asking `get-encryption-key`. So `graftVaultKeyRecovery` (`src/routes/vault/native-sw.ts`) injects a shared `__cfRecover()` helper (re-fetch + decode from `/.vault-key`) and calls it at BOTH `y`-empty failure points - the `config` auth-gate (the load-bearing one) and the `get-encryption-key` reply - before either gives up. An `activate`-handler graft remains unnecessary.
 
 The same deploy also resolved the `/.client/*` precache-auth question (the other half of the decision below): the native worker reached `activated` and SB booted under its control, which can only happen if `install` -> `cache.addAll(precacheFiles)` resolved, i.e. the `/` and `/.client/*` precache fetches all returned 2xx. Service-worker `fetch()` carries same-origin credentials, so the precache fetches send the session cookie and pass the normal auth chain - no static-asset exemption is required. The exemption is therefore NOT implemented; the precache-auth exemption ([REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker), the native-SW contract) stays reserved as a fallback only if a future browser strips credentials on precache fetches.
@@ -2152,7 +2167,7 @@ This intentionally overrides REQ-ENTERPRISE-004's original "does not expose the 
 
 **Catalog-driven routing + multi-group attribution amendment (2026-06-09):** Two changes supersede earlier mechanisms in this ADR. (1) **Route selection moves from the single `AIG_LANGUAGE_MODEL` Worker var to a Setup-configured catalog** ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)): the setup wizard persists an unlimited route list plus one optional default `route:reasoning` in KV (`setup:dynamic_routes`, `setup:default_route`), editable with no redeploy; `AIG_LANGUAGE_MODEL` and its `deploy.yml` plumbing are **removed**. The `LlmInterceptor` now maps the agent's slash-free handle to `dynamic/<route>` from the catalog (`loadRouteCatalog`), failing safe to the resolved default on an unknown handle — superseding both the route-pinning amendment's single-var stamp and the `AIG_LANGUAGE_MODEL` backend-selection consequence above.
 
-The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch). (2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns ALL matched Access groups and the interceptor stamps one `group_<sanitized>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured order with a warn).
+The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch). (2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns every match from the configured user-access list and the interceptor stamps one `group_<sanitized>_<hash>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured-list order with a warning). Unconfigured IdP memberships and separately configured admin-group memberships are excluded.
 
 Per-group KEYS — not a CSV value — because the AI Gateway log/route filter operators are equals/not-equals only (no `contains`), so each `group_*` key is independently equals-filterable to build per-group Dynamic-Route if/else conditions ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). `sanitizeGroupKey` lowercases + replaces non-alphanumerics + appends a djb2 hash suffix so distinct names never collide on a sanitized key.
 
@@ -2162,7 +2177,7 @@ The REST API at `api.cloudflare.com/.../ai/v1/*` still requires a Cloudflare API
 
 codeflare's caller is a machine-to-machine `WorkerEntrypoint` with no interactive browser/JWT flow. Non-interactive Access uses a service token (a client-id/secret pair), so it remains a static secret and adds no containment gain over the Worker-only secret model already established in [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing).
 
-codeflare runs many end-users behind one Worker credential. A single Access identity cannot carry per-user attribution; gateway spend limits split on `cf-aig-metadata`, so codeflare must keep stamping `{ user: <email>, group: <access-group> }`.
+codeflare runs many end-users behind one Worker credential. A single Access identity cannot carry per-user attribution; gateway spend limits split on Worker-stamped `cf-aig-metadata.user` and the bounded `group_<sanitized>_<hash>` tags, so the application must keep supplying that per-request attribution.
 
 codeflare's metadata is not honor-system. The Worker stamps it from a server-side DO prop and strips any container-supplied value, so the container cannot forge it.
 
@@ -2234,7 +2249,9 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 
 **Context:** In Enterprise Mode the setup wizard provisions a **host-scoped** Cloudflare Access application ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC5) so the session cookie covers every path. SilverBullet's vault editor registers a native service worker by fetching `/api/vault/:sid/service_worker.js` — a browser-initiated registration fetch that carries **no credentials** (browsers omit them on SW script fetches). The host-wide Access app therefore 302s that fetch to the IdP login *before* the Worker runs, so the Worker's own credential-less SW short-circuit ([REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker)) never executes and SilverBullet cannot register its worker (confirmed live: `curl` → 302 to `*.cloudflareaccess.com`).
 
-The SW script bytes are non-sensitive — the per-session encryption key arrives later via `postMessage` — so the path can safely skip Access.
+The SW script bytes are non-sensitive — the encryption key arrives later via `postMessage` — so the path can safely skip Access.
+
+**Key-lifecycle update (2026-08):** [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) later replaced the original per-session key with a bucket-derived key so encrypted browser caches persist across sessions. That change does not alter this decision's security boundary: the key still never appears in the bypassed worker script and reaches the worker only through the authenticated bootstrap hop.
 
 **Decision:** During enterprise setup, auto-provision a **second, higher-precedence** Access application + policy scoped to `<domain>/api/vault/*/service_worker.js` with `decision: 'bypass'` and `include: [{ everyone: {} }]`, so that one path resolves to the Worker (which then serves the version-locked native SW) instead of the host-wide Access 302. The app id is stored in KV (`setup:access_sw_bypass_app_id`). Provisioning is **best-effort and self-healing**: it never aborts the already-succeeded host-wide Access setup, persists the app id only after the bypass policy succeeds, and rolls back a freshly-created app if the policy step fails — because a `self_hosted` Access app with no policy DENIES its path, which would be worse than the 302 it fixes.
 
@@ -2458,7 +2475,9 @@ Persistence is deferred. The actual drivers of the per-session terminal/keyboard
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`.
+**Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`; readiness-marker residual superseded by the v3 clean cutover in [REQ-VAULT-029](../../sdd/spec/vault.md#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety).
+
+**2026-08 clean-cutover addendum:** The deferred bucket-keyed marker design was not adopted. SilverBullet precaches its shell, so shell-embedded session readiness metadata is the wrong authority regardless of marker key. The v3 release instead removes stale Vault service workers on the user's explicit first click, installs one permanent canonical scope, and arms only from current runtime/sync/index/required-file proof. Persistent reload auto-arming and background retry are removed; each fresh dashboard load keeps the white → click-one accent → green → click-two open lifecycle. Historical IndexedDB databases remain untouched orphan caches.
 
 **Decision:** Two coupled changes to the vault open path. (1) The native-SW graft NEUTERS SilverBullet's proactive "no window clients" key flush — the `setInterval` that wiped the in-memory AES key `y` 5s after the last client disconnected — keeping its no-client log but dropping the `y=void 0` wipe, so the key is retained for the worker's natural lifetime; `__cfRecover` (re-fetch from the auth-gated `/.vault-key`) is kept only for a genuinely idle-terminated worker. (2) `handleVaultOpen` opens a green (`pw === 'ready'`) Vault button DIRECTLY via the bootstrap-hop, dropping the per-open re-verify of local readiness + key recoverability and its re-prewarm fallback.
 
@@ -2484,9 +2503,7 @@ Key `vault-session-*-idbs`/`-prewarmed` by the bucket token (like the bucket-sta
 - The cold-open `.auth` bounce and the in-session "re-index on every click" are both resolved; a green button opens immediately and identically on mobile/tablet/desktop.
 - The two changes are COUPLED: opening a green button directly is only safe because the key is retained (no flush race), so they ship together.
 - Forward secrecy is marginally relaxed (the key lives in SW memory until idle-termination — tens of seconds — instead of 5s after close); accepted because the key is re-derivable from `/.vault-key` regardless.
-- KNOWN RESIDUAL:
-
-the marker-key divergence still false-negatives the reload-skip auto-green, so a returning session's button does not auto-green and needs one on-demand click; the durable fix (bucket-key the marker) is deferred. The residual service-proxy-error `.auth` path is also unpatched (flagged residual-risk).
+- The former marker-key divergence and reload-skip residual are superseded by the v3 clean cutover: no persistent readiness marker auto-arms a fresh dashboard load. The residual service-proxy-error `.auth` path remains unpatched because authentication failure is not encryption-key recovery.
 
 **Related:** [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing), [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [Troubleshooting lane — vault rows](../lanes/troubleshooting.md).
 
@@ -2580,7 +2597,7 @@ own-account R2 (the `.r2.cloudflarestorage.com` suffix requires the leading dot,
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-06-27). Refines [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) on three points, all verified against live `enterprise-integration` logs/code before the change. The own-account exemption and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary are unchanged.
+**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container): browser-token injection only. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
 
 **Context:** AD86 narrowed strict egress to direct-internet traffic and added an account-scoped exemption, but its first deploy left three problems on `enterprise-integration`:
 
@@ -2844,7 +2861,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-07-11); amended by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28.
+**Status:** Accepted (2026-07-11); amended by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, then by [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) on 2026-08-17.
 
 **Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale.
 
@@ -2904,7 +2921,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12); amended 2026-07-22 with live-session agent-end acknowledgement, settled fallback, and event-scoped boundary identity; amended 2026-07-30 so explicit user bypasses acknowledge the validated boundary head; amended 2026-08-03 to derive eligibility from authoritative checked-out-branch state.
+**Status:** Accepted (2026-07-12); amended 2026-07-22 with live-session agent-end acknowledgement, settled fallback, and event-scoped boundary identity; amended 2026-07-30 so explicit user bypasses acknowledge the validated boundary head; amended 2026-08-03 to derive eligibility from authoritative checked-out-branch state; amended 2026-08-17 with exact-head disposition checkpoints and pre-delivery recovery.
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 
@@ -2916,7 +2933,9 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 The emitted review window persists boundary-call, repository, branch, PR, base, and full-head identity, while PR-number-specific checkpoints preserve independent incremental ranges, so lifecycle acknowledgement never reroutes through ambient cwd or active-repository memory. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::commandInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 
-The live handler records a boundary as evaluated only after authoritative state resolves to a launch or a conclusive no-plan outcome. A temporarily unavailable or stale boundary defers that marker and retries through same-session agent-end and settled recovery; resumed-session recovery continues an unevaluated persisted boundary after reload. Each path emits the initial plan once ([REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up)). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+The live handler records a boundary as evaluated only after authoritative state resolves to a launch or a conclusive no-plan outcome. A launch or acknowledgement checkpoint includes its exact repository, PR, head, and disposition before Pi queues the follow-up; runtime-local queued identities suppress duplicate plans and missing-work messages until delivery becomes visible. A temporarily unavailable or stale boundary defers that marker and retries through same-session agent-end and settled recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+Existing-session startup or resume recovers one accepted plan or acknowledged FIX handoff whose queued message is absent, while the latest persisted review window remains separate from newer raw Git candidates. A transcript-visible FIX retires that window before later head-drift handling. Each path emits the initial plan once ([REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift), [REQ-AGENT-141](../../sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity)). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 With a valid prior acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed. Unmatched calls remain in flight until native terminal notification. Only the reminder SHA can be acknowledged. The ordinary completion path requires a tool-free root response containing the fixed triage table after every required successful notification; `agent_end` reads live session state, writes the acknowledgement, and emits one next-turn FIX handoff, with `agent_settled` as the idempotent fallback ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier)).
 
@@ -2930,7 +2949,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Consequences:** Review execution is visible and simple, but active reviews end with the Pi session. A missed initial live handler is recovered once from its persisted successful boundary after reload; already-launched unfinished work requires a later supported boundary to rerun. An explicitly bypassed head is already acknowledged and therefore does not rerun. Triage and fixing consume separate root turns for reviewed heads, preventing accepted fixes from replacing the reviewed head before acknowledgement and preserving incremental push ranges. AD78's parallel report-only policy remains; only Pi's durable result-file mechanics are replaced. AD76's detached lane architecture and AD80's hard merge gate no longer govern Pi.
 
-**Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up).
+**Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-110](../../sdd/spec/agents.md#req-agent-110-pi-pr-boundary-missing-launch-follow-up), [REQ-AGENT-126](../../sdd/spec/agents.md#req-agent-126-pi-review-checkpoint-persistence-and-head-drift), [REQ-AGENT-132](../../sdd/spec/agents.md#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-141](../../sdd/spec/agents.md#req-agent-141-authoritative-head-review-launch-continuity), [REQ-AGENT-145](../../sdd/spec/agents.md#req-agent-145-failed-pr-creation-reconciliation).
 
 ---
 
@@ -3298,23 +3317,25 @@ The extension compiles its exact `node-pty` dependency for OpenVSCode's Node 22 
 
 ### AD114: Native Pi Chat and the official Claude extension own editor integration
 
-**Category:** Architecture, Security, Supply Chain
+**Category:** Architecture, Security, Supply Chain, partially superseded
 
-**Status:** Accepted (2026-07-23); amended 2026-07-24 for unrestricted IDE-agent tools, 2026-07-25 for universal workspace settings, by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, 2026-08-12 for native Pi editor Inline Chat, and 2026-08-13 for the distinct Codeflare provider, single custom-agent source, and persistent IDE-owned Pi conversation. Implements [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), and [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution); deployed integration pass@3 completes [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation).
+**Status:** Accepted 2026-07-23 and amended through the direct panel-routing decision on 2026-08-16. Partially superseded later on 2026-08-16 by [AD127](#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits): only editor Inline execution was replaced; the remaining native Pi, official Claude, provider, runtime, and settings decisions stay active. Implements [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), and [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat); deployed integration run `30413127704` provides manual evidence for [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), whose active specification status remains authoritative.
 
 **Context:** The owned webview from AD113 could chat with Pi or render Claude's PTY, but it could not see the active editor, selected text, open files, diagnostics, or native references. Users had to copy file contents into a UI presented as an IDE agent. OpenVSCode 1.109.5 has a native Chat participant API for Pi, while Anthropic publishes its official Claude Code extension for VS Code forks through Open VSX. The owner explicitly accepts both the extension's all-rights-reserved licensing ambiguity for server-image inclusion and its authenticated loopback IDE MCP transport. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 
-**Decision:** Keep fixed tab-1 inventory selection, but give each supported agent its editor-native integration. The Pi inventory contains one Codeflare-owned extension that registers `codeflare.pi` as the default participant in panel and editor Inline Chat. The pinned host resolves a non-optional eligible model before invoking either location, so the extension publishes one account-free selectable compatibility model and enables the extension-qualified `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant` proposals only for that package and host. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/package.json::enabledApiProposals -->
+**Decision:** Keep fixed tab-1 inventory selection, but give each supported agent its editor-native integration. The Pi inventory contains one Codeflare-owned extension that registers `codeflare.pi` as the default participant in panel and editor Inline Chat. The pinned host resolves a non-optional eligible model before invoking either location, so the extension publishes one account-free selectable compatibility model and enables the extension-qualified `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant` proposals only for that package and host. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/package.json::enabledApiProposals -->
 
-Two inert compatibility providers satisfy separate pinned-host boundaries. A hidden, non-selectable `copilot`-vendor model is panel-default only so the extension host's absent-request-model lookup can construct the participant request. A selectable panel/editor-default model under the distinct `codeflare` vendor stays outside Code OSS's Copilot entitlement and sign-in path and reports tool calling solely for the pinned editor filter. Both request no authorization and reject generation; the participant never reads `request.model` or sends a prompt through either. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
+Two inert compatibility providers satisfy separate pinned-host boundaries. A hidden, non-selectable `copilot`-vendor model is panel-default only so the extension host's absent-request-model lookup can construct the participant request. A selectable panel/editor-default model under the distinct `codeflare` vendor stays outside Code OSS's Copilot entitlement and sign-in path and reports tool calling solely for the pinned editor filter. Both request no authorization and reject generation; the participant never reads `request.model` or sends a prompt through either. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
 
 The Pi settings disable the duplicate `~/.claude/agents` discovery path while retaining `~/.copilot/agents` for Code OSS and `~/.pi/agent/agents` for Pi itself. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings -->
 
-The first panel or editor request lazily starts one IDE-owned `pi --mode rpc --no-session --no-themes` process. Strict FIFO serialization is mandatory because Pi stream events do not identify their prompt. Normally completed turns retain the process; active cancellation, protocol or process failure, unexpected exit, and deactivation boundedly reap it before replacement. Queued cancellation skips only that request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
+The first panel request, or the panel continuation of an editor-originated request, lazily starts one IDE-owned `pi --mode rpc --no-session --no-themes` process. Strict FIFO serialization is mandatory because Pi stream events do not identify their prompt. Normally completed turns retain the process; active cancellation, protocol or process failure, unexpected exit, and deactivation boundedly reap it before replacement. Queued cancellation skips only that request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
 
-Panel and editor intentionally share the process's in-memory conversation, separate from terminal Pi. Cold creation or replacement hydrates from the requesting surface's bounded visible Chat history. Warm turns send only the current request and editor context so visible history is not duplicated into Pi's transcript. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput -->
+Panel requests and editor-originated turns continued into panel Chat intentionally share the process's in-memory conversation, separate from terminal Pi. Cold creation or replacement hydrates from the owning panel request's bounded visible Chat history. Warm turns send only the current request and editor context so visible history is not duplicated into Pi's transcript. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput -->
 
-Pi remains unrestricted and may write files or run commands beyond an Inline Chat selection; those direct effects are not host text-edit parts and carry no transactional Keep/Undo guarantee. It never asks for a VS Code authentication session. Sidebar Pi registers no guarded tool replacements, and extension confirmation requests auto-approve without UI. <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost -->
+Pi remains unrestricted and may write files or run commands beyond an Inline Chat selection; those direct effects are not host text-edit parts and carry no transactional Keep/Undo guarantee. Code OSS 1.132's editor Inline Chat filters ordinary participant output and waits for host-owned edit transactions. Its `inlineChat2.continueInChat` action is termination-only, so invoking it during the active participant request is rejected as a no-op. The private request location instead submits the unchanged prompt to visible panel Chat through `workbench.action.chat.open` before Pi inference.
+
+Replaying already-applied Pi effects as host edits, patching Code OSS, or leaving output on an invisible response stream are also rejected. It never asks for a VS Code authentication session. Sidebar Pi registers no guarded tool replacements, and extension confirmation requests auto-approve without UI.
 
 The Claude inventory contains the exact official `Anthropic.claude-code` linux-x64 package pinned by `openvscode/agent-sidebar/official-claude.json`. The Docker build downloads that Open VSX artifact, verifies its pinned SHA-256 and publisher/name/version/platform/engine/entry point, extracts unchanged package files, deletes the VSIX archive, and stages the files root-owned and immutable. Codeflare does not patch or serve Anthropic's package. External ephemeral settings point its bundled CLI at the allowlisted temporary `CLAUDE_CONFIG_DIR`, unrestricted `bypassPermissions` mode, enabled dangerous permission skipping, no managed ask hook, disabled Anthropic login prompt, right-sidebar location, and disabled OpenVSCode AI features so the unrelated Copilot setup is absent.
 
@@ -3324,17 +3345,19 @@ Before launch, every agent kind seeds OpenVSCode User settings that disable work
 
 Disabling workspace trust removes VS Code's own gate on the untrusted repository input recorded in [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk). This adds no protection the sandbox does not already assume, because the container is the security boundary and IDE agents already run unrestricted ([REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent)).
 
-**2026-07-28 amendment:** AD119 changes only the host runtime. The original Decision's references to OpenVSCode 1.109.5 and OpenVSCode settings are historical; code-server 4.130.0 and its embedded Code OSS 1.130.0 now own the native Chat host and settings contracts. Code OSS remains at or above the owned Pi extension's API floor and is required to admit `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant`; CI must prove those APIs against the actual image. The exact official Claude package and loopback-only IDE MCP contract remain unchanged. Private source paths and shell symbol names containing `openvscode` remain temporarily as implementation identifiers rather than runtime claims.
+**2026-07-28 amendment:** AD119 changes only the host runtime. The original Decision's references to OpenVSCode 1.109.5 and OpenVSCode settings are historical; code-server 4.130.0 and its embedded Code OSS 1.130.0 now own the native Chat host and settings contracts. Code OSS remains at or above the owned Pi extension's API floor and is required to admit `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant`; CI must prove those APIs against the actual image. The exact official Claude package and loopback-only IDE MCP contract remain unchanged. Private source paths and shell symbol names containing `openvscode` remain temporarily as implementation identifiers rather than runtime claims.
 
 **Alternatives rejected:** Patching OpenVSCode to admit a model-less participant (violates the upstream-clean boundary); retaining the custom Pi webview (no native editor context); retaining the Claude PTY as the primary IDE UI (same usability gap); injecting `GH_TOKEN` into Copilot or VS Code Authentication (unrelated identity, entitlement, and token boundary); downloading the 85 MiB Claude package on every session (latency and availability regression); patching Anthropic's package; adding a Codeflare Worker relay, public listener, second container, ACP adapter, or workspace crawler.
 
-**Consequences:** Pi uses the main native Chat sidebar without a login or attached-file copying. Panel and editor share one hidden IDE transcript for the lifetime of the healthy RPC process; users should expect a turn in either surface to inform later turns in the other. Anthropic's package provides native selections, `@` references, diffs, plans, history, and diagnostics; integration deployment run `30413127704` passed authenticated Claude context pass@3 on three fresh sessions.
+**Consequences:** Pi uses the main native Chat sidebar without a login or attached-file copying. Panel turns and editor-originated turns share one hidden IDE transcript for the lifetime of the healthy RPC process; editor submission opens the visible panel response because the pinned upstream Inline Chat cannot represent unrestricted direct effects truthfully. Users should expect a turn originating from either surface to inform later turns. Anthropic's package provides native selections, `@` references, diffs, plans, history, and diagnostics; integration deployment run `30413127704` passed authenticated Claude context pass@3 on three fresh sessions.
 
+<!-- doc-allow-element: AD114 accepted decision paragraph is preserved verbatim -->
 The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY code are removed. The image grows by the extracted official extension (about 285 MiB), and a code-server, embedded Code OSS, or Anthropic API change can break integration; exact package, manifest, proposal, complete-image, and laziness checks therefore fail closed. The owner accepts the proprietary-license and local authenticated-MCP boundaries. <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, reference, diagnostic, and chat context) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated OpenVSCode settings) -->
 
 
 ---
 
+<a id="ad115-review-lanes-run-as-headless-claude--p-subprocesses"></a>
 ### AD115: Claude PR-boundary review lanes run as headless `claude -p` subprocesses
 
 **Category:** Architecture, Cost
@@ -3442,7 +3465,7 @@ The third result is why the sweep is shaped as it is: the marker can only be rea
 
 **Category:** Architecture, Security, Build / Container
 
-**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
+**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) and [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 
 **Context:** OpenVSCode Server no longer provides a sufficiently current base for further Browser IDE investment. Codeflare must replace it without changing the authenticated session route, isolation boundary, lazy lifecycle, ephemeral editor state, owned native Pi integration, or exact official Claude integration.
 
@@ -3452,7 +3475,7 @@ code-server has an authoritative [release history](https://github.com/coder/code
 
 Keep the established public `/api/vscode/<sessionId>/` location so the migration does not introduce a second session boundary. [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) owns authenticated HTTP/WebSocket routing beneath that location; [REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection) owns public selector rejection; and [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url) owns private workspace projection and clean redirects. These are behavioral contracts rather than assumptions about code-server CLI flags.
 
-Preserve the existing lazy init/restart/generation cleanup and fixed Pi, Claude, and empty inventories. Remove code-server's bundled GitHub Copilot extension at image build while leaving code-server and Code OSS source unpatched. Pass code-server explicit ephemeral user-data and extension directories matching the settings preparation layout. The Pi package keeps the `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant` proposals only if the actual embedded Code host admits them. The exact official Anthropic package and authenticated loopback-only IDE MCP remain unchanged. Legacy private `openvscode` file paths and function names are retained for this bounded migration to avoid an unrelated mass rename.
+Preserve the existing lazy init/restart/generation cleanup and fixed Pi, Claude, and empty inventories. Remove code-server's bundled GitHub Copilot extension at image build while leaving code-server and Code OSS source unpatched. Pass code-server explicit ephemeral user-data and extension directories matching the settings preparation layout. The Pi package keeps the `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant` proposals only if the actual embedded Code host admits them. The exact official Anthropic package and authenticated loopback-only IDE MCP remain unchanged. Legacy private `openvscode` file paths and function names are retained for this bounded migration to avoid an unrelated mass rename.
 
 **Verification and rollout:** Automated suites exercise exact HTTP/WebSocket prefix stripping, queries, preserved caller Origin with canonical Host behavior, redirect, cookie, and `Service-Worker-Allowed` header rewriting, launch flags, settings paths, lifecycle cleanup, runtime pin/checksum, embedded Code metadata, and extension discovery. The deployment container-image workflow retains SBOM and Trivy evidence, while the complete-image job enforces readiness, image-size, process-count, and RSS ceilings informed by the captured rollback baseline. Deployed integration verification owns service-worker scope, reconnect URLs, and real Pi/Claude activation.
 
@@ -3470,7 +3493,7 @@ Integration promotion requires pass@3 evidence for Pi native Chat, official Clau
 
 **Category:** Architecture, Security, Storage, Build / Container
 
-**Status:** Accepted (2026-07-28). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), and [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
+**Status:** Accepted (2026-07-28); amended by [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) on 2026-08-17. Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), and [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
 
 **Context:** code-server's CLI folder made `/home/user/workspace` the initial location but its root redirect exposed that path as a public `folder` query, and callers could substitute `folder`, `workspace`, or `ew`. Code OSS reads browser-visible selectors or a server-provided `folderUri`; a selector added only to the private proxy request therefore leaves a clean browser document as an empty window.
 
@@ -3535,6 +3558,7 @@ In both cases each fix repaired the previous fix. That is the signal that the me
 
 **Decision:** The monitor observes GitHub and reports what it sees. It does not cancel runs, and it does not consult the remote about its own relevance.
 
+<!-- doc-allow-element: AD122 accepted decision paragraph is preserved verbatim -->
 Cancellation belongs to the workflows. Every one whose superseded runs are worth killing declares `concurrency` with `cancel-in-progress: true`; most key the group on `github.ref`, which for a `pull_request` event is the per-PR merge ref, so two pull requests sharing a head branch name never cancel each other while superseded pushes of the same pull request always do. A client reconstructing that from a branch name cannot match it, because the branch name is precisely the ambiguous part. The workflows that omit `cancel-in-progress` omit it on purpose: `deploy.yml` mutates the worker, secrets, KV, and registry in sequence and sets it false so a cancelled deploy cannot leave a half-configured target, and `sign-release.yml` and `bump-shadow-pins.yml` serialise for the same reason. A cancel loop keyed on a branch name cannot see that policy and will eventually cancel the one run that must never be cancelled.
 
 Staleness is answered by naming the head. Every terminal `CI_RESULT` line carries `head=<sha>`, so a result is self-identifying and a reader comparing it against the current HEAD needs nothing else. That check already exists as an obligation: the CI-result handoff gate requires the monitored head to be reported. The data was missing, not the discipline.
@@ -3563,7 +3587,7 @@ Anyone weakening the Claude directive must move the instruction, not merely rest
 
 **Status:** Accepted (2026-08-11)
 
-**Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound-and-committed-only-against-an-artifact)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
+**Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
 
 The block bought that guarantee at a price the design never accounted for. It made a second hook the sole arbiter of whether any work could proceed, and the review gate refuses exactly the spawn the block demands during the post-lane, pre-triage window. Reading the lane report is a tool call, publishing the triage table is what lifts the review gate, and the block forbids the read.
 
@@ -3576,3 +3600,165 @@ Pi meets the same requirement without a block. Its request is durable, `extracti
 **Consequences:** No hook can wedge a session on behalf of memory capture. A capture that fails is retried instead of being recorded as done: the old arming hook advanced the counter immediately, so a failed capture silently discarded its window forever, which was a data-loss bug independent of the deadlock. The agent definition drops its `model:` pin in favour of `CODEFLARE_MEMORY_MODEL`, and carries a six-turn budget, raised from four after a large window exhausted the smaller budget on every attempt — a deterministic failure that re-delivery cannot clear, so all six deliveries burned on one window; [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s fidelity reasoning still holds and is now expressed as a default rather than a hard pin. Pi's own four-turn extraction budget ([AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)) is unchanged.
 
 The cost is that a capture can be skipped six times and then dropped, where the block made it eventually mandatory. That is deliberate: an ignored capture costs one window of memory, and a wedged session costs the whole turn. Anyone tempted to reintroduce a blocking enforcement hook must first show it cannot refuse the spawn some other gate requires.
+
+### AD125: Bounded automatic resync after exhausted recovery
+
+**Category:** Storage
+
+**Status:** Accepted (2026-08-14); supersedes [AD14](#ad14-never-auto---resync-on-bisync-failure)
+
+**Context:** Steady-state bisync can lose the listing state required for another ordinary recovery attempt, or remain unrecoverable after its internal retries and vanished-file repair. Leaving the daemon in that state preserves deletion tracking in theory and stops persistence in practice. The runtime already resolved this by rebuilding the baseline after a bounded failure budget, and [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6 makes that observable behavior explicit. <!-- @impl: entrypoint.sh::start_sync_daemon -->
+
+**Decision:** Use resilient/recover semantics and vanished-file repair first. If three consecutive cycles remain unrecoverable after their internal retries, call `establish_bisync_baseline()` to rebuild the baseline. When exit code 7 coincides with missing prior listings, rebuild immediately because two more attempts cannot operate without that state. A failed rebuild remains visible and is retried only after another failed cycle; it does not terminate the daemon.
+
+**Alternatives rejected:** Never rebuilding automatically, because a session with absent or irrecoverable listings would keep running without persistence; rebuilding on the first ordinary failure, because that spends the deletion-safety trade-off before resilient recovery has had a chance to work; deleting suspected R2 objects, because corruption was not established and user data is not disposable recovery state.
+
+**Consequences:** Baseline reconstruction can resurrect a deletion that existed on only one side. The runtime accepts that bounded risk to restore a functioning persistence loop after ordinary recovery is exhausted. Logs and sync health expose the fallback and its outcome. Startup continues to establish a baseline after one-way restore, while healthy steady-state cycles never invoke `--resync`.
+
+### AD126: Vault browser-realm scripts are authored source, never serialized Worker functions
+
+**Category:** Architecture, Security, Storage
+
+**Status:** Accepted (2026-08-15)
+
+**Context:** Vault bootstrap, stale-worker removal, registration, readiness, focus, and reload logic originates in the Cloudflare Worker bundle but executes in a browser realm after HTML injection. A v3 refactor serialized bundled Worker functions with `Function.prototype.toString()`. Wrangler's esbuild `keepNames` transform added calls to the bundle-local `__name` helper inside four serialized functions, but `toString()` copied only each function body into the page. A production bundle of that implementation emitted browser source that would throw `Codeflare vault bootstrap: __name is not defined`; because stale-worker cleanup precedes canonical registration, execution could not continue to registration, IndexedDB creation, sync, indexing, or readiness. Direct source-level helper execution could not expose that cross-realm dependency. This boundary is independent of [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing)'s native-worker decision and [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly)'s encryption-key lifecycle. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_UNREGISTER_STALE_WORKERS_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (production-bundled Vault browser scripts) -->
+
+**Decision:** Reusable callable bodies for Vault scripts injected from the Worker are maintained as explicit, self-contained authored source in `src/lib/vault-browser-scripts.ts`; `src/lib/vault-view.ts` owns their injection wrappers and bootstrap orchestration. Browser-realm source must not be produced by `Function.prototype.toString()`, by serializing any callable transformed by the Worker bundler, or by post-processing compiled output. It may not depend on Worker-module bindings or bundler-only helpers. Dynamic values cross the boundary only as JSON-encoded arguments escaped for an HTML script context.
+
+The executable contract is the production-like bundle test: bundle the real injector with esbuild `keepNames`, extract the exact generated scripts, and execute them in isolated VM realms. The test must retain observable coverage of stale/canonical/unrelated worker handling, cleanup-before-registration ordering, focus behavior, readiness rejection and convergence, exact encryption-key transport, persistence-before-redirect ordering, and controlled reload. A source refactor that bypasses this boundary or tests only pre-bundle helpers is incomplete even when its TypeScript tests pass.
+
+**Alternatives rejected:** `Function.prototype.toString()` for functions that happen not to contain transformed nested callables, because a later local refactor can silently reintroduce bundle-only dependencies; injecting an `__name` shim, because it couples browser behavior to an undocumented bundler implementation detail and does not cover other possible helpers; disabling `keepNames`, because Worker diagnostics and unrelated bundled code own that setting; regex-stripping or rewriting compiled output, because it is syntax-fragile and cannot prove semantic self-containment.
+
+**Consequences:** Browser-realm code has an explicit source representation rather than inheriting TypeScript function bodies, so changes must keep the authored script and its production-bundle behavioral test aligned. That small duplication is intentional: the realm boundary is visible, reviewable, and independent of Wrangler's current transform strategy. Future cleanup may reorganize or generate the authored source only if the emitted browser bytes remain self-contained and the same production-bundle execution contract stays authoritative; converting the boundary back to serialized Worker functions is not a behavior-preserving refactor.
+
+### AD127: Native Inline Chat uses proposal-only Pi turns and host-owned text edits
+
+**Category:** Architecture, Security
+
+**Status:** Partially superseded by [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller): extension-owned confirmation, notification actions, decision registry, and editor reopening only; proposal-only Pi turns and host-owned edit validation remain active. Accepted 2026-08-16 and partially supersedes [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) only for editor Inline Chat execution. Implements [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](../../sdd/spec/browser-ide.md#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-028](../../sdd/spec/browser-ide.md#req-ide-028-native-inline-chat-dispatch-error-isolation), [REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), and [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-proposal-envelope).
+
+**Context:** Code OSS 1.132 editor Inline Chat expects host-owned edit transactions, which cannot truthfully represent unrestricted Pi direct writes. Its pinned controller excludes an entire response view-model unless that response has a [pending confirmation](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/inlineChat/browser/inlineChatController.ts#L239-L244). While admitted, the response can render its parts; visibility is not durable after confirmation resolves. Result details are only a secondary status because the zone hides them after review focus moves. AD114 initially selected `inlineChat2.continueInChat`. The pinned action is guarded by visible and terminated inline-session context in the [exact Code OSS source](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/inlineChat/browser/inlineChatActions.ts#L358-L377). Integration deployment [`31914050650`](https://github.com/nikolanovoselec/codeflare/actions/runs/31914050650) confirmed that invoking it during Codeflare's active participant request did nothing while the Codeflare model remained selectable. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
+
+Fresh-session validation after deployment [`31918973796`](https://github.com/nikolanovoselec/codeflare/actions/runs/31918973796) exposed a second silent wait. The command called `sendUserMessage` on `ExtensionCommandContext`, where Pi 0.84.1 does not define it. Pi swallowed the command exception as an `extension_error`, treated the slash command as handled, and started no agent turn; the RPC backend ignored that envelope and therefore waited forever for settlement.
+
+**Decision:** Keep one persistent IDE-owned Pi process. Panel turns retain its normal unrestricted tools. A serialized editor turn invokes the owned `codeflare-inline-edit` command, which saves the active tools, exposes only one terminating proposal tool, and restores the exact prior set at settlement. The RPC backend correlates that tool call and validates a bounded single-line what-and-why explanation; the VS Code adapter validates document version, range bounds, overlap, count, and size before emitting `response.textEdit`. Pi never writes the target file directly.
+
+The command dispatches through `ExtensionAPI.sendUserMessage`, not its command context. A command-attributed failure or the nested dispatch's `<runtime>` `send_user_message` failure rejects the editor request and retires the shared IDE backend so a later request can use its replacement; unrelated extension errors remain isolated. Pi 0.84.1 [awaits extension settlement handlers before emitting external settlement](https://github.com/earendil-works/pi/blob/v0.84.1/packages/coding-agent/src/core/agent-session.ts#L596-L603), so serialization cannot release a panel turn before tool restoration. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+
+Editor requests publish immediate bounded progress and forward provider reasoning while keeping unstructured final-answer markdown hidden. After emitting the validated edit transaction, the participant places the bounded explanation in a native confirmation with Keep/Undo buttons and repeats it in the non-blocking fallback notification; result details retain the explanation and edit count only as secondary status.
+
+Both owned action paths invoke the pinned host's URI-scoped [`chatEditing.acceptFile` or `chatEditing.discardFile`](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/chat/browser/chatEditing/chatEditingActions.ts#L144-L190) command, then reopen the captured ordinary text document. A bounded correlation registry retains only the current request for each URI, evicts beyond 32 pending URIs, and consumes a decision before invoking its command, so delayed superseded or duplicate actions cannot resolve a newer proposal. That navigation addresses the observed extension-host failure where a later editor request could otherwise use a review-owned URI absent from `ExtHostDocuments`; dismissing the notification leaves the native confirmation and review pending.
+
+**Alternatives rejected:** Invoking the termination-only continuation action during the active request, because deployed behavior proved it was a no-op; relying on ordinary Markdown, thinking, command buttons, or result details for the explanation, because the pinned controller excludes responses without pending confirmation or focus-hides result details; routing every editor request to panel Chat, because it does not generate code inline; leaving mutation tools active and replaying their filesystem changes as host edits, because that can double-apply or overwrite concurrent work; patching Code OSS; building a duplicate Changes view; or launching a third Pi process solely for editor requests.
+
+**Consequences:** Terminal Pi and one IDE Pi remain the only agent processes. Panel and editor turns share the IDE process's in-memory conversation, but editor turns temporarily replace its tool surface with one proposal tool. Valid edits render through native Inline Chat with a correlated explanation and native confirmation Keep/Undo; the notification remains a reliable fallback outside the focus-sensitive zone. A confirmation click creates one host follow-up request, but the extension consumes its correlated decision without invoking Pi.
+
+Stale proposals, malformed proposals, superseded or malformed confirmation decisions, duplicate review actions, and matching inline-dispatch failures fail closed. The proposal contract is bounded to one active workspace document and remains Partial until a fresh integration session proves rendered generation, both review actions, immediate second-request recovery, and tool restoration.
+
+### AD128: Inline review lifecycle belongs to the pinned controller
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-08-16). Supersedes only AD127's extension-owned confirmation, notification actions, decision registry, and editor-reopening behavior. Implements [REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-proposal-envelope), and [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle).
+
+**Context:** Integration proved that Pi can generate valid host-owned edits, while extension-owned confirmation clicks create another participant request and duplicate the host's review UI. Later exact-host reproduction established that confirmation follow-ups carry no `location2` and skip document lookup; the observed `ExtHostDocuments` error instead requires first-request location data whose document is not synchronized. Uploaded runtime evidence also showed duplicate file tabs and a side editor group. The pinned host supplies the invoking editor through private `location2`; Codeflare instead read whichever editor had focus when its handler ran. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate -->
+
+The pinned controller opens a side group only when an editing entry's URI differs from the initiating session URI. Its Keep/Close actions call `acceptSession()` or `rejectSession()`, which settle and dispose controller state. `showTextDocument()` routes by resource and cannot guarantee replacement of a review editor with an ordinary editor. [Pinned request conversion](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/api/common/extHostTypeConverters.ts#L3486-L3504), [pre-handler document resolution](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/api/common/extHostChatAgents2.ts#L924-L945), and [controller review actions](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/inlineChat/browser/inlineChatActions.ts#L260-L334) define that boundary.
+
+**Decision:** Use `request.location2.document`, selection, and whole range as the sole editor identity. Missing or malformed editor location fails before Pi starts. Use a host-ingested empty text-edit start marker, one validated edit batch, and a completion marker for the same URI. Keep `accessibility.openChatEditedFiles` false to disable the [configuration-gated edited-file opener](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/chat/browser/chatEditing/chatEditingServiceImpl.ts#L240-L259); it does not gate the controller's different-URI side-group path. `InlineChatController` owns Keep/Close, settlement, disposal, and navigation. Remove extension confirmation, notification actions, direct Chat Editing commands, decision correlation, and document reopening. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
+
+Raw tool-start events precede Pi argument validation, so the backend may retain up to three attempts and accept the first valid correlated proposal. Invalid-only settlement reports a bounded correlation, summary, count, or geometry category; a second valid proposal still fails closed. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposal) -->
+
+**Alternatives rejected:** An arbitrary cursor-distance threshold, because the evidenced side group is URI-driven; a staged confirmation, because it adds another participant request; retaining notification review actions, because they bypass controller disposal; removing `showTextDocument()` without changing ownership, because that leaves the original URI defect; or patching Code OSS.
+
+**Consequences:** Pi execution, shared conversation, proposal-only editor tools, and host-owned edit validation remain unchanged. When edit and session URIs match, the pinned zone status renders result details while the native controls own Keep/Close. Runtime acceptance requires one invoking editor, native Keep/Close, immediate second requests after both outcomes, and no missing-document error.
+
+### AD129: Proxied Inline URI identity must be observed before lifecycle changes
+
+**Category:** Architecture, Operations
+
+**Status:** Superseded (2026-08-16) by [AD131](#ad131-inline-diagnostics-retain-only-sanitized-resource-identity) after the integration probe recorded in [AD130](#ad130-the-projected-workspace-uses-the-canonical-browser-authority) satisfied this evidence gate. The historical decision added an evidence gate to [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) without changing review ownership and introduced [REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics).
+
+**Context:** Exact-host reproduction with a third-party default editor participant completed the one-tab native Keep/Undo lifecycle on code-server 4.132.0. Integration instead opened another tab and lost the invoking editor's review controls. Core edit ingestion has no participant-identity branch. The controller unconditionally opens an editing entry in a side group when its modified URI differs from the Inline session URI, while Keep requires the invoking editor group to own a modified entry. [Side-group selection](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/inlineChat/browser/inlineChatController.ts#L375-L396) and [Keep preconditions](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/workbench/contrib/inlineChat/browser/inlineChatActions.ts#L278-L310) make URI identity the leading proxied-runtime boundary.
+
+Repository CI activates the packaged extension against a mocked VS Code API and does not run `InlineChatController`, Chat Editing, or a renderer. Deployment receipts therefore cannot distinguish an old container, wrong invocation surface, or URI-authority mismatch.
+
+**Decision:** Preserve the controller-owned lifecycle unchanged. During a bounded editor-request window, record a local diagnostic revision, effective settings, the exact invoking and streamed URIs, and capped tab-change/snapshot metadata in the **Codeflare Inline Chat** Output channel. Record no document content and no panel activity. One fresh proxied integration run must classify image freshness, request surface, and tab URI identity before another lifecycle or proxy change. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+
+**Alternatives rejected:** Restoring confirmation and notification review duplicates native controls; direct `chatEditing.acceptFile`/`discardFile` resolves a session from widget focus rather than URI identity; another setting cannot gate the unconditional side-group path; and changing the Worker proxy before capturing both URI identities would be another guess.
+
+**Consequences:** The probe commit was intentionally diagnostic, not a claimed product fix. Integration supplied the required activation, request, stream, tab-change, and delayed snapshot lines: the correct image and editor surface streamed the same extension-host `file:` URI, then the controller opened an ordinary duplicate file tab in a side group. [AD130](#ad130-the-projected-workspace-uses-the-canonical-browser-authority) owns the resulting narrow proxy correction. The full one-tab Keep/Undo sequence still requires repetition in a fresh deployed session.
+
+### AD130: The projected workspace uses the canonical browser authority
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-08-16). Implements [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection) AC2 and preserves [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller).
+
+**Context:** Integration run `31970207463` deployed diagnostic revision `uri-authority-probe-v1` at exact head `13a8e567865380ca7f356364d0510bcd7cb83dd6`. A real editor request carried `location2`, and the invoking and streamed extension-host URIs were both `file:///home/user/workspace/graymatter.ch/astro.config.mjs`. Within 283 ms of streaming, the pinned controller opened an ordinary tab for that same visible file in `SIDE_GROUP`; native feedback and Keep/Undo stayed absent. This rules out stale rollout, the wrong participant surface, the configuration-gated edited-file opener, and an extension-selected target.
+
+The extension API shows remote workspace documents as `file:` URIs. Across the RPC boundary, the pinned [extension-host URI transformer](https://github.com/microsoft/vscode/blob/df53daabb18cd157bdb08c7f01c34df936cf12f4/src/vs/base/common/uriTransformer.ts) maps an outgoing `file:` URI to `vscode-remote://<initData.remote.authority>/...`. Pinned code-server's [base-path patch](https://github.com/coder/code-server/blob/313bf0359b4d391ba18f1fa131aad8a583bc2919/patches/base-path.diff) deliberately emits `remote` as the server-side workbench authority and later replaces `remoteAuthority` with `location.host` in browser bootstrap code. That replacement does not rewrite a server-provided `folderUri`. Codeflare's earlier fixed-workspace projection copied the placeholder into `folderUri`, so the renderer session used `vscode-remote://remote/...` while streamed edits arrived as `vscode-remote://<public-host>/...`. The Inline controller correctly treated those as different resources and opened the edit entry in a side group.
+
+**Decision:** Keep the Worker route, participant lifecycle, native edit parts, and pinned host unchanged. The authenticated host already derives one canonical external authority for upstream `Host` and `X-Forwarded-Host`; use that same validated value for the projected fixed `folderUri.authority`. Continue preserving the server-provided `remoteAuthority` and all unrelated workbench configuration. Fail closed when either the server placeholder or canonical browser authority is malformed. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection) -->
+
+**Alternatives rejected:** Restoring extension-owned confirmation or notifications would duplicate and bypass the native lifecycle; reopening the document would preserve the identity mismatch; forcing an authority in the Pi extension would fight the host's URI transformer; suppressing the side-group tab would hide an invalid editing entry; changing Worker routing lacks evidence; and patching code-server or Code OSS violates the owned-source boundary.
+
+**Consequences:** Renderer models and remote-extension-host edits now converge on one main-thread URI while the clean public route and fixed workspace remain unchanged. The packaged-image smoke and host seam tests exercise the real code-server placeholder/public-authority split. Deployment and CI can prove packaging only; a fresh integration session must still prove one editor tab, localized diff/status, native Keep, immediate follow-up, native Undo, another immediate follow-up, and no missing-document error.
+
+### AD131: Inline diagnostics retain only sanitized resource identity
+
+**Category:** Architecture, Security, Operations
+
+**Status:** Accepted (2026-08-16). Supersedes [AD129](#ad129-proxied-inline-uri-identity-must-be-observed-before-lifecycle-changes) after its exact-URI evidence gate completed. Implements [REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics) AC6.
+
+**Context:** AD129 intentionally captured exact invoking, streamed, and tab URIs for one bounded integration probe. That evidence exposed the hidden remote-authority mismatch and enabled AD130's correction. Keeping exact URIs afterward no longer served the investigation: filesystem directories, URI userinfo, query values, fragments, and arbitrary tab labels could enter local diagnostic output and then be copied into support material.
+
+The diagnostic channel still needs enough identity to distinguish a stale image, the wrong invocation surface, and an authority mismatch. Scheme, authority, basename, and stable input type supply that evidence without retaining the full resource location. A basename can collide across directories, so matching sanitized identities is supporting evidence rather than proof that two resources are equal.
+
+**Decision:** Diagnostic revision v2 retains only scheme, authority with userinfo removed, basename, and stable input type for request, stream, and tab identities. It records no directory path, query, fragment, tab label, or document content. The existing local-only channel, event and line bounds, delayed snapshots, and deterministic disposal remain unchanged. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::describeUri --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::describeTab --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+
+**Alternatives rejected:** Retaining exact URIs after the evidence gate would preserve unnecessary support-data exposure; removing diagnostics would discard useful rollout and authority evidence; hashing the whole URI would hide the authority needed for classification; and adding a configurable full-URI mode would recreate the same exposure behind another setting.
+
+**Consequences:** Operators can compare sanitized scheme, authority, basename, and input type but must treat basename collisions as inconclusive. AD129 remains the immutable historical record of the exact-URI probe; AD131 owns all retained diagnostic identity after that probe.
+
+### AD132: User extensions are a bounded manifest over an immutable base inventory
+
+**Category:** Architecture, Security, Storage, Build / Container
+
+**Status:** Accepted (2026-08-17). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity). Implements [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), and [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy).
+
+**Context:** The pinned code-server workbench already exposes Open VSX install, update, and uninstall, but Codeflare launches it directly against one image-owned Pi, Claude, or empty extension directory. Those roots and all live User/extension state are ephemeral, while R2 admits only `~/.codeflare/ide-ui-state.json`. A user install can therefore affect one live container yet disappears on replacement. Persisting raw extension trees or code-server User data would copy hundreds of MiB, mutable registries and databases, credentials, SecretStorage, global/workspace state, logs, and unsafe WAL/SHM files into newest-wins bisync.
+
+Pinned-source and exact-runtime evidence for code-server 4.132.0 established a smaller boundary: the workbench can install an exact `id@version` after startup, fresh installs register live, uninstall updates the on-disk registry before the extension API, and symlink-seeded fixed extensions coexist with real user directories. Every prepared profile receives the supported `extensions.allowed` wildcard plus one explicit Codeflare entry. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
+
+**Decision:** Keep Pi, Claude, and unsupported selections as immutable base inventories. For each container, seed one writable `/tmp` session extension directory with symlinks to the selected base and pass only that directory to code-server. The built-in `codeflare-welcome` extension lazily restores missing user extensions after `onStartupFinished`, so initial code-server readiness and agent selection remain unchanged.
+
+Persist one atomic mode-0600 `~/.codeflare/ide-extensions.json` file through the existing rclone allowlist. A shared policy defines the 64 KiB envelope, 50-extension ceiling, fixed IDs, version/platform/timestamp/hash bounds, and settings limits for both TypeScript and the Python reap backstop. The manifest stores canonical lowercase IDs, exact versions, optional audit metadata, contributed global User settings excluding managed/UI-continuity keys, and one durable `securityWarningShown` acknowledgement. It stores no VSIX or extracted package bytes.
+
+Treat the disk registry plus `.obsolete` as capture truth: normalize registry IDs, exclude fixed identities, add/update present user extensions, and remove a manifest entry only when a bounded obsolete marker proves uninstall, even if the registry still carries a stale row. This distinction preserves user intent when an exact gallery version is temporarily unavailable. Malformed, redirected, oversized, uppercase, or unknown manifest content is retained byte-for-byte and disables capture for that session. Restored intent cannot execute until the durable security warning is accepted. Exact-version restore recognizes structured not-found errors, attempts one unpinned fallback, continues other installs with concurrency two, applies contributed settings after extension registration, and emits one bounded failure warning without a retry loop.
+
+Registry, extension-host, and contributed-setting changes debounce one in-session capture. Welcome deactivation flushes a pending setting capture; a post-reap Python capture closes the remaining registry debounce race while preserving settings and warning acknowledgement. A changed atomic write sends `SIGUSR1` only to the existing sync daemon; cadence, Sync-now, coalescing, and final drain remain the sole R2 ownership. Whole-file newest-wins across concurrent sessions is explicit and unchanged.
+
+**Alternatives rejected:** Syncing live `--extensions-dir` or `--user-data-dir` violates the credential/state boundary and creates thousands of mutable R2 objects. Mutating the fixed `/opt` directory weakens managed inventory identity. Persisting hashed VSIX artifacts, content-addressed storage, rollback generations, or a Durable Object registry adds a byte store and coordinator that v1 does not need. Pre-launch gallery installation delays lazy readiness. Direct R2 writes or another sync worker duplicate established ownership. Browser automation, Chromium, and manual validation are not feature gates; deterministic package, shell, registry, and complete-image CI own verification.
+
+**Consequences:** User extensions execute arbitrary root-capable code inside the session container and receive code-server's inherited proposed-API posture. Open VSX availability and TLS are runtime dependencies; code-server disables VSIX signature verification, and the workbench path does not expose bytes for Codeflare hashing. Enablement state, private VSIX persistence, extension storage/Secrets/Accounts, secondary downloads, keybindings, snippets, multi-writer serialization, and artifact rollback remain out of scope. The unsupported base inventory remains empty even when the user layer restores ordinary extensions, and fixed package bytes remain unchanged across install, update, and uninstall.
+
+---
+
+### AD133: ADR indexes use bounded self-contained summaries
+
+**Category:** Process
+
+**Status:** Accepted (2026-08-17)
+
+**Context:** The decision index exposed stable IDs, titles, and categories but forced readers to open each ADR to learn the chosen mechanism, its driver, its consequence, or whether only part remained active. A longer Decision cell obscures the label, while separate Outcome and Why columns make the ledger too wide. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions -->
+
+**Decision:** Use `ID | Decision | Summary | Category | State`. Decision is a label of at most 90 rendered characters. Summary is one sentence of 40–180 rendered characters that names the concrete subject and choice plus a body-supported driver or operational consequence. Historical summaries link their successor, retained scope, or redirect destination.
+
+**Alternatives considered:** Expand the Decision cell to one long sentence; split Outcome and Why into separate columns; add a Related column containing unexplained identifiers; enforce only numeric limits without semantic review.
+
+**Consequences:** The index is wider than the former three-column table but each row can be understood independently. Deterministic checks enforce shape and measurable limits; documentation review verifies body support, clarity, and preserved trade-offs. Existing ADR bodies and stable anchors remain unchanged.
+
+**Related requirements:** [REQ-AGENT-146](../../sdd/spec/agents.md#req-agent-146-self-contained-adr-decision-index-summaries)
+
+---

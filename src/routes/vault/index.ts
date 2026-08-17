@@ -79,17 +79,12 @@ export {
   isServiceWorkerRegistration,
   isServiceWorkerContextFetch,
   injectVaultEncryptionConfig,
-  injectVaultBootScript,
-  injectVaultIdbRecorder,
-  injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,
   VAULT_BOOTSTRAP_COOKIE,
-  VAULT_SW_ACTIVATION_TIMEOUT_MS,
-  VAULT_IDB_RECORDER_MARKER,
 } from '../../lib/vault-view';
 export {
   VAULT_NATIVE_SERVICE_WORKER_JS,
@@ -112,12 +107,19 @@ const logger = createLogger('vault');
  */
 
 /**
- * REQ-VAULT-024 AC1: the bootstrap-hop is a one-time, GET-only page. Any other
+ * REQ-VAULT-024 AC7: the bootstrap-hop is a one-time, GET-only page. Any other
  * method (or a WebSocket upgrade) must fall through to the proxy so the
  * encryption-key-bearing hop HTML is never rendered on an unexpected method.
  */
 export function isBootstrapHopRequest(remainingPath: string, isWebSocket: boolean | undefined, method: string): boolean {
   return remainingPath === '/.codeflare-bootstrap' && !isWebSocket && method === 'GET';
+}
+
+function isSilverBulletPrecacheRequest(request: Request, remainingPath: string): boolean {
+  if (request.method !== 'GET' || !isServiceWorkerContextFetch(request)) return false;
+  if (remainingPath !== '/' && !remainingPath.startsWith('/.client/')) return false;
+  const cacheVersion = new URL(request.url).searchParams.get('v');
+  return cacheVersion !== null && /^cache-[0-9]+$/.test(cacheVersion);
 }
 
 export async function handleVaultRequest(
@@ -301,15 +303,19 @@ export async function handleVaultRequest(
       }
     }
 
-    // Bump session lastAccessedAt out of band - vault edits should keep
-    // the session alive the same way terminal activity does.
-    ctx.waitUntil((async () => {
-      const fresh = await env.KV.get<Session>(sessionKey, 'json');
-      if (fresh) {
-        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await putSessionWithMetadata(env.KV, sessionKey, touched);
-      }
-    })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+    // Bump session lastAccessedAt out of band for user activity. SilverBullet's
+    // service-worker install issues a parallel cache-busted GET for every client
+    // asset; touching the same session KV key for that burst violates KV's
+    // same-key write limit without representing 52 distinct user interactions.
+    if (!isSilverBulletPrecacheRequest(request, remainingPath)) {
+      ctx.waitUntil((async () => {
+        const fresh = await env.KV.get<Session>(sessionKey, 'json');
+        if (fresh) {
+          const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
+          await putSessionWithMetadata(env.KV, sessionKey, touched);
+        }
+      })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
+    }
 
     // REQ-VAULT-024 AC1: the codeflare bootstrap-hop short-circuit. This
     // route is auth-gated by the chain above but never reaches the
@@ -519,7 +525,7 @@ export async function handleVaultRequest(
     if (contentType.includes('text/html')) {
       // REQ-VAULT-021: base-href + CSRF cookie use the bucket token (vaultUrlSegment);
       // the boot recorder/prewarm bridge key their markers by the real session id.
-      return rewriteVaultHtmlResponse(response, vaultUrlSegment, remainingPath, vaultUrl.pathname, contentType, logger, request, effectiveSessionId);
+      return rewriteVaultHtmlResponse(response, vaultUrlSegment, remainingPath, vaultUrl.pathname, contentType, logger, request);
     }
     return response;
   } catch (err) {

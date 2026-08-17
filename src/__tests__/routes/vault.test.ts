@@ -10,12 +10,7 @@ import {
   VAULT_NATIVE_SW_SHA256,
   graftVaultKeyRecovery,
   VAULT_BOOTSTRAP_COOKIE,
-  VAULT_SW_ACTIVATION_TIMEOUT_MS,
-  VAULT_IDB_RECORDER_MARKER,
   injectVaultEncryptionConfig,
-  injectVaultBootScript,
-  injectVaultIdbRecorder,
-  injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
@@ -376,7 +371,6 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // path that actually fires the .auth bounce), and get-encryption-key calls
       // it before replying. The verbatim worker has none of these.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(';var v;async function __cfRecover()');
-      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('codeflare-vault-idb-open');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
         'if(t.enableClientEncryption&&!v){await __cfRecover()}if(t.enableClientEncryption&&!v){console.error("Supposed',
       );
@@ -457,284 +451,12 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('injectVaultBootScript (REQ-VAULT-015 AC3 sid plumbing)', () => {
-    it('injects a <script> exposing window.__codeflareVaultBoot.sessionId before </head>', () => {
-      const html = '<!DOCTYPE html><html><head><title>SB</title></head><body></body></html>';
-      const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
-      expect(out).toContain('window.__codeflareVaultBoot');
-      expect(out).toContain('"sessionId":"abcdef12"');
-      expect(out.indexOf('window.__codeflareVaultBoot')).toBeLessThan(out.indexOf('</head>'));
-    });
-
-    it('does NOT inject the encryption key (key travels via SW, not via DOM)', () => {
-      // Regression guard: the previous design baked the key into the boot
-      // config, exposing it to every plug running in the page. The new
-      // design routes the key through the bootstrap-hop → service-worker
-      // postMessage channel instead, keeping it off the DOM.
-      const html = '<html><head></head><body></body></html>';
-      const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
-      expect(out).not.toContain('vaultEncryptionKey');
-      expect(out).not.toContain('enableClientEncryption');
-    });
-
-    it('escapes </script> in payload to prevent HTML break-out (XSS guard)', () => {
-      // The sessionId itself is regex-validated, so the realistic XSS
-      // vector is gone — but the serialiser's escape behaviour is
-      // load-bearing for future field additions and worth pinning.
-      const html = '<html><head></head><body></body></html>';
-      const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
-      // No </script> inside the JSON literal even though the wrapper
-      // tag itself ends with </script>.
-      const scriptOpenIdx = out.indexOf('<script>');
-      const scriptCloseIdx = out.indexOf('</script>', scriptOpenIdx);
-      const between = out.slice(scriptOpenIdx + '<script>'.length, scriptCloseIdx);
-      expect(between).not.toContain('</script');
-    });
-
-    it('is idempotent — re-injecting on already-patched HTML produces single block', () => {
-      const html = '<html><head></head><body></body></html>';
-      const once = injectVaultBootScript(html, { sessionId: 'abcdef12' });
-      const twice = injectVaultBootScript(once, { sessionId: 'abcdef12' });
-      const occurrences = (twice.match(/window\.__codeflareVaultBoot/g) || []).length;
-      expect(occurrences).toBe(1);
-    });
-
-    it('returns input unchanged when no </head> tag exists (fail-safe, not error)', () => {
-      const html = '<html><body>no head</body></html>';
-      const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
-      expect(out).toBe(html);
-    });
-
-    it('throws if sessionId is empty', () => {
-      const html = '<html><head></head><body></body></html>';
-      expect(() => injectVaultBootScript(html, { sessionId: '' })).toThrow();
-    });
-
-    it('throws if sessionId does not match SESSION_ID_PATTERN', () => {
-      const html = '<html><head></head><body></body></html>';
-      expect(() => injectVaultBootScript(html, { sessionId: 'BAD-ID' })).toThrow();
-      // Too short
-      expect(() => injectVaultBootScript(html, { sessionId: 'abc' })).toThrow();
-      // Uppercase
-      expect(() => injectVaultBootScript(html, { sessionId: 'ABCDEFGH' })).toThrow();
-    });
-  });
-
-  describe('injectVaultIdbRecorder (REQ-VAULT-015 AC3 boot recording)', () => {
-    it('injects a recorder <script> before </head>', () => {
-      const html = '<html><head></head><body></body></html>';
-      const out = injectVaultIdbRecorder(html);
-      expect(out).toContain('indexedDB.open');
-      expect(out).toContain('codeflare-vault-idb-open');
-      expect(out).toContain('vault-session-');
-      expect(out).toContain('-idbs');
-      expect(out.indexOf('<script>')).toBeLessThan(out.indexOf('</head>'));
-    });
-
-    it('records names that start with sb_ via the recorded localStorage key shape', () => {
-      const out = injectVaultIdbRecorder('<html><head></head><body></body></html>');
-      // The recorder gates on the sb_ prefix — never records other IDBs.
-      expect(out).toContain('"sb_"');
-      // The key shape matches the dashboard cleanup function contract:
-      // localStorage["vault-session-<sid>-idbs"].
-      expect(out).toContain('vault-session-');
-    });
-
-    it('reads sessionId from window.__codeflareVaultBoot (boot script must inject first)', () => {
-      const out = injectVaultIdbRecorder('<html><head></head><body></body></html>');
-      // The recorder depends on the boot script having already set
-      // window.__codeflareVaultBoot.sessionId. If a future refactor
-      // re-orders injection, this test should pin the dependency.
-      expect(out).toContain('__codeflareVaultBoot');
-      expect(out).toContain('sessionId');
-    });
-
-    it('is idempotent — re-injecting on already-patched HTML produces single block', () => {
-      const html = '<html><head></head><body></body></html>';
-      const once = injectVaultIdbRecorder(html);
-      const twice = injectVaultIdbRecorder(once);
-      // Count substring occurrences without regex — avoids the
-      // incomplete-sanitization trap (CodeQL js/incomplete-sanitization)
-      // of escaping only some regex meta-chars in the marker.
-      const occurrences = twice.split(VAULT_IDB_RECORDER_MARKER).length - 1;
-      expect(occurrences).toBe(1);
-    });
-
-    it('returns input unchanged when no </head> tag exists (fail-safe)', () => {
-      const html = '<html><body>no head</body></html>';
-      expect(injectVaultIdbRecorder(html)).toBe(html);
-    });
-  });
-
-  describe('isBootstrapHopRequest (REQ-VAULT-024 AC1: GET-only bootstrap-hop gate)', () => {
-    it('matches a GET to the bootstrap-hop path', () => {
+  describe('REQ-VAULT-024 AC7: only GET enters bootstrap completion', () => {
+    it('accepts only a non-WebSocket GET for the exact bootstrap path', () => {
       expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'GET')).toBe(true);
-    });
-
-    it('does NOT match non-GET methods (the key-bearing hop must not render on POST/PUT/etc.)', () => {
-      for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-        expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, method)).toBe(false);
-      }
-    });
-
-    it('does NOT match a WebSocket upgrade even on GET', () => {
+      expect(isBootstrapHopRequest('/.codeflare-bootstrap', false, 'POST')).toBe(false);
       expect(isBootstrapHopRequest('/.codeflare-bootstrap', true, 'GET')).toBe(false);
-    });
-
-    it('does NOT match other paths', () => {
-      expect(isBootstrapHopRequest('/.vault-key', false, 'GET')).toBe(false);
-      expect(isBootstrapHopRequest('/', false, 'GET')).toBe(false);
-    });
-  });
-
-  describe('injectVaultBootstrapHopHtml (REQ-VAULT-024 AC1/AC2)', () => {
-    it('produces an HTML page that registers the SW, posts the key, sets the cookie, then redirects', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'AAAA-base64-key-AAAA');
-      // Page shape
-      expect(out).toContain('<!doctype html>');
-      expect(out).toContain('<script>');
-      // Flips the SB-side encryption gate
-      expect(out).toMatch(/storageRef\.setItem\(["']enableEncryption["']/);
-      // Registers our SW shim under the per-session scope
-      expect(out).toContain('serviceWorker.register');
-      expect(out).toContain('service_worker.js');
-      expect(out).toContain('/api/vault/');
-      // Posts the key the SW shim expects
-      expect(out).toContain('set-encryption-key');
-      expect(out).toContain('AAAA-base64-key-AAAA');
-      // Sets the bootstrap cookie so shell-path requests no longer redirect
-      expect(out).toContain(VAULT_BOOTSTRAP_COOKIE);
-      expect(out).toContain('documentRef.cookie');
-      // Redirects to the real shell URL
-      expect(out).toContain('locationRef.replace');
-    });
-
-    it('sets the bootstrap cookie with both SameSite=Lax and Secure', () => {
-      // The project policy is: every state cookie carries Secure (HSTS
-      // enforced everywhere). This is a one-line behavioural pin so a
-      // future hand-edit cannot silently drop the flag.
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      // Both flags must appear in the same cookie string. Use a regex
-      // tolerant of whitespace inside the JS source.
-      expect(out).toMatch(/SameSite=Lax/);
-      expect(out).toMatch(/Secure/);
-      // Sanity check: not declaring Secure inside a comment / string
-      // that says "don't add Secure". The literal `; Secure` substring
-      // appears in the cookie assignment.
-      expect(out).toContain('; Secure');
-    });
-
-    it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-024 AC2 fail-loud)', () => {
-      // The function's own docstring promises "never silently degrades
-      // to plaintext IDB". The earlier implementation set the cookie
-      // and called location.replace unconditionally; the followup
-      // bug code-reviewer flagged was that localStorage.setItem fired
-      // BEFORE the SW await, so a tab close between setItem and
-      // postMessage left enableEncryption=true with no SW key. The
-      // current contract: setItem, cookie, AND redirect all live after
-      // the post-handoff success branch; the catch branch returns with
-      // none of the three side-effects ever observed.
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      // Failure UI exists.
-      expect(out).toContain('Vault could not start encryption');
-      // Walk balanced braces to extract the FULL catch body.
-      const catchOpenStr = '} catch (e) {';
-      const catchOpenIdx = out.indexOf(catchOpenStr);
-      expect(catchOpenIdx).toBeGreaterThanOrEqual(0);
-      const bodyStart = catchOpenIdx + catchOpenStr.length;
-      let depth = 1;
-      let i = bodyStart;
-      for (; i < out.length && depth > 0; i++) {
-        if (out[i] === '{') depth++;
-        else if (out[i] === '}') depth--;
-      }
-      const catchBodyEndIdx = i - 1;
-      expect(depth).toBe(0);
-      const catchBody = out.slice(bodyStart, catchBodyEndIdx);
-      // Catch branch returns early. None of the three side-effects fire.
-      expect(catchBody).toContain('return;');
-      expect(catchBody).not.toContain('document.cookie');
-      expect(catchBody).not.toContain('location.replace');
-      // No-rollback assertion: there is nothing to roll back because the
-      // flag is never set on this branch. A future refactor that
-      // reintroduces the set-first pattern would have to also reintroduce
-      // a removeItem here; pinning the absence catches that drift.
-      expect(catchBody).not.toContain('localStorage.setItem("enableEncryption"');
-      expect(catchBody).not.toContain('localStorage.removeItem("enableEncryption"');
-      // The completion helper runs only after the key handoff and inside
-      // the guarded try. Its direct behavioral test proves that persistence
-      // precedes cookie+redirect and a storage rejection emits neither.
-      const postIdx = out.indexOf('sw.postMessage');
-      const completionCallIdx = out.lastIndexOf('completeBootstrap(');
-      expect(postIdx).toBeGreaterThanOrEqual(0);
-      expect(completionCallIdx).toBeGreaterThan(postIdx);
-      expect(completionCallIdx).toBeLessThan(catchOpenIdx);
-    });
-
-    it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {
-      // Edge case: register() resolves but the registration has no SW
-      // reference yet. The hop must NOT proceed -- and because the
-      // localStorage flag is only set on the post-handoff success path,
-      // there is nothing to roll back here either.
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      const ifIdx = out.indexOf('if (!sw)');
-      expect(ifIdx).toBeGreaterThanOrEqual(0);
-      const bodyStart = out.indexOf('{', ifIdx) + 1;
-      let depth = 1;
-      let i = bodyStart;
-      for (; i < out.length && depth > 0; i++) {
-        if (out[i] === '{') depth++;
-        else if (out[i] === '}') depth--;
-      }
-      const ifBody = out.slice(bodyStart, i - 1);
-      expect(ifBody).toContain('fail(');
-      expect(ifBody).toContain('return;');
-      // No setItem / removeItem on the no-SW branch -- the flag is never
-      // touched outside the post-handoff success branch.
-      expect(ifBody).not.toContain('localStorage.setItem("enableEncryption"');
-      expect(ifBody).not.toContain('localStorage.removeItem("enableEncryption"');
-    });
-
-    it('guards against missing navigator.serviceWorker before registration', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      expect(out).toContain('!navigator.serviceWorker');
-      expect(out).toContain('browser does not support service workers');
-    });
-
-    it('guards SW activation with a timeout instead of relying on navigator.serviceWorker.ready', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      expect(out).not.toContain('navigator.serviceWorker.ready');
-      expect(out).toContain('activation timed out');
-      expect(out).toContain(String(VAULT_SW_ACTIVATION_TIMEOUT_MS));
-      expect(out).toContain('removeEventListener("statechange"');
-    });
-
-    it('detects redundant SW state as an explicit error', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      expect(out).toContain('redundant');
-    });
-
-    it('embeds the session id verbatim once', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      expect(out).toContain('"abcdef12"');
-    });
-
-    it('escapes </script> in the key payload to prevent HTML break-out', () => {
-      const out = injectVaultBootstrapHopHtml('abcdef12', '</script><script>alert(1)</script>');
-      // The literal attack string must not appear inside the page; the
-      // escape replaces </ with <\/.
-      expect(out).not.toContain('</script><script>alert(1)');
-      expect(out).toContain('<\\/script>');
-    });
-
-    it('throws if vaultEncryptionKey is empty (fail loud, never silently plaintext)', () => {
-      expect(() => injectVaultBootstrapHopHtml('abcdef12', '')).toThrow();
-    });
-
-    it('throws if sessionId does not match SESSION_ID_PATTERN', () => {
-      expect(() => injectVaultBootstrapHopHtml('BAD-ID', 'k')).toThrow();
-      expect(() => injectVaultBootstrapHopHtml('abc', 'k')).toThrow();
-      expect(() => injectVaultBootstrapHopHtml('', 'k')).toThrow();
+      expect(isBootstrapHopRequest('/other', false, 'GET')).toBe(false);
     });
   });
 
@@ -949,27 +671,18 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(logger.warn).not.toHaveBeenCalled();
     });
 
-    // REQ-VAULT-021: on the bucket-stable serving path the base-href uses the
-    // bucket token (so SB's relative assets + IndexedDB names stay stable across
-    // sessions), but the injected boot recorder must carry the REAL session id so
-    // its localStorage marker (`vault-session-<sid>-idbs`) matches what the
-    // dashboard reads. The two identifiers are passed separately.
-    it('REQ-VAULT-021: base-href uses the bucket token while the boot recorder uses the real session id', async () => {
+    it('REQ-VAULT-021: rewrites every shell to the permanent bucket-token scope without session metadata', async () => {
       const TOKEN = '0123456789abcdef0123456789abcdef';
-      // The real session id must satisfy SESSION_ID_PATTERN (8-24 lowercase alnum) —
-      // it is the cookie-validated cf_vault_sid value on the serving path, distinct
-      // from the block-level 6-char SID used only for the base-href no-op tests.
-      const REAL_SID = 'abcdef123456';
       const html = '<html><head><base href="/" /></head><body>hi</body></html>';
       const upstream = new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
       const logger = { warn: vi.fn() };
       const result = await rewriteVaultHtmlResponse(
-        upstream, TOKEN, '/', '/vault/', 'text/html', logger, undefined, REAL_SID,
+        upstream, TOKEN, '/', '/vault/', 'text/html', logger,
       );
       const body = await result.text();
       expect(body).toContain(`<base href="/api/vault/${TOKEN}/" />`);
-      expect(body).toContain(`window.__codeflareVaultBoot = {"sessionId":"${REAL_SID}"}`);
-      expect(body).not.toContain(`"sessionId":"${TOKEN}"`);
+      expect(body).not.toContain('__codeflareVaultBoot');
+      expect(body).not.toContain('vault-session-');
     });
   });
 

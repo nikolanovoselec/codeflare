@@ -595,6 +595,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       requestOpenvscodeStart();
       const projectRootWorkbench = method === 'GET' && upstreamPath === '/';
       const upstreamHeaders = vscodeProxyHeaders(req.headers, deps.openvscode);
+      const browserAuthority = typeof upstreamHeaders.Host === 'string' ? upstreamHeaders.Host : '';
       if (projectRootWorkbench) delete upstreamHeaders['accept-encoding'];
       const upstreamReq = http.request({
         host: deps.openvscode.host,
@@ -646,7 +647,10 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         upstreamRes.on('error', failProjection);
         upstreamRes.on('end', () => {
           if (settled) return;
-          const projected = projectVscodeWorkbenchWorkspace(Buffer.concat(chunks).toString('utf8'));
+          const projected = projectVscodeWorkbenchWorkspace(
+            Buffer.concat(chunks).toString('utf8'),
+            browserAuthority,
+          );
           if (projected === null) {
             failProjection();
             return;

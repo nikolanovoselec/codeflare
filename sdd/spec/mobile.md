@@ -155,7 +155,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 
 - Post-write handling cannot override xterm's native anchor, including when it reaches zero.
-- Scrollback is limited to 1000 lines on both frontend and headless renderers; agent-side virtual scrolling is disabled.
+- Frontend xterm scrollback is limited to 5000 lines, and agent-side virtual scrolling is disabled. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (scrollback: 5000) -->
+- The host headless renderer retains 1000 lines. <!-- @impl: host/src/session.ts::Session -->
 - Output deferral and its held-output cap are specified in [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC3.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 
@@ -343,6 +344,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<a id="req-mob-018-decorative-webgl-retirement-on-mobile-background-and-context-loss"></a>
 ### REQ-MOB-018: Decorative WebGL canvas retirement
 
 **Intent:** The app's decorative WebGL canvas retires when mobile backgrounding or graphics-context loss makes continued rendering unreliable, preserving a stable dark application surface.

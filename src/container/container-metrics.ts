@@ -205,26 +205,28 @@ export function parseSleepAfterMs(s: string): number {
  * Update a timestamp field on the KV session record (best-effort).
  * Optionally sets session.status (e.g. 'stopped' on hibernation).
  */
+export type KvStatusUpdateResult = 'written' | 'absent' | 'failed';
+
 export async function updateKvStatus(
   ctx: DurableObjectState,
   env: Env,
   bucketNameOverride: string | null,
   status: 'running' | 'stopped' | null,
   field: 'lastStartedAt' | 'lastActiveAt',
-): Promise<void> {
+): Promise<KvStatusUpdateResult> {
   try {
     const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
     // Fallback: if _bucketName isn't set on the instance, try loading from storage
     const bucketName = bucketNameOverride || await ctx.storage.get<string>('bucketName') || null;
     if (!sessionId || !bucketName) {
       logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
-      return;
+      return 'failed';
     }
     const key = getSessionKey(bucketName, sessionId);
     const session = await env.KV.get<Session>(key, 'json');
     if (!session) {
       logger.info('updateKvStatus: session not found in KV', { key, status, field });
-      return;
+      return 'absent';
     }
     const updated = {
       ...session,
@@ -233,8 +235,10 @@ export async function updateKvStatus(
     };
     await putSessionWithMetadata(env.KV, key, updated);
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
+    return 'written';
   } catch (err) {
     logger.error('Failed to update KV status', toError(err));
+    return 'failed';
   }
 }
 
@@ -310,13 +314,17 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
  * does not identify whether the DO attachment, container network, or host is
  * wedged. Persist correlated recovery evidence before resetting the Durable
  * Object, confirm recovery only from a later response, and stop resetting after
- * two attempts while preserving slower checks. The Containers SDK constructor
- * has a running-container reattachment path; reconnecting through it remains a
- * deployed smoke check rather than a unit-tested contract.
+ * two attempts. If both probes still fail on the next tick, converge the stale
+ * running record to stopped instead of monitoring and billing it forever. The
+ * Containers SDK constructor has a running-container reattachment path;
+ * reconnecting through it remains a deployed smoke check rather than a
+ * unit-tested contract.
  */
 type TransportReconciliation = {
   nextDelaySec: number;
   recordUsage: boolean;
+  terminalUnavailable?: true;
+  recovery?: TransportRecoveryRecord;
 };
 
 type ProbeFailureCategory = 'timeout' | 'network-lost' | 'connection-refused' | 'other';
@@ -341,7 +349,7 @@ type TransportRecoveryRecord = {
   attemptCount: number;
   postResetFailureCount: number;
   totalFailureCount: number;
-  status: 'resetting' | 'exhausted';
+  status: 'resetting' | 'exhausted' | 'terminal-status-pending' | 'terminal-stop-pending';
 };
 
 function isTransportRecoveryRecord(value: unknown): value is TransportRecoveryRecord {
@@ -373,7 +381,9 @@ function isTransportRecoveryRecord(value: unknown): value is TransportRecoveryRe
   if (record.status === 'resetting') {
     return postResetFailureCount < TRANSPORT_FAILURE_ABORT_THRESHOLD;
   }
-  return record.status === 'exhausted'
+  return (record.status === 'exhausted'
+      || record.status === 'terminal-status-pending'
+      || record.status === 'terminal-stop-pending')
     && attemptCount === TRANSPORT_RECOVERY_MAX_ATTEMPTS
     && postResetFailureCount === TRANSPORT_FAILURE_ABORT_THRESHOLD;
 }
@@ -414,6 +424,84 @@ async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<voi
     TRANSPORT_FAILURE_STREAK_KEY,
     TRANSPORT_RECOVERY_KEY,
   ]);
+}
+
+async function scheduleRecoveryOwnershipReadRetry(
+  ctx: DurableObjectState,
+  callbacks: MetricsCallbacks,
+): Promise<void> {
+  try {
+    await callbacks.schedule(60, 'collectMetrics');
+  } catch (err) {
+    logger.error('collectMetrics: failed to schedule recovery ownership read retry', undefined, {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+async function scheduleTerminalConvergenceRetry(
+  ctx: DurableObjectState,
+  callbacks: MetricsCallbacks,
+): Promise<void> {
+  try {
+    await callbacks.schedule(60, 'collectMetrics');
+  } catch (err) {
+    logger.error('collectMetrics: failed to schedule terminal convergence retry', undefined, {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+async function continueTerminalConvergence(
+  state: MetricsState,
+  ctx: DurableObjectState,
+  env: Env,
+  callbacks: MetricsCallbacks,
+  recovery: TransportRecoveryRecord,
+): Promise<void> {
+  let ownedRecovery = recovery;
+  if (ownedRecovery.status === 'terminal-status-pending') {
+    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+    if (stoppedUpdate === 'failed') {
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
+      return;
+    }
+    ownedRecovery = { ...ownedRecovery, status: 'terminal-stop-pending' };
+    try {
+      await persistTransportRecovery(ctx, ownedRecovery);
+    } catch (err) {
+      logger.error('collectMetrics: failed to persist terminal stop ownership', undefined, {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
+      return;
+    }
+  }
+
+  try {
+    await callbacks.stop('SIGTERM');
+  } catch (err) {
+    logger.warn('collectMetrics: terminal container stop failed; retaining recovery for retry', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await scheduleTerminalConvergenceRetry(ctx, callbacks);
+    return;
+  }
+
+  try {
+    await clearTransportRecoveryState(ctx);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to clear exhausted recovery after terminal stop', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function monitorNetworkLossProbes(): TransportProbeObservations {
@@ -543,9 +631,11 @@ async function reconcileActiveTransportRecovery(
   probes: TransportProbeObservations,
 ): Promise<TransportReconciliation> {
   if (recovery.status === 'exhausted') {
-    // The transition to exhausted is logged once. Keep normal metering and the
-    // watchdog alive without emitting another error every minute.
-    return { nextDelaySec: 60, recordUsage: true };
+    // Two coordinator reconstructions plus another complete probe failure are
+    // durable evidence that the recorded session is unavailable. The SDK can
+    // leave container.running stuck true on this path, so waiting for the
+    // not-running branch would leave KV and usage falsely running forever.
+    return { nextDelaySec: 0, recordUsage: false, terminalUnavailable: true, recovery };
   }
 
   const nextPostResetFailures = recovery.postResetFailureCount + 1;
@@ -819,10 +909,11 @@ async function reconcileContainerTransport(
  * container/index.ts::onStart). Removing that heuristic is codeflare#153.
  *
  * TIMESTAMP TAXONOMY (four distinct clocks - do not conflate):
- *   lastInputAt        in-container /activity: wall-clock of the last PTY
- *                      KEYSTROKE (user input) only. Does NOT advance on terminal
- *                      OUTPUT, WebSocket traffic, vault/SilverBullet activity, or
- *                      an autonomously-working agent. The idle reference:
+ *   lastInputAt        in-container /activity: wall-clock of the latest
+ *                      classified PTY input or client-to-server Browser IDE
+ *                      frame. Does NOT advance on terminal output, server-to-client
+ *                      editor traffic, vault/SilverBullet activity, or an
+ *                      autonomously-working agent. The idle reference:
  *                      idleMs = Date.now() - (lastInputAt ?? containerStartedAt).
  *   lastSeenInputAt    MetricsState's cached copy of lastInputAt for this tick.
  *   lastActiveAt (KV)  mirrors lastInputAt (input-driven). Feeds the dashboard
@@ -838,6 +929,70 @@ export async function collectMetrics(
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {
+  // Terminal convergence is a durable lifecycle phase, not transport recovery.
+  // Handle it before probes, KV self-healing, or usage accounting so a later
+  // host response cannot resurrect a session whose terminal stop already began.
+  let storedRecovery: unknown;
+  try {
+    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+  } catch (err) {
+    logger.warn('collectMetrics: failed to read terminal recovery ownership', {
+      durableObjectId: ctx.id.toString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
+    return;
+  }
+  if (isTransportRecoveryRecord(storedRecovery)) {
+    if (storedRecovery.status === 'terminal-status-pending'
+        || storedRecovery.status === 'terminal-stop-pending') {
+      await continueTerminalConvergence(state, ctx, env, callbacks, storedRecovery);
+      return;
+    }
+
+    // Upgrade compatibility: the preceding implementation could write KV
+    // stopped and retain only exhausted ownership when its stop request failed. Do not let
+    // a newly responsive probe self-heal that terminal session.
+    if (storedRecovery.status === 'exhausted') {
+      let sessionId: string | undefined;
+      let bucketName: string | null;
+      let session: Session | null;
+      try {
+        sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
+        bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+        session = sessionId && bucketName
+          ? await env.KV.get<Session>(getSessionKey(bucketName, sessionId), 'json')
+          : null;
+      } catch (err) {
+        logger.warn('collectMetrics: failed to resolve pre-upgrade terminal ownership', {
+          durableObjectId: ctx.id.toString(),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
+        return;
+      }
+      if (sessionId && bucketName
+          && (session?.status === 'stopped' || (!session && ctx.container?.running))) {
+        const terminalRecovery: TransportRecoveryRecord = {
+          ...storedRecovery,
+          status: 'terminal-stop-pending',
+        };
+        try {
+          await persistTransportRecovery(ctx, terminalRecovery);
+        } catch (err) {
+          logger.error('collectMetrics: failed to migrate pre-upgrade terminal ownership', undefined, {
+            durableObjectId: ctx.id.toString(),
+            error: err instanceof Error ? err.message : String(err),
+          });
+          await scheduleTerminalConvergenceRetry(ctx, callbacks);
+          return;
+        }
+        await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
+        return;
+      }
+    }
+  }
+
   // Container reads as not-running. This is EITHER a genuine exit (crash,
   // deploy-roll, platform idle-reap) that the SDK never surfaced as onError,
   // OR a transient false reading: `ctx.container.running` momentarily reports
@@ -882,6 +1037,13 @@ export async function collectMetrics(
     logger.info('collectMetrics: container not running past confirmation window, marking stopped', {
       elapsedMs: now - since,
     });
+    const stoppedUpdate = await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+    if (stoppedUpdate === 'failed') {
+      // Keep the confirmation marker and recovery evidence until the
+      // authoritative status write succeeds; retry without recording usage.
+      try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
+      return;
+    }
     await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
     try {
       await clearTransportRecoveryState(ctx);
@@ -894,7 +1056,6 @@ export async function collectMetrics(
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
     return;
   }
   // Container is running - clear any pending not-running confirmation marker so
@@ -902,12 +1063,12 @@ export async function collectMetrics(
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
   // User-input-based idle detection. The SDK's sleepAfter timer is pinned to
-  // 24h and refreshes on every WebSocket message (in both directions) in
-  // @cloudflare/containers v0.2.x, so it would keep a container alive as
-  // long as any bytes flow — including background output from `tail -f` or
-  // `yes`. collectMetrics polls the in-container /activity endpoint for
-  // lastInputAt (PTY input only) and explicitly stops the container when
-  // idle exceeds the user-configured threshold.
+  // 24h and refreshes on every WebSocket message in both directions, so it
+  // would keep a container alive as long as any bytes flow — including
+  // background output from `tail -f` or `yes`. collectMetrics polls the
+  // in-container /activity endpoint for lastInputAt (classified PTY input or a
+  // client-to-server Browser IDE frame) and explicitly stops the container
+  // when idle exceeds the user-configured threshold.
   //
   // Re-read the idle-timeout pref from DO storage every tick. The class field
   // cache may be stale if (a) the DO instance was hibernated and re-loaded
@@ -955,7 +1116,7 @@ export async function collectMetrics(
 
       // Explicit idle-stop: stop the container when idle exceeds the
       // user-configured threshold. Fall back to containerStartedAt when
-      // the user has never typed (lastInputAt null).
+      // no classified terminal or Browser IDE input has arrived (lastInputAt null).
       const referenceTime = activity.lastInputAt ?? state.containerStartedAt;
       const idleMs = Date.now() - referenceTime;
       if (idleMs > sleepMs) {
@@ -1083,11 +1244,34 @@ export async function collectMetrics(
     // Fail closed: do not re-arm or reset the Durable Object.
     return;
   }
+  if (transportReconciliation.terminalUnavailable) {
+    logger.error('collectMetrics: exhausted transport remains unreachable, beginning terminal convergence', undefined, {
+      durableObjectId: ctx.id.toString(),
+      containerRunning: ctx.container?.running ?? false,
+      probes: { activity: activityProbe, health: healthProbe },
+    });
+    const terminalRecovery: TransportRecoveryRecord = {
+      ...transportReconciliation.recovery!,
+      status: 'terminal-status-pending',
+    };
+    try {
+      await persistTransportRecovery(ctx, terminalRecovery);
+    } catch (err) {
+      logger.error('collectMetrics: failed to persist terminal status ownership', undefined, {
+        durableObjectId: ctx.id.toString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await scheduleTerminalConvergenceRetry(ctx, callbacks);
+      return;
+    }
+    await continueTerminalConvergence(state, ctx, env, callbacks, terminalRecovery);
+    return;
+  }
 
-  // Timekeeper usage ping (SaaS mode only). A tick scheduled after a complete
-  // transport failure is a 5-second confirmation, not another billable minute.
+  // Timekeeper records per-user compute consumption in every deployment mode.
+  // A tick scheduled after a complete transport failure is a 5-second
+  // confirmation, not another usage minute.
   if (transportReconciliation.recordUsage
-      && isSaasModeActive(env.SAAS_MODE)
       && state._bucketName
       && state._userEmail
       && env.TIMEKEEPER) {
@@ -1122,7 +1306,7 @@ export async function collectMetrics(
 
       if (pingRes?.ok) {
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
-        if (quotaExceeded) {
+        if (quotaExceeded && isSaasModeActive(env.SAAS_MODE)) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });
           // Drain a final R2 sync while the container is still alive
           // (REQ-SESSION-011), then stop. Best-effort, bounded.

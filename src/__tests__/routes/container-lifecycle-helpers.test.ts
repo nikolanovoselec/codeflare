@@ -198,10 +198,9 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ).rejects.toThrow('Session limit reached');
     });
 
-    // REQ-ENTERPRISE-001: every enterprise user is a custom (unlimited) user. The
-    // stored billing tier must never restrict them — they get the unlimited tier's
-    // limits, and no monthly compute quota is ever enforced ("no time limit").
-    it('REQ-ENTERPRISE-001 AC3: enterprise resolves the unlimited session cap, not the stored free-tier cap', async () => {
+    // Defensive behavior for an invalid combined-mode deployment: Enterprise still
+    // forces the effective subscription tier to unlimited when SaaS resolution runs.
+    it('combined SAAS_MODE and ENTERPRISE_MODE flags resolve the unlimited tier cap', async () => {
       // 4 sessions running: over the free cap (maxSessions=1) but under unlimited (5).
       const sessionKeys = [];
       for (let i = 1; i <= 4; i++) {
@@ -226,7 +225,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.id).toBe('newsession1234');
     });
 
-    it('REQ-ENTERPRISE-004 AC3: enterprise users are never blocked by the monthly compute quota', async () => {
+    it('REQ-ENTERPRISE-001 AC3: enterprise users are never blocked by the monthly compute quota', async () => {
       mockKV._set('session:bucket:s1', { id: 's1', name: 'S', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' });
       // Usage record far over the free-tier monthly quota (14400s) for the current month.
       mockKV._set(getTimekeeperKey('bucket'), { thisMonth: { month: getUtcMonthString(new Date()), seconds: 999_999_999 } });

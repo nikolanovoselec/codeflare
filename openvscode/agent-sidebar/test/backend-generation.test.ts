@@ -3,7 +3,7 @@ import { setImmediate as waitForImmediate, setTimeout as waitForTimeout } from '
 import { test } from 'vitest';
 
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
-import { PiRpcBackend } from '../src/pi/node-rpc-backend.ts';
+import { PiRpcBackend, parseInlineEditProposal } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
 class UnexpectedApprovalHost implements ApprovalHost {
@@ -322,9 +322,10 @@ test('REQ-IDE-008: an unexpected idle Pi exit marks the backend unavailable for 
   await backend.stop();
 });
 
-test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled', async () => {
+test('REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer', async () => {
   const markdown: string[] = [];
   const progress: string[] = [];
+  const thinking: string[] = [];
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
 
@@ -332,6 +333,7 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
   const turn = backend.runPrompt('inspect the active file', {
     markdown: (value) => markdown.push(value),
     progress: (value) => progress.push(value),
+    thinking: (value) => thinking.push(value),
   }).then(() => { settled = true; });
   await waitForImmediate();
 
@@ -351,17 +353,429 @@ test('REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports too
     assistantMessageEvent: { type: 'thinking_delta', delta: 'hidden reasoning canary' },
   });
   spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'read' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'read' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'bash' });
+  spawner.children[0]?.emit({ type: 'tool_execution_start', toolName: 'bash' });
   spawner.children[0]?.emit({ type: 'agent_end', willRetry: false });
   await waitForImmediate();
 
   assert.equal(settled, false);
   assert.deepEqual(markdown, ['Visible answer']);
-  assert.deepEqual(progress, ['Running read…']);
+  assert.deepEqual(thinking, ['hidden reasoning canary']);
+  assert.deepEqual(progress, ['Inspecting workspace…', 'Running command…']);
   assert.doesNotMatch(markdown.join(''), /hidden reasoning canary/);
 
   spawner.children[0]?.emit({ type: 'agent_settled' });
   await turn;
   assert.equal(settled, true);
+  await backend.stop();
+});
+
+test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
+  const markdown: string[] = [];
+  const thinking: string[] = [];
+  const progress: string[] = [];
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('replace the selected function', {
+    markdown: (value) => markdown.push(value),
+    progress: (value) => progress.push(value),
+    thinking: (value) => thinking.push(value),
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  assert.equal(prompt.id, 'prompt-1');
+  assert.match(prompt.message ?? '', /^\/codeflare-inline-edit\s+/);
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string; prompt: string };
+  assert.equal(payload.prompt, 'replace the selected function');
+
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    toolCallId: 'inline-tool-1',
+    args: {
+      requestId: payload.requestId,
+      summary: 'Replaced the declaration because the old value was invalid.',
+      edits: [
+        {
+          startLine: 0,
+          startCharacter: 5,
+          endLine: 0,
+          endCharacter: 5,
+          newText: ';',
+        },
+        {
+          startLine: 0,
+          startCharacter: 0,
+          endLine: 0,
+          endCharacter: 5,
+          newText: 'const replacement = true',
+        },
+      ],
+    },
+  });
+  spawner.children[0]?.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'thinking_delta', delta: 'Preparing the smallest editor change.' },
+  });
+  spawner.children[0]?.emit({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', delta: 'must stay hidden' },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    summary: 'Replaced the declaration because the old value was invalid.',
+    edits: [
+      {
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 5,
+        newText: 'const replacement = true',
+      },
+      {
+        startLine: 0,
+        startCharacter: 5,
+        endLine: 0,
+        endCharacter: 5,
+        newText: ';',
+      },
+    ],
+  });
+  assert.deepEqual(markdown, []);
+  assert.deepEqual(thinking, ['Preparing the smallest editor change.']);
+  assert.equal(progress.length, 1);
+  assert.ok(progress[0]);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: inline proposal summaries are bounded plain text and fail closed', () => {
+  const edit = {
+    startLine: 0,
+    startCharacter: 0,
+    endLine: 0,
+    endCharacter: 0,
+    newText: 'safe',
+  };
+
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    edits: [edit],
+  }, 'inline-request-1'), /proposal summary is invalid/i);
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    summary: 'Unsafe\nsecond line',
+    edits: [edit],
+  }, 'inline-request-1'), /proposal summary is invalid/i);
+  assert.throws(() => parseInlineEditProposal({
+    requestId: 'inline-request-1',
+    summary: 'x'.repeat(501),
+    edits: [edit],
+  }, 'inline-request-1'), /proposal summary is invalid/i);
+});
+
+test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposal', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: { requestId: payload.requestId, edits: [{ newText: 'invalid' }] },
+  });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      summary: 'Inserted a corrected proposal after schema feedback.',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'safe',
+      }],
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    summary: 'Inserted a corrected proposal after schema feedback.',
+    edits: [{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 0,
+      newText: 'safe',
+    }],
+  });
+  assert.equal(backend.isReusable(), true);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: invalid-only settlement reports a bounded proposal category', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: { requestId: payload.requestId, edits: [{ newText: 'invalid' }] },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  await assert.rejects(turn, /proposal summary is invalid/i);
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-028: inline command extension errors reject immediately and retire the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: 'command:codeflare-inline-edit',
+    event: 'command',
+    error: 'ctx.sendUserMessage is not a function',
+  });
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+
+  await assert.rejects(turn, /native Inline Chat command failed/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: '<runtime>',
+    event: 'send_user_message',
+    error: 'Nested prompt dispatch failed',
+  });
+
+  await assert.rejects(turn, /native Inline Chat command failed/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'extension_error',
+    extensionPath: '/home/user/.pi/agent/extensions/unrelated.ts',
+    event: 'agent_start',
+    error: 'unrelated failure',
+  });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      summary: 'Inserted the safe value because the target was empty.',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'safe',
+      }],
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    summary: 'Inserted the safe value because the target was empty.',
+    edits: [{
+      startLine: 0,
+      startCharacter: 0,
+      endLine: 0,
+      endCharacter: 0,
+      newText: 'safe',
+    }],
+  });
+  assert.equal(backend.isReusable(), true);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  const proposal = {
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      summary: 'Inserted the safe value because the target was empty.',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'safe',
+      }],
+    },
+  };
+  spawner.children[0]?.emit(proposal);
+  spawner.children[0]?.emit(proposal);
+
+  await assert.rejects(turn, /invalid or duplicate tool/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: payload.requestId,
+      summary: 'Inserted bounded values because the target was empty.',
+      edits: Array.from({ length: 65 }, () => ({
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'x',
+      })),
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  await assert.rejects(turn, /proposal edit count is invalid/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_edits',
+    args: {
+      requestId: 'inline-wrong000',
+      summary: 'Inserted an unsafe value from an uncorrelated proposal.',
+      edits: [{
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 0,
+        endCharacter: 0,
+        newText: 'unsafe',
+      }],
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  await assert.rejects(turn, /proposal correlation is invalid/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  await assert.rejects(turn, /did not submit.*edit proposal/i);
+  await waitForImmediate();
+  assert.equal(backend.isReusable(), false);
   await backend.stop();
 });
 

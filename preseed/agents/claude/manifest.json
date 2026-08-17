@@ -558,6 +558,11 @@
       "advanced"
     ]
   },
+  "skills/sdd-init/references/render-documentation-templates.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/sdd-init/references/verify-source-anchors.py": {
     "modes": [
       "advanced"
@@ -603,7 +608,27 @@
       "advanced"
     ]
   },
+  "skills/spec-driven-development/references/templates/documentation-observability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-project-lane.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-troubleshooting.md": {
     "modes": [
       "advanced"
     ]
@@ -774,6 +799,26 @@
     ]
   },
   "skills/impeccable/reference/critique.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/asset-producer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/documenter.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/finish-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/manual-edit-applier.md": {
     "modes": [
       "advanced"
     ]
@@ -1098,6 +1143,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/open-system-browser.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/provider.mjs": {
     "modes": [
       "advanced"
@@ -1393,7 +1443,7 @@
       "advanced"
     ]
   },
-  "skills/impeccable/scripts/live/ui-core.mjs": {
+  "skills/impeccable/scripts/live/ui-surfaces.mjs": {
     "modes": [
       "advanced"
     ]
@@ -1623,17 +1673,27 @@
       "advanced"
     ]
   },
-  "skills/sandbox-sdk/SKILL.md": {
+  "skills/sandbox-migrate-to-next/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/sandbox-sdk/references/api-quick-ref.md": {
+  "skills/sandbox-next/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/sandbox-sdk/references/examples.md": {
+  "skills/sandbox-next/references/api-quick-ref.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sandbox-next/references/examples.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sandbox-stable/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1683,11 +1743,6 @@
       "advanced"
     ]
   },
-  "skills/turnstile-spin/scripts/fetch-secret.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/turnstile-spin/scripts/persist-skill.sh": {
     "modes": [
       "advanced"
@@ -1699,96 +1754,6 @@
     ]
   },
   "skills/turnstile-spin/scripts/widget-create.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/scripts/worker-deploy.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/.gitignore": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/LICENSE": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/README.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/package.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/public/post-deploy.html": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/src/errors.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/src/index.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/src/observability.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/src/types.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/src/validate.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/test/deploy.test.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/test/integration.test.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/test/unit.test.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/test/validation.test.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/tsconfig.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/vitest.config.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/turnstile-spin/templates/worker/wrangler.toml": {
     "modes": [
       "advanced"
     ]

@@ -1,4 +1,4 @@
-<!-- doc-discipline: never delete entries (replace with Status: Reclassified or Status: Merged into AD-X stubs); one ADR per architectural decision; each ADR Context block carries an inline @impl source-anchor -->
+<!-- doc-discipline: never delete entries; superseded index entries are struck through; reclassified/merged entries become explicit Redirect anchor stubs; one ADR per architectural decision; each ADR Context block carries an inline @impl source-anchor -->
 
 # Architecture Decision Records
 
@@ -19,34 +19,43 @@ ADRs document choices between **real alternatives** where the chosen path has co
 | Risk acceptance with no alternative considered | Inline source-code comment OR `documentation/[lanes/]security.md` "trust model" section |
 | Implementation note framed as a decision | Delete or move to `pending.md` |
 
-The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. The full rule and detection signals live in `~/.claude/rules/documentation-discipline.md` ("What is NOT an ADR") and run as `doc-updater` Pass 5 on every push.
+The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. Runtime-neutral classification and reclassification rules live in `doc-enforce-lanes` under `Dual-narrative ADRs` and run during documentation lane enforcement.
 
-When an existing ADR is reclassified to a canonical home, preserve its `### AD-N:` heading as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references in the codebase keep resolving. Same shape applies to merged ADRs (`Status: Merged into AD-X`). Never delete entries outright — content is moved, anchors stay.
+When an existing ADR is reclassified to a canonical home, preserve its numbered heading as a `Status: Reclassified on YYYY-MM-DD` stub so inbound references keep resolving. The same rule applies to merged ADRs. Label both as `Redirect anchor` and link the destination; never use unexplained `(redirect)` or `(redirected)` shorthand.
+
+State rendering is explicit:
+
+- **Active:** normal index row.
+- **Superseded:** strike through both the linked ID and decision cells, set State to `Superseded`, link the successor, and retain the complete historical section.
+- **Partially superseded:** keep the row unstruck, set State to `Partially superseded`, and name only the replaced clause plus successor.
+- **Redirect anchor:** keep the row unstruck, set State to `Redirect anchor`, and link the merged or reclassified destination.
+
+Index rows are self-contained: `Decision` is a label of at most 90 rendered characters; `Summary` is one sentence of 40–180 rendered characters. Active summaries name the concrete subject and choice plus a specific driver or consequence supported by the ADR body. Superseded, partial, and redirect summaries name and link their successor, retained scope, or destination. Summaries never merely repeat the label or begin with an unexplained pronoun.
 
 ---
 
 ## Decision Index
 
-| ID | Decision | Category | Date |
-|----|----------|----------|------|
-| AD1 | {First decision title} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
+| ID | Decision | Summary | Category | State |
+|----|----------|---------|----------|-------|
+| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_LABEL} | {DECISION_SUMMARY} | {DECISION_CATEGORY} | Active |
 
 ---
 
-### AD1: {First decision title}
+### {DECISION_ID}: {DECISION_TITLE}
 
 **Status:** Accepted (YYYY-MM-DD)
 
-**Decision:** {What was decided in one sentence.}
+**Decision:** {DECISION}
 
-**Context:** {What prompted the decision. What problem or constraint was being addressed?} <!-- @impl: <path>::<symbol> -->
+**Context:** {CONTEXT} <!-- @impl: <path>::<symbol> -->
 
-**Alternatives considered:** {Brief list of other options that were rejected. ADRs require real alternatives — if none, this is not an ADR (see "What is NOT an ADR" above).}
+**Alternatives considered:** {ALTERNATIVES}
 
-**Rationale:** {Why this choice over the alternatives. Trade-offs accepted.}
+**Rationale:** {RATIONALE}
 
-**Consequences:** {What downstream code/docs must keep in lockstep.}
+**Consequences:** {CONSEQUENCES}
 
-**Related requirements:** [REQ-X-N](../../sdd/spec/{domain}.md#req-x-n)
+**Related requirements:** {REQUIREMENT_LINK}
 
 ---

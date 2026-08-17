@@ -7,14 +7,14 @@ A full code-server browser editor for an advanced running session. The editor op
 ### Key Concepts
 
 - **Browser IDE** -- The per-session code-server editor defined in the [glossary](glossary.md#glossary).
-- **Session isolation** -- Editor routing, live databases, extension state, server state, and workspace selection belong to one session. Only a bounded, credential-free UI-preference snapshot is shared through the user's storage identity.
+- **Session isolation** -- Editor routing, live databases, extension runtime state, server state, and workspace selection belong to one session. Only bounded UI-preference and user-extension manifests are shared through the user's storage identity; extension bytes remain session-local.
 - **Lazy start** -- The editor consumes resources only after an eligible user first opens it.
 - **Editor activity** -- Any message sent from the browser editor to the session counts as input for the same idle policy used by terminal input.
 
 ### Out of Scope
 
 - A separate editor deployment, container, authentication system, or origin.
-- Cross-session persistence of live editor databases, extension state, SecretStorage, authentication, chat history, logs, or arbitrary settings.
+- Cross-session persistence of live editor databases, extension bytes or runtime state, SecretStorage, authentication, chat history, logs, or settings outside the two bounded manifests.
 - Desktop remote-development protocols or a graphical desktop surface.
 - Parsing the upstream editor protocol to classify messages.
 
@@ -63,7 +63,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-002: Session-isolated IDE, not bucket-stable
 
-**Intent:** Each session receives an independent live editor for its own workspace while a bounded, credential-free UI-preference snapshot follows the user across sessions.
+**Intent:** Each session receives an independent live editor for its own workspace while bounded UI-preference and user-extension manifests follow the user without persisting live editor databases or extension bytes.
 
 **Applies To:** User
 
@@ -74,14 +74,15 @@ A full code-server browser editor for an advanced running session. The editor op
 3. The snapshot's persisted settings and workspace state contain exactly allowlisted theme and keyboard-layout values plus schema-valid Explorer/open-file resources. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_setting_value --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_state_value --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: captures and restores only allowlisted theme, editor, and Explorer state) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: excludes unknown fields and opaque strings from allowlisted state rows) -->
 4. Every restored file resource resolves canonically inside `/home/user/workspace`. <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: excludes allowlisted rows whose file resources escape directly or through a symlink) -->
 5. Launching from the header always opens the active session rather than another running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
-6. Live databases, WAL/SHM files, workspace storage, global extension state, SecretStorage, authentication, chat history, logs, and unallowlisted User settings never enter persistent sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_setting_value --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002: syncs only the bounded Browser IDE UI-state snapshot) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) -->
-7. A user-selected web keyboard layout follows the user through the bounded snapshot. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+6. Live databases, extension bytes, WAL/SHM files, workspace storage, global extension state, SecretStorage, authentication, chat history, logs, and unallowlisted User settings never enter persistent sync; only the bounded UI snapshot and bounded user-extension manifest do. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6: syncs only bounded Browser IDE manifests) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) -->
+7. A user-selected web keyboard layout follows the user through the bounded snapshot. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
 - The selected session remains visible in the editor location for the lifetime of the page.
-- The per-user snapshot at `~/.codeflare/ide-ui-state.json` is the only bucket-level IDE state; it is atomically written, capped at 1 MiB, contains only allowlisted theme values, a string-valued `keyboard.layout`, and concrete resource-only workspace-state schemas, and contains no raw database.
-- Managed Codeflare and Claude settings override restored preferences on every launch.
+- Bucket-level UI state is limited to atomic, fail-closed `~/.codeflare/ide-ui-state.json`, capped at 1 MiB with only allowlisted UI values and resources.
+- Bucket-level extension state is limited to atomic, fail-closed `~/.codeflare/ide-extensions.json`, capped at 64 KiB with bounded identity/version metadata, warning acknowledgement, and contributed User-scope settings.
+- Managed Codeflare, Claude, and UI-continuity settings override extension-restored preferences on every launch.
 - The upstream keyboard-layout status item and picker remain visible; Codeflare persists the user's selection instead of hiding or preselecting that control.
 
 **Priority:** P2
@@ -90,7 +91,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js); [UI-state snapshot tests](../../host/__tests__/browser-ide-ui-state.test.js); [settings preparation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -164,8 +165,8 @@ A full code-server browser editor for an advanced running session. The editor op
 1. When tab configuration is supplied, IDE agent availability matches terminal tab 1 exactly: Pi selects the owned Pi inventory, Claude selects the official Claude inventory, and unsupported, malformed, duplicate, ambiguous, or missing tab-one selections select the empty inventory. Absent configuration preserves the legacy Claude inventory. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1+AC2: tab one selects only a fixed IDE agent inventory) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
 2. A Pi session presents Codeflare as code-server's default native Chat participant and presents no duplicate custom Pi webview. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + REQ-IDE-023 AC1: contributes native Pi panel and editor Chat) -->
 3. A Claude session keeps code-server's unrelated native Chat and Copilot setup disabled. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) -->
-4. Pi's IDE backend lifecycle is request-lazy and persistent across normally completed panel and editor turns. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005: one IDE-owned Pi session reuses only its child) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
-5. A Pi session opens Codeflare native Chat without an account-setup prompt or authorization flow. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) --> <!-- @manual: On the deployed integration image, open Codeflare native Chat and complete one request without account or model setup in three fresh sessions. -->
+4. Pi's IDE backend lifecycle is request-lazy and persistent across normally completed panel and editor turns. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005: one IDE-owned Pi session reuses only its child) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) -->
+5. A Pi session opens Codeflare native Chat without an account-setup prompt or authorization flow. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: Dockerfile::rm -rf /opt/code-server/lib/vscode/extensions/copilot --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) --> <!-- @manual: On the deployed integration image, open Codeflare native Chat and complete one request without account or model setup in three fresh sessions. -->
 6. The selected fixed inventory becomes available in the running editor. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOfficialClaudeExtension --> <!-- @manual: On the deployed integration image, confirm the selected Pi, Claude, or empty inventory on three fresh sessions. -->
 7. Codeflare answers native Chat independently of the editor-selected model. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC7: native Pi context collection ignores the host-selected model) -->
 
@@ -261,7 +262,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Extension deactivation atomically closes the IDE Pi lifecycle: the shared backend stops once and no pending or later work can spawn. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::deactivate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::PiSession --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: deactivation reaps once and prevents queued or later work from spawning) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-008 AC2: Pi disposal uses bounded generation reaping when TERM is ignored) -->
 3. Spawn, input, protocol, transport, or unexpected-exit failure retires and boundedly reaps the shared backend before a later request creates its replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::PiSession --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: an unexpected idle process exit is reaped before transparent replacement) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-008: idle blocking UI fails closed without displaying and prevents reuse) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-008: an unexpected idle Pi exit marks the backend unavailable for reuse) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-008 AC3: an asynchronous Pi spawn failure cannot leave a running backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-008 AC3: an asynchronous Pi stdin failure stops the backend without escaping) -->
 4. Editor restart and session stop reap every process carrying the Browser IDE launch generation, including code-server extension hosts and official Claude's bundled child, before replacement or shutdown completes. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::kill_pidfile_subtree --> <!-- @impl: openvscode/agent-sidebar/src/process-generation.ts::reapSidebarGeneration --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (OpenVSCode launch generations / REQ-IDE-008 AC4) --> <!-- @test: openvscode/agent-sidebar/test/process-generation.test.ts (REQ-IDE-008 AC4: one Pi generation reaps a TERM-ignoring descendant in another process group) -->
-5. After a normally completed turn, the shared backend is retained for the next IDE request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
+5. After a normally completed turn, the shared backend is retained for the next IDE request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) -->
 6. Concurrent panel and editor requests execute in strict invocation order so prompt-unscoped Pi stream events belong to only one active turn. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: concurrent native Chat requests execute in strict FIFO order) -->
 
 **Constraints:**
@@ -288,7 +289,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Every agent kind — Pi, Claude, and the empty selection — opens its session workspace without a workspace-trust prompt. <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-005 AC1 + REQ-IDE-009: every agent kind prepares IDE settings before code-server launches) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-009 + REQ-IDE-018: Pi settings seed writes workspace and native notification keys) -->
-2. The seeded settings ignore extension recommendations, so the editor shows no "install recommended extensions" prompt for the opened workspace. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore extension recommendations) -->
+2. The seeded settings ignore extension recommendations, so the editor shows no "install recommended extensions" prompt for the opened workspace. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) -->
 3. A Claude session keeps its existing isolated Claude settings and also carries the base workspace-trust and recommendation settings. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009: Claude settings also carry the base workspace-trust and recommendation keys) -->
 4. A settings-preparation failure fails closed and refuses the editor launch for any agent kind. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-009: IDE settings preparation failure prevents code-server launch) -->
 
@@ -339,6 +340,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-011-review-with-pi-explorer-action"></a>
 ### REQ-IDE-011: File review with Codeflare
 
 **Intent:** A Pi user can send one Explorer workspace file to Codeflare for review without entering a separate account-backed workflow.
@@ -396,6 +398,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-013-account-free-native-pi-chat"></a>
 ### REQ-IDE-013: Account-backed Code Review suppression
 
 **Intent:** A Pi user sees the account-free Codeflare review path without Code OSS's unrelated account-backed Code Review action.
@@ -404,7 +407,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The Pi inventory suppresses Code OSS's account-backed **Code Review** setup action. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) -->
+1. The Pi inventory suppresses Code OSS's account-backed **Code Review** setup action. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
 2. Suppressing the account-backed action leaves **Review with Codeflare** available. <!-- @impl: openvscode/agent-sidebar/package.json::explorer/context --> <!-- @impl: openvscode/agent-sidebar/package.json::editor/context --> <!-- @manual: On the deployed integration image, confirm Review with Codeflare remains and Code Review is absent in three fresh Pi sessions. -->
 
 **Constraints:**
@@ -422,6 +425,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+<a id="req-ide-014-editor-context-native-chat-review"></a>
+<a id="req-ide-014-review-with-pi-editor-context-action"></a>
 ### REQ-IDE-014: Active-editor review with Codeflare
 
 **Intent:** A Pi user can send the active workspace file to Codeflare from the editor context menu.
@@ -450,9 +455,10 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-015: Fixed workspace projection and clean Browser IDE URL
+<a id="req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url"></a>
+### REQ-IDE-015: Clean Browser IDE URL and private workspace selection
 
-**Intent:** The Browser IDE opens the fixed session workspace without exposing the container path in the browser URL.
+**Intent:** The Browser IDE selects the fixed session workspace privately without exposing or accepting workspace selectors in the browser URL.
 
 **Applies To:** User
 
@@ -462,11 +468,6 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Non-root protocol and asset requests preserve unrelated query parameters. <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamRequestTarget --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navigation)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-015 AC1+AC2: keeps the browser URL clean while selecting the fixed loopback workspace) -->
 3. Root-relative editor redirects remain under the authenticated session route. <!-- @impl: host/src/vscode-proxy.ts::rewriteVscodeLocation --> <!-- @impl: host/src/request-router.ts::rewriteVscodeResponseHeaders --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navigation)) -->
 4. Browser-visible redirects contain no workspace selector. <!-- @impl: host/src/vscode-proxy.ts::rewriteVscodeLocation --> <!-- @impl: host/src/request-router.ts::rewriteVscodeResponseHeaders --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamRequestTarget / REQ-IDE-015 (fixed clean workspace navigation)) -->
-5. Clean root navigation opens the fixed session workspace. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection) -->
-6. Unsafe fixed-workspace initialization fails closed instead of opening an empty window. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection) -->
-7. Workspace projection leaves every server-provided IDE setting other than the selected folder unchanged. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-015 AC5+AC6+AC7 (clean fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-015 AC5+AC6+AC7: root workbench configuration projection) -->
-
-**Notes:** Version-pinned incompatibility conditions are owned by the [container documentation](../../documentation/lanes/container.md#code-server-browser-ide).
 
 **Constraints:**
 
@@ -477,58 +478,64 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](#req-ide-012-fixed-clean-browser-ide-workspace-selection)
 
-**Verification:** Automated test (host proxy tests and complete-image smoke); deployed clean-URL verification on three fresh sessions
+**Verification:** Automated host proxy tests; deployed clean-URL and selector-rejection verification on three fresh sessions
 
 **Status:** Implemented
 
 ---
 
-### REQ-IDE-016: UI-state capture and restore ordering
+<a id="req-ide-016-ui-state-capture-and-restore-ordering"></a>
+### REQ-IDE-016: Bounded IDE-state capture and restore ordering
 
-**Intent:** Safe Browser IDE preferences move between sessions only after live state is closed and before managed settings are applied to fresh storage.
+**Intent:** Safe Browser IDE preferences and user-extension metadata move between sessions without delaying editor launch or persisting live runtime storage.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Snapshot capture starts only after the editor generation is reaped. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC1: captures UI state only after the code-server generation exits) -->
-2. Restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+1. UI snapshot capture starts only after the editor generation is reaped. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC1: captures UI state only after the code-server generation exits) -->
+2. UI restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+3. User-extension restore begins from the built-in welcome extension after workbench startup and never delays code-server launch. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-016 AC3: welcome activation starts lazy extension persistence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+4. Debounced in-session capture is backed by one post-reap registry capture, so closing during the debounce window cannot lose an install or uninstall. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_capture_extensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4: extension-host changes debounce one capture) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC4: captures the extension registry exactly once after a generation exits) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 
 **Constraints:**
 
-- Capture and restore use only the bounded snapshot defined by [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable).
-- Managed Codeflare and Claude settings remain authoritative after restore.
+- Capture and restore use only the two bounded manifests defined by [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable).
+- Managed Codeflare, Claude, and UI-continuity settings remain authoritative after restore.
+- Gallery availability never gates code-server startup.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** Automated test (editor lifecycle and settings-preparation tests)
+**Verification:** GitHub Actions runs editor lifecycle, settings preparation, manifest, welcome-bootstrap, and complete-image tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-IDE-017: Unsupported IDE inventory runtime metadata
+<a id="req-ide-017-unsupported-ide-inventory-runtime-metadata"></a>
+### REQ-IDE-017: Unsupported IDE base-inventory isolation
 
-**Intent:** Starting code-server with the unsupported inventory cannot install or expose an unsupported editor extension.
+**Intent:** Selecting an unsupported terminal agent exposes no Codeflare-managed IDE agent while still permitting the user's agent-independent extension manifest.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. After code-server initializes the unsupported inventory, that inventory contains no extension. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+1. The packaged unsupported base inventory contains no extension. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+2. Any extension visible in an unsupported-agent session comes only from the writable user layer and never changes the empty packaged base inventory. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-017 AC2: seeds immutable base extensions into a writable session layer) -->
 
 **Constraints:**
 
-- code-server may create one regular `extensions.json` registry file containing exactly `[]`; every other runtime entry is rejected.
-- The packaged unsupported inventory remains empty under [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility) AC1.
+- The packaged unsupported directory remains empty; code-server registry metadata and user-extension directories live only in the writable per-session layer.
+- User extensions do not become Codeflare-managed agents and remain subject to [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility)
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
 
-**Verification:** Automated test
+**Verification:** GitHub Actions validates packaged-base emptiness, writable-layer isolation, and complete-image restore/capture behavior.
 
 **Status:** Implemented
 
@@ -542,7 +549,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The Pi inventory enables Code OSS OS notifications for received responses and confirmations when the editor window is not focused. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source) --> <!-- @manual: On deployed integration, complete and confirm Pi native Chat turns with the editor unfocused and verify Code OSS notification permission, focus, and lifetime behavior. -->
+1. The Pi inventory enables Code OSS OS notifications for received responses and confirmations when the editor window is not focused. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) --> <!-- @manual: On deployed integration, complete and confirm Pi native Chat turns with the editor unfocused and verify Code OSS notification permission, focus, and lifetime behavior. -->
 2. The unsupported inventory retains its existing disabled native Chat behavior. <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setup) -->
 3. The Claude inventory retains its existing suppression of unrelated native Chat setup. <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup) -->
 4. The Claude inventory presents the official upstream panel's in-product notification behavior. <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @manual: On deployed integration, exercise the official Claude panel's upstream in-product notification behavior. -->
@@ -567,25 +574,24 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-019: Codeflare eligibility in editor Inline Chat
 
-**Intent:** A Pi-selected advanced session uses Codeflare as the account-free default participant in the existing editor Inline Chat refactor area.
+**Intent:** A Pi-selected advanced session exposes Codeflare as the account-free default in panel and editor Inline Chat.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The same Codeflare participant is available in panel and editor Inline Chat. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + REQ-IDE-023 AC1: contributes native Pi panel and editor Chat) -->
-2. From initial workbench readiness, editor Inline Chat lists **Codeflare** as a selectable default model from Codeflare's own provider without a GitHub Copilot login. <!-- @impl: openvscode/agent-sidebar/package.json::activationEvents --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) --> <!-- @manual: On a fresh deployed Pi inventory, verify Codeflare is the initial selectable default and no Copilot login is offered. -->
+2. From initial workbench readiness, editor Inline Chat lists **Codeflare** as a selectable default model from Codeflare's own provider without a GitHub Copilot login. <!-- @impl: openvscode/agent-sidebar/package.json::activationEvents --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) --> <!-- @manual: On a fresh deployed Pi inventory, verify Codeflare is the initial selectable default and no Copilot login is offered. -->
 3. Selected-code editor refactoring invokes Codeflare without a GitHub Copilot login. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @manual: On a fresh deployed Pi inventory, select code, invoke editor Inline Chat, and verify Codeflare handles the request without Copilot login. -->
 4. Empty-selection editor generation invokes Codeflare without a GitHub Copilot login. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @manual: On a fresh deployed Pi inventory, invoke editor Inline Chat without a selection and verify Codeflare handles the request without Copilot login. -->
-5. Codeflare requests no model authorization. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5: native Pi registers account-free panel and editor Chat) -->
-6. Each Codeflare custom agent appears once in Code OSS's Agent selector. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source) --> <!-- @manual: On a fresh deployed Pi inventory, open the Code OSS Agent selector and verify each Codeflare custom agent appears exactly once. -->
-7. Panel and editor requests invoke the same IDE-owned local Pi runtime instead of either compatibility provider's generation path. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-019 AC7: participant requests run the local Pi backend without provider generation) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) -->
+5. Codeflare requests no model authorization. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
+6. Each Codeflare custom agent appears once in Code OSS's Agent selector. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) --> <!-- @manual: On a fresh deployed Pi inventory, open the Code OSS Agent selector and verify each Codeflare custom agent appears exactly once. -->
 
 **Constraints:**
 
-- The Pi package enables the pinned host's `chatParticipantAdditions`, `chatProvider`, and `defaultChatParticipant` proposals, and declares panel/editor participant locations.
+- The Pi package enables `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant` for panel/editor locations.
 - The hidden, non-selectable `copilot` fallback preserves the pinned extension host's absent-request-model lookup; it is panel-default only and has no tool-calling capability.
-- The distinct `codeflare` vendor keeps the selectable model outside the host's Copilot entitlement/setup path; tool-calling metadata remains pinned-host eligibility metadata, not a second inference path.
+- The `codeflare` vendor keeps the selectable model outside Copilot setup; tool-calling metadata is host eligibility, not inference.
 - Pi settings disable the duplicate `~/.claude/agents` source while retaining Code OSS discovery from `~/.copilot/agents` and Pi discovery from `~/.pi/agent/agents`.
 - Both compatibility providers remain fail-closed if any caller attempts generation.
 - Codeflare does not patch code-server or Code OSS, so the host's generic **Refactor...** action and editor Inline Chat area remain upstream-owned.
@@ -594,36 +600,37 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-013](#req-ide-013-account-free-native-pi-chat), [REQ-IDE-014](#req-ide-014-editor-context-native-chat-review)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate package metadata, proposal admission, both adapter metadata contracts, fail-closed generation, and inventory isolation through `scripts/ci/smoke-openvscode-sidebar-image.mjs` and the `Measure idle code-server resources` job block in `.github/workflows/container-image.yml`. AC2–AC4's pinned-workbench flows and AC6's selector multiplicity remain explicit deployed manual checks.
+**Verification:** PR-boundary review and GitHub Actions CI validate package metadata, adapter metadata, fail-closed generation, and inventory isolation through `scripts/ci/smoke-openvscode-sidebar-image.mjs` and the `Measure idle code-server resources` job block in `.github/workflows/container-image.yml`. AC2–AC4 and AC6 remain explicit deployed manual checks.
 
 **Status:** Partial
 
 ---
 
-### REQ-IDE-020: Unrestricted Pi editor request execution
+### REQ-IDE-020: Native Pi editor proposal execution
 
-**Intent:** Editor Inline Chat requests reuse Codeflare's bounded context and persistent unrestricted IDE-owned Pi runtime without presenting the selected range as a sandbox or rollback boundary.
+**Intent:** Editor-originated requests become host-owned native Inline Chat edit transactions without panel handoff or direct Pi filesystem mutation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Editor requests capture the canonical active document's unsaved content, selection, diagnostics, explicit references, and bounded recent history when invoked while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
-2. Editor requests share the one lazy IDE-owned Pi process and conversation with panel Chat. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) -->
-3. Active cancellation or backend failure replaces the shared backend with a new isolated process generation before a later request runs. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: active cancellation retires the backend before replacement) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) -->
-4. Edit, Write, and Bash proceed without an editor permission prompt. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
-5. Assistant text and tool progress stream in editor Inline Chat, and normal completion waits for settlement. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-005 AC4: a native Pi turn streams only assistant text, reports tool progress, and completes at agent_settled) -->
-6. Cancellation reaping follows turn ownership: active cancellation reaps the shared IDE generation, while queued cancellation leaves it running. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: queued cancellation skips its prompt without aborting the active turn) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: active cancellation retires the backend before replacement) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: deactivation reaps once and prevents queued or later work from spawning) -->
+1. Editor requests capture the invoking host document's unsaved content, selection, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
+2. An editor request invokes the local Pi runtime directly without compatibility-provider generation or panel handoff. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. A valid proposal emits native text edits for the captured document. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. The host emits the native edit-completion marker after those edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+5. The rendered native transaction offers **Keep** for the proposed edits. <!-- @manual: On fresh deployed integration, generate an Inline Chat edit and verify Keep applies the displayed proposal. -->
+6. Reject or Undo restores the document through the native Inline Chat transaction. <!-- @manual: On fresh deployed integration, reject or undo an Inline Chat proposal and verify the prior document content is restored. -->
 
 **Constraints:**
 
-- The fixed local `pi --mode rpc --no-session --no-themes` runtime retains normal tools, extensions, root access, external interceptors, and bounded generation cleanup without a command sandbox; it is separate from terminal Pi, selection is context rather than confinement, and direct effects carry no host Keep/Undo promise.
+- Codeflare neither patches Code OSS nor replays already-applied filesystem changes as host edits.
+- Pi never writes the target document during an editor proposal turn.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
+**Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation)
 
-**Verification:** PR-boundary review and GitHub Actions CI only. Existing native context, RPC lifecycle, approval, process-generation, and complete-image checks cover the shared runtime contract.
+**Verification:** PR-boundary review and GitHub Actions CI validate native context and host-owned edit rendering. Fresh deployed editor generation remains the controller-owned Keep/Close evidence boundary.
 
 **Status:** Partial
 
@@ -631,27 +638,28 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-021: Account-free Browser IDE chrome
 
-**Intent:** Browser IDE sessions omit Code OSS's Copilot sign-in status affordance and left-side Accounts chrome while retaining Codeflare Chat and independent agent credentials.
+**Intent:** Browser IDE sessions omit Code OSS's Copilot status, Chat title-bar sign-in, and left-side Accounts chrome while retaining Codeflare Chat and independent agent credentials.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Before code-server starts, Pi, Claude, and unsupported inventories prepare the Copilot sign-in status entry as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
-2. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
-3. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory hides account login chrome) -->
+1. Pi sessions hide unrelated built-in AI setup. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
+2. Pi sessions retain account-free Codeflare models. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
+3. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
+4. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
+5. Pi, Claude, and unsupported inventories omit Code OSS's Chat title-bar sign-in affordance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
-- Codeflare uses supported ephemeral profile storage to add only `chat.statusBarEntry`, preserves existing hidden entries, and does not patch code-server or persist this state in the UI snapshot.
-- The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; pin updates must retain this contract.
-- Authentication APIs, Chat, credentials, and other status entries are outside this mutation.
+- Server-side `User/State/storage.json` does not own Code OSS status-entry visibility.
+- The upstream artifact, Docker pin, and Bump Shadow Pins workflow remain unchanged; authentication APIs, credentials, unrelated status entries, and UI-snapshot contents remain outside these bounded context, profile, and User-setting mutations.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
-**Verification:** PR-boundary review and GitHub Actions CI only. Configured preparation tests verify the exact web-profile behavior; complete-image smoke verifies that each packaged inventory receives the prepared value.
+**Verification:** PR-boundary review and GitHub Actions CI validate context, settings, and profile preparation plus complete-image packaging. Fresh deployed Pi, Claude, and unsupported sessions remain the manual rendered-chrome evidence boundary.
 
 **Status:** Partial
 
@@ -679,7 +687,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-unrestricted-pi-editor-request-execution)
+**Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution)
 
 **Verification:** PR-boundary review and GitHub Actions CI only. Configured bridge, host, backend, and shared-runtime tests cover each blocking protocol result, FIFO ownership, and generation behavior.
 
@@ -699,7 +707,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. **Review with Codeflare** attaches an Explorer workspace file and submits it to Codeflare ask mode. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode) -->
 3. The Pi inventory contributes **Review with Codeflare** to the editor context menu. <!-- @impl: openvscode/agent-sidebar/package.json::editor/context --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + REQ-IDE-023 AC1: contributes native Pi panel and editor Chat) -->
 4. Image staging installs the official Claude inventory. <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
-5. The unsupported inventory remains extension-free after initialization. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+5. The packaged unsupported base inventory remains extension-free after initialization. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
 
 **Constraints:** Compatibility preservation adds no code-server or Code OSS patch and changes no Bump Shadow Pins ownership.
 
@@ -709,6 +717,455 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** PR-boundary review and GitHub Actions CI validate the five independently packaged compatibility surfaces.
 
+**Status:** Implemented
+
+---
+
+### REQ-IDE-024: Codeflare Browser IDE welcome
+
+**Intent:** Every Browser IDE opens with a Codeflare-owned explanation of the editor’s traditional and agentic roles, while agent controls remain truthful to the selected inventory.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi, Claude, and unsupported sessions open exactly one startup welcome editor: Codeflare's non-empty owned HTML. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) -->
+2. The welcome editor explains full VS Code availability, the observability-plane role, and the shared isolated ephemeral container. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
+3. The welcome editor adapts to light and dark themes, responsive viewport widths, and reduced-motion preferences. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @manual: On deployed integration, verify the welcome editor in light and dark themes at desktop and mobile widths, including reduced motion. -->
+4. The welcome action opens Codeflare Chat for Pi, opens the official Claude Code panel for Claude, and exposes no agent action for unsupported selections. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-024 AC1+AC4: every inventory opens one welcome editor with its fixed primary action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4: only exact Pi and Claude selections enable an IDE agent) -->
+5. The welcome extension loads no external content. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
+6. The welcome extension contributes no Chat participant, language-model provider, or agent view and leaves agent inventory ownership unchanged. <!-- @impl: openvscode/agent-sidebar/welcome-package.json::contributes --> <!-- @impl: Dockerfile::codeflare-welcome --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-024 AC6: the shared welcome extension contributes no agent surface) -->
+7. The welcome editor identifies native Pi, official Claude Code, or editor-only mode according to the selected inventory. <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::buildWelcomePresentation --> <!-- @impl: openvscode/agent-sidebar/src/welcome.ts::renderWelcomeHtml --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC4+AC7: every inventory gets an honest fixed welcome action) --> <!-- @test: openvscode/agent-sidebar/test/welcome.test.ts (REQ-IDE-024 AC2+AC5+AC7: welcome HTML renders universal editor foundations and the selected native plane without external content) -->
+
+**Constraints:**
+
+- The keyboard-accessible welcome package is installed without modifying code-server or Code OSS source.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-009](#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-017](#req-ide-017-unsupported-ide-inventory-runtime-metadata)
+
+**Verification:** PR-boundary review and GitHub Actions CI validate owned rendering, inventory-specific actions, CSP isolation, and packaged built-in extension bytes. A fresh deployed session remains the manual non-empty rendered-editor evidence boundary.
+
 **Status:** Partial
+
+---
+
+### REQ-IDE-025: Shared IDE Pi surface isolation
+
+**Intent:** Panel and editor turns share one persistent IDE Pi conversation while each surface retains its truthful capability boundary.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Participant requests invoke the local Pi RPC backend instead of either compatibility provider's generation path. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025 AC1 + REQ-IDE-034: panel requests run Pi without Inline diagnostics or provider generation) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+2. The Browser IDE creates at most one lazy IDE-owned Pi process, separate from terminal Pi. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
+3. Panel and editor turns retain one in-memory Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: panel and native inline edit turns reuse one backend with surface-specific output) -->
+4. Panel turns retain their existing unrestricted tool set without editor permission prompts. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
+5. An editor turn activates only `codeflare_submit_inline_edits`. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+6. That editor command dispatches exactly one prompt into the shared IDE Pi conversation. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+7. Editor settlement restores the exact prior panel tool set before the external RPC settlement releases the next turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+
+**Constraints:**
+
+- The fixed local `pi --mode rpc --no-session --no-themes` process serializes all IDE turns.
+- Pi 0.84.1 awaits extension settlement handlers before emitting external settlement.
+- Active cancellation or backend failure follows REQ-IDE-008 process-generation ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
+
+**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, proposal-only activation, exact tool restoration, and complete-image behavior.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-026: Native Inline Chat edit validation
+
+**Intent:** Only bounded edits that still match the captured invoking document can enter the host-owned native Inline Chat transaction.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A proposal contains between one and 64 edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: empty inline edit proposals fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: more than 64 inline edits fail closed) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend) -->
+2. The combined replacement text is at most 256 KiB in UTF-8. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: inline edit payloads above 256 KiB fail closed) -->
+3. Every coordinate is a non-negative safe integer whose start does not follow its end. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: invalid inline edit coordinates fail closed) -->
+4. Accepted edits are deterministically ordered and contain neither a repeated start nor a crossing range. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: repeated edit starts fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: overlapping inline edits fail closed) -->
+5. Every edit position lies within the captured invoking document. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: out-of-bounds inline edits fail closed) -->
+6. The invoking document version still equals its captured version when the host emits edits. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: stale document versions fail closed) -->
+
+**Constraints:**
+
+- Any validation failure prevents host edit emission; envelope validation belongs to [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope).
+- Dispatch-error isolation belongs to [REQ-IDE-028](#req-ide-028-native-inline-chat-dispatch-error-isolation).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope)
+
+**Verification:** PR-boundary review and GitHub Actions CI validate edit count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-027: Native Pi panel reasoning and bounded progress
+
+**Intent:** A Pi user can follow a long native panel turn without waiting behind an unbounded list of repetitive tool messages.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Panel turns stream provider-emitted reasoning through Code OSS's native thinking UI separately from the final answer. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
+2. A panel turn reports each bounded tool-activity category at most once. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progress, and settles with its answer) -->
+
+**Constraints:**
+
+- Tool progress exposes neither command arguments nor file contents.
+- Editor Inline Chat remains a host-owned edit transaction and does not render final-answer markdown.
+- code-server and Code OSS source remain unmodified.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates reasoning forwarding and bounded activity reporting. Fresh integration verifies the native thinking presentation during a long panel turn.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-028: Native Inline Chat dispatch-error isolation
+
+**Intent:** An editor request fails closed when its nested Pi dispatch fails without allowing unrelated extension errors to discard a valid proposal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An error attributed to the active editor command rejects that editor request. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) -->
+2. A later panel or editor request is not blocked by that command-failed request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) -->
+3. An asynchronous failure starting the editor turn after command acceptance rejects that editor request. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) -->
+4. A later panel or editor request is not blocked by that asynchronously failed request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) -->
+5. An unrelated extension error does not prevent a valid editor request from returning its proposed edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) -->
+
+**Constraints:**
+
+- Runtime dispatch errors are owned only while an editor turn is active.
+- No timeout, third process, Code OSS patch, or direct-write replay is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates both Pi 0.84.1 dispatch-error envelopes and unrelated-error isolation. Fresh integration verifies that an editor request either renders host-owned edits or rejects without an indefinite wait.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-029: Native Inline Chat feedback
+
+**Intent:** A user can follow an editor request while the host retains bounded context about the completed proposal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An accepted editor request immediately shows no more than two progress updates while native Inline Chat is active. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+2. A completed proposal carries its bounded what-and-why explanation in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. A completed proposal reports its edit count in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. Unstructured final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown) -->
+
+**Constraints:**
+
+- Feedback is a concise authored explanation, never raw chain-of-thought.
+- A response without pending confirmation is excluded from the pinned Inline view; result-detail visibility is secondary and not durable.
+- Review lifecycle ownership belongs to [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle).
+- code-server and Code OSS source remain unmodified.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope), [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle)
+
+**Verification:** GitHub Actions validates immediate bounded progress, hidden final markdown, bounded result explanations, and edit-count details. Fresh integration verifies the controller-owned review journey under REQ-IDE-033.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-030: Native Inline Chat proposal envelope
+
+**Intent:** Only one correlated proposal with a bounded explanation can cross from Pi into an editor transaction.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exactly one proposal whose request ID matches the active editor turn is accepted. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown) -->
+2. A missing or uncorrelated proposal applies no editor changes. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-030: inline edit mode rejects stale or duplicate proposals before restoration) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi rejects an uncorrelated proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal) -->
+3. The correlated proposal includes one trimmed, single-line explanation of at most 500 characters. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline proposal summaries are bounded plain text and fail closed) -->
+4. After an invalid raw proposal, Pi may submit another attempt within the same turn, up to three total attempts; the first valid correlated proposal is accepted. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposal) -->
+5. Settlement without a valid proposal reports correlation, summary, edit-count, or geometry failure without proposal content. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: invalid-only settlement reports a bounded proposal category) -->
+6. A second valid proposal applies no additional editor changes. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backend) -->
+
+**Constraints:**
+
+- Proposal fields cannot name another URI or request direct filesystem mutation.
+- Any envelope failure prevents host edit emission.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** PR-boundary review and GitHub Actions CI validate proposal cardinality, correlation, explanation bounds, bounded correction, categorized settlement, and duplicate rejection.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-033: Controller-owned Inline review lifecycle
+
+**Intent:** Editor Inline Chat uses the invoking host document and leaves review settlement entirely to the pinned Inline controller.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An editor request derives document content, selection, edit target, and version from the host-supplied editor location captured for that request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+2. Missing, malformed, closed, non-file, or out-of-workspace editor location data starts no Pi turn and emits no edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::parseInlineEditorLocation --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-033: missing or malformed host editor location fails before Pi or edit emission) -->
+3. A valid editor turn emits one empty start marker, one non-empty text-edit batch, and one completion marker for the invoking URI. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. Codeflare emits no review confirmation, notification action, Chat Editing command, or document reopen request. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+5. The managed Pi profile disables the host configuration-gated automatic opening of chat-edited files. <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor) -->
+6. Native Keep accepts the current Inline session, while native Close rejects it and disposes controller-owned state. <!-- @manual: On fresh integration, apply an Inline proposal with Keep, reject another with Close, and verify both sessions settle in the invoking editor. -->
+7. A new Inline request reaches Codeflare immediately after both Keep and Close without a document-URI error or duplicate editor. <!-- @manual: On fresh integration, submit a second Inline request after each outcome and verify one editor group/tab remains. -->
+
+**Constraints:**
+
+- Codeflare never falls back to whichever editor is active when the participant runs.
+- Codeflare does not patch code-server or Code OSS.
+- Panel turns retain unrestricted tools and the shared IDE Pi conversation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope)
+
+**Verification:** GitHub Actions validates exact host-document binding, start/edit/done ordering, the configuration-gated edited-file opener disabled in Pi, and absence of extension-owned review side effects. Fresh integration owns Keep, Close, immediate second-request, single-editor, and URI-lifecycle evidence.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-034: Bounded Inline lifecycle diagnostics
+
+**Intent:** An operator can distinguish stale rollout, wrong invocation surface, and edit/session URI mismatch from one failed Inline request.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Pi activation records one diagnostic revision and the effective edited-file-opening and built-in-AI settings. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
+2. Each admitted editor request records its editor location, sanitized invoking-resource identity, version, and selection without recording document content. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. The active request records tab-change events plus immediate, three-second, and eight-second snapshots. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-034 AC3: delayed Inline diagnostics record three-second and eight-second snapshots) -->
+4. Diagnostics remain in the local Output channel and exclude panel turns. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025 AC1 + REQ-IDE-034: panel requests run Pi without Inline diagnostics or provider generation) -->
+5. One request records at most 16 tab events, and one diagnostic message contains at most 12,000 characters before its truncation marker. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-034 AC5: Inline diagnostics cap tab events and line length) -->
+6. Resource identity retains scheme, authority without userinfo, basename, and stable input type while excluding directory paths, query, fragment, tab labels, and document content. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::describeUri --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::describeTab --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+7. Extension deactivation cancels delayed diagnostic writes, removes the tab listener, and disposes the Output channel. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::createInlineDiagnostics --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::deactivate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-034 AC7: deactivation cancels delayed diagnostics and the tab listener) -->
+
+**Constraints:**
+
+- Diagnostics do not alter edit, review, navigation, or Pi lifecycle behavior.
+- Sanitized diagnostic identity remains local to the Browser IDE session unless the user copies it.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle)
+
+**Verification:** GitHub Actions validates activation settings, request identity, delayed snapshots, caps, sanitization, isolation, and disposal. Fresh integration uses the Output channel to classify the deployed failure before another lifecycle change.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-035: Canonical Browser IDE workspace projection
+
+**Intent:** Clean root navigation materializes the fixed workspace under one remote URI identity without exposing the container path publicly.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Clean root navigation opens the fixed session workspace. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection) -->
+2. The projected folder URI uses the canonical public browser authority rather than code-server's server-side placeholder. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection) -->
+3. Unsafe fixed-workspace initialization fails closed instead of opening an empty window. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection) -->
+4. Workspace projection leaves every server-provided IDE setting other than the selected folder unchanged. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @test: host/__tests__/openvscode-proxy.test.js (projectVscodeWorkbenchWorkspace / REQ-IDE-035 AC1+AC2+AC3+AC4 (canonical fixed workbench configuration)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-035 AC1+AC2+AC3+AC4: root workbench configuration projection) -->
+
+**Notes:** Version-pinned incompatibility conditions are owned by the [container documentation](../../documentation/lanes/container.md#code-server-browser-ide).
+
+**Constraints:**
+
+- The projected authority comes from the authenticated host's canonical external identity.
+- code-server and embedded Code OSS remain unpatched.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](#req-ide-015-clean-browser-ide-url-and-private-workspace-selection)
+
+**Verification:** Automated host proxy tests and complete-image smoke; deployed one-tab Inline review confirms renderer and extension-host URI convergence.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-036: Persistent user-managed extensions
+
+**Intent:** A user's bounded Open VSX extension selection and contributed User settings survive container replacement while launch remains lazy and packaged agent inventories remain immutable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Persisted extension records remain inside the documented identity, count, type, and version bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+2. Persisted contributed User settings remain inside the documented key, value, type, and size bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+3. Malformed, oversized, redirected, noncanonical, or unknown persisted content remains byte-for-byte unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchanged) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+
+**Constraints:**
+
+- User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
+- Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
+- code-server disables VSIX signatures; TLS to Open VSX is the transport boundary because install does not expose artifact bytes.
+- The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
+- Records require `version`; optional platform, UTC RFC3339 timestamp, and lowercase hexadecimal SHA-256 fields are bounded; unknown fields are invalid.
+- Capture excludes fixed IDs, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically.
+- Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
+- Package bytes, enablement, keybindings, snippets, extension storage, SecretStorage, Accounts, policy UI, and extra coordination are excluded.
+- Whole-file newest-wins convergence follows the existing R2 bisync contract.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Verification:** GitHub Actions runs manifest unit tests, real shell/rclone behavior, welcome-bootstrap tests, and complete-image smoke. The image smoke exercises base/user layer composition, packaged bootstrap activation, install/uninstall capture, settings preservation, and base-inventory immutability. No local, browser-automation, Chromium, or manual test gate exists.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-037: Lazy extension restoration
+
+**Intent:** Persisted user-extension intent restores after workbench startup without losing contributed settings or failed intent.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Restoration attempts each persisted extension version before any fallback. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+2. Restoration limits simultaneous gallery installations to two. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-037 AC2: restores at most two missing extensions concurrently) -->
+3. Only confirmed unavailability of the persisted version permits one gallery-selected fallback. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+4. A failed restore leaves its persisted intent unchanged while remaining restoration work continues. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+5. Contributed global settings restore only after their extensions have registered configuration keys. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-037 AC5: contributed settings restore after their missing extension registers) -->
+
+**Constraints:**
+
+- Restoration runs only from the built-in welcome extension after `onStartupFinished`; gallery latency never delays code-server readiness.
+- Restore performs no retry loop beyond the single fallback in AC3.
+- code-server alone resolves target platforms.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-016](#req-ide-016-bounded-ide-state-capture-and-restore-ordering), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
+
+**Verification:** GitHub Actions runs exact-version/fallback, concurrency, failure-preservation, settings-ordering, welcome-activation, and complete-image tests without local, browser-automation, Chromium, or manual gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-038: Extension warning acknowledgement
+
+**Intent:** Persisted user-extension intent is never written, and unacknowledged restored extension code never executes, before the user accepts its root-capable security boundary; that acknowledgement is not repeatedly requested.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The first capture that would persist a user extension requires an accepted warning before writing that identity. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1: declining a scheduled warning does not prompt again during capture) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) -->
+2. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
+3. A later restore does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
+4. A later capture does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) -->
+5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) -->
+6. A fresh activation does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning) -->
+
+**Constraints:**
+
+- The durable `securityWarningShown` field records acknowledgement but grants no additional extension capability.
+- Declining or failing the warning preserves the manifest unchanged and executes no restored user extension.
+- The warning states that extensions execute root-capable code and that contributed global settings are synchronized.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
+
+**Verification:** GitHub Actions runs first-capture, pre-restore, non-repetition, reap-backstop, and complete-image tests without local, browser-automation, Chromium, or manual gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-039: Codeflare Browser IDE branding
+
+**Intent:** The Browser IDE consistently identifies its product and owned agent surfaces as Codeflare through supported host and packaged-extension seams.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
+2. The Pi Chat participant uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) -->
+3. The welcome panel uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) -->
+4. The packaged Browser IDE brand icon matches the established product icon. <!-- @impl: Dockerfile::COPY openvscode/agent-sidebar/media/ --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) -->
+
+**Constraints:**
+
+- Branding uses existing code-server options and packaged extension media without patching Code OSS.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-024](#req-ide-024-codeflare-browser-ide-welcome)
+
+**Verification:** Automated launch, complete-image product-metadata, activation, welcome-extension, and package tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-040: User-extension allowance policy
+
+**Intent:** Every Browser IDE inventory prepares and reapplies one managed User-setting allowance for user extensions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every Browser IDE inventory receives the managed wildcard user-extension allowance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-040 AC1: every inventory applies the managed user-extension allowance) -->
+2. Profile preparation replaces a stale user value with that managed allowance. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+
+**Constraints:** `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry; fresh installs and lazy restoration share that prepared profile, while Codeflare does not own or bypass a stricter code-server operator policy.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-009](#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration)
+
+**Verification:** Automated managed-settings and profile-preparation tests.
+
+**Status:** Implemented
 
 ---

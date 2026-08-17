@@ -1,8 +1,10 @@
 # API Reference
 
-Complete API endpoint reference for the Codeflare Worker.
+Public Worker, authenticated proxy, and integration endpoint contracts for Codeflare. Private host-only routes are identified but owned by the runtime lanes.
 
 **Audience:** Developers
+
+**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, or security rationale.
 
 ## Contents
 
@@ -29,12 +31,24 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Public (Onboarding)](#public-onboarding)
 - [Public (Landing)](#public-landing)
 - [Health](#health)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
-- [Specification Coverage](#specification-coverage)
 
 ---
 
-## Conventions
+<a id="conventions"></a>
+## Contract Conventions
+
+### Route Ownership
+
+| Surface | Owner and exposure |
+|---|---|
+| Worker `/api/*` and `/public/*` | Public edge API. Each table below states whether the route is unauthenticated, cookie-authenticated, or service-authenticated. |
+| Worker `/api/container/*` | Authenticated edge proxy into the caller's session container; these are not direct host URLs. |
+| Host `/health`, `/activity`, `/terminal` | Private container-server routes reached through the Durable Object or Worker proxy. Host metrics are fields in `/health`, not a separate `/metrics` route. Runtime mechanics belong to [Container](container.md). |
+| Worker and host `/api/vscode/:sessionId/*` | Authenticated Worker route with private forwarding to the same host path; IDE process and proxy mechanics belong to [Architecture Internals](architecture-internals.md#browser-ide-internals). |
+
+Route paths in this reference are externally callable only where their row says so; a private host path is not an alternate public endpoint.
 
 ### Common Response Headers
 
@@ -59,7 +73,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | List sessions |
-| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) | Create session (rate limited; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
+| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) | Create session record (10 requests/user/minute; does not consume a concurrent-running slot; under enterprise mode `agentType` outside the wizard-governed allowlist is rejected 400) |
 | GET | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) | Get session |
 | PATCH | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | Update session |
 | DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Delete session and destroy container |
@@ -67,6 +81,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/sessions/:id/stop` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) | Get session and container status |
 | GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6 | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode); optional query param `includePreseedCheck=true` adds `preseedNeedsUpgrade: boolean` (omitted otherwise; hash mismatch OR, under enterprise, stored sessionMode not yet advanced) for auto-upgrade detection on initial dashboard load |
+| POST | `/api/sessions/sync` | Session cookie | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) | Trigger bisync across the user's running sessions and return the fan-out result |
 
 A successful stop ends Container vCPU, provisioned-memory, and local-disk metering once the Container sleeps. Local disk is ephemeral rather than hibernated state; a later start restores durable files from R2. This endpoint contract makes no zero-total-platform-cost claim: Workers, Durable Objects, R2, requests, logs, storage, and network usage may still be billable.
 
@@ -74,10 +89,30 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) | Start container (non-blocking) |
+| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) | Start container (5 requests/user/minute; checks current concurrent-running count and compute quota; non-blocking) |
 | POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Destroy container (SIGKILL) |
 | GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
+
+`GET /api/container/startup-status` returns a derived `stage`, numeric `progress`, human-readable `message`, and `details`. Its observable progress contract is:
+
+| Stage | Progress | Condition |
+|---|---:|---|
+| `stopped` | 0 | Container state is unavailable |
+| `starting` | 10 | Platform state is not `running` or `healthy` |
+| `starting` | 20 | Platform state is up but host health is unavailable |
+| `syncing` | 30 | Initial sync is pending |
+| `syncing` | 45 | Initial sync is active |
+| `verifying` | 85 | Initial sync completed but terminal sessions are unavailable |
+| `mounting` | 90 | Terminal sessions are available but PTY pre-warm is incomplete |
+| `ready` | 100 | Terminal sessions and pre-warm are ready |
+| `error` | 0 | Initial sync failed or the startup-status handler failed |
+
+These are endpoint observations, not persisted lifecycle states. `details` identifies container, sync, host, terminal, and metric observations when available.
+
+Session creation may reject the enterprise agent allowlist or SaaS storage quota before writing a record. Start may reject an active bucket migration, an agent absent from the deployed image, the current concurrent-session policy check, or compute quota. The session-count check and later KV `running` write are not atomic. Concurrent-session admission is explicitly best effort, so simultaneous starts may exceed the nominal per-user limit; deployment `max_instances` is a separate hard platform boundary. Enterprise currently follows the non-SaaS role-based resolver, while [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks one role-independent Enterprise limit.
+
+A successful start response means asynchronous startup was accepted, not that ports are ready. If `startAndWaitForPorts()` later fails, the background task rolls KV back to `stopped`; clients observe `stopped` through startup status rather than a persisted `error` lifecycle state. See [Troubleshooting](troubleshooting.md#container-start-is-rejected-or-returns-to-stopped).
 
 ## Terminal
 
@@ -109,7 +144,7 @@ The sessionId in the URL is the sole container selector under [REQ-IDE-002](../.
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url) | Session-keyed code-server proxy, parsed before Hono so WebSocket upgrades pass through. Worker preserves the external path; host strips the exact session prefix. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
+| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection), [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection) | Session-keyed code-server proxy, parsed before Hono so WebSocket upgrades pass through. Worker preserves the external path; host strips the exact session prefix. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
 
 **Error responses:**
 
@@ -155,7 +190,7 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Current user's real-time usage (Timekeeper DO with KV fallback) |
+| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page), [REQ-SUB-022](../../sdd/spec/subscription.md#req-sub-022-cross-mode-personal-usage-data) | Current user's real-time usage (Timekeeper DO with KV fallback). `monthlyQuotaSeconds` carries the billing quota in SaaS mode and is `null` in onboarding/default and enterprise deployments. |
 
 ## Admin
 
@@ -185,7 +220,7 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 
 ## GitHub Integration
 
-The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode (`githubFeatureEnabled` is always true); the **advanced-session entitlement** for the panel is enforced in the dashboard frontend, matching the Vault ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only (any authenticated user), so they work from Guided Setup + the Settings accordion even when the panel is hidden. The token is never returned to the browser — `/repos` proxies GitHub server-side.
+The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github`. The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode, and the dashboard renders the panel whenever GitHub integration is enabled; there is no advanced-session gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only, so they work from Guided Setup and Settings. The token is never returned to the browser; `/repos` proxies GitHub server-side.
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
@@ -671,90 +706,52 @@ Responses:
 
 ## Health
 
-| Method | Path | Auth | Implements | Description |
-|--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt - no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
-| GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Worker-proxied alias for `/health` |
+| Method | Path | Auth | Implements | Owner | Contract |
+|---|---|---|---|---|---|
+| GET | `/api/health` | Public | — | Worker | `{ "status": "ok", "timestamp": "..." }` <!-- @impl: src/index.ts::app --> |
+| GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Container status route | `{ success, containerId, container }`; `container` is the private host-health observation <!-- @impl: src/routes/container/status.ts::app --> |
+| GET | private host `/health` | Bearer-exempt on the private SDK container path | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Host runtime | Rich host readiness, sync, prewarm, and metric observations; not a public Worker route <!-- @impl: host/src/request-router.ts::createRequestHandler --> |
 
-Both endpoints return the same JSON body:
+There is no public `/health` alias, and `/api/health` does not proxy the container. Use `/api/container/health` for an authenticated session-specific observation.
 
-```json
-{
-  "status": "healthy",
-  "sessions": 0,
-  "uptime": 42,
-  "syncStatus": "idle",
-  "syncError": null,
-  "userPath": "/root",
-  "prewarmReady": false,
-  "initFlagObserved": false,
-  "cpu": 12.5,
-  "mem": 45.2,
-  "hdd": 30.1,
-  "timestamp": "2026-05-15T10:00:00.000Z"
-}
-```
+The private host `/health` body contains:
 
-**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
+| Field | Meaning |
+|---|---|
+| `status` | Host health state (`healthy` on a successful response) |
+| `sessions` | Current host terminal-session count |
+| `uptime` | Host process uptime in seconds |
+| `syncStatus` / `syncError` / `userPath` | Current synchronization observation and local user path |
+| `prewarmReady` | Whether agent prewarm reached readiness |
+| `initFlagObserved` | Whether the container init-complete flag was observed |
+| `terminalServiceReady` | Whether the terminal service is ready |
+| `cpu` / `mem` / `hdd` | Host metric observations |
+| `timestamp` | Response-generation time in ISO-8601 form |
 
-**`prewarmReady`** - `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
+`prewarmReady: false` together with `initFlagObserved: false` means the init-complete flag was never observed. See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services) for diagnosis.
+
+---
+
+<a id="specification-coverage"></a>
+## Requirement and Source Map
+
+Exhaustive requirement status remains in the active SDD domains. Endpoint rows carry clause-local `Implements` links; this map identifies each resource family's authoritative handler and contract owner without duplicating a selective coverage ledger.
+
+| Resource family | Handler/source owner | Normative domains | Specialist documentation |
+|---|---|---|---|
+| Sessions and container lifecycle | `src/routes/session/`, `src/routes/container/` | Session Lifecycle, Operations | [Container](container.md), [Storage & Sync](storage-and-sync.md) |
+| Terminal and Browser IDE | Worker proxy routes plus private host request router | Terminal, Browser IDE | [Container](container.md), [Architecture Internals](architecture-internals.md) |
+| Vault and storage | `src/routes/vault/`, `src/routes/storage/` | Vault, Storage, Security | [Vault](vault.md), [Storage & Sync](storage-and-sync.md) |
+| Users, authentication, usage, and billing | auth/user/billing routes plus Timekeeper | Authentication, Subscription, Enterprise | [Authentication](authentication.md), [User Provisioning](user-provisioning.md), [Billing](billing.md) |
+| Provider integrations and credentials | GitHub/Cloudflare/deploy-key/LLM-key routes | GitHub, Agents, Security | [Security](security.md), [Configuration](configuration.md) |
+| Setup and discovery | setup/public/discoverability routes | Setup, Landing, Operations | [Configuration](configuration.md), [Architecture Internals](architecture-internals.md) |
+
+Grouped endpoint tables are valid contract records when their resource section declares the shared handler and the row provides method/path, authentication, requirement, and observable contract. Complex request/response/error schemas remain expanded directly below their route group.
 
 ---
 
 ## Related Documentation
+
 - [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
 - [Security](security.md#rate-limiting) - Rate limits per endpoint
 - [Configuration](configuration.md#worker-environment) - Environment variables
-
----
-
-## Specification Coverage
-
-- [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) - Two Session Modes: Standard and Pro
-- [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) - Deploy Credential Storage (GitHub PAT, CF API Token)
-- [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills--rules-manually-recreatable-from-settings) - Agent Skills & Rules Manually Recreatable from Settings
-- [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) - Push & Deploy credential management UI
-- [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
-- [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) - SaaS mode uses Direct GitHub OAuth
-- [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) - User email normalized
-- [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) - Session cookie auto-refresh
-- [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) - User management admin panel
-- [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) - User identity and account-status API
-- [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) - Conversation context automatically captured to vault
-- [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) - Idle containers stop metered Container resources
-- [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) - Rate-limiting infrastructure
-- [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) - Content-Disposition hardening on downloads
-- [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) - Session creation with name and agent type
-- [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) - User can stop, restart, and delete sessions
-- [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) - Running session count limited per tier
-- [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) - Session status observable from dashboard
-- [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012-wake-loop-prevention) - Wake-loop prevention
-- [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) - User-configurable auto-sleep timeout in Settings
-- [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
-- [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) - User timezone propagated from preferences to container env
-- [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) - Container health and startup-status API
-- [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
-- [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) - First-time setup requires zero pre-configuration
-- [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) - Post-setup reconfiguration requires admin auth
-- [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) - Setup helper endpoints support prefill and detection
-- [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) - Setup wizard step sequence
-- [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start) - Storage Quota Enforced Per Tier at Session Start
-- [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) - Web File Browser
-- [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) - Multipart Upload for Large Files
-- [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) - Getting-Started Docs Auto-Seeded on First Session
-- [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) - R2 Storage Stats Caching
-- [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) - Free Tier Requires No Payment
-- [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) - Paid Tiers Integrate with Stripe Checkout
-- [REQ-SUB-005](../../sdd/spec/subscription.md#req-sub-005-trial-is-compute-based-not-time-based) - Trial Is Compute-Based, Not Time-Based
-- [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) - Admin-Configurable Tiers via Management Panel
-- [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011-graceful-degradation-without-stripe) - Graceful Degradation Without Stripe
-- [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) - Stripe Webhook Signal-and-Sync Pattern
-- [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) - Customer Portal and Plan Switching
-- [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) - Usage dashboard page
-- [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021-billing-cycle-alignment) - Billing Cycle Alignment
-- [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session) - Up to 6 terminal tabs per session
-- [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) - WebSocket connection to container PTY
-- [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) - Close code 4503 is authoritative (no retry)
-- [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority) - Terminal Pane Reconnect and Resize Authority
-- [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) - MultiView Pane Focus and Input Routing
-- [REQ-TERM-018](../../sdd/spec/terminal.md#req-term-018-multiview-reopen-and-close) - MultiView Reopen and Close

@@ -44,7 +44,7 @@ const ALL_TIPS: Tip[] = [
   { text: 'Connect your Cloudflare account in Settings to deploy from every session', category: 'general' },
   { text: 'Switch to Pro mode in Settings to unlock persistent memory across sessions', category: 'general', saasOnly: true },
   { text: 'Change your idle timeout in Settings \u2014 from 5 minutes to 2 hours', category: 'general' },
-  { text: 'Check your compute usage on the Usage page', category: 'general', saasOnly: true },
+  { text: 'Check your compute usage on the Usage page', category: 'general' },
   { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
   { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
   { text: 'Try Spec-Driven Development \u2014 type /sdd init in Claude Code to get started', category: 'general' },
@@ -71,8 +71,8 @@ function shuffle<T>(arr: T[]): T[] {
 export function filterTips(saasMode: boolean): Tip[] {
   const touch = isTouchDevice();
   const filtered = ALL_TIPS.filter((tip) => {
-    // SaaS-only tips (Pro mode, metered usage) make no sense in onboarding,
-    // enterprise, or default deployments, which have no such concept.
+    // Plan-specific tips make no sense outside SaaS; personal Usage remains
+    // available in every deployment mode.
     if (tip.saasOnly && !saasMode) return false;
     return tip.category === 'general' || (touch ? tip.category === 'mobile' : tip.category === 'desktop');
   });

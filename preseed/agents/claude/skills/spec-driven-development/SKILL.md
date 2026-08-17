@@ -1,7 +1,7 @@
 ---
 name: spec-driven-development
 description: Specification-driven development index. Defines spec structure, REQ format, Status semantics, the @impl source-anchor and @test test-anchor conventions (per-AC, at parity), three autonomy modes, and routes to sub-command skills (sdd-init for bootstrap, sdd-clean for rescue). Holds the small sub-commands (edit, add, mode), Plan Mode integration, test discipline, templates. Invoked via /sdd.
-version: 5.1.0
+version: 5.3.0
 ---
 
 # Spec-Driven Development
@@ -204,7 +204,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 | Behavior | interactive | auto | unleashed |
 |---|---|---|---|
 | Where work lands | Current branch | Current branch | Current branch |
-| SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
+| SAFE fixes (strip non-ADR-index strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
 | `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |
@@ -343,17 +343,22 @@ All scaffolding templates live in `references/templates/` within this skill. The
 | `documentation-api-reference.md` | `/sdd init` → `documentation/lanes/api-reference.md` (when source has HTTP routes) |
 | `documentation-configuration.md` | `/sdd init` → `documentation/lanes/configuration.md` (when source has env vars / config) |
 | `documentation-deployment.md` | `/sdd init` → `documentation/lanes/deployment.md` (when project is deployable) |
+| `documentation-security.md` | `/sdd init` → `documentation/lanes/security.md` (when security boundaries exist) |
+| `documentation-observability.md` | `/sdd init` → `documentation/lanes/observability.md` (when operational signals exist) |
+| `documentation-troubleshooting.md` | `/sdd init` → `documentation/lanes/troubleshooting.md` (when incident evidence exists) |
+| `documentation-project-lane.md` | `/sdd init` → an indexed first-level project lane when no canonical lane owns the concern |
 | `documentation-decisions-readme.md` | `/sdd init` → `documentation/decisions/README.md` |
 
-Placeholders use `{PLACEHOLDER_NAME}` format. The agent substitutes them based on the user's input and inferred context.
+Placeholders use `{PLACEHOLDER_NAME}` format. The bundled `sdd-init` renderer selects lane templates and index rows; the agent then substitutes content placeholders from verified project evidence.
 
 ## Template conventions
 
 Templates follow `documentation-discipline.md` from the first commit. Conventions baked in:
 
-- **One-line table cells.** Every cell stays on a single line; the 50-word per-cell budget enforced by `doc-updater` Pass 1 begins at scaffolding. If a row needs more than ~50 words, write the long form as a body paragraph below the table and replace the cell with a one-line summary + link.
-- **Embedded doc-discipline directive comments.** Each template starts with `<!-- doc-discipline: <budget> lines, one-line table cells, no implementation prose -->`.
-- **Per-file budgets** match `documentation-discipline.md`: architecture.md ≤350 lines, api-reference.md ≤600, configuration.md ≤200, deployment.md ≤200.
-- **REQ backlinks pre-wired** in `Implements` columns: scaffolded with the exact `[REQ-X-N](../sdd/{domain}.md#req-x-n)` form.
+- **One-line table cells.** Every cell stays on a single line; the 50-word per-cell budget enforced by `doc-updater` Pass 1 begins at scaffolding. If a row needs more than about 50 words, write the long form as body prose and replace the cell with a concise summary and link.
+- **Self-contained ADR index rows.** The canonical ledger uses `ID | Decision | Summary | Category | State`. The rendered Decision label is at most 90 characters. Summary is one sentence of 40–180 rendered characters that names the concrete subject and choice plus a body-supported driver or consequence. It never repeats the label or starts with an unexplained pronoun. Historical states name and link the successor, retained scope, or redirect destination.
+- **No file-level line budget.** Lane size follows evidenced project complexity; per-element budgets and collection shape remain authoritative.
+- **REQ backlinks pre-wired** in `Implements` columns using nested-layout links into `../../sdd/spec/{domain}.md`; flat legacy links remain readable during `/sdd clean` migration.
 - **Lane-correct content placeholders.** `architecture.md` template never has an "API endpoints" section (that's `api-reference.md`'s lane).
-- **ADR template carries the "What is NOT an ADR" guardrail.** `documentation-decisions-readme.md` opens with the four-shape table (SAST false positive / naming-compat / risk acceptance with no alternative / implementation note framed as a decision). The AD1 example includes `Alternatives considered:` and `Consequences:` — both load-bearing.
+- **ADR template carries the "What is NOT an ADR" guardrail and explicit state rendering.** `documentation-decisions-readme.md` distinguishes Active, Superseded, Partially superseded, and Redirect anchor records. Fully superseded index IDs and decisions are struck through while their sections remain; redirect anchors name and link their merged or reclassified destination instead of using ambiguous parenthetical shorthand. Every active ADR retains `Alternatives considered:` and `Consequences:`.
+- **Security source maps use resolvable references.** Every decision identifier and requirement-domain reference links directly to its ADR anchor or specification file; shorthand such as `Operations SDD` is not emitted.

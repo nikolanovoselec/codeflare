@@ -170,7 +170,7 @@ test("REQ-IDE-006 AC1+AC2: projection replaces source settings with the fixed ma
   assert.equal(MANAGED_SETTINGS_PATH, "/etc/codeflare/claude-sidebar/settings.json");
 });
 
-test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings", async () => {
+test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const settingsDirectory = join(serverDataRoot, "data", "User");
@@ -178,7 +178,11 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
   await writeFile(join(settingsDirectory, "settings.json"), JSON.stringify({
     "workbench.colorTheme": "Default Light Modern",
     "keyboard.layout": "de",
-    "chat.disableAIFeatures": true,
+    "extensions.allowed": { "*": false },
+    "workbench.startupEditor": "welcomePage",
+    "chat.disableAIFeatures": false,
+    "accessibility.openChatEditedFiles": true,
+    "chat.titleBar.signIn.enabled": true,
     "chat.notifyWindowOnResponseReceived": "off",
     "chat.agentFilesLocations": {
       "~/.claude/agents": true,
@@ -193,6 +197,11 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI 
     "keyboard.layout": "de",
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "workbench.startupEditor": "none",
+    "chat.titleBar.signIn.enabled": false,
+    "chat.disableAIFeatures": true,
+    "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
@@ -228,7 +237,7 @@ test("REQ-IDE-002: malformed restored settings cannot prevent managed settings r
   );
 });
 
-test("REQ-IDE-021: every prepared inventory hides account login chrome", async () => {
+test("REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome", async () => {
   const preparations = [
     async (root) => prepareBaseOpenVscodeSettings(root),
     async (root) => prepareUnsupportedOpenVscodeSettings(root),
@@ -255,7 +264,7 @@ test("REQ-IDE-021: every prepared inventory hides account login chrome", async (
       JSON.parse(await readFile(join(storageDirectory, "storage.json"), "utf8")),
       {
         unrelated: "preserved",
-        "workbench.statusbar.hidden": '["other.status.entry","chat.statusBarEntry"]',
+        "workbench.statusbar.hidden": '["other.status.entry"]',
         "workbench.activity.showAccounts": "false",
       },
     );
@@ -271,7 +280,6 @@ test("REQ-IDE-021: malformed profile storage recovers and redirected storage fai
   await writeFile(storagePath, "not json");
   await prepareBaseOpenVscodeSettings(serverDataRoot);
   assert.deepEqual(JSON.parse(await readFile(storagePath, "utf8")), {
-    "workbench.statusbar.hidden": '["chat.statusBarEntry"]',
     "workbench.activity.showAccounts": "false",
   });
 

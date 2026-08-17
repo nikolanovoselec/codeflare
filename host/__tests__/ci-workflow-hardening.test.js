@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -68,6 +69,190 @@ describe('PR lane selection', () => {
       || (pattern.endsWith('/**') && source.startsWith(pattern.slice(0, -2)));
     assert.ok(filters.backend.flat(Infinity).some(matchesSource));
     assert.ok(filters.landing.flat(Infinity).some(matchesSource));
+  });
+});
+
+describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
+  const cacheAction = 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9';
+  const fixture = 'verified archive fixture';
+  const fixtureSha256 = createHash('sha256').update(fixture).digest('hex');
+  const cases = [
+    {
+      name: 'zizmor',
+      job: 'workflow-audit',
+      cache: 'Cache zizmor archive',
+      install: 'Run zizmor (checksum-pinned binary)',
+      key: '${{ runner.os }}-${{ runner.arch }}-zizmor-${{ steps.zizmor-pin.outputs.version }}-${{ steps.zizmor-pin.outputs.sha256 }}',
+      env: (archive) => ({
+        ZIZMOR_VERSION: 'test',
+        ZIZMOR_SHA256: fixtureSha256,
+        ZIZMOR_ARCHIVE: archive,
+        GH_TOKEN: 'test',
+      }),
+    },
+    {
+      name: 'actionlint',
+      job: 'workflow-audit',
+      cache: 'Cache actionlint archive',
+      install: 'Run actionlint (checksum-pinned binary)',
+      key: '${{ runner.os }}-${{ runner.arch }}-actionlint-${{ steps.actionlint-pin.outputs.version }}-${{ steps.actionlint-pin.outputs.sha256 }}',
+      env: (archive) => ({
+        ACTIONLINT_VERSION: 'test',
+        ACTIONLINT_SHA256: fixtureSha256,
+        ACTIONLINT_ARCHIVE: archive,
+        SHELLCHECK_OPTS: '--severity=error',
+      }),
+    },
+    {
+      name: 'rclone',
+      job: 'host-tests',
+      cache: 'Cache rclone archive',
+      install: 'Install rclone for sync-filter behavioral tests',
+      key: '${{ runner.os }}-${{ runner.arch }}-rclone-v1.73.5-932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0',
+      env: (archive) => ({
+        RCLONE_RELEASE_VERSION: 'test',
+        RCLONE_SHA256: fixtureSha256,
+        RCLONE_ARCHIVE: archive,
+      }),
+    },
+  ];
+
+  const writeCommand = (directory, name, body) => {
+    const path = join(directory, name);
+    writeFileSync(path, `#!/bin/sh\nset -eu\n${body}\n`);
+    chmodSync(path, 0o755);
+  };
+
+  const prepareCommands = (root) => {
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeCommand(bin, 'curl', `
+      printf 'download\\n' >> "$EVENT_LOG"
+      output=''
+      while [ "$#" -gt 0 ]; do
+        if [ "$1" = '-o' ]; then shift; output="$1"; fi
+        shift
+      done
+      printf '%s' "$FIXTURE" > "$output"
+    `);
+    writeCommand(bin, 'gh', 'printf \'attest\\n\' >> "$EVENT_LOG"');
+    writeCommand(bin, 'tar', `
+      printf 'extract\\n' >> "$EVENT_LOG"
+      for argument in "$@"; do target="$argument"; done
+      printf '#!/bin/sh\\nprintf "execute\\\\n" >> "$EVENT_LOG"\\n' > "/tmp/$target"
+      chmod 0755 "/tmp/$target"
+    `);
+    writeCommand(bin, 'unzip', `
+      printf 'extract\\n' >> "$EVENT_LOG"
+      destination=''
+      while [ "$#" -gt 0 ]; do
+        if [ "$1" = '-d' ]; then shift; destination="$1"; fi
+        shift
+      done
+      binary="$destination/rclone-v\${RCLONE_RELEASE_VERSION}-linux-amd64/rclone"
+      mkdir -p "$(dirname "$binary")"
+      cat > "$binary" <<'RCLONE_FIXTURE'
+#!/bin/sh
+set -eu
+if [ "\${RCLONE_VERSION+x}" = x ]; then exit 91; fi
+printf 'execute\\n' >> "$EVENT_LOG"
+RCLONE_FIXTURE
+      chmod 0755 "$binary"
+    `);
+    writeCommand(bin, 'sudo', `
+      printf 'install\\n' >> "$EVENT_LOG"
+      if [ "$#" -ne 5 ] || [ "$1" != install ] || [ "$2" != -m ] \\
+        || [ "$3" != 0755 ] || [ "$5" != /usr/local/bin/rclone ]; then
+        exit 64
+      fi
+      cp "$4" "$INSTALLED_RCLONE"
+      chmod "$3" "$INSTALLED_RCLONE"
+    `);
+    writeCommand(bin, 'rclone', 'exec "$INSTALLED_RCLONE" "$@"');
+    writeCommand(bin, 'apt-get', 'printf \'apt-get\\n\' >> "$EVENT_LOG"; exit 99');
+    return bin;
+  };
+
+  const runInstaller = ({ tool, archive, root, bin }) => {
+    const install = step(prChecks.jobs[tool.job], tool.install);
+    const workflowEnv = Object.fromEntries(
+      Object.entries(install.env ?? {}).map(([key, value]) => [key, String(value)]),
+    );
+    const env = {
+      ...process.env,
+      ...workflowEnv,
+      ...tool.env(archive),
+      PATH: `${bin}:${process.env.PATH}`,
+      EVENT_LOG: join(root, 'events.log'),
+      FIXTURE: fixture,
+      INSTALLED_RCLONE: join(root, 'installed-rclone'),
+      RUNNER_TEMP: join(root, 'runner-temp'),
+    };
+    if (!Object.hasOwn(workflowEnv, 'RCLONE_VERSION')) delete env.RCLONE_VERSION;
+
+    return spawnSync('bash', ['-c', install.run], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env,
+    });
+  };
+
+  it('uses exact platform and integrity cache identities without rclone environment collisions', () => {
+    for (const tool of cases) {
+      const cache = step(prChecks.jobs[tool.job], tool.cache);
+      assert.equal(cache.uses, cacheAction, tool.name);
+      assert.equal(cache.with.key, tool.key, tool.name);
+      assert.match(cache.with.path, /\$\{\{ runner\.tool_cache \}\}/, tool.name);
+    }
+
+    const rclone = step(prChecks.jobs['host-tests'], 'Install rclone for sync-filter behavioral tests');
+    assert.equal(rclone.env.RCLONE_VERSION, undefined);
+    assert.equal(rclone.env.RCLONE_RELEASE_VERSION, '1.73.5');
+  });
+
+  it('REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive', () => {
+    for (const tool of cases) {
+      const root = mkdtempSync(join(tmpdir(), `codeflare-${tool.name}-cache-`));
+      try {
+        mkdirSync(join(root, 'runner-temp'));
+        const bin = prepareCommands(root);
+        const archive = join(root, `${tool.name}.archive`);
+        const events = join(root, 'events.log');
+
+        const miss = runInstaller({ tool, archive, root, bin });
+        assert.equal(miss.status, 0, `${tool.name} miss: ${miss.stderr}`);
+        assert.match(readFileSync(events, 'utf8'), /^download\n(?:attest\n)?extract\n(?:install\n)?execute\n$/);
+
+        writeFileSync(events, '');
+        const hit = runInstaller({ tool, archive, root, bin });
+        assert.equal(hit.status, 0, `${tool.name} hit: ${hit.stderr}`);
+        assert.match(readFileSync(events, 'utf8'), /^(?:attest\n)?extract\n(?:install\n)?execute\n$/);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(`/tmp/${tool.name}`, { force: true });
+      }
+    }
+  });
+
+  it('REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution', () => {
+    for (const tool of cases) {
+      const root = mkdtempSync(join(tmpdir(), `codeflare-${tool.name}-corrupt-`));
+      try {
+        mkdirSync(join(root, 'runner-temp'));
+        const bin = prepareCommands(root);
+        const archive = join(root, `${tool.name}.archive`);
+        const events = join(root, 'events.log');
+        writeFileSync(archive, 'corrupted');
+        writeFileSync(events, '');
+
+        const result = runInstaller({ tool, archive, root, bin });
+        assert.notEqual(result.status, 0, tool.name);
+        assert.equal(readFileSync(events, 'utf8'), '', tool.name);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(`/tmp/${tool.name}`, { force: true });
+      }
+    }
   });
 });
 

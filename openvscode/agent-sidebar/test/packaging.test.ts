@@ -56,6 +56,12 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
+test('REQ-IDE-039 AC4: packaged brand icon matches the product icon', async () => {
+  const participantIcon = await readFile(new URL('../media/agent.svg', import.meta.url), 'utf8');
+  const productIcon = await readFile(new URL('../../../web-ui/public/favicon.svg', import.meta.url), 'utf8');
+  assert.equal(participantIcon, productIcon);
+});
+
 interface TreeEntry {
   readonly path: string;
   readonly kind: 'directory' | 'file';
@@ -151,6 +157,7 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + RE
   ]);
   assert.deepEqual(manifest.enabledApiProposals, [
     'chatParticipantAdditions',
+    'chatParticipantPrivate',
     'chatProvider',
     'defaultChatParticipant',
   ]);
@@ -187,6 +194,31 @@ test('REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + RE
     when: "resourceScheme == 'file'",
   }]);
   assert.equal(manifest.contributes.viewsContainers, undefined);
+  assert.equal(manifest.contributes.views, undefined);
+});
+
+test('REQ-IDE-024 AC6: the shared welcome extension contributes no agent surface', async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL('../welcome-package.json', import.meta.url), 'utf8'),
+  ) as {
+    name: string;
+    publisher: string;
+    activationEvents: string[];
+    contributes: Record<string, unknown>;
+  };
+
+  assert.equal(manifest.name, 'codeflare-welcome');
+  assert.equal(manifest.publisher, 'codeflare');
+  assert.deepEqual(manifest.activationEvents, [
+    'onStartupFinished',
+    'onCommand:codeflare.welcome.open',
+  ]);
+  assert.deepEqual(manifest.contributes.commands, [{
+    command: 'codeflare.welcome.open',
+    title: 'Codeflare: Open Welcome',
+  }]);
+  assert.equal(manifest.contributes.chatParticipants, undefined);
+  assert.equal(manifest.contributes.languageModelChatProviders, undefined);
   assert.equal(manifest.contributes.views, undefined);
 });
 

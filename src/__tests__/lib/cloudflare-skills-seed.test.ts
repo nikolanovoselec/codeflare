@@ -1,5 +1,5 @@
 // REQ-AGENT-075: the official Cloudflare skills (github.com/cloudflare/skills, Apache-2.0) are
-// bundled into the ADVANCED-mode agent seed — all 11 skills + 2 commands + a path-scoped Workers
+// bundled into the ADVANCED-mode agent seed — all 13 skills + 2 commands + a path-scoped Workers
 // rule — with the cloudflare mega-skill's references/ tree SLIMMED OUT (retrieval-first; agents
 // fetch live docs via WebFetch). Behavioral: gut the bundling and these fail.
 //
@@ -9,8 +9,8 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
 const CF_SKILLS = [
   'cloudflare', 'cloudflare-one', 'cloudflare-one-migrations', 'wrangler',
-  'workers-best-practices', 'durable-objects', 'agents-sdk', 'sandbox-sdk',
-  'turnstile-spin', 'cloudflare-email-service', 'web-perf',
+  'workers-best-practices', 'durable-objects', 'agents-sdk', 'sandbox-stable',
+  'sandbox-next', 'sandbox-migrate-to-next', 'turnstile-spin', 'cloudflare-email-service', 'web-perf',
 ];
 
 const docFor = (key: string) => AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
@@ -21,12 +21,22 @@ const advancedOnly = (key: string) => {
 };
 
 describe('REQ-AGENT-075: Cloudflare platform skills bundled into the advanced seed', () => {
-  it('all 11 Cloudflare skills are seeded to Claude and are advanced-only', () => {
+  it('all 13 current Cloudflare skills are seeded to Claude and are advanced-only', () => {
     for (const s of CF_SKILLS) {
       const key = `.claude/skills/${s}/SKILL.md`;
       expect(has(key), `${key} must be bundled`).toBe(true);
       expect(advancedOnly(key), `${key} must be advanced-only (Pro)`).toBe(true);
     }
+  });
+
+  it('keeps stable, next, and migration Sandbox APIs as separate skills', () => {
+    const stable = docFor('.claude/skills/sandbox-stable/SKILL.md');
+    const next = docFor('.claude/skills/sandbox-next/SKILL.md');
+    const migrate = docFor('.claude/skills/sandbox-migrate-to-next/SKILL.md');
+    expect(stable?.content).toMatch(/^name:\s*sandbox-stable\s*$/m);
+    expect(next?.content).toMatch(/^name:\s*sandbox-next\s*$/m);
+    expect(migrate?.content).toMatch(/^name:\s*sandbox-migrate-to-next\s*$/m);
+    expect(has('.claude/skills/sandbox-sdk/SKILL.md'), 'ambiguous pre-split skill must be retired').toBe(false);
   });
 
   it('includes the cloudflare-one Zero Trust / SASE skill (enterprise Codeflare is Cloudflare One)', () => {

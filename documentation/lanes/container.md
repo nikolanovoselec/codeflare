@@ -4,17 +4,18 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 **Audience:** Operators, Developers
 
+**Owns:** image contents, startup and readiness, host/runtime supervision, idle policy, teardown orchestration, and transport recovery. **Does not own:** durable-file reconciliation detail, endpoint schemas, entitlement policy, or credential-containment rationale.
+
 ---
 
 ## Contents
 
 - [Container Image](#container-image)
-- [Container Startup](#container-startup)
-- [Claude Code Integration](#claude-code-integration)
-- [Graphify (Knowledge-Graph Context)](#graphify-knowledge-graph-context-req-agent-023)
-- [LLM Consultation](#llm-consultation)
-- [Push & Deploy](#push--deploy)
-- [Specification Coverage](#specification-coverage)
+- [Runtime Paths](#runtime-paths)
+- [Runtime Lifecycle](#runtime-lifecycle)
+- [Agent Runtime Interfaces](#agent-runtime-interfaces)
+- [Release and Deployment Alias](#release-and-deployment-alias)
+- [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
 ## Container Image
@@ -112,7 +113,23 @@ code-server listens only on container-local `127.0.0.1:13337`; the terminal host
 
 ---
 
-## Container Startup
+## Runtime Paths
+
+| Path | Owner / purpose |
+|---|---|
+| `/home/user` | Runtime user home |
+| `/home/user/workspace` | Session working tree synchronized through the storage contract |
+| `/home/user/.claude/` | Claude configuration and credentials projection |
+| `/opt/codeflare/pi-agent/npm` | Image-local read-only Pi extension npm seed cache |
+| `/home/user/.pi/agent/npm` | Runtime Pi extension npm directory copied from the seed on startup |
+| `/home/user/.config/rclone/rclone.conf` | Generated rclone configuration |
+| `/tmp/sync-status.json` | Initialization/synchronization status read by the private health surface |
+| `/tmp/sync.log` | Runtime synchronization diagnostics |
+
+Path ownership is a runtime contract; storage semantics and finalization authority remain in [Storage & Sync](storage-and-sync.md).
+
+<a id="container-startup"></a>
+## Runtime Lifecycle
 
 **File:** `entrypoint.sh`
 
@@ -152,37 +169,43 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 code-server receives `--auth none` only behind the Worker's Access/ownership chain and the container bearer check; it also receives disabled telemetry, updates, built-in proxying, Getting Started override, and workspace trust. Its exact ephemeral user-data path is `/tmp/openvscode-data/data`, whose User settings are prepared at `/tmp/openvscode-data/data/User`; fixed extensions remain under `/opt/codeflare/openvscode/extensions/{pi,claude,none}`.
 
-The browser keeps a clean `/api/vscode/<sessionId>/`: Worker and host independently reject public `folder`, `workspace`, and `ew` selectors ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection)), while the host adds `folder=/home/user/workspace` only to the private loopback root request and strips it from redirects ([REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-fixed-workspace-projection-and-clean-browser-ide-url)).
+The browser keeps a clean `/api/vscode/<sessionId>/`: Worker and host independently reject public `folder`, `workspace`, and `ew` selectors ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection)), while the host adds `folder=/home/user/workspace` only to the private loopback root request and strips it from redirects ([REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection)).
 
-Because Code OSS reads workspace selectors from the browser location rather than that private request, the host projects the equivalent fixed `vscode-remote` `folderUri` into the successful root workbench configuration. It buffers at most 2 MiB and fails closed when the pinned meta-element shape is missing, duplicated, malformed, compressed, or oversized; assets and protocol traffic remain streaming. Advanced-mode only; torn down through the retained `/tmp/openvscode.pid` generation lifecycle. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy). <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
+Because Code OSS reads workspace selectors from the browser location rather than that private request, the host projects the equivalent fixed `vscode-remote` `folderUri` into the successful root workbench configuration. Pinned code-server emits `remote` as a deliberate server-side authority placeholder and replaces only `remoteAuthority` with `location.host` in the browser; Codeflare therefore projects the folder URI with the same canonical public authority it forwards as `Host`. This keeps renderer models and remote-extension-host `file:` transformations on one URI identity. <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace -->
+
+The host buffers at most 2 MiB and fails closed when either authority or the pinned meta-element shape is missing, duplicated, malformed, compressed, or oversized; assets and protocol traffic remain streaming. Advanced-mode only; torn down through the retained `/tmp/openvscode.pid` generation lifecycle. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) and [REQ-IDE-035](../../sdd/spec/browser-ide.md#req-ide-035-canonical-browser-ide-workspace-projection). <!-- @impl: host/src/vscode-proxy.ts::projectVscodeWorkbenchWorkspace --> <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 
 **Startup transport ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** While the upstream editor WebSocket connects, the host retains at most 128 client frames and 8 MiB cumulatively. It preserves order and text/binary form, flushes once upstream opens, and closes with retry-later code `1013` if either limit is exceeded. Close, error, and overflow paths release listeners and retained frames. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
 **Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
 
-**Selected native IDE agent ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-017](../../sdd/spec/browser-ide.md#req-ide-017-unsupported-ide-inventory-runtime-metadata), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-unrestricted-pi-editor-request-execution), [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol)):** When `TAB_CONFIG` is present, `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed immutable extension directories; an absent `TAB_CONFIG` preserves the legacy Claude default. Invalid or unsupported configurations use an extension-free inventory. It is empty in the packaged image; after initialization, code-server may add only a regular `extensions.json` registry file containing `[]`.
+**Selected native IDE agent ([REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-017](../../sdd/spec/browser-ide.md#req-ide-017-unsupported-ide-base-inventory-isolation), [REQ-IDE-019](../../sdd/spec/browser-ide.md#req-ide-019-codeflare-eligibility-in-editor-inline-chat), [REQ-IDE-020](../../sdd/spec/browser-ide.md#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome), [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol), [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration)):** When `TAB_CONFIG` is present, `_openvscode_agent_kind` maps only exact tab-1 Pi and Claude commands to fixed immutable extension directories; an absent `TAB_CONFIG` preserves the legacy Claude default. Invalid or unsupported configurations use an empty base inventory. Every generation symlinks that selected base into one writable `/tmp/openvscode-data/extensions` directory, where ordinary restored or newly installed extensions are real directories; the unsupported base therefore stays empty while still permitting agent-independent user extensions.
 
-The deployment image smoke rejects any extension or entry other than that empty registry file. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory -->
+The deployment image smoke rejects any entry in the packaged unsupported base, then separately composes a fixed symlink with an ephemeral user VSIX and verifies install, restore, capture, uninstall, and fixed-byte immutability. <!-- @impl: entrypoint.sh::_openvscode_agent_kind --> <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory -->
 
-Pi immediately activates its owned provider before initial model-picker resolution and uses one default panel and editor Inline Chat participant visibly named **Codeflare**. Before code-server starts, every inventory atomically adds only `chat.statusBarEntry` to Code OSS's supported ephemeral web-profile hidden-status list while preserving unrelated profile values; this removes the Copilot **Sign In** status control without changing the pinned host artifact, authentication APIs, or Bump Shadow Pins workflow. Shared web-profile state also hides the left-side Accounts control. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
+Pi immediately activates its owned provider before initial model-picker resolution and uses one default panel participant and editor Inline Chat entry point visibly named **Codeflare**. Pi disables Code OSS's unrelated built-in AI setup through managed settings and marks that setup hidden before refreshing its models, removing the **Sign In** status control while its registered participant keeps Chat available. Claude and unsupported inventories retain the same managed disablement. Server-side profile preparation no longer pretends to control `chat.statusBarEntry`, which Code OSS 1.132 owns in browser IndexedDB; it still preserves unrelated values while preparing the separate left-side Accounts preference. The pinned host artifact, authentication APIs, and Bump Shadow Pins workflow remain unchanged. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 
-The stable `codeflare.pi` identifier remains private, and an on-start compatibility context removes Code OSS's account-backed **Code Review** setup action while retaining **Review with Codeflare**. Its hidden `copilot` fallback preserves the pinned extension host's absent-request-model lookup, while its selectable model uses the distinct `codeflare` vendor to avoid Copilot setup. Both request no authorization and reject generation; panel and editor inference uses direct Pi RPC. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_PROVIDER --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
+The stable `codeflare.pi` identifier remains private, and on-start compatibility context removes Code OSS's account-backed setup actions while retaining **Review with Codeflare**. Its hidden `copilot` fallback preserves the pinned extension host's absent-request-model lookup, while its selectable model uses the distinct `codeflare` vendor to avoid Copilot setup. Both request no authorization and reject generation. Panel requests use direct unrestricted Pi RPC. Editor submissions are identified through `chatParticipantPrivate` and reuse that process in a serialized proposal-only turn. The command dispatches through Pi's `ExtensionAPI.sendUserMessage`; validated edits return through the pinned host's native text-edit stream, then the prior panel tools are restored. <!-- @impl: openvscode/agent-sidebar/package.json::chatParticipants --> <!-- @impl: openvscode/agent-sidebar/package.json::enabledApiProposals --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_FALLBACK_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::HOST_VISIBLE_MODEL --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits -->
 
-Ephemeral Pi settings disable Code OSS's duplicate `~/.claude/agents` source and retain `~/.copilot/agents`, without changing native Pi's `~/.pi/agent/agents`. The first request lazily starts one `/usr/local/bin/pi --mode rpc --no-session --no-themes` process shared by panel and editor. FIFO requests retain it after normal completion; active cancellation, failure, exit, or deactivation boundedly reaps it before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime -->
+Ephemeral Pi settings disable Code OSS's duplicate `~/.claude/agents` source and retain `~/.copilot/agents`, without changing native Pi's `~/.pi/agent/agents`. The first request lazily starts one `/usr/local/bin/pi --mode rpc --no-session --no-themes` process shared by unrestricted panel turns and proposal-only editor turns. FIFO requests retain it after normal completion; active cancellation, malformed proposals, command-attributed or nested runtime dispatch errors, failure, exit, or deactivation boundedly reap it before replacement. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal -->
 
 Each invocation captures bounded canonical-workspace editor context. Cold or replacement creation also hydrates the requesting surface's visible history; warm turns omit that replay because both surfaces intentionally share the IDE process transcript. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat -->
 
-Documented `select` and `input` requests keep bounded correlated dialogs. Unrestricted direct writes and commands are not host-managed transactional edits and carry no Keep/Undo guarantee. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC -->
+Documented `select` and `input` requests keep bounded correlated dialogs. Unrestricted panel writes and commands are not host-managed transactions; editor proposal turns instead use host-owned text edits with controller-owned Keep/Close. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC -->
 
 Claude uses Anthropic's exact official `linux-x64` Open VSX extension, installed unchanged during the image build under the owner risk acceptance in [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration). Before launch, Codeflare prepares a dedicated `/tmp/codeflare-sidebar/claude/config` and ephemeral code-server User settings for unrestricted `bypassPermissions` mode, dangerous permission skipping, no Anthropic login prompt, the right sidebar, and no unrelated native Chat/Copilot setup. Anthropic's loopback-only authenticated IDE MCP supplies selections, native diffs, and diagnostics. Terminal history and runtime state are not projected.
 
-**Workspace-open settings ([REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent)):** Before launch, `_openvscode_prepare_agent` seeds ephemeral User settings beneath the same root passed to code-server as `--user-data-dir`; they disable workspace trust and ignore extension recommendations for every agent kind. Pi receives the base settings plus its single-personal-agent-source setting; the empty inventory receives only base settings, and Claude also carries its isolated settings. A preparation failure refuses the launch. <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
+**Branding ([REQ-IDE-039](../../sdd/spec/browser-ide.md#req-ide-039-codeflare-browser-ide-branding)):** The existing code-server launch sets its supported `--app-name Codeflare` product override, so browser titles and external-link trust dialogs use the product name without patching Code OSS. The Pi Chat participant and welcome panel reuse the packaged Codeflare brand mark at `media/agent.svg`. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) -->
 
-**Safe UI continuity ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-ui-state-capture-and-restore-ordering)):** Live data and SQLite companions remain under `/tmp`. Only after the launch generation is reaped, `browser-ide-ui-state.py` exports a maximum-1-MiB JSON allowlist containing theme values, string-valued `keyboard.layout`, and key-specific Explorer/open-file resource schemas to `~/.codeflare/ide-ui-state.json`; other User settings, unknown fields, and opaque strings are rejected.
+**Workspace-open settings ([REQ-IDE-009](../../sdd/spec/browser-ide.md#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy)):** Before launch, `_openvscode_prepare_agent` seeds ephemeral User settings beneath the same root passed to code-server as `--user-data-dir`; they disable workspace trust, ignore extension recommendations, and manage `extensions.allowed` as `{ "*": true, "codeflare.codeflare-agent-sidebar": true }` for every agent kind. Pi receives the base settings plus its single-personal-agent-source setting; the empty inventory receives only base settings, and Claude also carries its isolated settings. A preparation failure refuses the launch. <!-- @impl: entrypoint.sh::_openvscode_prepare_agent --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
 
-Restore creates fresh workspace storage and then managed Pi/Claude/unsupported settings overwrite inventory-owned keys. No raw database, global extension state, SecretStorage, authentication, chat history, log, WAL, or SHM file is synced. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
+**Bounded IDE continuity ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-bounded-ide-state-capture-and-restore-ordering), [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement)):** Live data, extension package directories, and SQLite companions remain under `/tmp`. Only after a launch generation is reaped, `browser-ide-ui-state.py` exports a maximum-1-MiB JSON allowlist containing theme values, string-valued `keyboard.layout`, and key-specific Explorer/open-file resource schemas. Independently, the always-present welcome extension lazily restores and captures a mode-0600 `~/.codeflare/ide-extensions.json` bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of contributed global User settings. Extension, registry, and contributed-setting changes share one capture path; welcome deactivation flushes pending settings, and `browser-ide-extensions.py` repeats registry-only capture after reap. Invalid content is retained unchanged, fixed IDs are excluded, and `.obsolete` alone proves uninstall.
+
+Restore creates fresh workspace storage before managed Pi/Claude/unsupported settings overwrite inventory-owned keys. The extension bootstrap runs only after workbench startup, so gallery latency never delays readiness. A changed manifest write signals the existing sync daemon; no second writer exists. No VSIX or extracted package byte, raw database, global/workspace extension state, SecretStorage, Accounts, enablement, keybinding, snippet, authentication, chat history, log, WAL, or SHM file is synced. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore -->
 
 **Generation cleanup:** Every code-server launch runs in a new process group with a random generation token and recorded PID/start identity. Native Pi and official Claude descendants inherit the launch token; Pi requests also carry a narrower request token. Exit, restart, cancellation, and session shutdown send TERM, wait for the bounded grace period, and KILL remaining generation members before replacement. `/tmp/openvscode-generation.pid` is identity-checked so a stale file cannot signal a reused PID.
+
+**User-extension supply-chain posture:** User extensions come only from code-server's compiled Open VSX gallery after one root-capable-code warning acknowledgement. code-server disables VSIX signature verification and grants proposed APIs broadly; TLS is the v1 transport boundary, and the workbench install command does not expose artifact bytes for Codeflare hashing. Exact-version restore has two workers, one structured not-found fallback, no retry loop, and preserves failed intent. Whole-file manifest convergence remains newest-wins across simultaneous sessions. [AD132](../decisions/README.md#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) records the accepted limits.
 
 **Supply-chain posture:** the image starts from the exact upstream code-server release under [AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), then deliberately removes its bundled GitHub Copilot extension; code-server and embedded Code source remain unpatched. The archive, code-server commit, and embedded Code package are checked in the complete image, which also proves the Copilot directory is absent; source gitlink metadata is derived from the immutable release tag and recorded with that evidence; no prior OpenVSCode scanner exception is carried forward automatically. The owned Pi package has no runtime npm dependency or native addon. The build checksum- and identity-verifies Anthropic's exact official VSIX, deletes the archive after extracting unchanged files, and stages both inventories root-owned and immutable.
 
@@ -221,27 +244,31 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Self-heal:** When `collectMetrics` reaches its running branch (successful `/health` probe), but KV reads `stopped` and the persisted deliberate-stop marker (`shutdownRequested` in DO storage) is absent, it re-asserts `running` in KV, bounding any false-stopped window to a single alarm tick (~60 s). The self-heal does not apply when `destroy()` has written the marker: `destroy()` persists `shutdownRequested` as its first action — before clearing session identifiers — and also drops the `collectMetrics` alarm, so the guard survives a DO eviction mid-teardown.
 
-`destroy()` also writes KV `status: 'stopped'` itself, immediately after the marker persist and while `_bucketName` is still available, so a teardown killed partway — before `onStop()` ever runs — still leaves the session recorded `stopped` rather than dangling at `running` ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4). The order matters in one direction only: a KV await does not hold off alarm delivery the way a DO storage op does, so a `collectMetrics` tick landing between the two statements would read the new `stopped` write with no marker yet present and self-heal it straight back to `running`.
+`destroy()` also writes KV `status: 'stopped'` itself, immediately after the marker persist and while `_bucketName` is still available, so a teardown killed partway — before `onStop()` ever runs — still leaves the session recorded `stopped` rather than dangling at `running` ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC3-AC4). The order closes the false-self-heal window: a `collectMetrics` tick cannot observe the new KV `stopped` value without first observing the durable shutdown marker.
 
 The stop and delete API routes treat a rejected `destroy()` as unconfirmed teardown. Stop leaves the prior session state retryable, while delete retains the KV record; neither route reports success until graceful destruction and its final-sync boundary complete ([REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) AC2/AC5).
 
-`onStart()` clears the deliberate-stop marker, partial transport-failure streak, and any recovery record on the next fresh container lifecycle; failure to batch-clear the transport keys leaves metrics unarmed ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC4; [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable) AC1). A Durable Object-only reconstruction does not run `onStart()` because the workload never stopped; its recovery record remains durable through reconstruction and exhaustion. Confirmed recovery requires a host-route response followed by successful evidence deletion. Any restart path that destroys the container must go on to start it ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC5) rather than reporting it already running.
+`onStart()` clears the deliberate-stop marker, partial transport-failure streak, and any recovery record on the next fresh container lifecycle; failure to batch-clear the transport keys leaves metrics unarmed ([REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC4; [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-ownership-is-durable) AC1). A Durable Object-only reconstruction does not run `onStart()` because the workload never stopped; its recovery record remains durable through reconstruction and exhaustion. Confirmed recovery requires a host-route response followed by successful evidence deletion. Any restart path that destroys the container must go on to start it ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC5) rather than reporting it already running.
 
 **Restart re-assertion:** `startOrRestartContainer` can tear the container down and rebuild it mid-restart, for example to correct the R2 bucket forward. Its session snapshot predates that teardown, so it still reads `running` even though `destroy()` has since written KV `stopped` and refreshed `lastActiveAt`. A `destroyedForRestart` flag forces the `running` write back through on that path, re-read from the record rather than spread from the snapshot, so a restart whose bucket-forward step fails does not strand the session at `stopped` — the state the non-retryable terminal-upgrade gate would otherwise leave for the user to clear by hand ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC5-AC6).
 
-**Poll timeout and transport reconstruction ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC1-AC2; [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC6; [REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-confirmed-and-bounded); [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota); [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-evidence-is-durable-and-observable)):** Every in-container request `collectMetrics()` awaits — `/activity`, `/health`, and the Timekeeper ping — is bounded to 10 s (`CONTAINER_POLL_BUDGET_MS`).
+**Poll timeout and transport reconstruction ([REQ-SESSION-020](../../sdd/spec/session-lifecycle.md#req-session-020-the-metrics-alarm-outlives-a-container-that-stops-answering) AC1-AC2; [REQ-SESSION-021](../../sdd/spec/session-lifecycle.md#req-session-021-unreachable-container-transport-initiates-coordinator-reconstruction) AC1-AC6; [REQ-SESSION-022](../../sdd/spec/session-lifecycle.md#req-session-022-transport-recovery-is-confirmed-and-bounded); [REQ-SESSION-023](../../sdd/spec/session-lifecycle.md#req-session-023-accelerated-recovery-preserves-usage-and-quota); [REQ-SESSION-024](../../sdd/spec/session-lifecycle.md#req-session-024-transport-recovery-ownership-is-durable); [REQ-SESSION-025](../../sdd/spec/session-lifecycle.md#req-session-025-transport-recovery-failures-are-observable); [REQ-SESSION-026](../../sdd/spec/session-lifecycle.md#req-session-026-transport-recovery-scheduling-failures-reach-lifecycle-callers)):** Every in-container request `collectMetrics()` awaits — `/activity`, `/health`, and the Timekeeper ping — is bounded to 10 s (`CONTAINER_POLL_BUDGET_MS`).
 
 The re-arm is the alarm's last statement and the schedule is one-shot, so a container that accepted the TCP connection but never answered did not merely skip a reading: it ended the loop for the rest of the session's life, with neither `onStart` (fresh start only) nor `onError` (SDK-observed exit only) able to restore it for a container that is wedged but still reported running.
 
 `/activity` and `/health` share port 8080, the Node process, and its event loop. Their simultaneous failure proves host-path unreachability, not whether the fault is the DO attachment, container network, listener, CPU starvation, or host process. The first complete failure records the normal tick's usage; accelerated 5 s confirmations do not add usage or ping Timekeeper. The third persists an attempt ID and calls `ctx.abort()` without stopping the container or writing KV `stopped`. Any route response, including HTTP non-OK, proves transport reachability. Successful evidence deletion then confirms recovery and restores 60 s metrics; deletion failure retains five-second, non-billable confirmation.
 
-If transport stays unreachable, three post-reset confirmations permit one final reconstruction. This budget also applies when a monitor-loss reconstruction still reads not-running, where no host probe can run. Three failures after the second attempt persist `exhausted`. A running container keeps 60 s checks and usage accounting; a not-running container returns to persisted exit confirmation and converges to stopped without another reset.
+If transport stays unreachable, three post-reset confirmations permit one final reconstruction. This budget also applies when a monitor-loss reconstruction still reads not-running, where no host probe can run. Three failures after the second attempt persist `exhausted`. Another complete probe failure writes an existing session record to KV `stopped` even when the SDK's `container.running` flag remains stale at `true`; an already-absent record is terminal without another write. The terminal path records no usage, requests `SIGTERM`, and relinquishes recovery without another alarm only after the platform accepts that stop.
+
+Failed status writes or stop requests retain explicit terminal recovery ownership and attempt to schedule a non-billable 60 s retry; a scheduling failure is logged and propagated while that durable ownership remains. A retained pre-upgrade `exhausted` record with stopped KV state, or absent KV state while the SDK still reports running, migrates to terminal stop ownership before probes can restore `running`. A failed early ownership read likewise attempts to re-arm the one-shot alarm. A not-running container continues through persisted exit confirmation without another reset.
+
+The dashboard CPU metric is the one-minute host load average divided by the reported CPU count, not sampled CPU utilization. Runnable or uninterruptible work may therefore produce values above 100%; interpret the value as normalized load pressure and correlate it with memory, sync, responsiveness, and repeated samples. <!-- @impl: host/src/metrics.ts::getSystemMetrics -->
 
 Logs correlate reset, confirmation, success, and exhaustion with DO and attempt identities, counts, elapsed time, container state, and a bounded route failure category (`timeout`, `network-lost`, `connection-refused`, or `other`). A persisted `shutdownRequested` marker ends recovery; an unreadable marker suppresses reconstruction and alarm re-arming. The SDK constructor's running-container path is expected to reattach `container.monitor()`; browser reconnection to the existing PTY remains a deployed smoke check.
 
 The bound is on the poll rather than on the tick deliberately — four exits stop the loop on purpose (confirmed exit, idle stop, zombie DO, stop already issued), and a blanket re-arm would resurrect a zombie. Transport reconstruction is different: it preserves the workload and resets only the control object whose private container attachment stopped serving.
 
-**DO storage persistence:** `sleepAfter` is persisted to DO storage (`ctx.storage.put('sleepAfter', ...)`) on both initial set and restart paths. The constructor's `blockConcurrencyWhile` reloads it with regex validation, falling back to `'5m'` if absent or invalid. This ensures the user's configured idle timeout survives Cloudflare DO resets (infrastructure-level events that reinitialize the DO instance). Cleaned up in `destroy()` alongside other operational keys.
+**DO storage persistence:** `sleepAfter` is persisted to DO storage (`ctx.storage.put('sleepAfter', ...)`) on both initial set and restart paths. The constructor's `blockConcurrencyWhile` reloads it with regex validation, falling back fail-safely to `'4h'` if absent or invalid. This ensures the user's configured idle timeout survives Cloudflare DO resets (infrastructure-level events that reinitialize the DO instance). Cleaned up in `destroy()` alongside other operational keys.
 
 **Data flow:**
 
@@ -249,7 +276,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 2. `PATCH /api/preferences` saves `{ sleepAfter: '30m' }` to KV (`user-prefs:{bucketName}`)
 3. On next session start, `POST /api/container/start` reads preferences from KV
 4. `configureContainerDO()` → `buildSetBucketNameBody()` includes `sleepAfter` in the JSON body
-5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, sets `this.idleTimeoutPref = sleepAfterPref`, and persists to DO storage under the key `sleepAfter`
+5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h|4h)$/`, sets `this.idleTimeoutPref = sleepAfterPref`, and persists to DO storage under the key `sleepAfter`
 6. `collectMetrics()` reads `idleTimeoutPref` on every 60 s poll to determine the threshold; the SDK timer at 24 h is never the enforcer
 7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference and persisted to DO storage
 8. On DO reset (cold start), constructor loads `sleepAfter` from DO storage before any `collectMetrics` alarm fires
@@ -263,7 +290,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
 **Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` and computes `isFreeUser()` from `liveAccessTier()`. The `canChangeSleepAfter` accessor returns `(isAdmin() || userHasSubscribed()) && !isFreeUser()`. The `isFreeUser` prop is passed to `SessionSection` to show tier-specific hint text.
 
-**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
+**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['15m', '30m', '1h', '2h', '4h']`) is exported from `src/types.ts`; legacy stored `5m` remains tolerated on read.
 
 **Sleep timer UI (`web-ui/src/lib/sleep-timer.ts`):** Frontend displays a countdown clock icon when a session's idle timeout is approaching. Computes `remainingMs = sleepAfterMs - (now - lastActiveAt)` from batch-status data. Only visible when < 10 min remaining. Orange pulse at < 10 min, red faster pulse at < 5 min. Hidden for stopped sessions or when `lastActiveAt` is null.
 
@@ -271,11 +298,14 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 - **Header toolbar** (`Header.tsx`): Clock icon next to the avatar. Click shows dropdown with countdown bucket + explanation text.
 - **Data source:**
 
-    `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the last PTY keystroke tracked by the terminal server). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
+    `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the latest classified terminal input or client-to-server Browser IDE frame tracked by the shared host activity tracker). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
 
 ---
 
-## Claude Code Integration
+<a id="claude-code-integration"></a>
+## Agent Runtime Interfaces
+
+### Claude Code Projection
 
 When `claude-code` is build-selected, terminal tab 1 runs the official global `@anthropic-ai/claude-code` npm package as root with `IS_SANDBOX=1` and its configured `--dangerously-skip-permissions` command. The separate Browser IDE uses Anthropic's pinned official Open VSX panel and bundled CLI regardless of shared CLI selection, restores a fixed unrestricted settings overlay on each launch, and runs every tool without approval.
 
@@ -291,7 +321,7 @@ When `claude-code` is build-selected, terminal tab 1 runs the official global `@
 
 ---
 
-## Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
+### Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
 `graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
 
@@ -321,7 +351,7 @@ The semantic merge driver for `graph.json` is registered globally in the image (
 
 ---
 
-## LLM Consultation
+### LLM Consultation
 
 When `CODEFLARE_OPENAI_API_KEY` or `CODEFLARE_GEMINI_API_KEY` env vars are present (or the user is logged into Codex), `entrypoint.sh` (`configure_consult_llm`) configures the `consult-llm-mcp` MCP server for **both** Claude Code (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). Pi reaches it through the pi-mcp-adapter `mcp` proxy with `lifecycle: "lazy"`, so the server starts only when the user explicitly asks to consult an external LLM. On each start, entrypoint replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing the old always-on `keep-alive` / `directTools` fields while preserving unrelated user MCP servers.
 
@@ -352,7 +382,8 @@ Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude),
 
 ---
 
-## Push & Deploy
+<a id="push--deploy"></a>
+## Release and Deployment Alias
 
 Optional feature that lets users connect GitHub and Cloudflare accounts once in Settings. Tokens are stored in KV (`deploy-keys:{bucketName}`), validated against provider APIs on save, and injected as environment variables into every container session.
 
@@ -380,26 +411,17 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ---
 
-## Specification Coverage
+<a id="specification-coverage"></a>
+## Requirement and Source Map
 
-- [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent) - Fixed native Pi, official Claude, and empty inventories
-- [REQ-IDE-010](../../sdd/spec/browser-ide.md#req-ide-010-pinned-ide-inventory-compatibility) - Packaged compatibility of fixed inventories
-- [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation) - Editor context and conversation isolation
-- [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval) - Native IDE unrestricted tools
-- [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) - IDE-agent generation cleanup
-- [REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome) - Account-free Browser IDE chrome
-- [REQ-IDE-022](../../sdd/spec/browser-ide.md#req-ide-022-native-pi-blocking-ui-protocol) - Native Pi blocking UI protocol
-- [REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data) - Graceful container shutdown preserves data
-- [REQ-OPS-011](../../sdd/spec/operations.md#req-ops-011-container-base-image-is-debian-bookworm-slim) - Container base image is Debian bookworm-slim
-- [REQ-OPS-016](../../sdd/spec/operations.md#req-ops-016-sleepafter-preference-persistence-and-lifecycle) - sleepAfter preference persistence and lifecycle
-- [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
-- [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection) - Input-based idle detection
-- [REQ-SESSION-008](../../sdd/spec/session-lifecycle.md#req-session-008-container-restart-preserves-r2-bucket) - Container restart preserves R2 bucket
-- [REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) - Container destroy wipes session state
-- [REQ-SESSION-011](../../sdd/spec/session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) - Graceful shutdown with final sync
-- [REQ-SESSION-013](../../sdd/spec/session-lifecycle.md#req-session-013-sleep-timer-countdown-ui) - Sleep timer countdown UI
-- [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
-- [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (enterprise only; `interceptOutboundHttps` wired before `container.start()`)
+| Runtime concern | Requirements | Source owner | Observable evidence |
+|---|---|---|---|
+| Image and pinned inventory | REQ-OPS-011, REQ-IDE-005/010 | `Dockerfile`, package manifests, image checks | Installed versions and packaged inventory tests |
+| Startup/readiness | Session Lifecycle and Storage SDD | `entrypoint.sh`, host health/prewarm, lifecycle route | Init status plus port/readiness gates |
+| Idle and status reconciliation | REQ-OPS-016/017, REQ-SESSION-005/013/018 | container metrics/lifecycle modules | DO/KV state and countdown/client behavior |
+| Finalization/teardown | REQ-OPS-010, REQ-SESSION-008/009/011 | `Container.destroy()` lifecycle and entrypoint backstop | Final drain result and authoritative persisted state |
+| Browser IDE runtime | REQ-IDE-006/007/008/021/022 | host, OpenVSCode package, agent-sidebar extension | Shared IDE conversation and bounded approval/process behavior |
+| Enterprise interception | [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) | Worker container-start composition | Interceptor installation before `container.start()` |
 
 ---
 

@@ -102,22 +102,24 @@ jobs:
       # while the required check still reported green. Any future trigger the
       # filter does not handle now defaults to running everything.
       full: ${{ steps.filter.outcome == 'skipped' }}
-      backend: ${{ steps.filter.outputs.backend }}
-      webui: ${{ steps.filter.outputs.webui }}
-      landing: ${{ steps.filter.outputs.landing }}
-      host: ${{ steps.filter.outputs.host }}
-      ide: ${{ steps.filter.outputs.ide }}
-      workflows: ${{ steps.filter.outputs.workflows }}
+      backend: ${{ steps.filter_fallback.outputs.backend || steps.filter.outputs.backend }}
+      webui: ${{ steps.filter_fallback.outputs.webui || steps.filter.outputs.webui }}
+      landing: ${{ steps.filter_fallback.outputs.landing || steps.filter.outputs.landing }}
+      host: ${{ steps.filter_fallback.outputs.host || steps.filter.outputs.host }}
+      ide: ${{ steps.filter_fallback.outputs.ide || steps.filter.outputs.ide }}
+      workflows: ${{ steps.filter_fallback.outputs.workflows || steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - id: filter
         # Diff-based filtering needs a diff: when the nightly wrapper calls this
         # workflow, and on manual dispatch, every lane runs unconditionally, so
         # the step is skipped and its
         # (empty) outputs are never consulted.
         if: github.event_name == 'pull_request' || github.event_name == 'push'
+        continue-on-error: true
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           # `shared` is an anchor, not a lane: anything that can change what ANY
@@ -196,6 +198,19 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'
+
+      # GitHub's pull-request files API can return diff/not_available for a
+      # large generated graph even though the exact commits are checked out.
+      # Fail safe by proving both commit identities through local git, recording
+      # the changed-file set for diagnostics, and selecting every lane. This
+      # over-selects work but can never turn an unavailable API diff into green
+      # skipped coverage.
+      - id: filter_fallback
+        if: steps.filter.outcome == 'failure'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/ci/path-filter-fallback.sh
 
   quality:
     name: Quality (lint / knip / audit)
@@ -424,6 +439,12 @@ jobs:
         id: zizmor-pin
         run: node scripts/ci/workflow-tool-pins.mjs github-output zizmor >> "$GITHUB_OUTPUT"
 
+      - name: Cache zizmor archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/codeflare/zizmor-${{ steps.zizmor-pin.outputs.version }}.tar.gz
+          key: ${{ runner.os }}-${{ runner.arch }}-zizmor-${{ steps.zizmor-pin.outputs.version }}-${{ steps.zizmor-pin.outputs.sha256 }}
+
       - name: Run zizmor (checksum-pinned binary)
         # zizmor.yml uploads SARIF to code scanning and is informational by
         # design — findings there notify, they do not block. This step is the
@@ -440,12 +461,17 @@ jobs:
         env:
           ZIZMOR_VERSION: ${{ steps.zizmor-pin.outputs.version }}
           ZIZMOR_SHA256: ${{ steps.zizmor-pin.outputs.sha256 }}
+          ZIZMOR_ARCHIVE: ${{ runner.tool_cache }}/codeflare/zizmor-${{ steps.zizmor-pin.outputs.version }}.tar.gz
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/zizmor.tar.gz \
-            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${ZIZMOR_SHA256}  /tmp/zizmor.tar.gz" | sha256sum -c -
+          mkdir -p "$(dirname "$ZIZMOR_ARCHIVE")"
+          if [ ! -f "$ZIZMOR_ARCHIVE" ]; then
+            curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o "${ZIZMOR_ARCHIVE}.tmp" \
+              "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+            mv "${ZIZMOR_ARCHIVE}.tmp" "$ZIZMOR_ARCHIVE"
+          fi
+          echo "${ZIZMOR_SHA256}  ${ZIZMOR_ARCHIVE}" | sha256sum -c -
           # The checksum above is self-certified: the bump job hashed the same
           # download it then committed as the trusted pin, so it only protects
           # against tampering AFTER the bump. Compromise the release on bump day
@@ -459,7 +485,7 @@ jobs:
           # not fail a merge on infrastructure rather than on findings — the
           # same reasoning that made the zizmor audit itself offline.
           for attempt in 1 2 3; do
-            if gh attestation verify /tmp/zizmor.tar.gz --repo zizmorcore/zizmor; then
+            if gh attestation verify "$ZIZMOR_ARCHIVE" --repo zizmorcore/zizmor; then
               break
             fi
             if [ "$attempt" = 3 ]; then
@@ -468,7 +494,7 @@ jobs:
             fi
             sleep $((attempt * 5))
           done
-          tar -xzf /tmp/zizmor.tar.gz -C /tmp zizmor
+          tar -xzf "$ZIZMOR_ARCHIVE" -C /tmp zizmor
           # Offline for the same reason zizmor.yml is: the online audit dies
           # fatally when the advisory API blips, which would fail merges on
           # infrastructure rather than on findings.
@@ -477,6 +503,12 @@ jobs:
       - name: Resolve the actionlint pin
         id: actionlint-pin
         run: node scripts/ci/workflow-tool-pins.mjs github-output actionlint >> "$GITHUB_OUTPUT"
+
+      - name: Cache actionlint archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/codeflare/actionlint-${{ steps.actionlint-pin.outputs.version }}.tar.gz
+          key: ${{ runner.os }}-${{ runner.arch }}-actionlint-${{ steps.actionlint-pin.outputs.version }}-${{ steps.actionlint-pin.outputs.sha256 }}
 
       - name: Run actionlint (checksum-pinned binary)
         # Catches workflow-file errors GitHub only surfaces as jobless
@@ -496,13 +528,18 @@ jobs:
         env:
           ACTIONLINT_VERSION: ${{ steps.actionlint-pin.outputs.version }}
           ACTIONLINT_SHA256: ${{ steps.actionlint-pin.outputs.sha256 }}
+          ACTIONLINT_ARCHIVE: ${{ runner.tool_cache }}/codeflare/actionlint-${{ steps.actionlint-pin.outputs.version }}.tar.gz
           SHELLCHECK_OPTS: '--severity=error'
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o /tmp/actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          mkdir -p "$(dirname "$ACTIONLINT_ARCHIVE")"
+          if [ ! -f "$ACTIONLINT_ARCHIVE" ]; then
+            curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o "${ACTIONLINT_ARCHIVE}.tmp" \
+              "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+            mv "${ACTIONLINT_ARCHIVE}.tmp" "$ACTIONLINT_ARCHIVE"
+          fi
+          echo "${ACTIONLINT_SHA256}  ${ACTIONLINT_ARCHIVE}" | sha256sum -c -
+          tar -xzf "$ACTIONLINT_ARCHIVE" -C /tmp actionlint
           /tmp/actionlint -color -pyflakes=
 
   bundle-size:
@@ -729,10 +766,32 @@ jobs:
         run: npm run build
         working-directory: host
 
+      - name: Cache rclone archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
+          key: ${{ runner.os }}-${{ runner.arch }}-rclone-v1.73.5-932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
+
       - name: Install rclone for sync-filter behavioral tests
+        env:
+          RCLONE_RELEASE_VERSION: 1.73.5
+          RCLONE_SHA256: 932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
+          RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone
+          set -euo pipefail
+          mkdir -p "$(dirname "$RCLONE_ARCHIVE")"
+          if [ ! -f "$RCLONE_ARCHIVE" ]; then
+            curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o "${RCLONE_ARCHIVE}.tmp" \
+              "https://downloads.rclone.org/v${RCLONE_RELEASE_VERSION}/rclone-v${RCLONE_RELEASE_VERSION}-linux-amd64.zip"
+            mv "${RCLONE_ARCHIVE}.tmp" "$RCLONE_ARCHIVE"
+          fi
+          echo "${RCLONE_SHA256}  ${RCLONE_ARCHIVE}" | sha256sum -c -
+          rm -rf "$RUNNER_TEMP/rclone"
+          unzip -q "$RCLONE_ARCHIVE" -d "$RUNNER_TEMP/rclone"
+          sudo install -m 0755 \
+            "$RUNNER_TEMP/rclone/rclone-v${RCLONE_RELEASE_VERSION}-linux-amd64/rclone" \
+            /usr/local/bin/rclone
+          rclone version
 
       - name: Select host tests
         # The exclusion list and the *.test.js glob are the two ways a host test

@@ -1,7 +1,7 @@
 ---
 name: sdd-init
 description: "Workflow for /sdd init bootstrap. Covers greenfield (lean two-confirm flow), Import Mode (two-output: REQs + triage), Resume Mode (drain triage queue), Phase 4 behavioral enumeration (deterministic source-surface walk that drives Phase 5d), Phase 5 enrichment pass (graphify-backed cross-link / ADR-seed / glossary-seed), Phase 7a source-anchor verification, Phase 7b enumeration-coverage verification, and dependency version resolution. Invoked when /sdd init runs. Requires the spec-driven-development skill for REQ format, Status semantics, and templates."
-version: 1.1.0
+version: 1.2.0
 ---
 
 # /sdd init — bootstrapping a project
@@ -61,7 +61,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - CON-* constraints (tech stack, performance, security, observability)
    - Founding ADRs (3-8 seeded from vision + inferred stack)
    - Glossary terms (every product noun, vendor name, protocol mentioned in any REQ)
-3. **Present the full draft as a single review surface**: tree of domain index + per-domain summary + ADR list + glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" On `edit <section>`: re-draft only that section, re-present, ask again. On `restart`: discard, return to step 1. Loop until accepted. Phase 5 enrichment runs once, only after final acceptance.
+3. **Present the full draft as a single review surface**: tree of domain index + per-domain summary + ADR list + glossary + selected documentation lanes and their ownership. Ask one question: "Accept as-is, edit a section (name it), or restart?" On `edit <section>`: re-draft only that section, re-present, ask again. On `restart`: discard, return to step 1. Loop until accepted. That acceptance governs the deterministic Phase 5 enrichment and Phase 6 template rendering; neither phase asks a third confirmation.
 4. **Run Phase 5 enrichment in memory** (see Enrichment pass below).
 5. **Write the spec files** from `references/templates/` in the `spec-driven-development` skill, substituting placeholders inline from the vision + inferred stack. Emit each template VERBATIM with section headings, tables, and prose intact — do not collapse or abbreviate. Output uses the nested layout (`sdd/spec/`):
    - `root-readme.md` → `README.md`
@@ -91,14 +91,21 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    Deviation from this shape is a MEDIUM finding caught by `spec-enforce` row 3 (REQ rendering template) on the next PR-boundary review. **The shape is non-negotiable** — do not invent a tighter form because writing 15-45 REQs in a row is tedious. Re-open `req-shape-example.md` between domains if drift creeps in.
 
    **Emit only files in the canonical layout** (defined in `spec-driven-development` § "Spec structure"). Anything outside that layout — including `sdd/spec/README.md` or `documentation/lanes/README.md` — is a HIGH `layout-violation` caught by `doc-enforce-lanes` § Layout conformance on the next review. The single comprehensive index lives in `sdd/README.md` (Domains table linking to `spec/{file}.md`) and `documentation/README.md` (Jump-TOC linking to lanes + decisions).
-6. **Run Phase 6 — documentation lane emission and audit.** Conditional per-lane emission driven by source evidence (see § Phase 6 below). Emit each template VERBATIM — the `documentation-readme.md` template includes Jump-TOC, Lane ownership table, REQ backlinks section, Synonym glossary, Reading order, and Related links; abbreviated emission that strips any of those sections is a HIGH `scaffold-template-stripped` finding caught by step 9's iterate-to-clean (the audit verifies all template section headings are present in the emitted output). Outputs:
-   - `documentation-readme.md` → `documentation/README.md` (full template, all sections intact)
-   - `documentation-architecture.md` → `documentation/lanes/architecture.md` (universal)
-   - `documentation-api-reference.md` → `documentation/lanes/api-reference.md` (only when source has HTTP routes)
-   - `documentation-configuration.md` → `documentation/lanes/configuration.md` (only when source has env vars / config)
-   - `documentation-deployment.md` → `documentation/lanes/deployment.md` (only when project is deployable)
-   - Lane files for `security.md`, `observability.md`, `troubleshooting.md`, `api-reference-admin.md` rendered when source supports them
-   - `documentation-decisions-readme.md` → `documentation/decisions/README.md` (founding ADRs from Phase 5c, each `Context:` carries `<!-- @impl: ... -->` anchor)
+6. **Run Phase 6 — documentation lane emission and audit.** Conditional lane selection remains driven by source evidence (see § Phase 6). Pass that selected lane list to the bundled renderer so greenfield and Import Mode use the same templates and `documentation/README.md` indexes only emitted files:
+
+   ```bash
+   node ~/.claude/skills/sdd-init/references/render-documentation-templates.mjs \
+     --mode "${SDD_INIT_MODE}" \
+     --templates ~/.claude/skills/spec-driven-development/references/templates \
+     --output .sdd-init-documentation-draft \
+     --project-name "${PROJECT_NAME}" \
+     --lanes "architecture,${SELECTED_STANDARD_LANES}" \
+     --project-lanes "${PROJECT_LANES_JSON:-[]}"
+   ```
+
+   `SDD_INIT_MODE` is `greenfield` or `import`. `SELECTED_STANDARD_LANES` contains only source-supported canonical lane IDs; `PROJECT_LANES_JSON` contains first-level `{ "slug", "title" }` records for source-supported concerns that no canonical lane owns. The renderer requires a nonexistent staging path, creates Architecture plus only the selected lane templates, index, and ADR ledger, and removes its partial output if rendering fails. Replace placeholders from verified Phase 5 evidence and reconcile every legacy documentation clause in Import Mode. The existing step-3 acceptance governs this deterministic rendering; do not ask again.
+
+   Promote only after placeholder, index, source-anchor, and losslessness checks pass. If `documentation/` exists, first require a nonexistent `.sdd-init-documentation-backup`, rename the live tree to that backup, then rename the staged tree to `documentation/`. Re-run the checks against the promoted paths. On failure, rename the failed promoted tree aside and restore the backup; on success, remove the backup. When no live tree exists, rename staging directly. Never use a move that nests staging inside `documentation/`, delete the live tree before backup, reuse a staging directory, or overwrite live documentation with a partial draft. Do not delete template sections merely because a project has little content—omit the whole conditional lane when it has no evidence.
 7. **Phase 7a — Programmatic source-anchor verification (CRITICAL, evidence-gated, non-skippable).**
 
    This step is the load-bearing Truth gate. It runs BEFORE the Phase 7b enumeration gate (step 8) and the broader iterate-to-clean enforcement (step 9). Failures here BLOCK the commit. The agent does NOT "check by reading"; the agent RUNS the verifier and copies its output verbatim into the commit body.
@@ -343,7 +350,7 @@ Each lane emits ONLY when source evidence justifies it. Empty lane → file not 
 
 | Lane | Emit condition (probe) |
 |---|---|
-| `documentation/lanes/architecture.md` | **Universal** — always emit. Phase 5a god_nodes + community map drives the Source Module Map, Component table, and Request Lifecycles. |
+| `documentation/lanes/architecture.md` | **Universal** — always emit. Phase 5a ownership and flow evidence drives component dossiers, state authority, data flows, and recovery ownership; do not emit an exhaustive source-file inventory. |
 | `documentation/lanes/api-reference.md` | `mcp__graphify__query_graph("HTTP handler\|route\|endpoint")` returns ≥1 node, OR source has framework-specific route files (`pages/api/`, `routes/`, `handlers/`, `cmd/server/`, etc.) |
 | `documentation/lanes/api-reference-admin.md` | Admin endpoints exist (route prefix detection: `/admin/`, `/api/admin/`, etc.) AND admin-route count ≥ 3 |
 | `documentation/lanes/configuration.md` | Env var consumers exist (grep `env\.\|process\.env\|os\.environ\|std::env`), OR config files exist (`wrangler.toml`, `.env.example`, `config.yml` not under sdd/) |
@@ -357,13 +364,14 @@ Each lane emits ONLY when source evidence justifies it. Empty lane → file not 
 
 Within each emitted lane, generate sections by natural axis from the source evidence. Every load-bearing fact in every lane file carries an inline `<!-- @impl: <path>::<symbol> -->` anchor; `Implements:` fields link to the relevant REQs in `sdd/spec/{domain}.md`. Same triage rule as Phase 5: claim without source evidence → triage entry, never fabricated content.
 
-- **architecture.md** sections: Overview (1 paragraph from vision + tech-stack), Components (table from god_nodes filtered to long-lived orchestrators), Repository Layout (tree from top-level directories), Source Module Map (exhaustive table per directory of source files, role + Implements REQ backlinks), Request Lifecycles (per top-level entry point: cron, queue consumer, HTTP handler — flow diagram traced via `shortest_path`), Data Flow, Cross-cutting Concerns, Build and Deploy.
-- **api-reference.md** sections: Conventions (auth vocab, origin-check vocab, error envelope), per-endpoint sections following the `doc-enforce-shape` Pass 7 binding template.
-- **configuration.md** sections: per env var, per build-time constant, per signing config artifact — each with the `doc-enforce-shape` Pass 5 required field set.
-- **deployment.md** sections: per deployable artifact, runbook walkthrough (commands sourced from real deploy scripts via grep).
-- **security.md** sections: per security control discovered in source — Threat / Mitigation / Verification / Implements field block per control.
-- **observability.md** sections: event enum table (from structured-log emitter), per-signal sections with field tables.
-- **troubleshooting.md** sections: per recipe — Symptom / Cause / Fix block, sourced from commit-message incident references and any existing `INCIDENTS.md`.
+- **architecture.md:** purpose and ownership, system overview, component dossiers, invariants, state authority, cross-component flows, failure/recovery ownership, observability and security boundaries, and a requirement/decision map. Source links name load-bearing owners, not every file.
+- **api-reference.md:** shared conventions, compact grouped endpoint registers (`Method | Path | Auth | Implements | Description`), and detailed request/response/error/source records only where a register row cannot carry the contract safely.
+- **configuration.md:** source precedence plus grouped variable registers (`Variable | Purpose | Default | Required | Consumed by | Implements`); secrets never include values.
+- **deployment.md:** actual runbooks use `When`, optional `Prerequisites`, `Action`, `Verify`, and `Rollback`. Development references and private-operations aliases remain distinct.
+- **security.md:** threat, residual-risk, and verification/source collections using the bundled template; thematic control prose is allowed between those collections.
+- **observability.md:** signal register using `Signal`, `Meaning / non-evidence`, `Observed at`, `Escalate when`, and `Runbook`.
+- **troubleshooting.md:** detailed recipes use Symptom, Diagnose, Cause, Fix, Verify, and Escalate; summary indexes may use `Symptom | Cause | Fix`.
+- **project lanes:** use `documentation-project-lane.md` for the shared audience/ownership/navigation/evidence envelope, then organize the subject-specific body by its natural axis. Emit only first-level files explicitly indexed by the renderer.
 
 ### Post-emit backlink-coverage audit
 

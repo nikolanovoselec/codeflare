@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import {
+  MANAGED_OPENVSCODE_SETTING_KEYS,
   buildBaseOpenVscodeSettings,
   buildManagedSettings,
   buildOpenVscodeSettings,
@@ -26,6 +27,9 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "workbench.startupEditor": "none",
+    "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
@@ -58,18 +62,26 @@ test("REQ-IDE-007 AC3: unrestricted mode keeps configuration isolation and telem
   assert.deepEqual(settings.enabledMcpjsonServers, []);
 });
 
-test("REQ-IDE-009: base OpenVSCode settings auto-trust the workspace and ignore extension recommendations", () => {
+test("REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor", () => {
   assert.deepEqual(buildBaseOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "workbench.startupEditor": "none",
+    "chat.titleBar.signIn.enabled": false,
   });
 });
 
-test("REQ-IDE-018 + REQ-IDE-019 AC6: Pi native Chat uses notifications and one personal agent source", () => {
+test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor", () => {
   const settings = buildPiOpenVscodeSettings();
   assert.deepEqual(settings, {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "workbench.startupEditor": "none",
+    "chat.titleBar.signIn.enabled": false,
+    "chat.disableAIFeatures": true,
+    "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
     "chat.notifyWindowOnConfirmation": "windowNotFocused",
     "chat.agentFilesLocations": {
@@ -83,6 +95,9 @@ test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setu
   assert.deepEqual(buildUnsupportedOpenVscodeSettings(), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
+    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "workbench.startupEditor": "none",
+    "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
   });
 });
@@ -92,4 +107,15 @@ test("REQ-IDE-009: Claude settings also carry the base workspace-trust and recom
 
   assert.equal(settings["security.workspace.trust.enabled"], false);
   assert.equal(settings["extensions.ignoreRecommendations"], true);
+  assert.deepEqual(settings["extensions.allowed"], { "*": true, "codeflare.codeflare-agent-sidebar": true });
+  assert.equal(settings["workbench.startupEditor"], "none");
+  assert.equal(settings["chat.titleBar.signIn.enabled"], false);
+});
+
+test("REQ-IDE-040 AC1: every inventory applies the managed user-extension allowance", () => {
+  const expected = { "*": true, "codeflare.codeflare-agent-sidebar": true };
+  assert.deepEqual(buildPiOpenVscodeSettings()["extensions.allowed"], expected);
+  assert.deepEqual(buildUnsupportedOpenVscodeSettings()["extensions.allowed"], expected);
+  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config")["extensions.allowed"], expected);
+  assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("extensions.allowed"), true);
 });
