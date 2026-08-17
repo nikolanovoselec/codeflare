@@ -134,7 +134,7 @@ const RUNTIME_NATIVE_SCHEDULER_SOURCE = `\tscheduleContinuationDispatch(ctx: Sta
 \t}`;
 
 const RUNTIME_NATIVE_SCHEDULER_PATCH = `\tscheduleContinuationDispatch(ctx: StatusContext, goalId: string) {
-\t\tthis.clearContinuationDispatchTimer();
+\t\tif (this.continuationDispatchTimer) return false;
 \t\tconst generation = this.menuGeneration;
 \t\tconst marker = this.continuationIntent?.marker;
 \t\tlet remainingMs = this.settings.continuationLimits.minIntervalMs;
@@ -155,10 +155,11 @@ const RUNTIME_NATIVE_SCHEDULER_PATCH = `\tscheduleContinuationDispatch(ctx: Stat
 \t\t\t\t\tarmTimer();
 \t\t\t\t\treturn;
 \t\t\t\t}
-\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });
 \t\t\t}, delayMs);
 \t\t};
 \t\tarmTimer();
+\t\treturn true;
 \t}`;
 
 const RUNTIME_DISPATCH_PATCH = `\tdispatchContinuationIfSettled(ctx: StatusContext) {
@@ -549,6 +550,11 @@ export function patchPiGoalRuntimeSource(source) {
               'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
               'const delayMs = Math.min(remainingMs, 2_147_483_647);',
               'this.continuationIntent?.marker !== marker',
+              'options: { intervalElapsed?: boolean } = {}',
+              'if (this.settings.continuationLimits.minIntervalMs > 0) {',
+              'return this.scheduleContinuationDispatch(ctx, intent.goalId);',
+              'if (this.continuationDispatchTimer) return false;',
+              'this.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });',
             ]
           : [
               'const minIntervalMs = this.settings.continuationLimits.minIntervalMs;',
@@ -603,6 +609,33 @@ export function patchPiGoalRuntimeSource(source) {
   }
 
   if (usesNativeContinuationScheduler) {
+    patched = replaceOnce(
+      patched,
+      '\tdispatchContinuationIfSettled(ctx: StatusContext) {',
+      '\tdispatchContinuationIfSettled(\n\t\tctx: StatusContext,\n\t\toptions: { intervalElapsed?: boolean } = {},\n\t) {',
+      'native continuation dispatcher options',
+    );
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tif (ctx.isIdle?.() !== true || hasPendingMessages(ctx)) return false;',
+        '',
+        '\t\tthis.clearContinuationDispatchTimer();',
+      ].join('\n'),
+      [
+        '\t\tif (ctx.isIdle?.() !== true || hasPendingMessages(ctx)) return false;',
+        '',
+        '\t\tif (options.intervalElapsed !== true) {',
+        '\t\t\tif (this.continuationDispatchTimer) return false;',
+        '\t\t\tif (this.settings.continuationLimits.minIntervalMs > 0) {',
+        '\t\t\t\treturn this.scheduleContinuationDispatch(ctx, intent.goalId);',
+        '\t\t\t}',
+        '\t\t}',
+        '',
+        '\t\tthis.clearContinuationDispatchTimer();',
+      ].join('\n'),
+      'native continuation dispatch interval gate',
+    );
     patched = replaceOnce(
       patched,
       '\tprivate continuationDispatchTimer?: NodeJS.Timeout;',

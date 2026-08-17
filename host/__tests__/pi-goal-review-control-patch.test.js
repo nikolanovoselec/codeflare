@@ -256,6 +256,10 @@ const fixtureNextRuntimeSource = [
     )
     .replace('this.goalToolsAvailable()', 'this.toolPolicy.toolsAvailable()')
     .replace(
+      '\t\tthis.continuationIntent = undefined;\n\t\tthis.continuationDelivery = intent;',
+      '\t\tthis.clearContinuationDispatchTimer();\n\t\tthis.continuationIntent = undefined;\n\t\tthis.continuationDelivery = intent;',
+    )
+    .replace(
       '\tconstructor(pi) {\n\t\tthis.pi = pi;\n\t}',
       `\tconstructor(pi) {
 \t\tthis.pi = pi;
@@ -524,6 +528,10 @@ function executablePatchedNextRuntime(scheduler, abortCurrentTurn = () => {}) {
     .replace('\tcontinuationIntent?: ContinuationTicket;', '\tcontinuationIntent;')
     .replace('\tcontinuationDelivery?: ContinuationTicket;', '\tcontinuationDelivery;')
     .replace('stopActiveGoal(ctx: StatusContext, request: GoalStopRequest)', 'stopActiveGoal(ctx, request)')
+    .replace(
+      'dispatchContinuationIfSettled(\n\t\tctx: StatusContext,\n\t\toptions: { intervalElapsed?: boolean } = {},\n\t)',
+      'dispatchContinuationIfSettled(ctx, options = {})',
+    )
     .replace('dispatchContinuationIfSettled(ctx: StatusContext)', 'dispatchContinuationIfSettled(ctx)')
     .replace('scheduleContinuationDispatch(ctx: StatusContext, goalId: string)', 'scheduleContinuationDispatch(ctx, goalId)')
     .replace('private clearContinuationDispatchTimer()', 'clearContinuationDispatchTimer()');
@@ -561,6 +569,32 @@ function runtimeHarness(minIntervalMs) {
     iteration: 1,
     marker: 'goal-a:1:marker-a',
     prompt: 'continue goal-a',
+  };
+  const state = { idle: true, pending: false };
+  const ctx = {
+    isIdle: () => state.idle,
+    hasPendingMessages: () => state.pending,
+    ui: { notify() {} },
+  };
+  return { runtime, scheduler, messages, state, ctx };
+}
+
+function successorRuntimeHarness(minIntervalMs) {
+  const scheduler = createScheduler();
+  const messages = [];
+  const Runtime = executablePatchedNextRuntime(scheduler);
+  const runtime = new Runtime({
+    sendUserMessage(prompt, options) {
+      messages.push({ prompt, options });
+    },
+  });
+  runtime.settings = { continuationLimits: { minIntervalMs } };
+  runtime.activeGoal = { id: 'goal-a', status: 'active' };
+  runtime.continuationIntent = {
+    goalId: 'goal-a',
+    iteration: 1,
+    marker: 'goal-a:1:successor',
+    prompt: 'continue successor goal',
   };
   const state = { idle: true, pending: false };
   const ctx = {
@@ -688,33 +722,24 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(runtime.activeGoal.status, 'paused');
   });
 
-  it('REQ-AGENT-130 AC2: successor scheduler waits the configured interval', () => {
-    const scheduler = createScheduler();
-    const messages = [];
-    const Runtime = executablePatchedNextRuntime(scheduler);
-    const runtime = new Runtime({
-      sendUserMessage(prompt, options) {
-        messages.push({ prompt, options });
-      },
-    });
-    runtime.settings = { continuationLimits: { minIntervalMs: 25 } };
-    runtime.activeGoal = { id: 'goal-a', status: 'active' };
-    runtime.continuationIntent = {
-      goalId: 'goal-a',
-      iteration: 1,
-      marker: 'goal-a:1:successor',
-      prompt: 'continue successor goal',
-    };
-    const ctx = {
-      isIdle: () => true,
-      hasPendingMessages: () => false,
-      ui: { notify() {} },
-    };
+  it('REQ-AGENT-130 AC1: successor zero delay dispatches immediately', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(0);
 
-    runtime.scheduleContinuationDispatch(ctx, 'goal-a');
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.deepEqual(scheduler.armedDelays(), []);
+    assert.deepEqual(messages, [{
+      prompt: 'continue successor goal',
+      options: { deliverAs: 'followUp' },
+    }]);
+  });
+
+  it('REQ-AGENT-130 AC2: successor direct dispatch waits the configured interval', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
     assert.deepEqual(scheduler.armedDelays(), [25]);
     scheduler.advance(24);
-    assert.equal(messages.length, 0);
+    assert.deepEqual(messages, []);
     scheduler.advance(1);
     assert.deepEqual(messages, [{
       prompt: 'continue successor goal',
@@ -723,61 +748,43 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
   });
 
   it('REQ-AGENT-130 AC3: successor scheduler re-arms delays beyond the Node timer maximum', () => {
-    const scheduler = createScheduler();
-    const messages = [];
-    const Runtime = executablePatchedNextRuntime(scheduler);
-    const runtime = new Runtime({
-      sendUserMessage(prompt) {
-        messages.push(prompt);
-      },
-    });
-    runtime.settings = { continuationLimits: { minIntervalMs: 2_147_483_652 } };
-    runtime.activeGoal = { id: 'goal-a', status: 'active' };
-    runtime.continuationIntent = {
-      goalId: 'goal-a',
-      iteration: 1,
-      marker: 'goal-a:1:successor-long',
-      prompt: 'continue long successor goal',
-    };
-    const ctx = {
-      isIdle: () => true,
-      hasPendingMessages: () => false,
-      ui: { notify() {} },
-    };
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(2_147_483_652);
 
-    runtime.scheduleContinuationDispatch(ctx, 'goal-a');
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
     assert.deepEqual(scheduler.armedDelays(), [2_147_483_647]);
     scheduler.advance(2_147_483_647);
     assert.deepEqual(scheduler.armedDelays(), [2_147_483_647, 5]);
-    assert.equal(messages.length, 0);
+    assert.deepEqual(messages, []);
     scheduler.advance(5);
-    assert.deepEqual(messages, ['continue long successor goal']);
+    assert.equal(messages.length, 1);
+  });
+
+  it('REQ-AGENT-130 AC4: successor repeated dispatch remains single-flight', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), false);
+    assert.equal(scheduler.pendingCount(), 1);
+    assert.deepEqual(scheduler.armedDelays(), [25]);
+    scheduler.advance(25);
+    assert.equal(messages.length, 1);
+  });
+
+  it('REQ-AGENT-130 AC5: successor cancellation clears its pending dispatch', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    runtime.cancelContinuationWork();
+    assert.equal(scheduler.pendingCount(), 0);
+    scheduler.advance(25);
+    assert.deepEqual(messages, []);
+    assert.equal(runtime.continuationIntent, undefined);
   });
 
   it('REQ-AGENT-130 AC6: successor scheduler rejects a replacement continuation marker', () => {
-    const scheduler = createScheduler();
-    const messages = [];
-    const Runtime = executablePatchedNextRuntime(scheduler);
-    const runtime = new Runtime({
-      sendUserMessage(prompt) {
-        messages.push(prompt);
-      },
-    });
-    runtime.settings = { continuationLimits: { minIntervalMs: 25 } };
-    runtime.activeGoal = { id: 'goal-a', status: 'active' };
-    runtime.continuationIntent = {
-      goalId: 'goal-a',
-      iteration: 1,
-      marker: 'goal-a:1:old',
-      prompt: 'old continuation',
-    };
-    const ctx = {
-      isIdle: () => true,
-      hasPendingMessages: () => false,
-      ui: { notify() {} },
-    };
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
 
-    runtime.scheduleContinuationDispatch(ctx, 'goal-a');
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
     runtime.continuationIntent = {
       goalId: 'goal-a',
       iteration: 2,
@@ -787,6 +794,21 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     scheduler.advance(25);
     assert.deepEqual(messages, []);
     assert.equal(runtime.continuationIntent.marker, 'goal-a:2:new');
+  });
+
+  it('REQ-AGENT-130 AC7: successor busy expiry retains intent for the next settled boundary', () => {
+    const { runtime, scheduler, messages, state, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    state.idle = false;
+    scheduler.advance(25);
+    assert.deepEqual(messages, []);
+    assert.equal(runtime.continuationIntent.marker, 'goal-a:1:successor');
+
+    state.idle = true;
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    scheduler.advance(25);
+    assert.equal(messages.length, 1);
   });
 
   it('REQ-AGENT-114: suppresses only the bridge-owned resume prompt', async () => {
@@ -997,6 +1019,8 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.match(first['src/runtime.ts'], /let remainingMs = this\.settings\.continuationLimits\.minIntervalMs;/);
     assert.match(first['src/runtime.ts'], /const delayMs = Math\.min\(remainingMs, 2_147_483_647\);/);
     assert.match(first['src/runtime.ts'], /this\.continuationIntent\?\.marker !== marker/);
+    assert.match(first['src/runtime.ts'], /return this\.scheduleContinuationDispatch\(ctx, intent\.goalId\);/);
+    assert.match(first['src/runtime.ts'], /this\.dispatchContinuationIfSettled\(ctx, \{ intervalElapsed: true \}\);/);
     assert.doesNotMatch(first['src/runtime.ts'], /\n\tcontinuationTimer\?:/);
     assert.match(first['src/settings.ts'], new RegExp(SETTINGS_PATCH_MARKER));
     assert.equal(first['src/lifecycle.ts'].match(/runController\.register/g), null);
