@@ -149,30 +149,53 @@ describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
         if [ "$1" = '-d' ]; then shift; destination="$1"; fi
         shift
       done
-      mkdir -p "$destination/rclone-v\${RCLONE_RELEASE_VERSION}-linux-amd64"
-      printf 'binary' > "$destination/rclone-v\${RCLONE_RELEASE_VERSION}-linux-amd64/rclone"
+      binary="$destination/rclone-v\${RCLONE_RELEASE_VERSION}-linux-amd64/rclone"
+      mkdir -p "$(dirname "$binary")"
+      cat > "$binary" <<'RCLONE_FIXTURE'
+#!/bin/sh
+set -eu
+if [ "\${RCLONE_VERSION+x}" = x ]; then exit 91; fi
+printf 'execute\\n' >> "$EVENT_LOG"
+RCLONE_FIXTURE
+      chmod 0755 "$binary"
     `);
-    writeCommand(bin, 'sudo', 'printf \'install\\n\' >> "$EVENT_LOG"');
-    writeCommand(bin, 'rclone', 'printf \'execute\\n\' >> "$EVENT_LOG"');
+    writeCommand(bin, 'sudo', `
+      printf 'install\\n' >> "$EVENT_LOG"
+      if [ "$#" -ne 5 ] || [ "$1" != install ] || [ "$2" != -m ] \\
+        || [ "$3" != 0755 ] || [ "$5" != /usr/local/bin/rclone ]; then
+        exit 64
+      fi
+      cp "$4" "$INSTALLED_RCLONE"
+      chmod "$3" "$INSTALLED_RCLONE"
+    `);
+    writeCommand(bin, 'rclone', 'exec "$INSTALLED_RCLONE" "$@"');
+    writeCommand(bin, 'apt-get', 'printf \'apt-get\\n\' >> "$EVENT_LOG"; exit 99');
     return bin;
   };
 
-  const runInstaller = ({ tool, archive, root, bin }) => spawnSync(
-    'bash',
-    ['-c', step(prChecks.jobs[tool.job], tool.install).run],
-    {
+  const runInstaller = ({ tool, archive, root, bin }) => {
+    const install = step(prChecks.jobs[tool.job], tool.install);
+    const workflowEnv = Object.fromEntries(
+      Object.entries(install.env ?? {}).map(([key, value]) => [key, String(value)]),
+    );
+    const env = {
+      ...process.env,
+      ...workflowEnv,
+      ...tool.env(archive),
+      PATH: `${bin}:${process.env.PATH}`,
+      EVENT_LOG: join(root, 'events.log'),
+      FIXTURE: fixture,
+      INSTALLED_RCLONE: join(root, 'installed-rclone'),
+      RUNNER_TEMP: join(root, 'runner-temp'),
+    };
+    if (!Object.hasOwn(workflowEnv, 'RCLONE_VERSION')) delete env.RCLONE_VERSION;
+
+    return spawnSync('bash', ['-c', install.run], {
       cwd: ROOT,
       encoding: 'utf8',
-      env: {
-        ...process.env,
-        ...tool.env(archive),
-        PATH: `${bin}:${process.env.PATH}`,
-        EVENT_LOG: join(root, 'events.log'),
-        FIXTURE: fixture,
-        RUNNER_TEMP: join(root, 'runner-temp'),
-      },
-    },
-  );
+      env,
+    });
+  };
 
   it('uses exact platform and integrity cache identities without rclone environment collisions', () => {
     for (const tool of cases) {
@@ -185,7 +208,6 @@ describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
     const rclone = step(prChecks.jobs['host-tests'], 'Install rclone for sync-filter behavioral tests');
     assert.equal(rclone.env.RCLONE_VERSION, undefined);
     assert.equal(rclone.env.RCLONE_RELEASE_VERSION, '1.73.5');
-    assert.doesNotMatch(rclone.run, /apt-get/);
   });
 
   it('REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive', () => {
