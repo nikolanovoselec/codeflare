@@ -691,6 +691,19 @@ describe('optimized documentation lane shapes', () => {
       activeResult.stdout,
     );
 
+    const semanticReviewOwned = active.replace(
+      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
+      'Each terminal tab receives a dedicated container to reduce monthly licensing fees for operators.',
+    );
+    const semanticReviewOwnedResult = runFixture({
+      'documentation/decisions/README.md': semanticReviewOwned,
+    });
+    assert.equal(
+      semanticReviewOwnedResult.status,
+      0,
+      `${semanticReviewOwnedResult.stdout}\n${semanticReviewOwnedResult.stderr}`,
+    );
+
     const historical = [
       '# Decisions', '', '## Decision Index', '',
       '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
