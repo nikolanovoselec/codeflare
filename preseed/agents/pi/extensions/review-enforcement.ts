@@ -1115,6 +1115,8 @@ async function acknowledgeCompletedReview(
     || !allReviewedLanesTerminal
     || !reviewedFacts.triageComplete) return false;
 
+  if (reviewedAck === reviewedHead && reviewedFacts.fixDelivered) return false;
+
   if (reviewedPr.headRefOid !== reviewedHead) {
     sendHeadDriftFollowUp(pi, ctx, reviewedPr, reviewedHead, reviewedRange);
     return false;

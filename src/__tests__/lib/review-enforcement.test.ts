@@ -936,6 +936,48 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-074/REQ-AGENT-126 AC1+AC3: a delivered FIX does not emit stale drift after the next push', async () => {
+    const fixture = makeReviewFixture();
+    const reviewedHead = fixture.head;
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-before-delivered-fix', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-before-delivered-fix', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-before-delivered-fix'));
+    appendSession(fixture.sessionFile,
+      assistantTool('code-before-delivered-fix', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-before-delivered-fix', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-before-delivered-fix', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-before-delivered-fix'),
+      notification('spec-before-delivered-fix'),
+      notification('doc-before-delivered-fix'),
+      triageMessage(),
+    );
+    await harness.emit('agent_end');
+
+    expect(ackHead(fixture.repo)).toBe(reviewedHead);
+    expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-fix-follow-up');
+    harness.sent.splice(0);
+    harness.setSentMessagePersistence(false);
+
+    write(fixture.repo, 'src/next-head.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/next-head.ts');
+    git(fixture.repo, 'commit', '-m', 'next reviewed head');
+    const liveHead = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = liveHead;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-after-delivered-fix', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-after-delivered-fix', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-after-delivered-fix'));
+    await harness.emit('agent_end');
+
+    expect(harness.sent.map(({ message }) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(harness.sent[0]?.message.details).toMatchObject({ head: liveHead, ackHead: reviewedHead });
+  });
+
   it('REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
