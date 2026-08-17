@@ -190,6 +190,9 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
 - **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
+
+The rclone, zizmor, and actionlint release archives are cached by OS, architecture, version, and checksum. A lane downloads its archive only when absent, and checksum validation rejects a restored mismatch before extraction or execution ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
+
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
 - **coverage-backend / coverage-frontend** — run for affected package pull requests and full runs. Global floors remain authoritative; pull requests also apply bounded changed-line LCOV floors (80% backend, 70% frontend).
 - **summary** — required `test` context; rejects failed or cancelled relevant lanes and publishes the current exact-tree receipt.
@@ -301,7 +304,7 @@ Exhaustive Operations status remains in `sdd/spec/operations.md`. Workflow secti
 
 | Gate family | Requirements | Source owner | Evidence |
 |---|---|---|---|
-| PR classification and required summary | [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) | `.github/workflows/test.yml` | Machine-readable reports and exact-tree summary |
+| PR classification and required summary | [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance) | `.github/workflows/test.yml` | Machine-readable reports, exact-tree summary, and `host/__tests__/ci-workflow-hardening.test.js` cache behavior |
 | Coverage/result completeness | [REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence), [REQ-OPS-023](../../sdd/spec/operations.md#req-ops-023-suite-results-are-gated-on-machine-readable-reports) | composite suite actions and CI scripts | Report/artifact reconciliation tests |
 | Build and promotion | [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-028](../../sdd/spec/operations.md#req-ops-028-deploy-verification-and-outcome-gate) | deploy/container-image workflows | Tested-tree receipt, image digest, deployment outcome |
 | Supply-chain automation | REQ-OPS-020/021/025/027/032 and release requirements | shadow-pin, CodeQL, Scorecard, release workflows | Workflow contracts and generated-artifact tests |

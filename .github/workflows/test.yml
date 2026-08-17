@@ -774,7 +774,7 @@ jobs:
 
       - name: Install rclone for sync-filter behavioral tests
         env:
-          RCLONE_VERSION: 1.73.5
+          RCLONE_RELEASE_VERSION: 1.73.5
           RCLONE_SHA256: 932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
           RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
         run: |
@@ -782,14 +782,14 @@ jobs:
           mkdir -p "$(dirname "$RCLONE_ARCHIVE")"
           if [ ! -f "$RCLONE_ARCHIVE" ]; then
             curl -fsSL --retry 3 --retry-all-errors --max-time 120 -o "${RCLONE_ARCHIVE}.tmp" \
-              "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+              "https://downloads.rclone.org/v${RCLONE_RELEASE_VERSION}/rclone-v${RCLONE_RELEASE_VERSION}-linux-amd64.zip"
             mv "${RCLONE_ARCHIVE}.tmp" "$RCLONE_ARCHIVE"
           fi
           echo "${RCLONE_SHA256}  ${RCLONE_ARCHIVE}" | sha256sum -c -
           rm -rf "$RUNNER_TEMP/rclone"
           unzip -q "$RCLONE_ARCHIVE" -d "$RUNNER_TEMP/rclone"
           sudo install -m 0755 \
-            "$RUNNER_TEMP/rclone/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" \
+            "$RUNNER_TEMP/rclone/rclone-v${RCLONE_RELEASE_VERSION}-linux-amd64/rclone" \
             /usr/local/bin/rclone
           rclone version
 
