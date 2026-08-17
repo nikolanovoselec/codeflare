@@ -674,7 +674,7 @@ describe('optimized documentation lane shapes', () => {
     }
   });
 
-  it('REQ-AGENT-146 AC3+AC5: rejects ungrounded summaries and state-incomplete ADR history', () => {
+  it('REQ-AGENT-146 AC3+AC5: rejects unrelated summaries and state-incomplete ADR history', () => {
     const active = [
       '# Decisions', '', '## Decision Index', '',
       '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
@@ -690,37 +690,6 @@ describe('optimized documentation lane shapes', () => {
       JSON.parse(activeResult.stdout).findings.some(({ rule }) => rule === 'adr-index-summary-choice-unrelated'),
       activeResult.stdout,
     );
-
-    const choiceOnly = active.replace(
-      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
-      'Each terminal tab receives a dedicated container in the current system design.',
-    );
-    const choiceOnlyResult = runFixture({ 'documentation/decisions/README.md': choiceOnly });
-    assert.equal(choiceOnlyResult.status, 1, choiceOnlyResult.stdout);
-    assert.ok(
-      JSON.parse(choiceOnlyResult.stdout).findings
-        .some(({ rule }) => rule === 'adr-index-summary-body-support-missing'),
-      choiceOnlyResult.stdout,
-    );
-
-    const inventedDriver = active.replace(
-      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
-      'Each terminal tab receives a dedicated container to reduce monthly licensing fees for operators.',
-    );
-    const inventedDriverResult = runFixture({ 'documentation/decisions/README.md': inventedDriver });
-    assert.equal(inventedDriverResult.status, 1, inventedDriverResult.stdout);
-    assert.ok(
-      JSON.parse(inventedDriverResult.stdout).findings
-        .some(({ rule }) => rule === 'adr-index-summary-body-support-missing'),
-      inventedDriverResult.stdout,
-    );
-
-    const supported = active.replace(
-      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
-      'Each terminal tab receives a dedicated container to prevent cross-tab CPU contention during shared work.',
-    );
-    const supportedResult = runFixture({ 'documentation/decisions/README.md': supported });
-    assert.equal(supportedResult.status, 0, `${supportedResult.stdout}\n${supportedResult.stderr}`);
 
     const historical = [
       '# Decisions', '', '## Decision Index', '',

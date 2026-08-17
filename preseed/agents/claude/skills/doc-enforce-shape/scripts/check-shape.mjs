@@ -92,7 +92,7 @@ const ADR_SUMMARY_MAX_CHARS = 180;
 const ADR_SEMANTIC_STOP_WORDS = new Set([
   'about', 'after', 'again', 'against', 'also', 'among', 'because', 'before', 'being',
   'between', 'could', 'decision', 'does', 'each', 'from', 'have', 'into', 'only',
-  'other', 'should', 'that', 'their', 'these', 'this', 'those', 'through', 'to', 'under',
+  'other', 'should', 'that', 'their', 'these', 'this', 'those', 'through', 'under',
   'uses', 'using', 'very', 'what', 'when', 'where', 'which', 'while', 'with', 'would',
 ]);
 
@@ -258,13 +258,6 @@ function adrSemanticTokens(value) {
 function hasTokenOverlap(left, right) {
   const expected = adrSemanticTokens(right);
   return [...adrSemanticTokens(left)].some((token) => expected.has(token));
-}
-
-function hasAdrBodySupport(summary, support) {
-  const rendered = adrRenderedText(summary);
-  const driver = rendered.match(/\b(?:because|so|to|prevent\w*|avoid\w*|without|rather|instead|while|allow\w*|enabl\w*|keep\w*|mak\w*|move\w*|reduc\w*|replac\w*|preserv\w*|protect\w*|retain\w*|limit\w*|remain\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i);
-  if (!driver) return false;
-  return hasTokenOverlap(rendered.slice(driver.index), support);
 }
 
 function adrField(bodyLines, field) {
@@ -809,19 +802,10 @@ function scanDecisions(lines, file, findings) {
 
     if (row.summary && sectionState === 'Active') {
       const decision = adrField(bodyLines, 'Decision');
-      const support = [decision, adrField(bodyLines, 'Context'), adrField(bodyLines, 'Consequences')]
-        .filter(Boolean).join(' ');
       if (decision && !hasTokenOverlap(row.summary, decision)) {
         findings.push({
           rule: 'adr-index-summary-choice-unrelated', file, line: row.line,
           collection: 'decision-index', item: id, missing: ['summary grounded in Decision'],
-        });
-      }
-      if (decision && !hasAdrBodySupport(row.summary, support)) {
-        findings.push({
-          rule: 'adr-index-summary-body-support-missing', file, line: row.line,
-          collection: 'decision-index', item: id,
-          missing: ['driver or operational consequence grounded in Decision, Context, or Consequences'],
         });
       }
     }
