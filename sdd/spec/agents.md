@@ -3855,6 +3855,33 @@ None.
 
 ---
 
+### REQ-AGENT-146: Self-contained ADR decision index summaries
+
+**Intent:** Decision indexes must explain each architectural choice, its driver or consequence, and its current state without requiring readers to open every ADR body.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every ADR index row renders `ID`, `Decision`, `Summary`, `Category`, and `State` on one source line. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC1+AC2+AC5: enforces bounded ADR index labels and summaries) -->
+2. A Decision label is at most 90 rendered characters; its distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC1+AC2+AC5: enforces bounded ADR index labels and summaries) -->
+3. An active Summary states the concrete choice plus a specific driver or operational consequence supported by the ADR Decision and its Context or Consequences. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::ADR index semantic review --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC3+AC4+AC5: rejects semantically empty and state-incomplete ADR summaries) -->
+4. A historical Summary names and links its successor, retained scope plus replaced clause, or redirect destination according to State. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC3+AC4+AC5: rejects semantically empty and state-incomplete ADR summaries) -->
+5. Shape enforcement reports each missing, unbounded, repeated, multi-sentence, semantically empty, or state-incomplete index value without a product-specific ADR inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC1+AC2+AC5: enforces bounded ADR index labels and summaries) --> <!-- @test: host/__tests__/doc-enforce-shape.test.js (REQ-AGENT-146 AC3+AC4+AC5: rejects semantically empty and state-incomplete ADR summaries) -->
+6. SDD initialization and documentation review use the same ADR index shape and semantic contract. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md::Decision Index --> <!-- @impl: preseed/agents/claude/skills/spec-driven-development/SKILL.md::Template conventions --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @test: host/__tests__/documentation-template-contract.test.js (REQ-AGENT-146 AC6: emits the canonical bounded ADR summary contract) -->
+
+**Constraints:** Existing ADR bodies and stable anchors remain intact. Rendered-character counts exclude Markdown syntax. Semantic review checks body support instead of trusting keywords alone. No new schema, skill, checker, configuration, or framework file is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
+
+**Verification:** Automated documentation-shape and template-contract tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-143: Resolvable Documentation Evidence References
 
 **Intent:** Documentation evidence maps must resolve each requirement and decision reference without forcing readers to interpret shorthand.

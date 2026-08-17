@@ -30,13 +30,15 @@ State rendering is explicit:
 - **Partially superseded:** keep the row unstruck, set State to `Partially superseded`, and name only the replaced clause plus successor.
 - **Redirect anchor:** keep the row unstruck, set State to `Redirect anchor`, and link the merged or reclassified destination.
 
+Index rows are self-contained: `Decision` is a label of at most 90 rendered characters; `Summary` is one sentence of 40–180 rendered characters. Active summaries name the concrete subject and choice plus a specific driver or consequence supported by the ADR body. Superseded, partial, and redirect summaries name and link their successor, retained scope, or destination. Summaries never merely repeat the label or begin with an unexplained pronoun.
+
 ---
 
 ## Decision Index
 
-| ID | Decision | Category | State | Date |
-|----|----------|----------|-------|------|
-| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_TITLE} | Architecture / Security / Storage / Billing / UI | Active | YYYY-MM-DD |
+| ID | Decision | Summary | Category | State |
+|----|----------|---------|----------|-------|
+| [{DECISION_ID}](#{DECISION_SLUG}) | {DECISION_LABEL} | {DECISION_SUMMARY} | {DECISION_CATEGORY} | Active |
 
 ---
 

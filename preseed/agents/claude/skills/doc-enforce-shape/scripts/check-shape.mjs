@@ -84,6 +84,18 @@ const RECOGNIZED_AREAS = {
   troubleshooting: new Set(['Common Issues', 'Recipes', 'Troubleshooting Recipes']),
 };
 
+const ADR_INDEX_HEADERS = ['ID', 'Decision', 'Summary', 'Category', 'State'];
+const ADR_STATES = new Set(['Active', 'Superseded', 'Partially superseded', 'Redirect anchor']);
+const ADR_DECISION_MAX_CHARS = 90;
+const ADR_SUMMARY_MIN_CHARS = 40;
+const ADR_SUMMARY_MAX_CHARS = 180;
+const ADR_SEMANTIC_STOP_WORDS = new Set([
+  'about', 'after', 'again', 'against', 'also', 'among', 'because', 'before', 'being',
+  'between', 'could', 'decision', 'does', 'each', 'from', 'have', 'into', 'only',
+  'other', 'should', 'that', 'their', 'these', 'this', 'those', 'through', 'under',
+  'uses', 'using', 'very', 'what', 'when', 'where', 'which', 'while', 'with', 'would',
+]);
+
 function laneKind(file) {
   const name = path.basename(file);
   if (name === 'architecture.md') return 'architecture';
@@ -224,6 +236,68 @@ function plain(value) {
     .replace(/`/g, '')
     .replace(/[“”"]/g, '')
     .trim();
+}
+
+function adrRenderedText(value) {
+  return plain(value).replace(/~~|\*\*|__/g, '').trim();
+}
+
+function normalizedAdrText(value) {
+  return adrRenderedText(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function adrSentenceCount(value) {
+  return (adrRenderedText(value).match(/[.!?](?=\s|$)/g) ?? []).length;
+}
+
+function adrSemanticTokens(value) {
+  return new Set((adrRenderedText(value).toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [])
+    .filter((token) => !ADR_SEMANTIC_STOP_WORDS.has(token)));
+}
+
+function hasTokenOverlap(left, right) {
+  const expected = adrSemanticTokens(right);
+  return [...adrSemanticTokens(left)].some((token) => expected.has(token));
+}
+
+function adrSummaryHasDriver(value) {
+  return /\b(?:because|so|to|prevent\w*|avoid\w*|keep\w*|reduc\w*|mak\w*|without|rather|instead|while|allow\w*|preserv\w*|limit\w*|protect\w*|remain\w*|replac\w*|move\w*|enabl\w*|fail\w*|retain\w*|trad\w*|simplif\w*|isolat\w*|central\w*|bound\w*|risk\w*|expos\w*|unless|after|remov\w*|eliminat\w*|separat\w*)\b/i.test(adrRenderedText(value));
+}
+
+function adrField(bodyLines, field) {
+  const start = bodyLines.findIndex((line) => line.startsWith(`**${field}:**`));
+  if (start === -1) return '';
+  const first = bodyLines[start].slice(`**${field}:**`.length).trim();
+  const continuation = [];
+  for (let index = start + 1; index < bodyLines.length; index += 1) {
+    if (/^\*\*[A-Za-z][^*]*:\*\*/.test(bodyLines[index]) || /^#{1,3}\s+/.test(bodyLines[index])) break;
+    continuation.push(bodyLines[index]);
+  }
+  return [first, ...continuation].join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function markdownHrefs(value) {
+  return [...value.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]);
+}
+
+function validateAdrIndexRow(row, file, findings) {
+  const decision = adrRenderedText(row.decision);
+  const summary = adrRenderedText(row.summary);
+  const add = (rule, missing) => findings.push({
+    rule, file, line: row.line, collection: 'decision-index', item: row.id, missing: [missing],
+  });
+
+  if (decision.length > ADR_DECISION_MAX_CHARS) add('adr-index-decision-label-too-long', `Decision <= ${ADR_DECISION_MAX_CHARS} rendered characters`);
+  if (summary.length < ADR_SUMMARY_MIN_CHARS) add('adr-index-summary-too-short', `Summary >= ${ADR_SUMMARY_MIN_CHARS} rendered characters`);
+  if (summary.length > ADR_SUMMARY_MAX_CHARS) add('adr-index-summary-too-long', `Summary <= ${ADR_SUMMARY_MAX_CHARS} rendered characters`);
+  if (adrSentenceCount(summary) > 1) add('adr-index-summary-multiple-sentences', 'Summary <= 1 sentence');
+  const normalizedDecision = normalizedAdrText(decision);
+  const normalizedSummary = normalizedAdrText(summary);
+  if (normalizedSummary === normalizedDecision || normalizedSummary.startsWith(`${normalizedDecision} `)) {
+    add('adr-index-summary-repeats-title', 'self-contained Summary distinct from Decision');
+  }
+  if (/^(?:this|it|they|these|those|that)\b/i.test(summary)) add('adr-index-summary-pronoun-first', 'named component or boundary');
+  if (!ADR_STATES.has(row.state)) add('adr-index-state-invalid', 'Active, Superseded, Partially superseded, or Redirect anchor');
 }
 
 function isHtmlLikeOpener(value, index) {
@@ -618,19 +692,46 @@ function scanDecisions(lines, file, findings) {
     ? -1
     : lines.findIndex((line, index) => index > indexStart && /^##\s+/.test(line));
   const boundedEnd = indexEnd === -1 ? lines.length : indexEnd;
+  let canonicalHeaders = false;
+  let headerLine = indexStart + 1;
+  for (let index = indexStart + 1; index < boundedEnd; index += 1) {
+    const cells = rawMarkdownCells(lines[index]).map((cell) => plain(cell));
+    if (cells[0] !== 'ID' || cells[1] !== 'Decision') continue;
+    headerLine = index + 1;
+    canonicalHeaders = cells.length === ADR_INDEX_HEADERS.length
+      && cells.every((cell, position) => cell === ADR_INDEX_HEADERS[position]);
+    break;
+  }
+  if (indexStart !== -1 && !canonicalHeaders) {
+    findings.push({
+      rule: 'adr-index-columns-invalid', file, line: headerLine,
+      collection: 'decision-index', item: 'Decision Index', missing: ADR_INDEX_HEADERS,
+    });
+  }
 
   for (let index = indexStart + 1; index < boundedEnd; index += 1) {
     const cells = rawMarkdownCells(lines[index]);
     const id = cells[0]?.match(/\bAD\d+\b/)?.[0];
     if (!id || cells.length < 3) continue;
     const idLink = cells[0].match(new RegExp(`\\[${id}\\]\\((#[^)]+)\\)`));
-    indexRows.set(id, { cells, line: index + 1, href: idLink?.[1] ?? null });
+    const row = {
+      id,
+      cells,
+      line: index + 1,
+      href: idLink?.[1] ?? null,
+      decision: canonicalHeaders ? cells[1] : '',
+      summary: canonicalHeaders ? cells[2] : '',
+      category: canonicalHeaders ? cells[3] : '',
+      state: canonicalHeaders ? plain(cells[4]) : '',
+    };
+    indexRows.set(id, row);
     if (!idLink) {
       findings.push({
         rule: 'adr-index-id-not-linked', file, line: index + 1,
         collection: 'decision-index', item: id, missing: ['linked ID'],
       });
     }
+    if (canonicalHeaders) validateAdrIndexRow(row, file, findings);
     if (cells.some((cell) => /^\(?redirect(?:ed)?\)?$/i.test(plain(cell)))) {
       findings.push({
         rule: 'adr-redirect-label-ambiguous', file, line: index + 1,
@@ -686,6 +787,55 @@ function scanDecisions(lines, file, findings) {
         collection: 'decision-index', item: id, missing: ['Status'],
       });
       continue;
+    }
+
+    if (row.summary && row.state === 'Active') {
+      const decision = adrField(bodyLines, 'Decision');
+      if (decision && !hasTokenOverlap(row.summary, decision)) {
+        findings.push({
+          rule: 'adr-index-summary-choice-unrelated', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['summary grounded in Decision'],
+        });
+      }
+      if (!adrSummaryHasDriver(row.summary)) {
+        findings.push({
+          rule: 'adr-index-summary-driver-missing', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['specific driver or operational consequence in Summary'],
+        });
+      }
+    }
+
+    if (row.summary && row.state === 'Superseded') {
+      const successors = markdownHrefs(status);
+      if (successors.length > 0 && !markdownHrefs(row.summary).some((href) => successors.includes(href))) {
+        findings.push({
+          rule: 'adr-index-summary-successor-missing', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['linked successor in Summary'],
+        });
+      }
+    }
+
+    if (row.summary && row.state === 'Partially superseded') {
+      const sectionHrefs = markdownHrefs(bodyLines.join(' '));
+      const summaryHrefs = markdownHrefs(row.summary);
+      if (!/(?:remain|retain)/i.test(adrRenderedText(row.summary))
+        || !summaryHrefs.some((href) => sectionHrefs.includes(href))) {
+        findings.push({
+          rule: 'adr-index-summary-retained-scope-missing', file, line: row.line,
+          collection: 'decision-index', item: id,
+          missing: ['retained scope and linked replaced clause or successor in Summary'],
+        });
+      }
+    }
+
+    if (row.summary && row.state === 'Redirect anchor') {
+      const destinations = markdownHrefs(status);
+      if (destinations.length === 0 || !markdownHrefs(row.summary).some((href) => destinations.includes(href))) {
+        findings.push({
+          rule: 'adr-index-summary-destination-missing', file, line: row.line,
+          collection: 'decision-index', item: id, missing: ['linked redirect destination in Summary'],
+        });
+      }
     }
 
     if (/^\*\*Status:\*\*\s+Superseded\b/i.test(status)) {

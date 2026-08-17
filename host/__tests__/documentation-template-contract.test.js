@@ -96,6 +96,16 @@ describe('optimized SDD documentation templates', () => {
     }
   });
 
+  it('REQ-AGENT-146 AC6: emits the canonical bounded ADR summary contract', () => {
+    const template = readFileSync(join(TEMPLATES, 'documentation-decisions-readme.md'), 'utf8');
+    assert.match(template, /^\| ID \| Decision \| Summary \| Category \| State \|$/m);
+    assert.match(template, /\{DECISION_LABEL\}/);
+    assert.match(template, /\{DECISION_SUMMARY\}/);
+    assert.match(template, /at most 90 rendered characters/);
+    assert.match(template, /40–180 rendered characters/);
+    assert.match(template, /specific driver or consequence supported by the ADR body/);
+  });
+
   it('emits only selected lane rows', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdd-doc-selected-'));
     const outputDir = join(root, 'documentation');

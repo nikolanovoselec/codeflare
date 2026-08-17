@@ -1,7 +1,7 @@
 ---
 name: doc-enforce
 description: SDD documentation enforcement orchestrator — the canonical cross-agent contract. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
-version: 4.1.0
+version: 4.2.0
 ---
 
 # Documentation Enforcement (orchestrator)
@@ -188,6 +188,8 @@ Three questions, asked in order on every prose hunk:
 2. **Did I claim what I cannot verify?** Every prose claim about *what the code does* MUST be backed within the same paragraph by a fenced code block, a function/file path in `src_globs`, a REQ-ID backlink, or a verifiable external reference (RFC, vendor doc, ADR). "Retries up to 3 times" with no anchor is unverifiable narration. HIGH `prose-unverifiable`.
 
 3. **Did I explain WHY?** Most sections describe what the code does. Ask: would a developer who has never seen this system understand *why* it works this way? If the why is non-obvious (hidden constraint, past incident, deliberate trade-off, vendor quirk, regulation) and is not stated, the section is incomplete. LOW `prose-missing-why`. Auto-fix: escalate to `documentation/.doc-coverage.md` under "Authoring debt".
+
+**ADR index semantic review.** For every changed Decision Index row, verify the Summary is understandable without opening the ADR: it names the concrete component or boundary, states the actual choice, explains a specific body-supported driver or operational consequence, and does not invent or flatten a material trade-off. Active summaries cross-check Decision plus Context or Consequences. Superseded summaries name the successor. Partial summaries identify retained scope and the replaced clause. Redirect summaries name the destination and what moved. A mechanically valid but vague, unsupported, or title-repeating row is MEDIUM `adr-index-summary-semantic-gap`.
 
 **Scope.** Pass 14 fires on every prose diff (mechanical re-render counts too). On `/sdd clean --all` or any audit run with no defining diff, scope widens to every paragraph in every canonical lane file. A "ran (N files)" manifest count is dishonest when only diff hunks were inspected.
 

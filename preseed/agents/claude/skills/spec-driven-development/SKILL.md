@@ -1,7 +1,7 @@
 ---
 name: spec-driven-development
 description: Specification-driven development index. Defines spec structure, REQ format, Status semantics, the @impl source-anchor and @test test-anchor conventions (per-AC, at parity), three autonomy modes, and routes to sub-command skills (sdd-init for bootstrap, sdd-clean for rescue). Holds the small sub-commands (edit, add, mode), Plan Mode integration, test discipline, templates. Invoked via /sdd.
-version: 5.2.0
+version: 5.3.0
 ---
 
 # Spec-Driven Development
@@ -356,6 +356,7 @@ Placeholders use `{PLACEHOLDER_NAME}` format. The bundled `sdd-init` renderer se
 Templates follow `documentation-discipline.md` from the first commit. Conventions baked in:
 
 - **One-line table cells.** Every cell stays on a single line; the 50-word per-cell budget enforced by `doc-updater` Pass 1 begins at scaffolding. If a row needs more than about 50 words, write the long form as body prose and replace the cell with a concise summary and link.
+- **Self-contained ADR index rows.** The canonical ledger uses `ID | Decision | Summary | Category | State`. The rendered Decision label is at most 90 characters. Summary is one sentence of 40–180 rendered characters that names the concrete subject and choice plus a body-supported driver or consequence. It never repeats the label or starts with an unexplained pronoun. Historical states name and link the successor, retained scope, or redirect destination.
 - **No file-level line budget.** Lane size follows evidenced project complexity; per-element budgets and collection shape remain authoritative.
 - **REQ backlinks pre-wired** in `Implements` columns using nested-layout links into `../../sdd/spec/{domain}.md`; flat legacy links remain readable during `/sdd clean` migration.
 - **Lane-correct content placeholders.** `architecture.md` template never has an "API endpoints" section (that's `api-reference.md`'s lane).

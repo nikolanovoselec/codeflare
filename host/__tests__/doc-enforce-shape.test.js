@@ -620,12 +620,113 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   });
 
+  it('REQ-AGENT-146 AC1+AC2+AC5: enforces bounded ADR index labels and summaries', () => {
+    const fixture = [
+      '# Architecture Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-isolate-sessions) | Isolate terminal sessions | Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation. | Architecture | Active |', '',
+      '## Decisions', '', '### AD1: Isolate Sessions', '', '**Status:** Accepted (2026-08-17)', '',
+      '**Decision:** Give each terminal tab a dedicated container.', '',
+      '**Context:** Shared containers create cross-tab CPU contention.', '',
+      '**Consequences:** Teardown removes the complete tab runtime.',
+    ].join('\n');
+    const accepted = runFixture({ 'documentation/decisions/README.md': fixture });
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+
+    const cases = [
+      {
+        fixture: fixture
+          .replace('| ID | Decision | Summary | Category | State |', '| ID | Decision | Category | State |')
+          .replace('|---|---|---|---|---|', '|---|---|---|---|')
+          .replace(' | Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', ''),
+        rules: ['adr-index-columns-invalid'],
+      },
+      {
+        fixture: fixture.replace('Isolate terminal sessions', 'X'.repeat(91)),
+        rules: ['adr-index-decision-label-too-long'],
+      },
+      {
+        fixture: fixture.replace('Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', 'Too short.'),
+        rules: ['adr-index-summary-too-short'],
+      },
+      {
+        fixture: fixture.replace('Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', 'X'.repeat(181)),
+        rules: ['adr-index-summary-too-long'],
+      },
+      {
+        fixture: fixture.replace('Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', 'Each terminal tab gets a dedicated container. Teardown removes its runtime.'),
+        rules: ['adr-index-summary-multiple-sentences'],
+      },
+      {
+        fixture: fixture.replace('Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', 'Isolate terminal sessions so every tab keeps an independent runtime boundary.'),
+        rules: ['adr-index-summary-repeats-title'],
+      },
+      {
+        fixture: fixture.replace('Each terminal tab gets a dedicated container to prevent cross-tab contention and make teardown a clean-slate operation.', 'It gives every terminal tab a dedicated container to prevent cross-tab contention.'),
+        rules: ['adr-index-summary-pronoun-first'],
+      },
+    ];
+    for (const candidate of cases) {
+      const result = runFixture({ 'documentation/decisions/README.md': candidate.fixture });
+      assert.equal(result.status, 1, result.stdout);
+      const rules = JSON.parse(result.stdout).findings.map(({ rule }) => rule);
+      for (const rule of candidate.rules) assert.ok(rules.includes(rule), `${rule} missing from ${rules.join(', ')}`);
+    }
+  });
+
+  it('REQ-AGENT-146 AC3+AC4+AC5: rejects semantically empty and state-incomplete ADR summaries', () => {
+    const active = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-isolate-sessions) | Isolate terminal sessions | Cloud storage encrypts unrelated account data to reduce credential exposure. | Architecture | Active |', '',
+      '## Decisions', '', '### AD1: Isolate Sessions', '', '**Status:** Accepted', '',
+      '**Decision:** Give each terminal tab a dedicated container.', '',
+      '**Context:** Shared containers create cross-tab CPU contention.', '',
+      '**Consequences:** Teardown removes the complete tab runtime.',
+    ].join('\n');
+    const activeResult = runFixture({ 'documentation/decisions/README.md': active });
+    assert.equal(activeResult.status, 1, activeResult.stdout);
+    assert.ok(
+      JSON.parse(activeResult.stdout).findings.some(({ rule }) => rule === 'adr-index-summary-choice-unrelated'),
+      activeResult.stdout,
+    );
+
+    const noDriver = active.replace(
+      'Cloud storage encrypts unrelated account data to reduce credential exposure.',
+      'Each terminal tab receives a dedicated container in the current system design.',
+    );
+    const noDriverResult = runFixture({ 'documentation/decisions/README.md': noDriver });
+    assert.equal(noDriverResult.status, 1, noDriverResult.stdout);
+    assert.ok(
+      JSON.parse(noDriverResult.stdout).findings.some(({ rule }) => rule === 'adr-index-summary-driver-missing'),
+      noDriverResult.stdout,
+    );
+
+    const historical = [
+      '# Decisions', '', '## Decision Index', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| ~~[AD1](#ad1-old-choice)~~ | ~~Old choice~~ | Historical behavior changed after a later decision replaced its runtime boundary. | Architecture | Superseded |',
+      '| [AD2](#ad2-active-remainder) | Active remainder | The active mechanism continues while one clause changed in a later decision. | Architecture | Partially superseded |',
+      '| [AD3](#ad3-redirect) | Redirect old rationale | The rationale moved into its canonical documentation home. | Architecture | Redirect anchor |', '',
+      '## Decisions', '',
+      '### AD1: Old Choice', '', '**Status:** Superseded by [AD4](#ad4-successor)', '', '**Context:** Historical context.', '', '**Decision:** Historical behavior.', '', '**Consequences:** Historical effect.', '',
+      '### AD2: Active Remainder', '', '**Status:** Partially superseded by [AD4](#ad4-successor): retry timing only.', '', '**Decision:** Keep the active mechanism.', '', '**Context:** One clause changed.', '', '**Consequences:** The remainder stays active.', '',
+      '### AD3: Redirect', '', '**Status:** Reclassified into [Security](../lanes/security.md).',
+    ].join('\n');
+    const historicalResult = runFixture({ 'documentation/decisions/README.md': historical });
+    assert.equal(historicalResult.status, 1, historicalResult.stdout);
+    const rules = JSON.parse(historicalResult.stdout).findings.map(({ rule }) => rule);
+    for (const rule of ['adr-index-summary-successor-missing', 'adr-index-summary-retained-scope-missing', 'adr-index-summary-destination-missing']) {
+      assert.ok(rules.includes(rule), `${rule} missing from ${rules.join(', ')}`);
+    }
+  });
+
   it('requires superseded ADR index entries to be visibly struck through', () => {
     const fixture = [
       '# Architecture Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-old-choice) | Old choice | Architecture |',
-      '| [AD2](#ad2-new-choice) | New choice; one clause amended by [AD3](#ad3-amendment) | Architecture, partially superseded |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-old-choice) | Old choice | [AD2](#ad2-new-choice) replaces the historical choice so current behavior has one authoritative architecture boundary. | Architecture | Superseded |',
+      '| [AD2](#ad2-new-choice) | New choice; one clause amended by [AD3](#ad3-amendment) | The active mechanism remains in force while [AD3](#ad3-amendment) replaces only the named clause. | Architecture | Partially superseded |', '',
       '## Decisions', '', '### AD1: Old choice', '',
       '**Status:** Superseded by [AD2](#ad2-new-choice)', '',
       '**Context:** Original constraint.', '', '**Decision:** Original choice.', '', '**Consequences:** Historical effect.', '',
@@ -636,8 +737,8 @@ describe('optimized documentation lane shapes', () => {
     assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-superseded-not-struck');
 
     const corrected = fixture.replace(
-      '| [AD1](#ad1-old-choice) | Old choice | Architecture |',
-      '| ~~[AD1](#ad1-old-choice)~~ | ~~Old choice — superseded by [AD2](#ad2-new-choice)~~ | Superseded |',
+      '| [AD1](#ad1-old-choice) | Old choice | [AD2](#ad2-new-choice) replaces the historical choice so current behavior has one authoritative architecture boundary. | Architecture | Superseded |',
+      '| ~~[AD1](#ad1-old-choice)~~ | ~~Old choice — superseded by [AD2](#ad2-new-choice)~~ | [AD2](#ad2-new-choice) replaces the historical choice so current behavior has one authoritative architecture boundary. | Architecture | Superseded |',
     );
     const accepted = runFixture({ 'documentation/decisions/README.md': corrected });
     assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
@@ -646,18 +747,16 @@ describe('optimized documentation lane shapes', () => {
   it('rejects ambiguous redirect category labels in ADR indexes', () => {
     const fixture = [
       '# Architecture Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD9](#ad9-redirect) | Reclassified into Configuration | (redirect) |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD9](#ad9-redirect) | Reclassified into Configuration | [Configuration](../lanes/configuration.md) now owns this rationale so the stable ADR identifier remains available for inbound history. | (redirect) | Redirect anchor |', '',
       '## Decisions', '', '### AD9: Redirect', '',
-      '**Status:** Reclassified into `documentation/lanes/configuration.md`',
+      '**Status:** Reclassified into [Configuration](../lanes/configuration.md)',
     ].join('\n');
     const result = runFixture({ 'documentation/decisions/README.md': fixture });
     assert.equal(result.status, 1, result.stdout);
     assert.equal(JSON.parse(result.stdout).findings[0].rule, 'adr-redirect-label-ambiguous');
 
-    const corrected = fixture
-      .replace('(redirect)', 'Redirect anchor')
-      .replace('`documentation/lanes/configuration.md`', '[Configuration](../lanes/configuration.md)');
+    const corrected = fixture.replace('(redirect)', 'Architecture');
     const accepted = runFixture({ 'documentation/decisions/README.md': corrected });
     assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
   });
@@ -665,8 +764,8 @@ describe('optimized documentation lane shapes', () => {
   it('requires ADR index/section pairing and retained superseded history', () => {
     const missingSection = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-missing) | Missing section | Active |', '', '## Decisions',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-missing) | Missing section | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '', '## Decisions',
     ].join('\n');
     const unpaired = runFixture({ 'documentation/decisions/README.md': missingSection });
     assert.equal(unpaired.status, 1, unpaired.stdout);
@@ -674,8 +773,8 @@ describe('optimized documentation lane shapes', () => {
 
     const missingHistory = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | Superseded |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | [AD2](#ad2-new) replaces the historical choice so current behavior has one authoritative architecture boundary. | Architecture | Superseded |', '',
       '## Decisions', '', '### AD1: Old', '', '**Status:** Superseded by [AD2](#ad2-new)',
     ].join('\n');
     const history = runFixture({ 'documentation/decisions/README.md': missingHistory });
@@ -686,8 +785,8 @@ describe('optimized documentation lane shapes', () => {
   it('requires linked ADR IDs to target their matching section anchors', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#wrong-target) | Choice | Active |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#wrong-target) | Choice | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '',
       '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
     ].join('\n');
     const result = runFixture({ 'documentation/decisions/README.md': fixture });
@@ -698,8 +797,8 @@ describe('optimized documentation lane shapes', () => {
   it('normalizes nested HTML-like heading tags without leaving tag fragments', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-choice) | Choice | Active |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-choice) | Choice | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '',
       '## Decisions', '', '### AD1: <scr<script>ipt>Choice', '', '**Status:** Active',
     ].join('\n');
     const result = runFixture({ 'documentation/decisions/README.md': fixture });
@@ -709,9 +808,9 @@ describe('optimized documentation lane shapes', () => {
   it('preserves literal comparisons and unmatched angle brackets in heading anchors', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-a--b--c) | Comparison | Active |',
-      '| [AD2](#ad2-value--limit) | Unmatched comparison | Active |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-a--b--c) | Comparison | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |',
+      '| [AD2](#ad2-value--limit) | Unmatched comparison | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '',
       '## Decisions', '', '### AD1: A < B > C', '', '**Status:** Active', '',
       '### AD2: Value < limit', '', '**Status:** Active',
     ].join('\n');
@@ -722,21 +821,21 @@ describe('optimized documentation lane shapes', () => {
   it('reports independently malformed ADR links, indexes, and statuses', () => {
     const unlinkedId = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|', '| AD1 | Choice | Active |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|', '| AD1 | Choice | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '',
       '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
     ].join('\n');
     assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': unlinkedId }).stdout).findings[0].rule, 'adr-index-id-not-linked');
 
     const missingIndex = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|', '',
       '## Decisions', '', '### AD1: Choice', '', '**Status:** Active',
     ].join('\n');
     assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': missingIndex }).stdout).findings[0].rule, 'adr-section-index-missing');
 
     const missingStatus = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|', '| [AD1](#ad1-choice) | Choice | Active |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|', '| [AD1](#ad1-choice) | Choice | The fixture keeps this architecture choice explicit to preserve the behavior exercised by its paired ADR section. | Architecture | Active |', '',
       '## Decisions', '', '### AD1: Choice', '', '**Context:** Decision context.',
     ].join('\n');
     assert.equal(JSON.parse(runFixture({ 'documentation/decisions/README.md': missingStatus }).stdout).findings[0].rule, 'adr-status-missing');
@@ -745,8 +844,8 @@ describe('optimized documentation lane shapes', () => {
   it('does not use later unrelated sections as superseded ADR history', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | Superseded |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| ~~[AD1](#ad1-old)~~ | ~~Old — superseded by [AD2](#ad2-new)~~ | [AD2](#ad2-new) replaces the historical choice so current behavior has one authoritative architecture boundary. | Architecture | Superseded |', '',
       '## Decisions', '', '### AD1: Old', '', '**Status:** Superseded by [AD2](#ad2-new)', '',
       '## Appendix', '', '**Context:** Unrelated context.',
     ].join('\n');
@@ -758,10 +857,10 @@ describe('optimized documentation lane shapes', () => {
   it('keeps partial ADRs unstruck and requires a linked successor with clause detail', () => {
     const fixture = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| ~~[AD1](#ad1-active-remainder)~~ | ~~Active remainder~~ | Partially superseded |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| ~~[AD1](#ad1-active-remainder)~~ | ~~Active remainder~~ | The active mechanism remains in force while [AD2](#ad2-successor) replaces only the named clause. | Architecture | Partially superseded |', '',
       '## Decisions', '', '### AD1: Active remainder', '',
-      '**Status:** Partially superseded',
+      '**Status:** Partially superseded by [AD2](#ad2-successor)',
     ].join('\n');
     const result = runFixture({ 'documentation/decisions/README.md': fixture });
     assert.equal(result.status, 1, result.stdout);
@@ -774,8 +873,8 @@ describe('optimized documentation lane shapes', () => {
   it('independently requires partial clause detail and redirect destinations', () => {
     const partial = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-active-remainder) | Active remainder | Partially superseded |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-active-remainder) | Active remainder | The active mechanism remains in force while [AD2](#ad2-successor) replaces only the named clause. | Architecture | Partially superseded |', '',
       '## Decisions', '', '### AD1: Active remainder', '',
       '**Status:** Partially superseded by [AD2](#ad2-successor)',
     ].join('\n');
@@ -785,13 +884,16 @@ describe('optimized documentation lane shapes', () => {
 
     const redirect = [
       '# Decisions', '', '## Decision Index', '',
-      '| ID | Decision | Category |', '|---|---|---|',
-      '| [AD1](#ad1-redirect) | Reclassified decision | Redirect anchor |', '',
+      '| ID | Decision | Summary | Category | State |', '|---|---|---|---|---|',
+      '| [AD1](#ad1-redirect) | Reclassified decision | [Configuration](../lanes/configuration.md) now owns this rationale so the stable ADR identifier remains available for inbound history. | Architecture | Redirect anchor |', '',
       '## Decisions', '', '### AD1: Redirect', '', '**Status:** Reclassified into the configuration lane.',
     ].join('\n');
     const redirectResult = runFixture({ 'documentation/decisions/README.md': redirect });
     assert.equal(redirectResult.status, 1, redirectResult.stdout);
-    assert.equal(JSON.parse(redirectResult.stdout).findings[0].rule, 'adr-redirect-destination-not-linked');
+    assert.ok(
+      JSON.parse(redirectResult.stdout).findings.some(({ rule }) => rule === 'adr-redirect-destination-not-linked'),
+      redirectResult.stdout,
+    );
   });
 
   it('requires linked AD references and rejects vague SDD labels in security source maps', () => {
@@ -816,7 +918,7 @@ describe('optimized documentation lane shapes', () => {
       .replace('Operations SDD', '[Operations requirements](../../sdd/spec/operations.md)');
     const accepted = runFixture({
       'documentation/lanes/security.md': corrected,
-      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Category |\n|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Encryption key is optional | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
+      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Summary | Category | State |\n|---|---|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Allow an optional encryption key | Deployments may omit the encryption key to simplify self-hosted setup while accepting plaintext credential storage. | Security | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
       'sdd/spec/security.md': '# Security\n\n### REQ-SEC-005: Encryption\n\n### CON-SEC-001: Boundary\n',
       'sdd/spec/operations.md': '# Operations Requirements\n',
     });
@@ -832,7 +934,7 @@ describe('optimized documentation lane shapes', () => {
     ].join('\n');
     const result = runFixture({
       'documentation/lanes/security.md': fixture,
-      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Category |\n|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Encryption key is optional | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
+      'documentation/decisions/README.md': '# Decisions\n\n## Decision Index\n\n| ID | Decision | Summary | Category | State |\n|---|---|---|---|---|\n| [AD32](#ad32-encryption-key-is-optional) | Allow an optional encryption key | Deployments may omit the encryption key to simplify self-hosted setup while accepting plaintext credential storage. | Security | Active |\n\n## Decisions\n\n### AD32: Encryption Key Is Optional\n\n**Status:** Active\n',
       'sdd/spec/other.md': '# Other\n\n### REQ-OTHER-001: Other\n',
     });
     assert.equal(result.status, 1, result.stdout);
