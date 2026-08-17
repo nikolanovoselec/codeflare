@@ -189,7 +189,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout', () => {
+  it('REQ-IDE-039 AC1: code-server uses the Codeflare app name', () => {
     const stub = writeStub(dir, argsFile);
     // OPENVSCODE_DATA_DIR is intentionally unset so the retained private
     // namespace's production default is exercised.
@@ -211,6 +211,8 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
       '--disable-proxy',
       '--disable-getting-started-override',
       '--disable-workspace-trust',
+      '--app-name',
+      'Codeflare',
       '--user-data-dir',
       '/tmp/openvscode-data/data',
       '--extensions-dir',
