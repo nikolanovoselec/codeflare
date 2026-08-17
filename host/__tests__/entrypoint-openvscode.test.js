@@ -208,6 +208,8 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
       '--disable-proxy',
       '--disable-getting-started-override',
       '--disable-workspace-trust',
+      '--app-name',
+      'Codeflare',
       '--user-data-dir',
       '/tmp/openvscode-data/data',
       '--extensions-dir',

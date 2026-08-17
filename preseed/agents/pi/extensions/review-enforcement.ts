@@ -485,8 +485,14 @@ function appendBoundaryEvaluation(
   }
 }
 
-function followUpKey(kind: "plan" | "ci" | "fix", repo: string, prNumber: number, head: string): string {
+function followUpKey(kind: "plan" | "ci" | "fix" | "follow-up", repo: string, prNumber: number, head: string): string {
   return `${kind}:${repo}:${prNumber}:${head}`;
+}
+
+function visibleLaunchFollowUpCount(ctx: ReviewContext, head: string): number {
+  return sessionEntries(ctx).filter((entry) => entry?.type === "custom_message"
+    && entry.customType === "pr-boundary-launch-follow-up"
+    && entry.details?.head === head).length;
 }
 
 function resultText(value: unknown): string {
@@ -1139,6 +1145,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let pendingGoalPauseHead: string | undefined;
   let pendingBoundary: ClassifiedBoundary | undefined;
   const queuedFollowUps = new Set<string>();
+  const queuedMissingFollowUps = new Map<string, number>();
 
   const retryPendingBoundary = async (ctx: ReviewContext): Promise<void> => {
     const boundary = pendingBoundary;
@@ -1164,6 +1171,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     pendingGoalPauseHead = undefined;
     pendingBoundary = undefined;
     queuedFollowUps.clear();
+    queuedMissingFollowUps.clear();
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -1349,6 +1357,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.number, review.pr.headRefOid) === "giveup") return;
+    const missingFollowUpKey = followUpKey("follow-up", review.repo, review.pr.number, review.pr.headRefOid);
+    const visibleFollowUps = visibleLaunchFollowUpCount(ctx, review.pr.headRefOid);
+    const queuedAtCount = queuedMissingFollowUps.get(missingFollowUpKey);
+    if (queuedAtCount !== undefined) {
+      if (visibleFollowUps <= queuedAtCount) return;
+      queuedMissingFollowUps.delete(missingFollowUpKey);
+      return;
+    }
+    queuedMissingFollowUps.set(missingFollowUpKey, visibleFollowUps);
     if (missingLanes.length > 0) {
       await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
     }

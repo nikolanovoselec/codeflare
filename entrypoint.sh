@@ -1528,6 +1528,7 @@ _openvscode_launch_once() {
         --disable-proxy \
         --disable-getting-started-override \
         --disable-workspace-trust \
+        --app-name Codeflare \
         --user-data-dir "$data_dir/data" \
         --extensions-dir "$extensions_dir" \
         "${proposed_api_args[@]}" \

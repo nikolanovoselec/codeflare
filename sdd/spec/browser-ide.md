@@ -50,6 +50,8 @@ A full code-server browser editor for an advanced running session. The editor op
 - The editor reuses the session container and existing authenticated proxy boundary.
 - The editor listens only inside the container; it has no independently reachable network surface.
 - The pinned MIT-licensed code-server release remains unmodified under [AD119](../../documentation/decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
+- The existing code-server app-name option identifies the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout) -->
+- The owned Pi Chat participant and welcome panel use the packaged Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/media/agent.svg --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (Codeflare chat participant uses the product brand icon) -->
 
 **Priority:** P2
 

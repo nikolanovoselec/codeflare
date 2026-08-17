@@ -2424,6 +2424,33 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-110 AC2: keeps a queued CI-only recovery single-flight before delivery', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-ci-queued', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-ci-queued', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-ci-queued'));
+    harness.sent.splice(0);
+    harness.setSentMessagePersistence(false);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-ci-queued', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-ci-queued', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-ci-queued', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+    );
+
+    await harness.emit('agent_settled');
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      head: fixture.head,
+      missingLanes: [],
+      ciEvent: 'push',
+    });
+  });
+
   it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only after terminal lanes and triage', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
