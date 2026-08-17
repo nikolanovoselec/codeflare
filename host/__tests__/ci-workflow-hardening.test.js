@@ -71,6 +71,33 @@ describe('PR lane selection', () => {
   });
 });
 
+describe('REQ-OPS-045 AC5: immutable PR Checks tool cache', () => {
+  const cacheAction = 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9';
+
+  it('caches and revalidates every external tool archive instead of using apt on each run', () => {
+    const cases = [
+      ['workflow-audit', 'Cache zizmor archive', 'Run zizmor (checksum-pinned binary)', 'ZIZMOR_SHA256'],
+      ['workflow-audit', 'Cache actionlint archive', 'Run actionlint (checksum-pinned binary)', 'ACTIONLINT_SHA256'],
+      ['host-tests', 'Cache rclone archive', 'Install rclone for sync-filter behavioral tests', 'RCLONE_SHA256'],
+    ];
+
+    for (const [jobName, cacheName, installName, checksumVariable] of cases) {
+      const job = prChecks.jobs[jobName];
+      const cache = step(job, cacheName);
+      const install = step(job, installName);
+      assert.equal(cache.uses, cacheAction, cacheName);
+      assert.match(cache.with.key, /\$\{\{ runner\.(?:os|arch) \}\}/, cacheName);
+      assert.match(cache.with.path, /\$\{\{ runner\.tool_cache \}\}/, cacheName);
+      assert.match(install.run, new RegExp(`\\$\\{${checksumVariable}\\}.*sha256sum -c -`, 's'), installName);
+    }
+
+    assert.doesNotMatch(
+      step(prChecks.jobs['host-tests'], 'Install rclone for sync-filter behavioral tests').run,
+      /apt-get/,
+    );
+  });
+});
+
 describe('least-privilege workflow boundaries', () => {
   it('grants no repository permission to the source-policy check', () => {
     assert.deepEqual(promotion.permissions, {});

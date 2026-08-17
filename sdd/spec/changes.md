@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-17
 
+- **PR Checks stop redownloading immutable external tools** ([REQ-OPS-045](operations.md#req-ops-045-parallel-pr-checks-performance) amended). Host and workflow-audit lanes cache exact rclone, zizmor, and actionlint archives by platform plus version/checksum, verify integrity after every restore, and download only on a cache miss.
+
 - **ADR indexes explain decisions without requiring a full-ledger read** ([REQ-AGENT-146](agents.md#req-agent-146-self-contained-adr-decision-index-summaries) added as Implemented; [AD133](../../documentation/decisions/README.md#ad133-adr-indexes-use-bounded-self-contained-summaries) accepted). The ADR ledger and canonical template now pair a concise decision label with one bounded, body-supported sentence naming the component, choice, driver or consequence, category, and current state; existing shape enforcement and documentation review reject vague, repeated, unbounded, or state-incomplete summaries without adding a framework file.
 
 - **PR path classification fails safe when GitHub cannot generate a large diff** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) constraint amended). The primary classifier remains selective. If its PR-files API fails, the fallback verifies the exact checked-out base and head commits, records their local changed-file set, and selects all six workload lanes. Behavioral host tests execute the owned script against a temporary Git repository and prove malformed or missing commit identities emit no outputs.

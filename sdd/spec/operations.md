@@ -1183,6 +1183,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
 3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
+5. PR Checks caches the pinned rclone, zizmor, and actionlint archives by platform and exact integrity identity, then revalidates each archive before execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: immutable PR Checks tool cache) -->
 
 **Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 
@@ -1190,7 +1191,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
 
-**Verification:** Automated direct-start and matrix-concurrency tests; manual exact-head duration check
+**Verification:** Automated direct-start, matrix-concurrency, and immutable-tool-cache tests; manual exact-head duration check
 
 **Status:** Implemented
 
