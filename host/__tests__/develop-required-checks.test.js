@@ -82,6 +82,7 @@ describe('REQ-OPS-021: workflow-file static analysis', () => {
     assert.deepEqual(blockingAudit?.env, {
       ZIZMOR_VERSION: '${{ steps.zizmor-pin.outputs.version }}',
       ZIZMOR_SHA256: '${{ steps.zizmor-pin.outputs.sha256 }}',
+      ZIZMOR_ARCHIVE: '${{ runner.tool_cache }}/codeflare/zizmor-${{ steps.zizmor-pin.outputs.version }}.tar.gz',
       GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
     });
     assert.equal(
