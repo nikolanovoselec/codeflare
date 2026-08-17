@@ -13,11 +13,16 @@ import {
   normalizeIdeAgentKind,
   renderWelcomeHtml,
 } from './welcome.ts';
+import { activateExtensionPersistence } from './extension-persistence.ts';
+
+export { activateExtensionPersistence } from './extension-persistence.ts';
 
 const OPEN_WELCOME_COMMAND = 'codeflare.welcome.open';
 const OPEN_DELAY_MS = 250;
+let persistenceActivation: Promise<(() => Promise<void>) | undefined> = Promise.resolve(undefined);
 
 export function activate(context: ExtensionContext): void {
+  persistenceActivation = activateExtensionPersistence(context).catch(() => undefined);
   const presentation = buildWelcomePresentation(
     normalizeIdeAgentKind(process.env.CODEFLARE_SIDEBAR_AGENT),
   );
@@ -62,6 +67,12 @@ export function activate(context: ExtensionContext): void {
     { dispose: () => clearTimeout(startupTimer) },
     { dispose: () => panel?.dispose() },
   );
+}
+
+export async function deactivate(): Promise<void> {
+  const flush = await persistenceActivation;
+  persistenceActivation = Promise.resolve(undefined);
+  await flush?.();
 }
 
 function isPrimaryAction(value: unknown): value is { readonly type: 'primary' } {

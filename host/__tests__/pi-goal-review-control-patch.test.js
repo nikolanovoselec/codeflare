@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   COMMANDS_PATCH_MARKER,
@@ -49,29 +52,34 @@ const fixtureCommandsSource = `export class GoalCommandController {
 }
 `;
 
+const fixtureNextCommandsSource = fixtureCommandsSource.replace(
+  `\tpauseGoal(ctx: StatusContext) {
+\t\tif (!this.runtime.activeGoal || this.runtime.activeGoal.status !== "active") return;
+\t\tthis.runtime.recordGoalUsage(this.runtime.activeGoal, ctx);
+\t\tthis.runtime.cancelContinuationWork();
+\t\tthis.runtime.clearBudgetWrapUp();
+\t\tthis.runtime.blockStaleGoalToolCalls();
+\t\tabortCurrentTurn(ctx);
+\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");
+\t\tthis.runtime.persistGoal(this.runtime.activeGoal);
+\t\tthis.runtime.updateStatus(ctx, this.runtime.activeGoal);
+\t}`,
+  `\tpauseGoal(ctx: StatusContext) {
+\t\tif (!this.runtime.activeGoal || this.runtime.activeGoal.status !== "active") return;
+\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {
+\t\t\tkind: "explicit_pause",
+\t\t\texpectedGoalId: this.runtime.activeGoal.id,
+\t\t});
+\t\treturn stoppedGoal;
+\t}`,
+);
+
 const fixtureGoalSource = `function registerGoalRuntime(pi: ExtensionAPI, options: GoalOptions = {}) {
 \tconst runtime = new GoalRuntime(pi);
 \tconst commands = new GoalCommandController(runtime);
 \tconst runController = new GoalRunController(runtime, commands);
 \trunController.register(pi);
 
-\tpi.on("session_start", async (_event, ctx) => {
-\t\truntime.replaceMenuSession();
-\t});
-
-\tpi.on("session_shutdown", (_event, ctx) => {
-\t\trunController.unbindSession();
-\t});
-}
-`;
-
-const fixtureLifecycleSource = `export function registerGoalLifecycle(
-\tpi: ExtensionAPI,
-\truntime: GoalRuntime,
-\tcommands: GoalCommandController,
-\trunController: GoalRunController,
-\toptions: GoalLifecycleOptions = {},
-) {
 \tpi.on("session_start", async (_event, ctx) => {
 \t\truntime.replaceMenuSession();
 \t});
@@ -235,6 +243,89 @@ const fixtureRuntimeSource = `export class GoalRuntime {
 }
 `;
 
+const fixtureNextRuntimeSource = [
+  `export type GoalStopRequest =\n\t| { kind: "explicit_pause"; expectedGoalId: string };`,
+  fixtureRuntimeSource
+    .replace(
+      '\tcompletionStatusTimer?: NodeJS.Timeout;',
+      '\tcompletionStatusTimer?: NodeJS.Timeout;\n\tprivate continuationDispatchTimer?: NodeJS.Timeout;',
+    )
+    .replace(
+      '\tmenuGeneration = 0;',
+      '\tmenuGeneration = 0;\n\ttoolPolicy = { toolsAvailable: () => true };',
+    )
+    .replace('this.goalToolsAvailable()', 'this.toolPolicy.toolsAvailable()')
+    .replace(
+      '\t\tthis.continuationIntent = undefined;\n\t\tthis.continuationDelivery = intent;',
+      '\t\tthis.clearContinuationDispatchTimer();\n\t\tthis.continuationIntent = undefined;\n\t\tthis.continuationDelivery = intent;',
+    )
+    .replace(
+      '\tconstructor(pi) {\n\t\tthis.pi = pi;\n\t}',
+      `\tconstructor(pi) {
+\t\tthis.pi = pi;
+\t}
+
+\trecordGoalUsage() {}
+\tclearGoalRecoveryForGoal() {}
+\tclearBudgetWrapUp() {}
+\tblockStaleGoalToolCalls() {}
+\tpersistGoal() {}
+\tupdateStatus() {}
+
+\tstopActiveGoal(ctx: StatusContext, request: GoalStopRequest) {
+\t\tconst currentGoal = this.activeGoal;
+\t\tif (!currentGoal || currentGoal.id !== request.expectedGoalId) return undefined;
+\t\tlet goal = currentGoal;
+\t\tlet status;
+\t\tswitch (request.kind) {
+\t\t\tcase "explicit_pause":
+\t\t\t\tthis.recordGoalUsage(goal, ctx);
+\t\t\t\tthis.cancelContinuationWork();
+\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);
+\t\t\t\tthis.clearBudgetWrapUp();
+\t\t\t\tthis.blockStaleGoalToolCalls();
+\t\t\t\tabortCurrentTurn(ctx);
+\t\t\t\tstatus = "paused";
+\t\t\t\tbreak;
+\t\t}
+\t\tthis.activeGoal = transitionGoal(goal, status);
+\t\tthis.persistGoal(this.activeGoal);
+\t\tthis.updateStatus(ctx, this.activeGoal);
+\t\treturn this.activeGoal;
+\t}
+
+\tscheduleContinuationDispatch(ctx: StatusContext, goalId: string) {
+\t\tthis.clearContinuationDispatchTimer();
+\t\tconst generation = this.menuGeneration;
+\t\tthis.continuationDispatchTimer = setTimeout(() => {
+\t\t\tthis.continuationDispatchTimer = undefined;
+\t\t\tif (
+\t\t\t\tgeneration !== this.menuGeneration ||
+\t\t\t\tthis.activeGoal?.id !== goalId ||
+\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t) {
+\t\t\t\treturn;
+\t\t\t}
+\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t}, 0);
+\t}
+
+\tprivate clearContinuationDispatchTimer() {
+\t\tif (!this.continuationDispatchTimer) return;
+\t\tclearTimeout(this.continuationDispatchTimer);
+\t\tthis.continuationDispatchTimer = undefined;
+\t}`,
+    )
+    .replace(
+      '\tclearContinuationTracking() {\n\t\tthis.continuationIntent = undefined;',
+      '\tclearContinuationTracking() {\n\t\tthis.clearContinuationDispatchTimer();\n\t\tthis.continuationIntent = undefined;',
+    )
+    .replace(
+      '\tcancelContinuationWork() {\n\t\tif (this.continuationDelivery) {',
+      '\tcancelContinuationWork() {\n\t\tthis.clearContinuationDispatchTimer();\n\t\tif (this.continuationDelivery) {',
+    ),
+].join('\n');
+
 function executablePatchedController(abortCurrentTurn = () => {}) {
   const patched = patchPiGoalCommandsSource(fixtureCommandsSource)
     .replace('export class GoalCommandController', 'class GoalCommandController')
@@ -256,6 +347,23 @@ function executablePatchedController(abortCurrentTurn = () => {}) {
     abortCurrentTurn,
     (goal, status) => ({ ...goal, status }),
   );
+}
+
+function executablePatchedNextController() {
+  const patched = patchPiGoalCommandsSource(fixtureNextCommandsSource)
+    .replace('export class GoalCommandController', 'class GoalCommandController')
+    .replace(
+      'ctx: StatusContext, options: { abortTurn?: boolean } = {}',
+      'ctx, options = {}',
+    )
+    .replace(
+      'ctx: StatusContext, options: { sendPrompt?: boolean } = {}',
+      'ctx, options = {}',
+    );
+  return Function(
+    'buildResumePrompt',
+    `${patched}\nreturn GoalCommandController;`,
+  )((goal, status) => `${goal.id}:${status}`);
 }
 
 function executablePatchedGoal() {
@@ -408,6 +516,43 @@ function executablePatchedRuntime(scheduler) {
   );
 }
 
+function executablePatchedNextRuntime(scheduler, abortCurrentTurn = () => {}) {
+  const patched = patchPiGoalRuntimeSource(fixtureNextRuntimeSource)
+    .replace(
+      'export type GoalStopRequest =\n\t| { kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean };\n',
+      '',
+    )
+    .replace('export class GoalRuntime', 'class GoalRuntime')
+    .replace('\tcompletionStatusTimer?: NodeJS.Timeout;', '\tcompletionStatusTimer;')
+    .replace(/\tprivate continuationDispatchTimer\?: NodeJS\.Timeout;[^\n]*/, '\tcontinuationDispatchTimer;')
+    .replace('\tcontinuationIntent?: ContinuationTicket;', '\tcontinuationIntent;')
+    .replace('\tcontinuationDelivery?: ContinuationTicket;', '\tcontinuationDelivery;')
+    .replace('stopActiveGoal(ctx: StatusContext, request: GoalStopRequest)', 'stopActiveGoal(ctx, request)')
+    .replace(
+      'dispatchContinuationIfSettled(\n\t\tctx: StatusContext,\n\t\toptions: { intervalElapsed?: boolean } = {},\n\t)',
+      'dispatchContinuationIfSettled(ctx, options = {})',
+    )
+    .replace('dispatchContinuationIfSettled(ctx: StatusContext)', 'dispatchContinuationIfSettled(ctx)')
+    .replace('scheduleContinuationDispatch(ctx: StatusContext, goalId: string)', 'scheduleContinuationDispatch(ctx, goalId)')
+    .replace('private clearContinuationDispatchTimer()', 'clearContinuationDispatchTimer()');
+  return Function(
+    'setTimeout',
+    'clearTimeout',
+    'hasPendingMessages',
+    'formatError',
+    'abortCurrentTurn',
+    'transitionGoal',
+    `${patched}\nreturn GoalRuntime;`,
+  )(
+    scheduler.setTimeout,
+    scheduler.clearTimeout,
+    (ctx) => ctx.hasPendingMessages?.() ?? false,
+    (error) => String(error),
+    abortCurrentTurn,
+    (goal, status) => ({ ...goal, status }),
+  );
+}
+
 function runtimeHarness(minIntervalMs) {
   const scheduler = createScheduler();
   const messages = [];
@@ -424,6 +569,32 @@ function runtimeHarness(minIntervalMs) {
     iteration: 1,
     marker: 'goal-a:1:marker-a',
     prompt: 'continue goal-a',
+  };
+  const state = { idle: true, pending: false };
+  const ctx = {
+    isIdle: () => state.idle,
+    hasPendingMessages: () => state.pending,
+    ui: { notify() {} },
+  };
+  return { runtime, scheduler, messages, state, ctx };
+}
+
+function successorRuntimeHarness(minIntervalMs) {
+  const scheduler = createScheduler();
+  const messages = [];
+  const Runtime = executablePatchedNextRuntime(scheduler);
+  const runtime = new Runtime({
+    sendUserMessage(prompt, options) {
+      messages.push({ prompt, options });
+    },
+  });
+  runtime.settings = { continuationLimits: { minIntervalMs } };
+  runtime.activeGoal = { id: 'goal-a', status: 'active' };
+  runtime.continuationIntent = {
+    goalId: 'goal-a',
+    iteration: 1,
+    marker: 'goal-a:1:successor',
+    prompt: 'continue successor goal',
   };
   const state = { idle: true, pending: false };
   const ctx = {
@@ -455,24 +626,18 @@ function readFixturePackage(root, sessionSourceName = 'goal') {
   );
 }
 
-function writeNextFixturePackage(root, overrides = {}) {
-  mkdirSync(join(root, 'src'), { recursive: true });
-  const files = {
-    'package.json': `${JSON.stringify({ version: NEXT_PI_GOAL_VERSION })}\n`,
-    'src/commands.ts': fixtureCommandsSource,
-    'src/lifecycle.ts': fixtureLifecycleSource,
-    'src/runtime.ts': fixtureRuntimeSource.replace(
-      'this.goalToolsAvailable()',
-      'this.toolPolicy.toolsAvailable()',
-    ),
-    'src/settings.ts': fixtureSettingsSource.replaceAll(
-      'automaticTurns: null',
-      'automaticTurns: 25',
-    ),
-    ...overrides,
-  };
-  for (const [path, contents] of Object.entries(files)) writeFileSync(join(root, path), contents);
-  return files;
+const NEXT_PACKAGE_ARCHIVE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '__fixtures__',
+  'pi-goal-0.49.7.tgz',
+);
+const NEXT_PACKAGE_INTEGRITY = 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==';
+
+function extractPinnedNextFixturePackage(root) {
+  const archive = readFileSync(NEXT_PACKAGE_ARCHIVE);
+  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, NEXT_PACKAGE_INTEGRITY);
+  execFileSync('tar', ['-xzf', NEXT_PACKAGE_ARCHIVE, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
@@ -536,6 +701,114 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(aborts, 1);
     assert.equal(continuationCancellations, 2);
     assert.equal(runtime.activeGoal.status, 'paused');
+  });
+
+  it('REQ-AGENT-144: executes successor command forwarding and runtime pause semantics together', () => {
+    let aborts = 0;
+    const scheduler = createScheduler();
+    const Runtime = executablePatchedNextRuntime(scheduler, () => { aborts += 1; });
+    const Controller = executablePatchedNextController();
+    const runtime = new Runtime({ sendUserMessage() {} });
+    const controller = new Controller(runtime);
+
+    runtime.activeGoal = { id: 'goal-a', status: 'active' };
+    controller.pauseGoal({ session: 'manual' });
+    assert.equal(aborts, 1);
+    assert.equal(runtime.activeGoal.status, 'paused');
+
+    runtime.activeGoal = { id: 'goal-b', status: 'active' };
+    controller.pauseGoal({ session: 'review' }, { abortTurn: false });
+    assert.equal(aborts, 1);
+    assert.equal(runtime.activeGoal.status, 'paused');
+  });
+
+  it('REQ-AGENT-130 AC1: successor zero delay dispatches immediately', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(0);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.deepEqual(scheduler.armedDelays(), []);
+    assert.deepEqual(messages, [{
+      prompt: 'continue successor goal',
+      options: { deliverAs: 'followUp' },
+    }]);
+  });
+
+  it('REQ-AGENT-130 AC2: successor direct dispatch waits the configured interval', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.deepEqual(scheduler.armedDelays(), [25]);
+    scheduler.advance(24);
+    assert.deepEqual(messages, []);
+    scheduler.advance(1);
+    assert.deepEqual(messages, [{
+      prompt: 'continue successor goal',
+      options: { deliverAs: 'followUp' },
+    }]);
+  });
+
+  it('REQ-AGENT-130 AC3: successor scheduler re-arms delays beyond the Node timer maximum', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(2_147_483_652);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.deepEqual(scheduler.armedDelays(), [2_147_483_647]);
+    scheduler.advance(2_147_483_647);
+    assert.deepEqual(scheduler.armedDelays(), [2_147_483_647, 5]);
+    assert.deepEqual(messages, []);
+    scheduler.advance(5);
+    assert.equal(messages.length, 1);
+  });
+
+  it('REQ-AGENT-130 AC4: successor repeated dispatch remains single-flight', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), false);
+    assert.equal(scheduler.pendingCount(), 1);
+    assert.deepEqual(scheduler.armedDelays(), [25]);
+    scheduler.advance(25);
+    assert.equal(messages.length, 1);
+  });
+
+  it('REQ-AGENT-130 AC5: successor cancellation clears its pending dispatch', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    runtime.cancelContinuationWork();
+    assert.equal(scheduler.pendingCount(), 0);
+    scheduler.advance(25);
+    assert.deepEqual(messages, []);
+    assert.equal(runtime.continuationIntent, undefined);
+  });
+
+  it('REQ-AGENT-130 AC6: successor scheduler rejects a replacement continuation marker', () => {
+    const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    runtime.continuationIntent = {
+      goalId: 'goal-a',
+      iteration: 2,
+      marker: 'goal-a:2:new',
+      prompt: 'new continuation',
+    };
+    scheduler.advance(25);
+    assert.deepEqual(messages, []);
+    assert.equal(runtime.continuationIntent.marker, 'goal-a:2:new');
+  });
+
+  it('REQ-AGENT-130 AC7: successor busy expiry retains intent for the next settled boundary', () => {
+    const { runtime, scheduler, messages, state, ctx } = successorRuntimeHarness(25);
+
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    state.idle = false;
+    scheduler.advance(25);
+    assert.deepEqual(messages, []);
+    assert.equal(runtime.continuationIntent.marker, 'goal-a:1:successor');
+
+    state.idle = true;
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
+    scheduler.advance(25);
+    assert.equal(messages.length, 1);
   });
 
   it('REQ-AGENT-114: suppresses only the bridge-owned resume prompt', async () => {
@@ -732,19 +1005,39 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
 
   it('REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-next-review-control-'));
-    writeNextFixturePackage(root);
+    extractPinnedNextFixturePackage(root);
 
     patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
+    assert.match(first['src/commands.ts'], /abortTurn: options\.abortTurn/);
     assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
     assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
+    assert.match(first['src/runtime.ts'], /kind: "explicit_pause"; expectedGoalId: string; abortTurn\?: boolean/);
+    assert.match(first['src/runtime.ts'], /if \(request\.abortTurn !== false\) abortCurrentTurn\(ctx\);/);
+    assert.match(first['src/runtime.ts'], /private continuationDispatchTimer\?: NodeJS\.Timeout; \/\/ CODEFLARE_GOAL_MIN_INTERVAL_RUNTIME/);
+    assert.match(first['src/runtime.ts'], /let remainingMs = this\.settings\.continuationLimits\.minIntervalMs;/);
+    assert.match(first['src/runtime.ts'], /const delayMs = Math\.min\(remainingMs, 2_147_483_647\);/);
+    assert.match(first['src/runtime.ts'], /this\.continuationIntent\?\.marker !== marker/);
+    assert.match(first['src/runtime.ts'], /return this\.scheduleContinuationDispatch\(ctx, intent\.goalId\);/);
+    assert.match(first['src/runtime.ts'], /this\.dispatchContinuationIfSettled\(ctx, \{ intervalElapsed: true \}\);/);
+    assert.doesNotMatch(first['src/runtime.ts'], /\n\tcontinuationTimer\?:/);
     assert.match(first['src/settings.ts'], new RegExp(SETTINGS_PATCH_MARKER));
     assert.equal(first['src/lifecycle.ts'].match(/runController\.register/g), null);
     assert.match(first['src/settings.ts'], /automaticTurns: 25, noProgressTurns: 3, minIntervalMs: 0/);
 
     patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     assert.deepEqual(readFixturePackage(root, 'lifecycle'), first);
+
+    const damagedRuntime = first['src/runtime.ts'].replace(
+      'if (request.abortTurn !== false) abortCurrentTurn(ctx);',
+      'abortCurrentTurn(ctx);',
+    );
+    writeFileSync(join(root, 'src/runtime.ts'), damagedRuntime);
+    assert.throws(
+      () => patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root),
+      /continuation runtime marker is present but 1 patched anchor\(s\) are missing/,
+    );
   });
 
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
@@ -763,7 +1056,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
     assert.throws(
       () => patchPiGoalDirectory('0.44.0', versionDrift),
-      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.5`),
+      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.7`),
     );
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
 

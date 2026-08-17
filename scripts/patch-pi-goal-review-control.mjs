@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_GOAL_VERSION = '0.46.0';
-export const NEXT_PI_GOAL_VERSION = '0.49.5';
+export const NEXT_PI_GOAL_VERSION = '0.49.7';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
   NEXT_PI_GOAL_VERSION,
@@ -117,6 +117,51 @@ const RUNTIME_DISPATCH_SOURCE_049 = RUNTIME_DISPATCH_SOURCE.replace(
   'this.toolPolicy.toolsAvailable()',
 );
 
+const RUNTIME_NATIVE_SCHEDULER_SOURCE = `\tscheduleContinuationDispatch(ctx: StatusContext, goalId: string) {
+\t\tthis.clearContinuationDispatchTimer();
+\t\tconst generation = this.menuGeneration;
+\t\tthis.continuationDispatchTimer = setTimeout(() => {
+\t\t\tthis.continuationDispatchTimer = undefined;
+\t\t\tif (
+\t\t\t\tgeneration !== this.menuGeneration ||
+\t\t\t\tthis.activeGoal?.id !== goalId ||
+\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t) {
+\t\t\t\treturn;
+\t\t\t}
+\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t}, 0);
+\t}`;
+
+const RUNTIME_NATIVE_SCHEDULER_PATCH = `\tscheduleContinuationDispatch(ctx: StatusContext, goalId: string) {
+\t\tif (this.continuationDispatchTimer) return false;
+\t\tconst generation = this.menuGeneration;
+\t\tconst marker = this.continuationIntent?.marker;
+\t\tlet remainingMs = this.settings.continuationLimits.minIntervalMs;
+\t\tconst armTimer = () => {
+\t\t\tconst delayMs = Math.min(remainingMs, 2_147_483_647);
+\t\t\tthis.continuationDispatchTimer = setTimeout(() => {
+\t\t\t\tthis.continuationDispatchTimer = undefined;
+\t\t\t\tif (
+\t\t\t\t\tgeneration !== this.menuGeneration ||
+\t\t\t\t\tthis.continuationIntent?.marker !== marker ||
+\t\t\t\t\tthis.activeGoal?.id !== goalId ||
+\t\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t\t) {
+\t\t\t\t\treturn;
+\t\t\t\t}
+\t\t\t\tremainingMs -= delayMs;
+\t\t\t\tif (remainingMs > 0) {
+\t\t\t\t\tarmTimer();
+\t\t\t\t\treturn;
+\t\t\t\t}
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });
+\t\t\t}, delayMs);
+\t\t};
+\t\tarmTimer();
+\t\treturn true;
+\t}`;
+
 const RUNTIME_DISPATCH_PATCH = `\tdispatchContinuationIfSettled(ctx: StatusContext) {
 \t\tconst intent = this.continuationIntent;
 \t\tif (!intent) return false;
@@ -218,13 +263,16 @@ function isCompleteMarkedPatch(source, marker, required, label) {
 }
 
 export function patchPiGoalCommandsSource(source) {
+  const usesStopActiveGoal = source.includes('this.runtime.stopActiveGoal(ctx, {');
   if (
     isCompleteMarkedPatch(
       source,
       COMMANDS_PATCH_MARKER,
       [
         'options: { abortTurn?: boolean } = {}',
-        'if (options.abortTurn !== false) abortCurrentTurn(ctx);',
+        usesStopActiveGoal
+          ? 'abortTurn: options.abortTurn,'
+          : 'if (options.abortTurn !== false) abortCurrentTurn(ctx);',
         'options: { sendPrompt?: boolean } = {}',
         'options.sendPrompt === false || await',
       ],
@@ -237,20 +285,40 @@ export function patchPiGoalCommandsSource(source) {
     '\tpauseGoal(ctx: StatusContext, options: { abortTurn?: boolean } = {}) {',
     'pause command signature',
   );
-  patched = replaceOnce(
-    patched,
-    [
-      '\t\tthis.runtime.blockStaleGoalToolCalls();',
-      '\t\tabortCurrentTurn(ctx);',
-      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
-    ].join('\n'),
-    [
-      '\t\tthis.runtime.blockStaleGoalToolCalls();',
-      '\t\tif (options.abortTurn !== false) abortCurrentTurn(ctx);',
-      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
-    ].join('\n'),
-    'pause command turn abort',
-  );
+  if (usesStopActiveGoal) {
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {',
+        '\t\t\tkind: "explicit_pause",',
+        '\t\t\texpectedGoalId: this.runtime.activeGoal.id,',
+        '\t\t});',
+      ].join('\n'),
+      [
+        '\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {',
+        '\t\t\tkind: "explicit_pause",',
+        '\t\t\texpectedGoalId: this.runtime.activeGoal.id,',
+        '\t\t\tabortTurn: options.abortTurn,',
+        '\t\t});',
+      ].join('\n'),
+      'pause command stop request',
+    );
+  } else {
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tthis.runtime.blockStaleGoalToolCalls();',
+        '\t\tabortCurrentTurn(ctx);',
+        '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+      ].join('\n'),
+      [
+        '\t\tthis.runtime.blockStaleGoalToolCalls();',
+        '\t\tif (options.abortTurn !== false) abortCurrentTurn(ctx);',
+        '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+      ].join('\n'),
+      'pause command turn abort',
+    );
+  }
   patched = replaceOnce(
     patched,
     '\tasync resumeGoal(ctx: StatusContext) {',
@@ -465,21 +533,126 @@ export function patchPiGoalSettingsSource(source) {
 }
 
 export function patchPiGoalRuntimeSource(source) {
+  const usesConfigurablePauseRequest = source.includes(
+    'stopActiveGoal(ctx: StatusContext, request: GoalStopRequest)',
+  );
+  const usesNativeContinuationScheduler = source.includes(
+    'scheduleContinuationDispatch(ctx: StatusContext, goalId: string)',
+  );
   if (
     isCompleteMarkedPatch(
       source,
       RUNTIME_PATCH_MARKER,
       [
-        'const minIntervalMs = this.settings.continuationLimits.minIntervalMs;',
-        'this.menuGeneration !== menuGeneration',
-        'this.clearContinuationTimer();',
+        ...(usesNativeContinuationScheduler
+          ? [
+              `private continuationDispatchTimer?: NodeJS.Timeout; // ${RUNTIME_PATCH_MARKER}`,
+              'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
+              'const delayMs = Math.min(remainingMs, 2_147_483_647);',
+              'this.continuationIntent?.marker !== marker',
+              'options: { intervalElapsed?: boolean } = {}',
+              'if (this.settings.continuationLimits.minIntervalMs > 0) {',
+              'return this.scheduleContinuationDispatch(ctx, intent.goalId);',
+              'if (this.continuationDispatchTimer) return false;',
+              'this.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });',
+            ]
+          : [
+              'const minIntervalMs = this.settings.continuationLimits.minIntervalMs;',
+              'this.menuGeneration !== menuGeneration',
+              'this.clearContinuationTimer();',
+            ]),
+        ...(usesConfigurablePauseRequest
+          ? [
+              'kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean',
+              'if (request.abortTurn !== false) abortCurrentTurn(ctx);',
+            ]
+          : []),
       ],
       'continuation runtime',
     )
   ) return source;
 
-  let patched = replaceOnce(
-    source,
+  let patched = source;
+  if (usesConfigurablePauseRequest) {
+    patched = replaceOnce(
+      patched,
+      '| { kind: "explicit_pause"; expectedGoalId: string }',
+      '| { kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean }',
+      'explicit pause request options',
+    );
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\t\tcase "explicit_pause":',
+        '\t\t\t\tthis.recordGoalUsage(goal, ctx);',
+        '\t\t\t\tthis.cancelContinuationWork();',
+        '\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);',
+        '\t\t\t\tthis.clearBudgetWrapUp();',
+        '\t\t\t\tthis.blockStaleGoalToolCalls();',
+        '\t\t\t\tabortCurrentTurn(ctx);',
+        '\t\t\t\tstatus = "paused";',
+        '\t\t\t\tbreak;',
+      ].join('\n'),
+      [
+        '\t\t\tcase "explicit_pause":',
+        '\t\t\t\tthis.recordGoalUsage(goal, ctx);',
+        '\t\t\t\tthis.cancelContinuationWork();',
+        '\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);',
+        '\t\t\t\tthis.clearBudgetWrapUp();',
+        '\t\t\t\tthis.blockStaleGoalToolCalls();',
+        '\t\t\t\tif (request.abortTurn !== false) abortCurrentTurn(ctx);',
+        '\t\t\t\tstatus = "paused";',
+        '\t\t\t\tbreak;',
+      ].join('\n'),
+      'explicit pause turn abort',
+    );
+  }
+
+  if (usesNativeContinuationScheduler) {
+    patched = replaceOnce(
+      patched,
+      '\tdispatchContinuationIfSettled(ctx: StatusContext) {',
+      '\tdispatchContinuationIfSettled(\n\t\tctx: StatusContext,\n\t\toptions: { intervalElapsed?: boolean } = {},\n\t) {',
+      'native continuation dispatcher options',
+    );
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tif (ctx.isIdle?.() !== true || hasPendingMessages(ctx)) return false;',
+        '',
+        '\t\tthis.clearContinuationDispatchTimer();',
+      ].join('\n'),
+      [
+        '\t\tif (ctx.isIdle?.() !== true || hasPendingMessages(ctx)) return false;',
+        '',
+        '\t\tif (options.intervalElapsed !== true) {',
+        '\t\t\tif (this.continuationDispatchTimer) return false;',
+        '\t\t\tif (this.settings.continuationLimits.minIntervalMs > 0) {',
+        '\t\t\t\treturn this.scheduleContinuationDispatch(ctx, intent.goalId);',
+        '\t\t\t}',
+        '\t\t}',
+        '',
+        '\t\tthis.clearContinuationDispatchTimer();',
+      ].join('\n'),
+      'native continuation dispatch interval gate',
+    );
+    patched = replaceOnce(
+      patched,
+      '\tprivate continuationDispatchTimer?: NodeJS.Timeout;',
+      `\tprivate continuationDispatchTimer?: NodeJS.Timeout; // ${RUNTIME_PATCH_MARKER}`,
+      'native continuation scheduler marker',
+    );
+    patched = replaceOnce(
+      patched,
+      RUNTIME_NATIVE_SCHEDULER_SOURCE,
+      RUNTIME_NATIVE_SCHEDULER_PATCH,
+      'native continuation scheduler interval',
+    );
+    return patched;
+  }
+
+  patched = replaceOnce(
+    patched,
     '\tcompletionStatusTimer?: NodeJS.Timeout;\n\tcontinuationIntent?: ContinuationTicket;',
     [
       '\tcompletionStatusTimer?: NodeJS.Timeout;',

@@ -351,10 +351,11 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .bashrc"
     --filter "- .bash_profile"
 
-    # Browser IDE continuity: one bounded, credential-free snapshot captured only
-    # after code-server is reaped. Everything else under ~/.codeflare is excluded.
+    # Browser IDE continuity: bounded, credential-free UI and extension-intent
+    # manifests. Everything else under ~/.codeflare remains excluded.
     --filter "+ .codeflare/"
     --filter "+ .codeflare/ide-ui-state.json"
+    --filter "+ .codeflare/ide-extensions.json"
     --filter "- .codeflare/**"
 
     # Package manager caches — regenerated on npm/bun install
@@ -1476,6 +1477,31 @@ _openvscode_extensions_dir() {
     esac
 }
 
+# Compose immutable image-owned extensions with real user extension directories
+# in one per-container writable layer. Fixed identities are symlinked exactly
+# once; a collision fails closed rather than replacing fixed package bytes.
+# REQ-IDE-017 AC2.
+_openvscode_seed_extension_layer() {
+    local base_dir="$1" session_dir="$2" source name destination
+    mkdir -p -- "$session_dir" || return 1
+    for source in "$base_dir"/*; do
+        [ -d "$source" ] || continue
+        name="${source##*/}"
+        destination="$session_dir/$name"
+        if [ -L "$destination" ]; then
+            [ "$(readlink -- "$destination")" = "$source" ] || {
+                echo "[openvscode] fixed extension link collision: $name" >&2
+                return 1
+            }
+        elif [ -e "$destination" ]; then
+            echo "[openvscode] fixed extension directory collision: $name" >&2
+            return 1
+        else
+            ln -s -- "$source" "$destination" || return 1
+        fi
+    done
+}
+
 # Seed Browser IDE User settings for EVERY agent kind before launch. The
 # preparation helper retains its private OpenVSCode name and writes settings at
 # <data-root>/data/User; code-server receives <data-root>/data as its exact
@@ -1498,6 +1524,14 @@ _openvscode_capture_ui_state() {
         --workspace "${OPENVSCODE_WORKSPACE:-$HOME/workspace}"
 }
 
+_openvscode_capture_extensions() {
+    python3 /opt/codeflare/openvscode/browser-ide-extensions.py capture \
+        --extensions-dir "$1" \
+        --manifest "${CODEFLARE_IDE_EXTENSIONS_MANIFEST:-$HOME/.codeflare/ide-extensions.json}" \
+        --policy /opt/codeflare/openvscode/extension-persistence-policy.json \
+        --sync-pid-file "${CODEFLARE_SYNC_DAEMON_PIDFILE:-/tmp/sync-daemon.pid}"
+}
+
 # Launch code-server once in the foreground (the retained private supervisor
 # wraps this in a restart loop). The host strips the exact public session prefix,
 # so code-server serves root paths on loopback. Its own auth is disabled only
@@ -1505,11 +1539,16 @@ _openvscode_capture_ui_state() {
 # request. Live editor state remains ephemeral under /tmp; only the post-reap
 # REQ-IDE-002 UI allowlist persists. REQ-IDE-001/002/005/009/012.
 _openvscode_launch_once() {
-    local sidebar_agent extensions_dir data_dir
+    local sidebar_agent base_extensions_dir extensions_dir data_dir
     local -a proposed_api_args=()
     sidebar_agent="$(_openvscode_agent_kind)"
-    extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
+    base_extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
     data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    extensions_dir="$data_dir/extensions"
+    if ! _openvscode_seed_extension_layer "$base_extensions_dir" "$extensions_dir"; then
+        echo "[openvscode] extension-layer preparation failed; refusing launch" >&2
+        return 1
+    fi
     _openvscode_restore_ui_state "$data_dir"
     if ! _openvscode_prepare_agent "$sidebar_agent" "$data_dir"; then
         echo "[openvscode] IDE settings preparation failed; refusing launch" >&2
@@ -1520,6 +1559,9 @@ _openvscode_launch_once() {
     fi
 
     CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
+    CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$extensions_dir" \
+    CODEFLARE_IDE_EXTENSIONS_MANIFEST="${CODEFLARE_IDE_EXTENSIONS_MANIFEST:-$HOME/.codeflare/ide-extensions.json}" \
+    CODEFLARE_SYNC_DAEMON_PIDFILE="${CODEFLARE_SYNC_DAEMON_PIDFILE:-/tmp/sync-daemon.pid}" \
     exec "${OPENVSCODE_BIN:-/usr/local/bin/code-server}" \
         --bind-addr "127.0.0.1:${OPENVSCODE_PORT:-13337}" \
         --auth none \
@@ -1558,6 +1600,7 @@ _openvscode_supervise_loop() {
             fi
         fi
         _openvscode_capture_ui_state "$data_dir"
+        _openvscode_capture_extensions "$data_dir/extensions"
         rm -f "$generation_pidfile" "${generation_pidfile}.tmp"
         current_pid=""
         current_start=""
@@ -1610,7 +1653,7 @@ start_openvscode_supervisor() {
     # helpers available inside the fresh non-interactive setsid bash.
     export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
-    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_launch_once _openvscode_supervise_loop
+    export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_seed_extension_layer _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_capture_extensions _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
         >> /tmp/openvscode.log 2>&1 &
 

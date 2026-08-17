@@ -149,6 +149,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD129](#ad129-proxied-inline-uri-identity-must-be-observed-before-lifecycle-changes)~~ | ~~Proxied Inline URI identity must be observed before lifecycle changes — superseded by [AD131](#ad131-inline-diagnostics-retain-only-sanitized-resource-identity) after the evidence gate completed~~ | Superseded |
 | [AD130](#ad130-the-projected-workspace-uses-the-canonical-browser-authority) | The projected workspace uses the canonical browser authority | Architecture, Security |
 | [AD131](#ad131-inline-diagnostics-retain-only-sanitized-resource-identity) | Inline diagnostics retain only sanitized resource identity | Architecture, Security, Operations |
+| [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) | User extensions are a bounded manifest over an immutable base inventory | Architecture, Security, Storage, Build / Container |
 
 ---
 
@@ -2858,7 +2859,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-07-11); amended by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28.
+**Status:** Accepted (2026-07-11); amended by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, then by [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) on 2026-08-17.
 
 **Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale.
 
@@ -3462,7 +3463,7 @@ The third result is why the sweep is shaped as it is: the marker can only be rea
 
 **Category:** Architecture, Security, Build / Container
 
-**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
+**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) and [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 
 **Context:** OpenVSCode Server no longer provides a sufficiently current base for further Browser IDE investment. Codeflare must replace it without changing the authenticated session route, isolation boundary, lazy lifecycle, ephemeral editor state, owned native Pi integration, or exact official Claude integration.
 
@@ -3490,7 +3491,7 @@ Integration promotion requires pass@3 evidence for Pi native Chat, official Clau
 
 **Category:** Architecture, Security, Storage, Build / Container
 
-**Status:** Accepted (2026-07-28). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), and [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
+**Status:** Accepted (2026-07-28); amended by [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) on 2026-08-17. Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), and [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
 
 **Context:** code-server's CLI folder made `/home/user/workspace` the initial location but its root redirect exposed that path as a public `folder` query, and callers could substitute `folder`, `workspace`, or `ew`. Code OSS reads browser-visible selectors or a server-provided `folderUri`; a selector added only to the private proxy request therefore leaves a clean browser document as an empty window.
 
@@ -3717,3 +3718,25 @@ The diagnostic channel still needs enough identity to distinguish a stale image,
 **Alternatives rejected:** Retaining exact URIs after the evidence gate would preserve unnecessary support-data exposure; removing diagnostics would discard useful rollout and authority evidence; hashing the whole URI would hide the authority needed for classification; and adding a configurable full-URI mode would recreate the same exposure behind another setting.
 
 **Consequences:** Operators can compare sanitized scheme, authority, basename, and input type but must treat basename collisions as inconclusive. AD129 remains the immutable historical record of the exact-URI probe; AD131 owns all retained diagnostic identity after that probe.
+
+### AD132: User extensions are a bounded manifest over an immutable base inventory
+
+**Category:** Architecture, Security, Storage, Build / Container
+
+**Status:** Accepted (2026-08-17). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy), and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity). Implements [REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](../../sdd/spec/browser-ide.md#req-ide-037-lazy-extension-restoration), [REQ-IDE-038](../../sdd/spec/browser-ide.md#req-ide-038-extension-warning-acknowledgement), and [REQ-IDE-040](../../sdd/spec/browser-ide.md#req-ide-040-user-extension-allowance-policy).
+
+**Context:** The pinned code-server workbench already exposes Open VSX install, update, and uninstall, but Codeflare launches it directly against one image-owned Pi, Claude, or empty extension directory. Those roots and all live User/extension state are ephemeral, while R2 admits only `~/.codeflare/ide-ui-state.json`. A user install can therefore affect one live container yet disappears on replacement. Persisting raw extension trees or code-server User data would copy hundreds of MiB, mutable registries and databases, credentials, SecretStorage, global/workspace state, logs, and unsafe WAL/SHM files into newest-wins bisync.
+
+Pinned-source and exact-runtime evidence for code-server 4.132.0 established a smaller boundary: the workbench can install an exact `id@version` after startup, fresh installs register live, uninstall updates the on-disk registry before the extension API, and symlink-seeded fixed extensions coexist with real user directories. Every prepared profile receives the supported `extensions.allowed` wildcard plus one explicit Codeflare entry. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
+
+**Decision:** Keep Pi, Claude, and unsupported selections as immutable base inventories. For each container, seed one writable `/tmp` session extension directory with symlinks to the selected base and pass only that directory to code-server. The built-in `codeflare-welcome` extension lazily restores missing user extensions after `onStartupFinished`, so initial code-server readiness and agent selection remain unchanged.
+
+Persist one atomic mode-0600 `~/.codeflare/ide-extensions.json` file through the existing rclone allowlist. A shared policy defines the 64 KiB envelope, 50-extension ceiling, fixed IDs, version/platform/timestamp/hash bounds, and settings limits for both TypeScript and the Python reap backstop. The manifest stores canonical lowercase IDs, exact versions, optional audit metadata, contributed global User settings excluding managed/UI-continuity keys, and one durable `securityWarningShown` acknowledgement. It stores no VSIX or extracted package bytes.
+
+Treat the disk registry plus `.obsolete` as capture truth: normalize registry IDs, exclude fixed identities, add/update present user extensions, and remove a manifest entry only when a bounded obsolete marker proves uninstall, even if the registry still carries a stale row. This distinction preserves user intent when an exact gallery version is temporarily unavailable. Malformed, redirected, oversized, uppercase, or unknown manifest content is retained byte-for-byte and disables capture for that session. Restored intent cannot execute until the durable security warning is accepted. Exact-version restore recognizes structured not-found errors, attempts one unpinned fallback, continues other installs with concurrency two, applies contributed settings after extension registration, and emits one bounded failure warning without a retry loop.
+
+Registry, extension-host, and contributed-setting changes debounce one in-session capture. Welcome deactivation flushes a pending setting capture; a post-reap Python capture closes the remaining registry debounce race while preserving settings and warning acknowledgement. A changed atomic write sends `SIGUSR1` only to the existing sync daemon; cadence, Sync-now, coalescing, and final drain remain the sole R2 ownership. Whole-file newest-wins across concurrent sessions is explicit and unchanged.
+
+**Alternatives rejected:** Syncing live `--extensions-dir` or `--user-data-dir` violates the credential/state boundary and creates thousands of mutable R2 objects. Mutating the fixed `/opt` directory weakens managed inventory identity. Persisting hashed VSIX artifacts, content-addressed storage, rollback generations, or a Durable Object registry adds a byte store and coordinator that v1 does not need. Pre-launch gallery installation delays lazy readiness. Direct R2 writes or another sync worker duplicate established ownership. Browser automation, Chromium, and manual validation are not feature gates; deterministic package, shell, registry, and complete-image CI own verification.
+
+**Consequences:** User extensions execute arbitrary root-capable code inside the session container and receive code-server's inherited proposed-API posture. Open VSX availability and TLS are runtime dependencies; code-server disables VSIX signature verification, and the workbench path does not expose bytes for Codeflare hashing. Enablement state, private VSIX persistence, extension storage/Secrets/Accounts, secondary downloads, keybindings, snippets, multi-writer serialization, and artifact rollback remain out of scope. The unsupported base inventory remains empty even when the user layer restores ordinary extensions, and fixed package bytes remain unchanged across install, update, and uninstall.

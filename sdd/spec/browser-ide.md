@@ -7,14 +7,14 @@ A full code-server browser editor for an advanced running session. The editor op
 ### Key Concepts
 
 - **Browser IDE** -- The per-session code-server editor defined in the [glossary](glossary.md#glossary).
-- **Session isolation** -- Editor routing, live databases, extension state, server state, and workspace selection belong to one session. Only a bounded, credential-free UI-preference snapshot is shared through the user's storage identity.
+- **Session isolation** -- Editor routing, live databases, extension runtime state, server state, and workspace selection belong to one session. Only bounded UI-preference and user-extension manifests are shared through the user's storage identity; extension bytes remain session-local.
 - **Lazy start** -- The editor consumes resources only after an eligible user first opens it.
 - **Editor activity** -- Any message sent from the browser editor to the session counts as input for the same idle policy used by terminal input.
 
 ### Out of Scope
 
 - A separate editor deployment, container, authentication system, or origin.
-- Cross-session persistence of live editor databases, extension state, SecretStorage, authentication, chat history, logs, or arbitrary settings.
+- Cross-session persistence of live editor databases, extension bytes or runtime state, SecretStorage, authentication, chat history, logs, or settings outside the two bounded manifests.
 - Desktop remote-development protocols or a graphical desktop surface.
 - Parsing the upstream editor protocol to classify messages.
 
@@ -63,7 +63,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-002: Session-isolated IDE, not bucket-stable
 
-**Intent:** Each session receives an independent live editor for its own workspace while a bounded, credential-free UI-preference snapshot follows the user across sessions.
+**Intent:** Each session receives an independent live editor for its own workspace while bounded UI-preference and user-extension manifests follow the user without persisting live editor databases or extension bytes.
 
 **Applies To:** User
 
@@ -74,14 +74,14 @@ A full code-server browser editor for an advanced running session. The editor op
 3. The snapshot's persisted settings and workspace state contain exactly allowlisted theme and keyboard-layout values plus schema-valid Explorer/open-file resources. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_setting_value --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_state_value --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: captures and restores only allowlisted theme, editor, and Explorer state) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: excludes unknown fields and opaque strings from allowlisted state rows) -->
 4. Every restored file resource resolves canonically inside `/home/user/workspace`. <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: excludes allowlisted rows whose file resources escape directly or through a symlink) -->
 5. Launching from the header always opens the active session rather than another running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
-6. Live databases, WAL/SHM files, workspace storage, global extension state, SecretStorage, authentication, chat history, logs, and unallowlisted User settings never enter persistent sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::safe_setting_value --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002: syncs only the bounded Browser IDE UI-state snapshot) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) -->
-7. A user-selected web keyboard layout follows the user through the bounded snapshot. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+6. Live databases, extension bytes, WAL/SHM files, workspace storage, global extension state, SecretStorage, authentication, chat history, logs, and unallowlisted User settings never enter persistent sync; only the bounded UI snapshot and bounded user-extension manifest do. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6: syncs only bounded Browser IDE manifests) --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) -->
+7. A user-selected web keyboard layout follows the user through the bounded snapshot. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: scripts/browser-ide-ui-state.py::restore --> <!-- @test: host/__tests__/browser-ide-ui-state.test.js (REQ-IDE-002: persists the selected keyboard layout without broad settings state) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
 - The selected session remains visible in the editor location for the lifetime of the page.
-- The per-user snapshot at `~/.codeflare/ide-ui-state.json` is the only bucket-level IDE state; it is atomically written, capped at 1 MiB, contains only allowlisted theme values, a string-valued `keyboard.layout`, and concrete resource-only workspace-state schemas, and contains no raw database.
-- Managed Codeflare and Claude settings override restored preferences on every launch.
+- Bucket-level IDE state is limited to `~/.codeflare/ide-ui-state.json` and `~/.codeflare/ide-extensions.json`. Both are atomically written and fail closed; the first is capped at 1 MiB and contains only allowlisted UI values/resources, while the second is capped at 64 KiB and contains only bounded extension identity/version metadata, a durable warning acknowledgement, and contributed User-scope settings.
+- Managed Codeflare, Claude, and UI-continuity settings override extension-restored preferences on every launch.
 - The upstream keyboard-layout status item and picker remain visible; Codeflare persists the user's selection instead of hiding or preselecting that control.
 
 **Priority:** P2
@@ -90,7 +90,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js); [UI-state snapshot tests](../../host/__tests__/browser-ide-ui-state.test.js); [settings preparation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -483,52 +483,58 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-016: UI-state capture and restore ordering
+<a id="req-ide-016-ui-state-capture-and-restore-ordering"></a>
+### REQ-IDE-016: Bounded IDE-state capture and restore ordering
 
-**Intent:** Safe Browser IDE preferences move between sessions only after live state is closed and before managed settings are applied to fresh storage.
+**Intent:** Safe Browser IDE preferences and user-extension metadata move between sessions without delaying editor launch or persisting live runtime storage.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Snapshot capture starts only after the editor generation is reaped. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC1: captures UI state only after the code-server generation exits) -->
-2. Restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+1. UI snapshot capture starts only after the editor generation is reaped. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC1: captures UI state only after the code-server generation exits) -->
+2. UI restore creates fresh storage before managed settings are reapplied. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeUserSettings --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC2: restores safe UI state before managed settings and code-server launch) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+3. User-extension restore begins from the built-in welcome extension after workbench startup and never delays code-server launch. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-016 AC3: welcome activation starts lazy extension persistence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+4. Debounced in-session capture is backed by one post-reap registry capture, so closing during the debounce window cannot lose an install or uninstall. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @impl: entrypoint.sh::_openvscode_capture_extensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4: extension-host changes debounce one capture) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-016 AC4: captures the extension registry exactly once after a generation exits) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 
 **Constraints:**
 
-- Capture and restore use only the bounded snapshot defined by [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable).
-- Managed Codeflare and Claude settings remain authoritative after restore.
+- Capture and restore use only the two bounded manifests defined by [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable).
+- Managed Codeflare, Claude, and UI-continuity settings remain authoritative after restore.
+- Gallery availability never gates code-server startup.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** Automated test (editor lifecycle and settings-preparation tests)
+**Verification:** GitHub Actions runs editor lifecycle, settings preparation, manifest, welcome-bootstrap, and complete-image tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-IDE-017: Unsupported IDE inventory runtime metadata
+<a id="req-ide-017-unsupported-ide-inventory-runtime-metadata"></a>
+### REQ-IDE-017: Unsupported IDE base-inventory isolation
 
-**Intent:** Starting code-server with the unsupported inventory cannot install or expose an unsupported editor extension.
+**Intent:** Selecting an unsupported terminal agent exposes no Codeflare-managed IDE agent while still permitting the user's agent-independent extension manifest.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. After code-server initializes the unsupported inventory, that inventory contains no extension. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+1. The packaged unsupported base inventory contains no extension. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyUnsupportedInventory --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+2. Any extension visible in an unsupported-agent session comes only from the writable user layer and never changes the empty packaged base inventory. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-017 AC2: seeds immutable base extensions into a writable session layer) -->
 
 **Constraints:**
 
-- code-server may create one regular `extensions.json` registry file containing exactly `[]`; every other runtime entry is rejected.
-- The packaged unsupported inventory remains empty under [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility) AC1.
+- The packaged unsupported directory remains empty; code-server registry metadata and user-extension directories live only in the writable per-session layer.
+- User extensions do not become Codeflare-managed agents and remain subject to [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility)
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
 
-**Verification:** Automated test
+**Verification:** GitHub Actions validates packaged-base emptiness, writable-layer isolation, and complete-image restore/capture behavior.
 
 **Status:** Implemented
 
@@ -641,7 +647,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Pi sessions retain account-free Codeflare models. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-005 AC5 + REQ-IDE-013 AC1 + REQ-IDE-019 AC2+AC5 + REQ-IDE-034: native Pi registers account-free panel and editor Chat) -->
 3. Preparation preserves existing unrelated profile values and hidden status entries. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
 4. Pi, Claude, and unsupported inventories configure the left-side Accounts control as hidden. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-021: every prepared inventory preserves status entries and hides Accounts chrome) -->
-5. Pi, Claude, and unsupported inventories omit Code OSS's Chat title-bar sign-in affordance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+5. Pi, Claude, and unsupported inventories omit Code OSS's Chat title-bar sign-in affordance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy startup editor) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
 
 **Constraints:**
 
@@ -700,7 +706,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. **Review with Codeflare** attaches an Explorer workspace file and submits it to Codeflare ask mode. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-011 AC2+AC3: explorer review attaches one file and submits Codeflare ask mode) -->
 3. The Pi inventory contributes **Review with Codeflare** to the editor context menu. <!-- @impl: openvscode/agent-sidebar/package.json::editor/context --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC2 + REQ-IDE-011 AC1 + REQ-IDE-014 AC1 + REQ-IDE-019 AC1 + REQ-IDE-023 AC1: contributes native Pi panel and editor Chat) -->
 4. Image staging installs the official Claude inventory. <!-- @impl: openvscode/agent-sidebar/src/package-extension.ts::stageSidebarExtension --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-005 AC1: stages native Pi, official Claude, and empty unsupported inventories) -->
-5. The unsupported inventory remains extension-free after initialization. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
+5. The packaged unsupported base inventory remains extension-free after initialization. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir --> <!-- @test: host/__tests__/unsupported-ide-inventory.test.js (REQ-IDE-017 AC1: unsupported inventory remains extension-free after initialization) -->
 
 **Constraints:** Compatibility preservation adds no code-server or Code OSS patch and changes no Bump Shadow Pins ownership.
 
@@ -1015,6 +1021,104 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+### REQ-IDE-036: Persistent user-managed extensions
+
+**Intent:** A user's bounded Open VSX extension selection and contributed User settings survive container replacement while launch remains lazy and packaged agent inventories remain immutable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Persisted extension records remain inside the documented identity, count, type, and version bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+2. Persisted contributed User settings remain inside the documented key, value, type, and size bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+3. Malformed, oversized, redirected, noncanonical, or unknown persisted content remains byte-for-byte unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchanged) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+
+**Constraints:**
+
+- User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
+- Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
+- code-server disables VSIX signatures; TLS to Open VSX is the transport boundary because install does not expose artifact bytes.
+- The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
+- Records require `version`; optional platform, UTC RFC3339 timestamp, and lowercase hexadecimal SHA-256 fields are bounded; unknown fields are invalid.
+- Capture excludes fixed IDs, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically.
+- Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
+- Package bytes, enablement, keybindings, snippets, extension storage, SecretStorage, Accounts, policy UI, and extra coordination are excluded.
+- Whole-file newest-wins convergence follows the existing R2 bisync contract.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Verification:** GitHub Actions runs manifest unit tests, real shell/rclone behavior, welcome-bootstrap tests, and complete-image smoke. The image smoke exercises base/user layer composition, packaged bootstrap activation, install/uninstall capture, settings preservation, and base-inventory immutability. No local, browser-automation, Chromium, or manual test gate exists.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-037: Lazy extension restoration
+
+**Intent:** Persisted user-extension intent restores after workbench startup without losing contributed settings or failed intent.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Restoration attempts each persisted extension version before any fallback. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+2. Restoration limits simultaneous gallery installations to two. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-037 AC2: restores at most two missing extensions concurrently) -->
+3. Only confirmed unavailability of the persisted version permits one gallery-selected fallback. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+4. A failed restore leaves its persisted intent unchanged while remaining restoration work continues. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC3 + REQ-IDE-037 AC1+AC3+AC4: restores exact versions, falls back once, and preserves failures) -->
+5. Contributed global settings restore only after their extensions have registered configuration keys. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-037 AC5: contributed settings restore after their missing extension registers) -->
+
+**Constraints:**
+
+- Restoration runs only from the built-in welcome extension after `onStartupFinished`; gallery latency never delays code-server readiness.
+- Restore performs no retry loop beyond the single fallback in AC3.
+- code-server alone resolves target platforms.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-016](#req-ide-016-bounded-ide-state-capture-and-restore-ordering), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
+
+**Verification:** GitHub Actions runs exact-version/fallback, concurrency, failure-preservation, settings-ordering, welcome-activation, and complete-image tests without local, browser-automation, Chromium, or manual gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-038: Extension warning acknowledgement
+
+**Intent:** Persisted user-extension intent is never written, and unacknowledged restored extension code never executes, before the user accepts its root-capable security boundary; that acknowledgement is not repeatedly requested.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The first capture that would persist a user extension requires an accepted warning before writing that identity. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1: declining a scheduled warning does not prompt again during capture) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) -->
+2. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
+3. A later restore does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
+4. A later capture does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) -->
+5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) -->
+6. A fresh activation does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning) -->
+
+**Constraints:**
+
+- The durable `securityWarningShown` field records acknowledgement but grants no additional extension capability.
+- Declining or failing the warning preserves the manifest unchanged and executes no restored user extension.
+- The warning states that extensions execute root-capable code and that contributed global settings are synchronized.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
+
+**Verification:** GitHub Actions runs first-capture, pre-restore, non-repetition, reap-backstop, and complete-image tests without local, browser-automation, Chromium, or manual gates.
+
+**Status:** Implemented
+
+---
+
 ### REQ-IDE-039: Codeflare Browser IDE branding
 
 **Intent:** The Browser IDE consistently identifies its product and owned agent surfaces as Codeflare through supported host and packaged-extension seams.
@@ -1037,6 +1141,29 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-024](#req-ide-024-codeflare-browser-ide-welcome)
 
 **Verification:** Automated launch, complete-image product-metadata, activation, welcome-extension, and package tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-040: User-extension allowance policy
+
+**Intent:** Every Browser IDE inventory prepares and reapplies one managed User-setting allowance for user extensions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every Browser IDE inventory receives the managed wildcard user-extension allowance. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-040 AC1: every inventory applies the managed user-extension allowance) -->
+2. Profile preparation replaces a stale user value with that managed allowance. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation preserves safe UI preferences but replaces stale managed inventory settings) -->
+
+**Constraints:** `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry; fresh installs and lazy restoration share that prepared profile, while Codeflare does not own or bypass a stricter code-server operator policy.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-009](#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration)
+
+**Verification:** Automated managed-settings and profile-preparation tests.
 
 **Status:** Implemented
 

@@ -12,6 +12,7 @@ import {
   readlink,
   rm,
   stat,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -56,7 +57,7 @@ export function createVscodeSmokeApi(api) {
   });
 }
 
-export async function activateExtensionWithVscode(extensionMain, vscode, context, moduleOverrides = {}) {
+export async function loadExtensionWithVscode(extensionMain, vscode, moduleOverrides = {}) {
   const require = createRequire(import.meta.url);
   const Module = require('node:module');
   const originalLoad = Module._load;
@@ -66,12 +67,18 @@ export async function activateExtensionWithVscode(extensionMain, vscode, context
       if (Object.hasOwn(moduleOverrides, request)) return moduleOverrides[request];
       return originalLoad.call(this, request, parent, isMain);
     };
-    const extension = require(extensionMain);
-    await extension.activate(context);
-    return extension;
+    const resolved = require.resolve(extensionMain);
+    delete require.cache[resolved];
+    return require(resolved);
   } finally {
     Module._load = originalLoad;
   }
+}
+
+export async function activateExtensionWithVscode(extensionMain, vscode, context, moduleOverrides = {}) {
+  const extension = await loadExtensionWithVscode(extensionMain, vscode, moduleOverrides);
+  await extension.activate(context);
+  return extension;
 }
 
 export async function verifySelectedAgentLaunchers(
@@ -209,6 +216,7 @@ async function main() {
   await verifyConfigProjection();
   await verifyOpenVscodeSettings();
   await verifyUiStateHelper();
+  const userExtensionPersistence = await verifyUserExtensionPersistence(welcomeRoot, piRoot);
   const { CODING_AGENT_COMMANDS, hasCodingAgent } = await import('file:///opt/codeflare/scripts/coding-agent-selection.mjs');
   const selection = process.env.CODEFLARE_CODING_AGENTS;
   const agentPackages = await verifySelectedAgentPackages(selection, { hasCodingAgent });
@@ -225,6 +233,7 @@ async function main() {
     nativeChat,
     officialClaude,
     welcomeExtension: WELCOME_EXTENSION_NAME,
+    userExtensionPersistence,
     codeServerRuntime,
     agentPackages,
     agentVersions,
@@ -773,6 +782,182 @@ async function verifyOpenVscodeSettings() {
       assert.equal(profileState['workbench.statusbar.hidden'], undefined);
       assert.equal(profileState['workbench.activity.showAccounts'], 'false');
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyUserExtensionPersistence(welcomeRoot, piRoot) {
+  const helper = join(ROOT, 'browser-ide-extensions.py');
+  const policy = join(ROOT, 'extension-persistence-policy.json');
+  const helperInfo = await stat(helper);
+  const policyInfo = await stat(policy);
+  assert.equal(helperInfo.uid, 0);
+  assert.equal(helperInfo.mode & 0o222, 0);
+  assert.equal(helperInfo.mode & 0o111, 0o111);
+  assert.equal(policyInfo.uid, 0);
+  assert.equal(policyInfo.mode & 0o222, 0);
+
+  const root = await mkdtemp(join(tmpdir(), 'user-extension-image-smoke-'));
+  try {
+    const extensionsDir = join(root, 'extensions');
+    const manifestPath = join(root, 'persistent', 'ide-extensions.json');
+    const syncPidFile = join(root, 'sync-daemon.pid');
+    const fixtureRoot = join(root, 'fixture');
+    const fixturePackage = join(fixtureRoot, 'extension', 'package.json');
+    const vsixPath = join(root, 'fixture.user-extension-1.0.0.vsix');
+    await mkdir(extensionsDir, { recursive: true });
+    await mkdir(join(fixturePackage, '..'), { recursive: true });
+    await symlink(piRoot, join(extensionsDir, 'codeflare-agent-sidebar'));
+    await writeFile(fixturePackage, JSON.stringify({
+      name: 'user-extension',
+      publisher: 'fixture',
+      version: '1.0.0',
+      engines: { vscode: '^1.100.0' },
+      main: './extension.js',
+      activationEvents: ['*'],
+    }));
+    await writeFile(join(fixtureRoot, 'extension', 'extension.js'), 'exports.activate = () => {};\n');
+    await writeFile(join(fixtureRoot, '[Content_Types].xml'), '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="js" ContentType="application/javascript"/><Default Extension="vsixmanifest" ContentType="text/xml"/></Types>\n');
+    await writeFile(join(fixtureRoot, 'extension.vsixmanifest'), '<?xml version="1.0"?><PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Language="en-US" Id="user-extension" Version="1.0.0" Publisher="fixture"/><DisplayName>Fixture User Extension</DisplayName><Description>Image-smoke fixture</Description><Properties><Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.100.0"/></Properties></Metadata><Installation><InstallationTarget Id="Microsoft.VisualStudio.Code"/></Installation><Assets><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true"/></Assets></PackageManifest>\n');
+    execFileSync('python3', ['-c', [
+      'import pathlib, sys, zipfile',
+      'root, target = map(pathlib.Path, sys.argv[1:])',
+      'with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:',
+      '  for path in root.rglob("*"):',
+      '    if path.is_file(): archive.write(path, path.relative_to(root))',
+    ].join('\n'), fixtureRoot, vsixPath]);
+
+    const listExtensions = () => execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--list-extensions',
+      '--show-versions',
+    ], { encoding: 'utf8', timeout: 20_000 }).trim().split('\n').filter(Boolean).sort();
+    assert.deepEqual(listExtensions(), ['codeflare.codeflare-agent-sidebar@0.0.0']);
+    const fixedHashBefore = createHash('sha256').update(await readFile(join(piRoot, 'dist', 'extension.cjs'))).digest('hex');
+    execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--install-extension', vsixPath,
+      '--force',
+    ], { encoding: 'utf8', timeout: 30_000 });
+    assert.deepEqual(listExtensions(), [
+      'codeflare.codeflare-agent-sidebar@0.0.0',
+      'fixture.user-extension@1.0.0',
+    ]);
+    await mkdir(join(manifestPath, '..'), { recursive: true });
+    await writeFile(manifestPath, `${JSON.stringify({
+      version: 1,
+      securityWarningShown: true,
+      extensions: {},
+      settings: {},
+    })}\n`, { mode: 0o600 });
+
+    const runBackstop = () => execFileSync('python3', [
+      helper,
+      'capture',
+      '--extensions-dir', extensionsDir,
+      '--manifest', manifestPath,
+      '--policy', policy,
+    ], { encoding: 'utf8', timeout: 10_000 });
+    runBackstop();
+    let captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions), ['fixture.user-extension']);
+    assert.deepEqual(captured.settings, {});
+
+    captured = {
+      ...captured,
+      securityWarningShown: true,
+      extensions: {
+        ...captured.extensions,
+        'missing.fixture': { version: '2.0.0', targetPlatform: 'universal' },
+      },
+      settings: { 'fixture.enabled': true },
+    };
+    await writeFile(manifestPath, `${JSON.stringify(captured)}\n`, { mode: 0o600 });
+    const commandSelectors = [];
+    const settingsUpdates = [];
+    const vscode = createVscodeSmokeApi({
+      ConfigurationTarget: { Global: 1 },
+      ProgressLocation: { Notification: 15 },
+      commands: {
+        executeCommand: async (command, selector, options) => {
+          assert.equal(command, 'workbench.extensions.installExtension');
+          assert.deepEqual(options, { donotSync: true });
+          commandSelectors.push(selector);
+          if (selector === 'missing.fixture@2.0.0') {
+            const registryPath = join(extensionsDir, 'extensions.json');
+            const missingDirectory = join(extensionsDir, 'missing.fixture-2.0.0');
+            const registry = JSON.parse(await readFile(registryPath, 'utf8'));
+            await mkdir(missingDirectory, { recursive: true });
+            await writeFile(join(missingDirectory, 'package.json'), JSON.stringify({
+              name: 'fixture',
+              publisher: 'missing',
+              version: '2.0.0',
+              engines: { vscode: '^1.100.0' },
+            }));
+            await writeFile(registryPath, JSON.stringify([
+              ...registry,
+              {
+                identifier: { id: 'missing.fixture' },
+                version: '2.0.0',
+                location: { scheme: 'file', path: missingDirectory },
+                relativeLocation: 'missing.fixture-2.0.0',
+                metadata: { targetPlatform: 'universal' },
+              },
+            ]));
+            return undefined;
+          }
+          throw new Error(`unexpected selector: ${selector}`);
+        },
+      },
+      extensions: {
+        all: [],
+        onDidChange: () => ({ dispose() {} }),
+      },
+      window: {
+        showWarningMessage: async (_message, ...actions) => actions.includes('I understand') ? 'I understand' : undefined,
+        withProgress: async (_options, task) => task({ report() {} }),
+      },
+      workspace: {
+        getConfiguration: () => ({
+          inspect: () => ({ globalValue: undefined }),
+          update: async (key, value, target) => settingsUpdates.push({ key, value, target }),
+        }),
+      },
+    });
+    const welcome = await loadExtensionWithVscode(join(welcomeRoot, 'dist', 'welcome-extension.cjs'), vscode);
+    assert.equal(typeof welcome.activateExtensionPersistence, 'function');
+    const subscriptions = [];
+    await welcome.activateExtensionPersistence({ subscriptions }, {
+      extensionsDir,
+      manifestPath,
+      syncPidFile,
+      debounceMs: 2_000,
+    });
+    assert.deepEqual(commandSelectors, ['missing.fixture@2.0.0']);
+    assert.deepEqual(settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
+    for (const subscription of subscriptions) subscription.dispose();
+
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions).sort(), ['fixture.user-extension', 'missing.fixture']);
+    assert.deepEqual(captured.settings, { 'fixture.enabled': true });
+    execFileSync('/usr/local/bin/code-server', [
+      '--extensions-dir', extensionsDir,
+      '--uninstall-extension', 'fixture.user-extension',
+    ], { encoding: 'utf8', timeout: 20_000 });
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions).sort(), ['fixture.user-extension', 'missing.fixture']);
+    await writeFile(join(extensionsDir, '.obsolete'), JSON.stringify({
+      'fixture.user-extension-1.0.0': true,
+    }));
+    runBackstop();
+    captured = JSON.parse(await readFile(manifestPath, 'utf8'));
+    assert.deepEqual(Object.keys(captured.extensions), ['missing.fixture']);
+    assert.equal(createHash('sha256').update(await readFile(join(piRoot, 'dist', 'extension.cjs'))).digest('hex'), fixedHashBefore);
+    assert.equal((await lstat(join(extensionsDir, 'codeflare-agent-sidebar'))).isSymbolicLink(), true);
+    return 'USER_EXTENSION_PERSISTENCE_OK';
   } finally {
     await rm(root, { recursive: true, force: true });
   }

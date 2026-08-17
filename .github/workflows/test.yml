@@ -202,7 +202,9 @@ jobs:
       # GitHub's pull-request files API can return diff/not_available for a
       # large generated graph even though the exact commits are checked out.
       # Fail safe by proving both commit identities through local git, recording
-      # the changed-file set for diagnostics, and selecting every lane.
+      # the changed-file set for diagnostics, and selecting every lane. This
+      # over-selects work but can never turn an unavailable API diff into green
+      # skipped coverage.
       - id: filter_fallback
         if: steps.filter.outcome == 'failure'
         env:

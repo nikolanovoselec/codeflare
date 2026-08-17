@@ -2,7 +2,7 @@
 
 **Audience:** Browser IDE contributors
 
-**Owns:** agent inventory selection, owned extension composition, package-local process adapters, UI-state projection code, package compatibility, and package verification.
+**Owns:** agent inventory selection, owned extension composition, user-extension manifest restore/capture, package-local process adapters, UI-state projection code, package compatibility, and package verification.
 
 **Does not own:** public routes, container lifecycle, system-wide security rationale, deployment configuration, or durable persistence policy. Those remain in the canonical documentation lanes.
 
@@ -16,7 +16,7 @@ The directory name is a retained private migration identifier. The selected IDE 
 | Exact supported Claude command | `/opt/codeflare/openvscode/extensions/claude` | Anthropic's official Claude Code panel in the right sidebar |
 | Unsupported or invalid configuration | `/opt/codeflare/openvscode/extensions/none` | No agent extension |
 
-An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty inventory. Classification never executes or rewrites the terminal command.
+An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicate tab IDs, missing tab 1, command suffixes, and unsupported agents select the empty base inventory. Classification never executes or rewrites the terminal command. At launch, entries from that immutable base are symlinked into `/tmp/openvscode-data/extensions`; native user installs and lazy restores are real directories beside them. The unsupported base stays empty even when the writable layer contains user-managed extensions.
 
 Every inventory manages `workbench.startupEditor` to `none`, suppressing code-server's default Welcome editor, then opens only the owned Codeflare welcome editor with self-contained nonce-bound HTML. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface or external content.
 
@@ -29,6 +29,7 @@ Every inventory manages `workbench.startupEditor` to `none`, suppressing code-se
 | Inline proposal gate | `../preseed/agents/pi/extensions/inline-edit.ts` | Per-turn proposal-only tools and exact panel-tool restoration |
 | Packaging | `agent-sidebar/src/package-extension.ts`, `agent-sidebar/esbuild.mjs` | Deterministic extension output and package identity |
 | Welcome extension | `agent-sidebar/src/welcome*.ts`, `agent-sidebar/welcome-package.json` | Shared editor content and inventory-specific actions |
+| User extension continuity | `agent-sidebar/src/extension-persistence.ts`, `extension-persistence-policy.json`, `../scripts/browser-ide-extensions.py` | Strict manifest validation, lazy Open VSX restore, live capture, and reap backstop |
 | Claude projection | `claude/` | Allowlisted config projection and managed settings around the unmodified package |
 | Package tests | `agent-sidebar/test/`, `claude/test/` | Behavioral package and projection verification |
 
@@ -52,11 +53,19 @@ The image uses Anthropic's exact checksum-pinned package without patching or red
 
 Claude package-selection, pinning, and complete-image behavior belong to [Container](../documentation/lanes/container.md#code-server-browser-ide). Projection-file mechanics belong to [Claude IDE configuration](claude/README.md).
 
+## User-managed extension continuity
+
+The native Extensions view remains the only install, update, and uninstall UI. The built-in welcome extension activates after workbench startup, reads the strict version-1 `~/.codeflare/ide-extensions.json`, requires its durable warning acknowledgement, restores missing exact Open VSX versions with concurrency two, applies contributed settings after registration, and uses one unpinned fallback only for a structured not-found result. Other failures produce one bounded warning and leave intent unchanged. This bootstrap never delays code-server launch.
+
+Live capture reads `extensions.json`, excludes the three fixed IDs, normalizes ordinary IDs to lowercase, and records the registry's actual versions and optional platform/timestamp metadata. Only a matching bounded `.obsolete` key proves uninstall; absence alone may be a gallery failure. Contributed global settings are captured only when they are bounded plain JSON and are not Codeflare-managed or UI-continuity keys. Registry, extension-host, and contributed-setting signals share a two-second debounce. Welcome deactivation flushes a pending settings capture, and the reap-time Python backstop updates identities without replacing settings. Every changed atomic write wakes the existing bisync daemon; there is no separate R2 writer.
+
+Before the first manifest write containing a user extension—or before unacknowledged restored intent can execute—Codeflare requires one durable warning acknowledgement that extensions can execute arbitrary root-capable code and read session files or credentials. code-server grants proposed APIs broadly and disables VSIX signature verification. Open VSX over TLS is the only v1 gallery/transport boundary. The manifest stores no VSIX/extracted bytes, extension/global/workspace storage, SecretStorage, Accounts, enablement, keybindings, snippets, or secondary downloads. Private VSIX installs remain session-local. Simultaneous sessions retain whole-file newest-wins convergence.
+
 ## Workspace selection and safe continuity
 
 The public Browser IDE location stays clean and rejects browser-supplied workspace selectors at Worker and host boundaries. Only the private loopback root hop receives the canonical workspace. Its projected `vscode-remote` folder uses the proxy's canonical public browser authority rather than code-server's server-side `remote` placeholder, keeping renderer and extension-host document identities equal. This limits public navigation; terminals, trusted extensions, and agents retain container filesystem access.
 
-Live code-server state remains ephemeral. Package code exports only the approved theme, string keyboard layout, Explorer expansion, and canonical in-workspace open-file state into the bounded snapshot. Credentials, authentication, unapproved settings, extension/global/workspace storage, editor databases, chat history, logs, WAL, and SHM are excluded. The canonical persistence and security consequences belong to [Container](../documentation/lanes/container.md) and [Storage & Sync](../documentation/lanes/storage-and-sync.md).
+Live code-server state remains ephemeral. Package code exports only the approved theme, string keyboard layout, Explorer expansion, and canonical in-workspace open-file state into the bounded UI snapshot. The separate extension manifest holds only bounded intent and contributed settings as described above. Credentials, authentication, package bytes, unapproved settings, extension/global/workspace storage, editor databases, chat history, logs, WAL, and SHM are excluded. The canonical persistence and security consequences belong to [Container](../documentation/lanes/container.md) and [Storage & Sync](../documentation/lanes/storage-and-sync.md).
 
 <a id="build-and-verification"></a>
 ## Develop and verify
