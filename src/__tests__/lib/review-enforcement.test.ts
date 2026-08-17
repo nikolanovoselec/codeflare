@@ -777,7 +777,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-132 AC7: reconciles an already-existing PR failure against authoritative exact-head state', async () => {
+  it('REQ-AGENT-132 AC8: reconciles an already-existing PR failure against authoritative exact-head state', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     const failureText = 'a pull request for branch "pi" into branch "main" already exists';
@@ -804,6 +804,34 @@ describe('Pi review reminder and settled enforcement', () => {
       head: fixture.head,
       ciEvent: 'pr-create',
     });
+  });
+
+  it('REQ-AGENT-132 AC9: keeps non-ambiguous failed commands inert', async () => {
+    for (const [toolUseId, command, failureText] of [
+      ['push-failed', 'git push origin pi', 'fatal: unable to access remote'],
+      ['create-failed', 'gh pr create --base main', 'GraphQL: validation failed'],
+    ] as const) {
+      const fixture = makeReviewFixture();
+      const harness = await registerFixture(fixture);
+      const failed = toolResult(toolUseId, 'bash', true) as any;
+      failed.message.content = [{ type: 'text', text: failureText }];
+      appendSession(fixture.sessionFile,
+        assistantTool(toolUseId, 'bash', { command }),
+        failed,
+      );
+
+      await harness.emit('tool_result', {
+        ...boundaryEvent(command, toolUseId),
+        isError: true,
+        result: {
+          content: [{ type: 'text', text: failureText }],
+          isError: true,
+        },
+      });
+
+      expect(harness.reviewPrompts).toEqual([]);
+      expect(harness.sent).toEqual([]);
+    }
   });
 
   it('REQ-AGENT-120/REQ-AGENT-121: launches the existing review and CI plan when confirmation is accepted', async () => {

@@ -1023,8 +1023,10 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. code-server receives the supported Codeflare app name. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
-2. The Pi Chat participant and welcome panel use the packaged Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC2: welcome panel uses the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC2: packaged brand icon matches the product icon) -->
+1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs (REQ-IDE-039 AC1: packaged code-server exposes the Codeflare product name) -->
+2. The Pi Chat participant uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) -->
+3. The welcome panel uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) -->
+4. The packaged Browser IDE brand icon matches the established product icon. <!-- @impl: Dockerfile::COPY openvscode/agent-sidebar/media/ --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) -->
 
 **Constraints:**
 
@@ -1034,7 +1036,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-024](#req-ide-024-codeflare-browser-ide-welcome)
 
-**Verification:** Automated launch, activation, welcome-extension, and package tests.
+**Verification:** Automated launch, complete-image product-metadata, activation, welcome-extension, and package tests.
 
 **Status:** Implemented
 

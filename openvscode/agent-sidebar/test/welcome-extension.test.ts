@@ -78,7 +78,7 @@ afterEach(() => {
   host.panel = undefined;
 });
 
-test('REQ-IDE-039 AC2: welcome panel uses the Codeflare brand icon', async () => {
+test('REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon', async () => {
   vi.useFakeTimers();
   process.env.CODEFLARE_SIDEBAR_AGENT = 'pi';
   const subscriptions: Array<{ dispose(): void }> = [];
