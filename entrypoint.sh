@@ -1480,7 +1480,7 @@ _openvscode_extensions_dir() {
 # Compose immutable image-owned extensions with real user extension directories
 # in one per-container writable layer. Fixed identities are symlinked exactly
 # once; a collision fails closed rather than replacing fixed package bytes.
-# REQ-IDE-036 AC3.
+# REQ-IDE-036 AC2.
 _openvscode_seed_extension_layer() {
     local base_dir="$1" session_dir="$2" source name destination
     mkdir -p -- "$session_dir" || return 1

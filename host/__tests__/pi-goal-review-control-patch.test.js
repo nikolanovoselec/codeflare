@@ -763,7 +763,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
     assert.throws(
       () => patchPiGoalDirectory('0.44.0', versionDrift),
-      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.5`),
+      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.7`),
     );
     assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
 

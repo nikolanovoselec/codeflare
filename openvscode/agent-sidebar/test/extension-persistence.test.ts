@@ -11,6 +11,8 @@ const host = vi.hoisted(() => ({
   extensionChange: undefined as (() => void) | undefined,
   inspected: new Map<string, unknown>(),
   settingsUpdates: [] as Array<{ key: string; value: unknown; target: unknown }>,
+  updateSetting: async (_key: string, _value: unknown, _target: unknown): Promise<void> => undefined,
+  acknowledgeSecurity: true,
   warnings: [] as string[],
   progressTitles: [] as string[],
 }));
@@ -34,7 +36,7 @@ vi.mock('vscode', () => ({
   window: {
     showWarningMessage: async (message: string, ...actions: unknown[]) => {
       host.warnings.push(message);
-      return actions.includes('I understand') ? 'I understand' : undefined;
+      return host.acknowledgeSecurity && actions.includes('I understand') ? 'I understand' : undefined;
     },
     withProgress: async (options: { title: string }, task: (progress: { report(): void }) => Promise<unknown>) => {
       host.progressTitles.push(options.title);
@@ -45,6 +47,7 @@ vi.mock('vscode', () => ({
     getConfiguration: () => ({
       inspect: (key: string) => ({ globalValue: host.inspected.get(key) }),
       update: async (key: string, value: unknown, target: unknown) => {
+        await host.updateSetting(key, value, target);
         host.settingsUpdates.push({ key, value, target });
       },
     }),
@@ -106,6 +109,8 @@ beforeEach(() => {
   host.extensionChange = undefined;
   host.inspected.clear();
   host.settingsUpdates = [];
+  host.updateSetting = async () => undefined;
+  host.acknowledgeSecurity = true;
   host.warnings = [];
   host.progressTitles = [];
 });
@@ -119,7 +124,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-036 AC1+AC4: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
+test('REQ-IDE-036 AC1+AC3: malformed manifests fail closed and valid manifests round-trip atomically', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   const malformed = JSON.stringify({
     version: 1,
@@ -144,17 +149,20 @@ test('REQ-IDE-036 AC1+AC4: malformed manifests fail closed and valid manifests r
   assert.deepEqual(loaded.manifest?.settings, { 'yaml.validate': true });
 });
 
-test('REQ-IDE-016 AC3 + REQ-IDE-036 AC5: restores exact versions, falls back once on structured not-found, and preserves failures', async () => {
+test('REQ-IDE-016 AC3 + REQ-IDE-036 AC4: restores exact versions, falls back once on structured not-found, and preserves failures', async () => {
   const { extensionsDir, manifestPath } = fixture();
-  const manifest = validManifest({
-    'redhat.vscode-yaml': { version: '1.24.0' },
-    'dbaeumer.vscode-eslint': { version: '3.0.34' },
-    'eamodio.gitlens': { version: '17.0.0' },
-  }, {
-    'yaml.validate': true,
-    'extensions.allowed': { '*': false },
-    'workbench.colorTheme': 'must-not-override-ui-state',
-  });
+  const manifest = {
+    ...validManifest({
+      'redhat.vscode-yaml': { version: '1.24.0' },
+      'dbaeumer.vscode-eslint': { version: '3.0.34' },
+      'eamodio.gitlens': { version: '17.0.0' },
+    }, {
+      'yaml.validate': true,
+      'extensions.allowed': { '*': false },
+      'workbench.colorTheme': 'must-not-override-ui-state',
+    }),
+    securityWarningShown: true,
+  };
   const original = `${JSON.stringify(manifest)}\n`;
   writeFileSync(manifestPath, original);
   writeRegistry(extensionsDir);
@@ -200,12 +208,55 @@ test('REQ-IDE-016 AC3 + REQ-IDE-036 AC5: restores exact versions, falls back onc
   ]);
 });
 
-test('REQ-IDE-036 AC5: restores at most two missing extensions concurrently', async () => {
+test('REQ-IDE-036 AC7: unacknowledged manifest intent never executes before the warning is accepted', async () => {
+  const { extensionsDir, manifestPath, syncPidFile } = fixture();
+  const original = JSON.stringify(validManifest({
+    'publisher.extension': { version: '1.0.0' },
+  }));
+  writeFileSync(manifestPath, original);
+  writeRegistry(extensionsDir);
+  host.acknowledgeSecurity = false;
+
+  await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+
+  assert.deepEqual(host.commands, []);
+  assert.equal(readFileSync(manifestPath, 'utf8'), original);
+
+  host.acknowledgeSecurity = true;
+  host.execute = async () => {
+    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
+  };
+  await restoreExtensionManifest({ extensionsDir, manifestPath, syncPidFile });
+
+  assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), ['publisher.extension@1.0.0']);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).securityWarningShown, true);
+});
+
+test('REQ-IDE-036 AC4: contributed settings restore after their missing extension registers', async () => {
+  const { extensionsDir, manifestPath } = fixture();
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ 'publisher.extension': { version: '1.0.0' } }, { 'fixture.enabled': true }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir);
+  let registered = false;
+  host.execute = async () => { registered = true; };
+  host.updateSetting = async () => {
+    if (!registered) throw new Error('configuration is not registered');
+  };
+
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+
+  assert.deepEqual(host.settingsUpdates, [{ key: 'fixture.enabled', value: true, target: 1 }]);
+});
+
+test('REQ-IDE-036 AC4: restores at most two missing extensions concurrently', async () => {
   const { extensionsDir, manifestPath } = fixture();
   const ids = ['one.extension', 'two.extension', 'three.extension', 'four.extension'];
-  writeFileSync(manifestPath, JSON.stringify(validManifest(Object.fromEntries(
-    ids.map((id) => [id, { version: '1.0.0' }]),
-  ))));
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest(Object.fromEntries(ids.map((id) => [id, { version: '1.0.0' }]))),
+    securityWarningShown: true,
+  }));
   writeRegistry(extensionsDir);
   let active = 0;
   let maximum = 0;
@@ -244,7 +295,7 @@ test('REQ-IDE-036 AC5: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), ids);
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC6: capture preserves intent, filters settings, warns once, and signals after atomic change', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC5: capture preserves intent, filters settings, warns once, and signals after atomic change', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -304,7 +355,7 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC6: capture preserves intent, filters setti
   assert.equal(kill.mock.calls.length, 2);
 });
 
-test('REQ-IDE-036 AC8: warns once before the first persisted user extension across fresh activations', async () => {
+test('REQ-IDE-036 AC7: warns once before the first persisted user extension across fresh activations', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'publisher.extension', version: '1.0.0' }]);
   writeFileSync(syncPidFile, '2222\n');
@@ -319,7 +370,7 @@ test('REQ-IDE-036 AC8: warns once before the first persisted user extension acro
   assert.deepEqual(host.warnings, []);
 });
 
-test('REQ-IDE-036 AC6: extension-host changes debounce one capture', async () => {
+test('REQ-IDE-036 AC5: extension-host changes debounce one capture', async () => {
   vi.useFakeTimers();
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir);

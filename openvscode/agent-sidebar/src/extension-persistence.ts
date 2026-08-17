@@ -412,20 +412,30 @@ async function restoreSettings(settings: Record<string, JsonValue>): Promise<voi
   }
 }
 
-export async function restoreExtensionManifest(options: Pick<ResolvedOptions, 'extensionsDir' | 'manifestPath'>): Promise<{ failures: string[] }> {
+export async function restoreExtensionManifest(
+  options: Pick<ResolvedOptions, 'extensionsDir' | 'manifestPath'> & Partial<Pick<ResolvedOptions, 'syncPidFile'>>,
+): Promise<{ failures: string[] }> {
   const loaded = await loadExtensionManifest(options.manifestPath);
   if (loaded.state !== 'valid') return { failures: [] };
+  let manifest = loaded.manifest;
+  if (Object.keys(manifest.extensions).length > 0 && manifest.securityWarningShown !== true) {
+    if (!(await acknowledgeExtensionSecurity())) return { failures: [] };
+    manifest = { ...manifest, securityWarningShown: true };
+    const payload = stableJson(manifest);
+    if (!isManifest(manifest) || Buffer.byteLength(payload) > policy.manifestMaxBytes) return { failures: [] };
+    await atomicWrite(options.manifestPath, payload);
+    if (options.syncPidFile !== undefined) await signalSync(options.syncPidFile);
+  }
   let installed: Record<string, ExtensionRecord>;
   try {
     installed = await loadRegistry(options.extensionsDir);
   } catch {
     return { failures: [] };
   }
-  const missing = Object.entries(loaded.manifest.extensions)
+  const missing = Object.entries(manifest.extensions)
     .filter(([id]) => installed[id] === undefined)
     .sort(([left], [right]) => left.localeCompare(right));
   const failures: string[] = [];
-  await restoreSettings(loaded.manifest.settings);
 
   const restoreOne = async ([id, record]: [string, ExtensionRecord]) => {
     try {
@@ -463,6 +473,7 @@ export async function restoreExtensionManifest(options: Pick<ResolvedOptions, 'e
       },
     );
   }
+  await restoreSettings(manifest.settings);
   failures.sort();
   if (failures.length > 0) {
     const visible = failures.slice(0, 10).join(', ');

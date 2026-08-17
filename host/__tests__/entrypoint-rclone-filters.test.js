@@ -262,7 +262,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
-  it('REQ-IDE-002 AC6 + REQ-IDE-036 AC2: syncs only bounded Browser IDE manifests', () => {
+  it('REQ-IDE-002 AC6: syncs only bounded Browser IDE manifests', () => {
     for (const sessionMode of ['advanced', 'default']) {
       const v = verdictUnder({ sessionMode, defaultDeny: false });
       assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_GOAL_VERSION = '0.46.0';
-export const NEXT_PI_GOAL_VERSION = '0.49.5';
+export const NEXT_PI_GOAL_VERSION = '0.49.7';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
   NEXT_PI_GOAL_VERSION,

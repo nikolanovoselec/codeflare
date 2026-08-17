@@ -220,7 +220,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
     ]);
   });
 
-  it('REQ-IDE-036 AC3: seeds immutable base extensions into a writable session layer', () => {
+  it('REQ-IDE-017 AC2 + REQ-IDE-036 AC2: seeds immutable base extensions into a writable session layer', () => {
     const fixedRoot = join(dir, 'fixed');
     const dataDir = join(dir, 'session-data');
     const fixedPi = join(fixedRoot, 'pi', 'codeflare.codeflare-agent-sidebar');

@@ -67,6 +67,7 @@ const REQUIRED = Object.entries(piPackage.dependencies)
 const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.46.0': 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==',
   '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
+  '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
