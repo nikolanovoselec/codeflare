@@ -279,7 +279,7 @@ afterEach(async () => {
   ]);
 });
 
-test('REQ-IDE-001: native Pi registers the Codeflare brand icon', async () => {
+test('REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon', async () => {
   await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
 
   assert.deepEqual(host.participant?.iconPath, { fsPath: '/extension/media/agent.svg' });

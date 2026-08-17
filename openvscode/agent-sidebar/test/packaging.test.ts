@@ -56,7 +56,7 @@ async function stageFixture(source: string, claudeSource: string, target: string
   });
 }
 
-test('Codeflare chat participant uses the product brand icon', async () => {
+test('REQ-IDE-039 AC2: packaged brand icon matches the product icon', async () => {
   const participantIcon = await readFile(new URL('../media/agent.svg', import.meta.url), 'utf8');
   const productIcon = await readFile(new URL('../../../web-ui/public/favicon.svg', import.meta.url), 'utf8');
   assert.equal(participantIcon, productIcon);

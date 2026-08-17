@@ -749,7 +749,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(resumedHarness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-121/REQ-AGENT-132: reconciles an ambiguous failed PR creation against authoritative exact-head state', async () => {
+  it('REQ-AGENT-121/REQ-AGENT-132 AC7: reconciles an ambiguous failed PR creation against authoritative exact-head state', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     const failedCreate = toolResult('create-ambiguous', 'bash', true) as any;
@@ -772,6 +772,35 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
       boundaryToolUseId: 'create-ambiguous',
+      head: fixture.head,
+      ciEvent: 'pr-create',
+    });
+  });
+
+  it('REQ-AGENT-132 AC7: reconciles an already-existing PR failure against authoritative exact-head state', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const failureText = 'a pull request for branch "pi" into branch "main" already exists';
+    const failedCreate = toolResult('create-existing', 'bash', true) as any;
+    failedCreate.message.content = [{ type: 'text', text: failureText }];
+    appendSession(fixture.sessionFile,
+      assistantTool('create-existing', 'bash', { command: 'gh pr create --base main' }),
+      failedCreate,
+    );
+
+    await harness.emit('tool_result', {
+      ...boundaryEvent('gh pr create --base main', 'create-existing'),
+      isError: true,
+      result: {
+        content: [{ type: 'text', text: failureText }],
+        isError: true,
+      },
+    });
+
+    expect(harness.reviewPrompts).toEqual([]);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'create-existing',
       head: fixture.head,
       ciEvent: 'pr-create',
     });

@@ -50,8 +50,6 @@ A full code-server browser editor for an advanced running session. The editor op
 - The editor reuses the session container and existing authenticated proxy boundary.
 - The editor listens only inside the container; it has no independently reachable network surface.
 - The pinned MIT-licensed code-server release remains unmodified under [AD119](../../documentation/decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
-- The existing code-server app-name option identifies the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-001 + REQ-IDE-002: launches code-server with the exact production flags and ephemeral settings layout) -->
-- The owned Pi Chat participant and welcome panel use the packaged Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-001: native Pi registers the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-001: welcome panel uses the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (Codeflare chat participant uses the product brand icon) -->
 
 **Priority:** P2
 
@@ -1012,6 +1010,31 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](#req-ide-015-clean-browser-ide-url-and-private-workspace-selection)
 
 **Verification:** Automated host proxy tests and complete-image smoke; deployed one-tab Inline review confirms renderer and extension-host URI convergence.
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-039: Codeflare Browser IDE branding
+
+**Intent:** The Browser IDE consistently identifies its product and owned agent surfaces as Codeflare through supported host and packaged-extension seams.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. code-server receives the supported Codeflare app name. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
+2. The Pi Chat participant and welcome panel use the packaged Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC2: welcome panel uses the Codeflare brand icon) --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC2: packaged brand icon matches the product icon) -->
+
+**Constraints:**
+
+- Branding uses existing code-server options and packaged extension media without patching Code OSS.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-024](#req-ide-024-codeflare-browser-ide-welcome)
+
+**Verification:** Automated launch, activation, welcome-extension, and package tests.
 
 **Status:** Implemented
 
