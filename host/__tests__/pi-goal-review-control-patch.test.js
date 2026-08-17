@@ -52,6 +52,28 @@ const fixtureCommandsSource = `export class GoalCommandController {
 }
 `;
 
+const fixtureNextCommandsSource = fixtureCommandsSource.replace(
+  `\tpauseGoal(ctx: StatusContext) {
+\t\tif (!this.runtime.activeGoal || this.runtime.activeGoal.status !== "active") return;
+\t\tthis.runtime.recordGoalUsage(this.runtime.activeGoal, ctx);
+\t\tthis.runtime.cancelContinuationWork();
+\t\tthis.runtime.clearBudgetWrapUp();
+\t\tthis.runtime.blockStaleGoalToolCalls();
+\t\tabortCurrentTurn(ctx);
+\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");
+\t\tthis.runtime.persistGoal(this.runtime.activeGoal);
+\t\tthis.runtime.updateStatus(ctx, this.runtime.activeGoal);
+\t}`,
+  `\tpauseGoal(ctx: StatusContext) {
+\t\tif (!this.runtime.activeGoal || this.runtime.activeGoal.status !== "active") return;
+\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {
+\t\t\tkind: "explicit_pause",
+\t\t\texpectedGoalId: this.runtime.activeGoal.id,
+\t\t});
+\t\treturn stoppedGoal;
+\t}`,
+);
+
 const fixtureGoalSource = `function registerGoalRuntime(pi: ExtensionAPI, options: GoalOptions = {}) {
 \tconst runtime = new GoalRuntime(pi);
 \tconst commands = new GoalCommandController(runtime);
@@ -287,6 +309,23 @@ function executablePatchedController(abortCurrentTurn = () => {}) {
     abortCurrentTurn,
     (goal, status) => ({ ...goal, status }),
   );
+}
+
+function executablePatchedNextController() {
+  const patched = patchPiGoalCommandsSource(fixtureNextCommandsSource)
+    .replace('export class GoalCommandController', 'class GoalCommandController')
+    .replace(
+      'ctx: StatusContext, options: { abortTurn?: boolean } = {}',
+      'ctx, options = {}',
+    )
+    .replace(
+      'ctx: StatusContext, options: { sendPrompt?: boolean } = {}',
+      'ctx, options = {}',
+    );
+  return Function(
+    'buildResumePrompt',
+    `${patched}\nreturn GoalCommandController;`,
+  )((goal, status) => `${goal.id}:${status}`);
 }
 
 function executablePatchedGoal() {
@@ -595,26 +634,21 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(runtime.activeGoal.status, 'paused');
   });
 
-  it('REQ-AGENT-144: preserves the pause abort contract through the successor stop request', () => {
+  it('REQ-AGENT-144: executes successor command forwarding and runtime pause semantics together', () => {
     let aborts = 0;
     const scheduler = createScheduler();
     const Runtime = executablePatchedNextRuntime(scheduler, () => { aborts += 1; });
+    const Controller = executablePatchedNextController();
     const runtime = new Runtime({ sendUserMessage() {} });
+    const controller = new Controller(runtime);
 
     runtime.activeGoal = { id: 'goal-a', status: 'active' };
-    runtime.stopActiveGoal({ session: 'manual' }, {
-      kind: 'explicit_pause',
-      expectedGoalId: 'goal-a',
-    });
+    controller.pauseGoal({ session: 'manual' });
     assert.equal(aborts, 1);
     assert.equal(runtime.activeGoal.status, 'paused');
 
     runtime.activeGoal = { id: 'goal-b', status: 'active' };
-    runtime.stopActiveGoal({ session: 'review' }, {
-      kind: 'explicit_pause',
-      expectedGoalId: 'goal-b',
-      abortTurn: false,
-    });
+    controller.pauseGoal({ session: 'review' }, { abortTurn: false });
     assert.equal(aborts, 1);
     assert.equal(runtime.activeGoal.status, 'paused');
   });
