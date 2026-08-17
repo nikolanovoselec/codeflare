@@ -923,6 +923,7 @@ async function verifyUserExtensionPersistence(welcomeRoot, piRoot) {
           inspect: () => ({ globalValue: undefined }),
           update: async (key, value, target) => settingsUpdates.push({ key, value, target }),
         }),
+        onDidChangeConfiguration: () => ({ dispose() {} }),
       },
     });
     const welcome = await loadExtensionWithVscode(join(welcomeRoot, 'dist', 'welcome-extension.cjs'), vscode);
