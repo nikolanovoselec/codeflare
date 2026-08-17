@@ -1041,9 +1041,9 @@ A full code-server browser editor for an advanced running session. The editor op
 - User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
 - Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
 - code-server disables VSIX signatures; TLS to Open VSX is the transport boundary because install does not expose artifact bytes.
-- The mode-0600 version-1 manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
-- Records require `version`; optional platform, timestamp, and SHA-256 fields are bounded, and unknown fields are invalid.
-- Capture excludes fixed IDs, treats bounded `.obsolete` markers as uninstall truth, and writes atomically.
+- The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
+- Records require `version`; optional platform, UTC RFC3339 timestamp, and lowercase hexadecimal SHA-256 fields are bounded; unknown fields are invalid.
+- Capture excludes fixed IDs, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically.
 - Managed `extensions.allowed` retains wildcard allowance plus one explicit Codeflare entry.
 - Package bytes, enablement, keybindings, snippets, extension storage, SecretStorage, Accounts, policy UI, and extra coordination are excluded.
 - Whole-file newest-wins convergence follows the existing R2 bisync contract.
