@@ -218,13 +218,16 @@ function isCompleteMarkedPatch(source, marker, required, label) {
 }
 
 export function patchPiGoalCommandsSource(source) {
+  const usesStopActiveGoal = source.includes('this.runtime.stopActiveGoal(ctx, {');
   if (
     isCompleteMarkedPatch(
       source,
       COMMANDS_PATCH_MARKER,
       [
         'options: { abortTurn?: boolean } = {}',
-        'if (options.abortTurn !== false) abortCurrentTurn(ctx);',
+        usesStopActiveGoal
+          ? 'abortTurn: options.abortTurn,'
+          : 'if (options.abortTurn !== false) abortCurrentTurn(ctx);',
         'options: { sendPrompt?: boolean } = {}',
         'options.sendPrompt === false || await',
       ],
@@ -237,20 +240,40 @@ export function patchPiGoalCommandsSource(source) {
     '\tpauseGoal(ctx: StatusContext, options: { abortTurn?: boolean } = {}) {',
     'pause command signature',
   );
-  patched = replaceOnce(
-    patched,
-    [
-      '\t\tthis.runtime.blockStaleGoalToolCalls();',
-      '\t\tabortCurrentTurn(ctx);',
-      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
-    ].join('\n'),
-    [
-      '\t\tthis.runtime.blockStaleGoalToolCalls();',
-      '\t\tif (options.abortTurn !== false) abortCurrentTurn(ctx);',
-      '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
-    ].join('\n'),
-    'pause command turn abort',
-  );
+  if (usesStopActiveGoal) {
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {',
+        '\t\t\tkind: "explicit_pause",',
+        '\t\t\texpectedGoalId: this.runtime.activeGoal.id,',
+        '\t\t});',
+      ].join('\n'),
+      [
+        '\t\tconst stoppedGoal = this.runtime.stopActiveGoal(ctx, {',
+        '\t\t\tkind: "explicit_pause",',
+        '\t\t\texpectedGoalId: this.runtime.activeGoal.id,',
+        '\t\t\tabortTurn: options.abortTurn,',
+        '\t\t});',
+      ].join('\n'),
+      'pause command stop request',
+    );
+  } else {
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\tthis.runtime.blockStaleGoalToolCalls();',
+        '\t\tabortCurrentTurn(ctx);',
+        '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+      ].join('\n'),
+      [
+        '\t\tthis.runtime.blockStaleGoalToolCalls();',
+        '\t\tif (options.abortTurn !== false) abortCurrentTurn(ctx);',
+        '\t\tthis.runtime.activeGoal = transitionGoal(this.runtime.activeGoal, "paused");',
+      ].join('\n'),
+      'pause command turn abort',
+    );
+  }
   patched = replaceOnce(
     patched,
     '\tasync resumeGoal(ctx: StatusContext) {',
@@ -465,6 +488,9 @@ export function patchPiGoalSettingsSource(source) {
 }
 
 export function patchPiGoalRuntimeSource(source) {
+  const usesConfigurablePauseRequest = source.includes(
+    '| { kind: "explicit_pause"; expectedGoalId: string }',
+  );
   if (
     isCompleteMarkedPatch(
       source,
@@ -473,13 +499,55 @@ export function patchPiGoalRuntimeSource(source) {
         'const minIntervalMs = this.settings.continuationLimits.minIntervalMs;',
         'this.menuGeneration !== menuGeneration',
         'this.clearContinuationTimer();',
+        ...(usesConfigurablePauseRequest
+          ? [
+              'kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean',
+              'if (request.abortTurn !== false) abortCurrentTurn(ctx);',
+            ]
+          : []),
       ],
       'continuation runtime',
     )
   ) return source;
 
-  let patched = replaceOnce(
-    source,
+  let patched = source;
+  if (usesConfigurablePauseRequest) {
+    patched = replaceOnce(
+      patched,
+      '| { kind: "explicit_pause"; expectedGoalId: string }',
+      '| { kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean }',
+      'explicit pause request options',
+    );
+    patched = replaceOnce(
+      patched,
+      [
+        '\t\t\tcase "explicit_pause":',
+        '\t\t\t\tthis.recordGoalUsage(goal, ctx);',
+        '\t\t\t\tthis.cancelContinuationWork();',
+        '\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);',
+        '\t\t\t\tthis.clearBudgetWrapUp();',
+        '\t\t\t\tthis.blockStaleGoalToolCalls();',
+        '\t\t\t\tabortCurrentTurn(ctx);',
+        '\t\t\t\tstatus = "paused";',
+        '\t\t\t\tbreak;',
+      ].join('\n'),
+      [
+        '\t\t\tcase "explicit_pause":',
+        '\t\t\t\tthis.recordGoalUsage(goal, ctx);',
+        '\t\t\t\tthis.cancelContinuationWork();',
+        '\t\t\t\tthis.clearGoalRecoveryForGoal(goal.id);',
+        '\t\t\t\tthis.clearBudgetWrapUp();',
+        '\t\t\t\tthis.blockStaleGoalToolCalls();',
+        '\t\t\t\tif (request.abortTurn !== false) abortCurrentTurn(ctx);',
+        '\t\t\t\tstatus = "paused";',
+        '\t\t\t\tbreak;',
+      ].join('\n'),
+      'explicit pause turn abort',
+    );
+  }
+
+  patched = replaceOnce(
+    patched,
     '\tcompletionStatusTimer?: NodeJS.Timeout;\n\tcontinuationIntent?: ContinuationTicket;',
     [
       '\tcompletionStatusTimer?: NodeJS.Timeout;',

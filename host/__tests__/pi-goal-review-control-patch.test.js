@@ -717,8 +717,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
+    assert.match(first['src/commands.ts'], /abortTurn: options\.abortTurn/);
     assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
     assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
+    assert.match(first['src/runtime.ts'], /kind: "explicit_pause"; expectedGoalId: string; abortTurn\?: boolean/);
+    assert.match(first['src/runtime.ts'], /if \(request\.abortTurn !== false\) abortCurrentTurn\(ctx\);/);
     assert.match(first['src/settings.ts'], new RegExp(SETTINGS_PATCH_MARKER));
     assert.equal(first['src/lifecycle.ts'].match(/runController\.register/g), null);
     assert.match(first['src/settings.ts'], /automaticTurns: 25, noProgressTurns: 3, minIntervalMs: 0/);

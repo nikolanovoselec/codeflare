@@ -60,7 +60,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 <div class="container">
 
 <h1>codeflare — Complete Call Flow &amp; Architecture Documentation</h1>
-<p class="subtitle">Generated from graphify knowledge graph: 19560 nodes, 38701 edges, 1233 communities. Commit: d20747d</p>
+<p class="subtitle">Generated from graphify knowledge graph: 19560 nodes, 38701 edges, 1237 communities. Commit: 58e7173</p>
 
 <div class="nav">
     <a href="#overview">Architecture Overview</a>
@@ -94,42 +94,42 @@ flowchart LR
     class BUILD_GRAPH_321CBB04 module;
     ANALYSIS_CLUSTERING_C79796DA("Analysis &amp; Clustering<br/><small>90 nodes</small>")
     class ANALYSIS_CLUSTERING_C79796DA module;
-    OUTPUTS_DOCS_ED82387C("Outputs &amp; Docs<br/><small>962 nodes</small>")
+    OUTPUTS_DOCS_ED82387C("Outputs &amp; Docs<br/><small>975 nodes</small>")
     class OUTPUTS_DOCS_ED82387C module;
-    CLI_SKILLS_9964CBB8("CLI &amp; Skill Installers<br/><small>7269 nodes</small>")
+    CLI_SKILLS_9964CBB8("CLI &amp; Skill Installers<br/><small>7287 nodes</small>")
     class CLI_SKILLS_9964CBB8 module;
-    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>559 nodes</small>")
+    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>544 nodes</small>")
     class INGEST_CACHE_UPDATE_FF457338 module;
     SERVE_API_35EC8E86("Serving API<br/><small>734 nodes</small>")
     class SERVE_API_35EC8E86 module;
-    SECURITY_GLOBAL_5B9C6A04("Security &amp; Global Graph<br/><small>291 nodes</small>")
+    SECURITY_GLOBAL_5B9C6A04("Security &amp; Global Graph<br/><small>290 nodes</small>")
     class SECURITY_GLOBAL_5B9C6A04 module;
-    TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>4734 nodes</small>")
+    TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>4731 nodes</small>")
     class TESTS_FIXTURES_B84B1DCC module;
     PI_SKILLS_IMPECCABLE_SCRIPTS_LIVE_BROWSER_JS_D01B3B85("pi/skills/impeccable/scripts/live-browser.js<br/><small>151 nodes</small>")
     class PI_SKILLS_IMPECCABLE_SCRIPTS_LIVE_BROWSER_JS_D01B3B85 module;
-    PI_SKILLS_IMPECCABLE_SCRIPTS_DETECTOR_RULES_CHEC_40F03168("pi/skills/impeccable/scripts/detector/rules/checks.mjs<br/><small>124 nodes</small>")
+    PI_SKILLS_IMPECCABLE_SCRIPTS_DETECTOR_RULES_CHEC_40F03168("pi/skills/impeccable/scripts/detector/rules/checks.mjs<br/><small>112 nodes</small>")
     class PI_SKILLS_IMPECCABLE_SCRIPTS_DETECTOR_RULES_CHEC_40F03168 module;
-    PI_SKILLS_IMPECCABLE_SCRIPTS_CONTEXT_MJS_6474B868("pi/skills/impeccable/scripts/context.mjs<br/><small>96 nodes</small>")
+    PI_SKILLS_IMPECCABLE_SCRIPTS_CONTEXT_MJS_6474B868("pi/skills/impeccable/scripts/context.mjs<br/><small>106 nodes</small>")
     class PI_SKILLS_IMPECCABLE_SCRIPTS_CONTEXT_MJS_6474B868 module;
     SPEC_CHANGES_BC42026F("Spec Changes<br/><small>94 nodes</small>")
     class SPEC_CHANGES_BC42026F module;
     PI_SKILLS_IMPECCABLE_SCRIPTS_LIVE_SERVER_MJS_8BB25ADB("pi/skills/impeccable/scripts/live-server.mjs<br/><small>75 nodes</small>")
     class PI_SKILLS_IMPECCABLE_SCRIPTS_LIVE_SERVER_MJS_8BB25ADB module;
-    OTHER_D0941E68("Other<br/><small>2602 nodes</small>")
+    OTHER_D0941E68("Other<br/><small>2592 nodes</small>")
     class OTHER_D0941E68 module;
     PI_SKILLS_IMPECCABLE_SCRIPTS_LIVE_BROWSER_JS_D01B3B85 -->|contains x390| OTHER_D0941E68
-    TESTS_FIXTURES_B84B1DCC -->|imports x256| INGEST_CACHE_UPDATE_FF457338
-    INGEST_CACHE_UPDATE_FF457338 -->|imports x215| TESTS_FIXTURES_B84B1DCC
+    TESTS_FIXTURES_B84B1DCC -->|imports x259| INGEST_CACHE_UPDATE_FF457338
     INGEST_CACHE_UPDATE_FF457338 -->|contains x215| BUILD_GRAPH_321CBB04
+    INGEST_CACHE_UPDATE_FF457338 -->|imports x189| TESTS_FIXTURES_B84B1DCC
     CLI_SKILLS_9964CBB8 -->|contains x149| BUILD_GRAPH_321CBB04
-    BUILD_GRAPH_321CBB04 -->|extends x146| CLI_SKILLS_9964CBB8
+    BUILD_GRAPH_321CBB04 -->|extends x147| CLI_SKILLS_9964CBB8
     OTHER_D0941E68 -->|imports x105| TESTS_FIXTURES_B84B1DCC
-    PI_SKILLS_IMPECCABLE_SCRIPTS_DETECTOR_RULES_CHEC_40F03168 -->|contains x96| OTHER_D0941E68
+    PI_SKILLS_IMPECCABLE_SCRIPTS_DETECTOR_RULES_CHEC_40F03168 -->|contains x92| OTHER_D0941E68
     TESTS_FIXTURES_B84B1DCC -->|imports x75| SERVE_API_35EC8E86
     SERVE_API_35EC8E86 -->|imports x68| TESTS_FIXTURES_B84B1DCC
+    OUTPUTS_DOCS_ED82387C -->|imports x60| OTHER_D0941E68
     TESTS_FIXTURES_B84B1DCC -->|imports x56| OTHER_D0941E68
-    CLI_SKILLS_9964CBB8 -->|references x56| OTHER_D0941E68
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -146,7 +146,7 @@ flowchart LR
     <h4>Architecture Layers</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>Layer</th><th>Nodes</th><th>Communities</th></tr>
-      <tr><td>Extraction Pipeline</td><td>312</td><td><code>44, 114, 117, 167, 168, 701, 1113, 574, 846, 867, 868, 870, 900, 929, 1075, 1117, 1119, 1142, 512, 515, 562, 662, 668, 940, 947, 969, 978, 980, 981, 1159</code></td></tr><tr><td>Graph Build</td><td>1467</td><td><code>48, 601, 24, 198, 247, 165, 194, 245, 192, 242, 207, 153, 211, 148, 228, 244, 258, 611, 203, 212, 249, 688, 268, 328, 824, 163, 294, 301, 307, 229, 318, 326, 753, 246, 338, 775, 1213, 1230, 363, 811, 823, 395, 825, 850, 861, 927, 966, 432, 455, 456, 616, 898, 924, 1218, 926, 928, 1000, 1001, 1002, 1004, 1005, 1006, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1022, 1023, 1025, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1039, 1040, 1042, 1043, 1044, 1045, 1046, 1047, 1048, 1049, 1050, 1051, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060, 1064, 1069, 1070, 1072, 1074, 1077, 1078, 1079, 1080, 1081, 1082, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1092, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1104, 1105, 1106, 1107, 1108, 1109, 1110, 1111, 1112, 1114, 1115, 1116, 1118, 1120, 1121, 1122, 1123, 1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140, 1141, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1155, 1156, 1157, 1163, 1164, 1165, 1166, 1167, 1171, 1173, 1174, 1175, 1176, 1177, 1183, 1184, 1185, 1186, 1187, 1189, 1190, 1191, 1192, 1194, 1195, 1196, 1197, 1198, 1199, 1200, 1201, 1202, 1204, 1205, 1210, 1211, 1216, 524, 525, 526, 528, 533, 535, 538, 542, 544, 545, 551, 560, 568, 579, 584, 590, 595, 596, 597, 599, 600, 603, 604, 606, 608, 612, 621, 622, 626, 627, 629, 630, 633, 636, 641, 646, 657, 684, 716, 729, 737, 739, 766, 772, 783, 791, 839, 906, 938, 941, 942, 943, 944, 945, 946, 949, 950, 951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965, 967, 968, 970, 972, 973, 974, 975, 976, 982, 983, 985, 986, 987, 989, 992, 993, 994, 995, 996, 997, 998, 999</code></td></tr><tr><td>Analysis &amp; Clustering</td><td>90</td><td><code>240, 1083, 1203, 537, 853, 855, 856, 857, 858, 859, 860, 883, 895, 896, 918, 1179</code></td></tr><tr><td>Outputs &amp; Docs</td><td>962</td><td><code>31, 103, 79, 185, 184, 189, 224, 230, 191, 243, 550, 180, 340, 394, 431, 459, 464, 536, 624, 696, 718, 738, 786, 925, 156, 461, 687, 702, 287, 552, 750, 815, 556, 774, 795, 580, 767, 686, 819, 428, 1073, 1207</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>7269</td><td><code>16, 46, 11, 21, 26, 29, 71, 40, 23, 52, 56, 0, 516, 102, 43, 47, 32, 226, 49, 86, 53, 59, 67, 106, 323, 61, 70, 69, 74, 76, 166, 92, 77, 83, 101, 75, 110, 123, 85, 97, 113, 161, 239, 253, 84, 91, 104, 151, 154, 237, 124, 128, 139, 55, 98, 529, 174, 213, 60, 150, 120, 112, 115, 250, 126, 233, 263, 127, 255, 54, 144, 276, 289, 403, 430, 134, 155, 197, 221, 290, 107, 143, 206, 306, 316, 317, 329, 330, 331, 157, 178, 344, 371, 372, 373, 186, 234, 399, 700, 436, 176, 177, 493, 494, 521, 527, 187, 199, 384, 539, 540, 541, 219, 238, 283, 557, 589, 605, 607, 610, 204, 402, 614, 175, 196, 485, 631, 1214, 217, 222, 223, 433, 451, 625, 638, 639, 640, 665, 669, 670, 671, 672, 251, 252, 453, 677, 678, 679, 680, 681, 683, 685, 264, 341, 690, 691, 692, 693, 695, 840, 261, 269, 272, 448, 462, 479, 480, 484, 697, 698, 699, 149, 281, 285, 486, 704, 705, 706, 707, 708, 709, 710, 711, 712, 715, 724, 948, 133, 295, 296, 298, 300, 499, 501, 719, 720, 721, 722, 723, 725, 726, 727, 728, 887, 108, 321, 530, 740, 741, 742, 743, 744, 745, 746, 747, 748, 749, 404, 555, 755, 756, 757, 758, 759, 760, 761, 762, 763, 764, 765, 768, 769, 770, 784, 220, 342, 347, 564, 776, 777, 778, 779, 780, 781, 782, 785, 787, 789, 812, 364, 366, 585, 586, 588, 682, 797, 798, 799, 800, 801, 802, 803, 804, 805, 807, 808, 809, 810, 813, 814, 816, 821, 1169, 1170, 1232, 320, 444, 594, 602, 689, 827, 828, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 841, 843, 845, 848, 849, 1209, 425, 519, 546, 553, 573, 654, 854, 862, 863, 864, 866, 871, 872, 873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 885, 886, 888, 889, 892, 893, 894, 1178, 1235, 446, 450, 582, 658, 661, 794, 901, 902, 903, 904, 905, 907, 909, 910, 911, 912, 913, 914, 915, 916, 917, 920, 921, 489, 491, 581, 583, 908, 930, 931, 932, 933, 934, 935, 936, 937, 1021, 1024, 1026, 1038, 1041, 1052, 1061, 1062, 1063, 1065, 1066, 1067, 1068, 1076, 1093, 1103, 1151, 1215, 284, 511, 517, 518, 520, 522, 523, 563, 565, 569, 570, 571, 575, 576, 577, 578, 643, 676, 851, 971, 977, 979, 984, 988, 990, 991, 1158, 655, 659</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>559</td><td><code>5, 14, 1, 502, 159, 179, 266, 315, 884, 1217, 457, 1219, 490, 1003, 1007, 1153, 591, 617, 628, 635</code></td></tr><tr><td>Serving API</td><td>734</td><td><code>8, 20, 95, 63, 201, 137, 236, 427, 87, 369, 619, 674, 274, 842, 308, 806, 388, 543</code></td></tr><tr><td>Security &amp; Global Graph</td><td>291</td><td><code>33, 109, 129, 299, 396, 190, 566, 460, 559, 620, 865, 869, 449, 465, 899, 488, 642</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>4734</td><td><code>9, 3, 2, 4, 105, 171, 200, 25, 6, 7, 22, 34, 37, 50, 58, 42, 96, 125, 51, 41, 15, 12, 66, 72, 88, 68, 136, 89, 78, 18, 164, 135, 119, 130, 142, 498, 131, 36, 147, 162, 195, 209, 332, 549, 193, 172, 270, 271, 339, 667, 202, 1212, 216, 297, 337, 225, 248, 398, 514, 82, 231, 232, 235, 241, 111, 1220, 218, 424, 256, 257, 259, 265, 637, 267, 293, 277, 278, 279, 280, 282, 361, 1224, 291, 292, 312, 336, 440, 473, 547, 1226, 1227, 260, 309, 310, 311, 313, 314, 362, 447, 587, 1228, 1229, 324, 325, 327, 335, 381, 423, 532, 1071, 334, 477, 561, 703, 788, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 367, 370, 385, 391, 1233, 374, 375, 376, 377, 378, 379, 380, 382, 383, 386, 387, 389, 390, 392, 415, 598, 1168, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 416, 417, 418, 419, 420, 421, 422, 435, 472, 534, 554, 558, 609, 613, 645, 1091, 434, 437, 438, 439, 441, 442, 443, 445, 467, 468, 615, 897, 469, 470, 471, 474, 475, 476, 478, 481, 482, 483, 487, 492, 503, 505, 507, 508, 509, 510, 572, 664, 647, 648, 649, 650, 651, 660</code></td></tr><tr><td>pi/skills/impeccable/scripts/live-browser.js</td><td>151</td><td><code>13</code></td></tr><tr><td>pi/skills/impeccable/scripts/detector/rules/checks.mjs</td><td>124</td><td><code>17</code></td></tr><tr><td>pi/skills/impeccable/scripts/context.mjs</td><td>96</td><td><code>19</code></td></tr><tr><td>Spec Changes</td><td>94</td><td><code>81</code></td></tr><tr><td>pi/skills/impeccable/scripts/live-server.mjs</td><td>75</td><td><code>35</code></td></tr><tr><td>Other</td><td>2602</td><td><code>73, 38, 27, 28, 30, 45, 57, 62, 65, 10, 80, 39, 94, 99, 100, 132, 138, 64, 118, 93, 205, 121, 181, 188, 618, 303, 146, 145, 152, 397, 504, 116, 160, 254, 365, 632, 183, 426, 513, 141, 173, 452, 454, 182, 531, 215, 548, 208, 210, 393, 140, 90, 158, 169, 170, 214, 227, 666, 673, 675, 288, 717, 122, 694, 852, 262, 273, 275, 1221, 713, 714, 732, 1222, 302, 304, 305, 731, 733, 734, 735, 736, 319, 322, 751, 752, 1193, 333, 754, 771, 773, 792, 826, 343, 345, 346, 348, 349, 790, 793, 796, 818, 368, 592, 593, 817, 820, 822, 1231, 400, 401, 429, 623, 634, 730, 844, 847, 939, 1124, 644, 656, 890, 891, 458, 463, 497, 919, 922, 923, 466, 495, 496, 500, 506, 567, 1152, 1154, 1180, 1181, 1182, 286, 1160, 1161, 1162, 1172, 1188, 1206, 1208, 652, 653, 663</code></td></tr>
+      <tr><td>Extraction Pipeline</td><td>312</td><td><code>44, 114, 117, 167, 168, 701, 1113, 574, 846, 867, 868, 870, 900, 929, 1075, 1117, 1119, 1142, 512, 515, 562, 662, 668, 940, 947, 969, 978, 980, 981, 1159</code></td></tr><tr><td>Graph Build</td><td>1467</td><td><code>48, 601, 24, 198, 247, 165, 194, 245, 192, 242, 207, 153, 211, 148, 228, 244, 258, 611, 203, 212, 249, 688, 268, 328, 824, 163, 294, 301, 307, 229, 318, 326, 753, 246, 338, 775, 1213, 1230, 363, 811, 823, 395, 825, 850, 861, 927, 966, 432, 455, 456, 616, 898, 924, 1218, 926, 928, 1000, 1001, 1002, 1004, 1005, 1006, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1022, 1023, 1025, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1039, 1040, 1042, 1043, 1044, 1045, 1046, 1047, 1048, 1049, 1050, 1051, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060, 1064, 1069, 1070, 1072, 1074, 1077, 1078, 1079, 1080, 1081, 1082, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1092, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1104, 1105, 1106, 1107, 1108, 1109, 1110, 1111, 1112, 1114, 1115, 1116, 1118, 1120, 1121, 1122, 1123, 1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140, 1141, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1155, 1156, 1157, 1163, 1164, 1165, 1166, 1167, 1171, 1173, 1174, 1175, 1176, 1177, 1183, 1184, 1185, 1186, 1187, 1189, 1190, 1191, 1192, 1194, 1195, 1196, 1197, 1198, 1199, 1200, 1201, 1202, 1204, 1205, 1210, 1211, 1216, 524, 525, 526, 528, 533, 535, 538, 542, 544, 545, 551, 560, 568, 579, 584, 590, 595, 596, 597, 599, 600, 603, 604, 606, 608, 612, 621, 622, 626, 627, 629, 630, 633, 636, 641, 646, 657, 684, 716, 729, 737, 739, 766, 772, 783, 791, 839, 906, 938, 941, 942, 943, 944, 945, 946, 949, 950, 951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965, 967, 968, 970, 972, 973, 974, 975, 976, 982, 983, 985, 986, 987, 989, 992, 993, 994, 995, 996, 997, 998, 999</code></td></tr><tr><td>Analysis &amp; Clustering</td><td>90</td><td><code>240, 1083, 1203, 537, 853, 855, 856, 857, 858, 859, 860, 883, 895, 896, 918, 1179</code></td></tr><tr><td>Outputs &amp; Docs</td><td>975</td><td><code>31, 103, 79, 185, 180, 184, 189, 224, 230, 191, 243, 550, 340, 394, 431, 459, 464, 536, 624, 696, 718, 738, 786, 925, 156, 461, 687, 702, 287, 552, 750, 815, 556, 774, 795, 580, 767, 686, 819, 428, 1073, 1207</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>7287</td><td><code>16, 46, 11, 21, 26, 29, 23, 71, 40, 56, 70, 0, 516, 43, 47, 32, 226, 49, 86, 53, 102, 59, 67, 106, 323, 52, 61, 74, 76, 234, 166, 92, 98, 77, 101, 75, 110, 123, 85, 97, 113, 161, 239, 84, 91, 104, 151, 154, 237, 124, 128, 139, 55, 529, 83, 174, 213, 253, 60, 150, 120, 115, 250, 126, 233, 263, 127, 255, 54, 144, 221, 276, 289, 403, 134, 155, 197, 290, 107, 143, 206, 306, 316, 317, 329, 330, 331, 69, 157, 178, 344, 430, 372, 373, 399, 700, 112, 436, 176, 177, 493, 494, 521, 527, 187, 199, 384, 539, 540, 541, 186, 219, 238, 283, 557, 589, 605, 607, 610, 204, 371, 402, 519, 614, 175, 196, 485, 631, 1214, 217, 220, 222, 223, 433, 451, 625, 638, 639, 640, 665, 669, 670, 671, 672, 251, 252, 453, 677, 679, 680, 681, 683, 685, 264, 341, 690, 691, 692, 693, 695, 840, 261, 269, 272, 448, 462, 479, 480, 484, 697, 698, 699, 149, 281, 285, 486, 704, 705, 706, 707, 708, 709, 710, 711, 712, 715, 724, 948, 133, 295, 296, 298, 300, 499, 501, 678, 719, 720, 721, 722, 723, 725, 726, 727, 728, 887, 108, 1220, 321, 530, 740, 741, 742, 743, 744, 745, 746, 747, 748, 749, 404, 555, 755, 756, 757, 758, 759, 760, 761, 762, 763, 764, 765, 768, 769, 770, 784, 1225, 342, 347, 564, 776, 777, 778, 779, 780, 781, 782, 785, 787, 789, 812, 364, 366, 585, 586, 588, 682, 797, 798, 799, 800, 801, 802, 803, 804, 805, 807, 808, 809, 810, 813, 814, 816, 821, 1169, 1170, 1227, 1231, 1232, 320, 444, 594, 602, 689, 827, 828, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 841, 843, 845, 848, 849, 1209, 425, 546, 553, 573, 654, 854, 862, 863, 864, 866, 871, 872, 873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 885, 886, 888, 889, 892, 893, 894, 1178, 1235, 1236, 446, 450, 582, 658, 661, 794, 901, 902, 903, 904, 905, 907, 909, 910, 911, 912, 913, 914, 915, 916, 917, 920, 921, 489, 491, 581, 583, 908, 930, 931, 932, 933, 934, 935, 936, 937, 1021, 1024, 1026, 1038, 1041, 1052, 1061, 1062, 1063, 1065, 1066, 1067, 1068, 1076, 1093, 1103, 1151, 1215, 284, 511, 517, 518, 520, 522, 523, 563, 565, 569, 570, 571, 575, 576, 577, 578, 643, 676, 851, 971, 977, 979, 984, 988, 990, 991, 1158, 655, 659</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>544</td><td><code>5, 14, 1, 502, 159, 179, 266, 315, 884, 1217, 457, 1219, 490, 1003, 1007, 1153, 591, 617, 628, 635</code></td></tr><tr><td>Serving API</td><td>734</td><td><code>8, 20, 95, 63, 201, 137, 236, 427, 87, 369, 619, 674, 274, 842, 308, 806, 388, 543</code></td></tr><tr><td>Security &amp; Global Graph</td><td>290</td><td><code>33, 109, 129, 299, 396, 190, 566, 460, 559, 620, 865, 869, 449, 465, 899, 488, 642</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>4731</td><td><code>9, 3, 171, 4, 200, 25, 2, 22, 7, 34, 6, 105, 37, 58, 42, 96, 50, 125, 51, 498, 41, 15, 12, 66, 72, 88, 68, 319, 136, 89, 78, 18, 164, 135, 119, 130, 142, 131, 36, 147, 162, 195, 209, 332, 549, 193, 172, 270, 271, 339, 514, 667, 202, 1212, 216, 297, 337, 225, 248, 398, 82, 231, 232, 235, 241, 111, 218, 424, 256, 257, 259, 265, 637, 267, 293, 277, 278, 279, 280, 282, 361, 1224, 291, 292, 312, 336, 440, 473, 547, 1226, 260, 309, 310, 311, 313, 314, 362, 447, 587, 1223, 1228, 1229, 324, 325, 327, 335, 381, 423, 532, 1071, 334, 477, 561, 703, 788, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 367, 370, 385, 391, 1233, 374, 375, 376, 377, 378, 379, 380, 382, 383, 386, 387, 389, 390, 392, 415, 598, 1168, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 416, 417, 418, 419, 420, 421, 422, 435, 472, 534, 554, 558, 609, 613, 645, 1091, 434, 437, 438, 439, 441, 442, 443, 445, 467, 468, 615, 897, 469, 470, 471, 474, 475, 476, 478, 481, 482, 483, 487, 492, 503, 505, 507, 508, 509, 510, 572, 664, 647, 648, 649, 650, 651, 660</code></td></tr><tr><td>pi/skills/impeccable/scripts/live-browser.js</td><td>151</td><td><code>13</code></td></tr><tr><td>pi/skills/impeccable/scripts/detector/rules/checks.mjs</td><td>112</td><td><code>17</code></td></tr><tr><td>pi/skills/impeccable/scripts/context.mjs</td><td>106</td><td><code>19</code></td></tr><tr><td>Spec Changes</td><td>94</td><td><code>81</code></td></tr><tr><td>pi/skills/impeccable/scripts/live-server.mjs</td><td>75</td><td><code>35</code></td></tr><tr><td>Other</td><td>2592</td><td><code>73, 38, 27, 28, 30, 45, 57, 62, 65, 10, 80, 39, 94, 99, 100, 132, 138, 64, 118, 93, 205, 121, 181, 618, 303, 146, 145, 152, 397, 504, 116, 160, 208, 254, 365, 632, 183, 426, 513, 141, 173, 393, 452, 454, 182, 531, 188, 215, 548, 210, 140, 90, 158, 170, 214, 227, 666, 673, 675, 288, 717, 122, 694, 852, 262, 273, 275, 1221, 713, 714, 732, 1222, 302, 304, 305, 634, 731, 733, 734, 735, 736, 322, 751, 752, 1193, 333, 754, 771, 773, 792, 826, 169, 343, 345, 346, 348, 349, 790, 793, 796, 818, 368, 592, 593, 817, 820, 822, 400, 401, 429, 623, 730, 844, 847, 939, 1124, 1234, 644, 656, 890, 891, 458, 463, 497, 919, 922, 923, 466, 495, 496, 500, 506, 567, 1152, 1154, 1180, 1181, 1182, 286, 1160, 1161, 1162, 1172, 1188, 1206, 1208, 652, 653, 663</code></td></tr>
     </table>
   </div>
   <div class="card">
@@ -158,7 +158,7 @@ flowchart LR
   <div class="card">
     <h4>Graph Report Highlights</h4>
     <ul>
-      <li>19560 nodes · 38701 edges · 1233 communities (838 shown, 395 thin omitted)</li>
+      <li>19560 nodes · 38701 edges · 1237 communities (842 shown, 395 thin omitted)</li>
       <li>Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 358 edges (avg confidence: 0.6)</li>
       <li>Token cost: 0 input · 0 output</li>
       <li>1. `advanced` - 250 edges</li>
@@ -1217,12 +1217,12 @@ flowchart LR
 
 <!-- ====== 5. Outputs & Docs ====== -->
 <h2 id="outputs-docs">5. Outputs &amp; Docs</h2>
-<p>Outputs &amp; Docs groups implementation around documentation, lanes, preseed, skills, mostly in documentation/decisions/README.md, documentation/lanes/troubleshooting.md, engines/static-html/css-cascade.mjs. This section covers 962 nodes and 1415 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Outputs &amp; Docs groups implementation around documentation, lanes, preseed, skills, mostly in documentation/decisions/README.md, documentation/lanes/troubleshooting.md, engines/static-html/css-cascade.mjs. This section covers 975 nodes and 1434 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Outputs &amp; Docs (962 nodes, 1415 edges)
+    %% Section: Outputs &amp; Docs (975 nodes, 1434 edges)
     subgraph outputs_docs_engines_static_html_css_cascade_mjs_2712b330["engines/static-html/css-cascade.mjs"]
         preseed_agents_pi_skills_impeccable_scripts_dete_8e460345("StaticDocument<br/><small>engines/static-html/css-cascade.mjs</small>")
         preseed_agents_claude_skills_impeccable_scripts_3184fe36("StaticElement<br/><small>engines/static-html/css-cascade.mjs</small>")
@@ -1262,7 +1262,7 @@ flowchart LR
     preseed_agents_pi_skills_impeccable_scripts_dete_6cd503cc -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_36bc49b6
     preseed_agents_pi_skills_impeccable_scripts_dete_bab7f01b -->|imports| preseed_agents_pi_skills_impeccable_scripts_dete_36bc49b6
     preseed_agents_pi_skills_impeccable_scripts_dete_bab7f01b -->|imports| preseed_agents_pi_skills_impeccable_scripts_dete_8e460345
-    %% Omitted for readability: 944 nodes, 0 edges
+    %% Omitted for readability: 957 nodes, 0 edges
     class preseed_agents_pi_skills_impeccable_scripts_dete_8e460345 klass;
     class preseed_agents_claude_skills_impeccable_scripts_3184fe36 klass;
     class preseed_agents_pi_skills_impeccable_scripts_dete_e987db96 klass;
@@ -1561,19 +1561,19 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x838, references x445, calls x69, method x40. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x838, references x445, calls x86, method x40. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 6. CLI & Skill Installers ====== -->
 <h2 id="cli-skills">6. CLI &amp; Skill Installers</h2>
-<p>CLI &amp; Skill Installers groups implementation around agents, preseed, claude, skills, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, agents/claude/manifest.json. This section covers 7269 nodes and 13271 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>CLI &amp; Skill Installers groups implementation around agents, preseed, claude, skills, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, agents/claude/manifest.json. This section covers 7287 nodes and 13296 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: CLI &amp; Skill Installers (7269 nodes, 13271 edges)
+    %% Section: CLI &amp; Skill Installers (7287 nodes, 13296 edges)
     subgraph cli_skills_src_pi_native_chat_ts_4c9d0b82["src/pi/native-chat.ts"]
         openvscode_agent_sidebar_src_pi_native_chat_nati_c931656b("NativePiBackend<br/><small>src/pi/native-chat.ts</small>")
         openvscode_agent_sidebar_src_pi_native_chat_nati_64bf5ffd("runPrompt()<br/><small>src/pi/native-chat.ts</small>")
@@ -1604,7 +1604,7 @@ flowchart LR
     openvscode_agent_sidebar_src_pi_native_chat_nati_9aaa0433 -->|method| openvscode_agent_sidebar_src_pi_native_chat_nati_185941a9
     openvscode_agent_sidebar_src_pi_native_chat_nati_2518f0e9 -->|method| openvscode_agent_sidebar_src_pi_native_chat_nati_60062b1f
     openvscode_agent_sidebar_src_pi_native_chat_nati_34299902 -->|method| openvscode_agent_sidebar_src_pi_native_chat_nati_3642e78b
-    %% Omitted for readability: 7251 nodes, 0 edges
+    %% Omitted for readability: 7269 nodes, 0 edges
     class openvscode_agent_sidebar_src_pi_native_chat_nati_c931656b klass;
     class openvscode_agent_sidebar_src_pi_native_chat_nati_64bf5ffd function;
     class openvscode_agent_sidebar_src_pi_native_chat_nati_a4214bf8 function;
@@ -1903,19 +1903,19 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x6527, calls x5169, imports x587, imports x219. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x6542, calls x5172, imports x589, imports x220. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 7. Ingestion & Updates ====== -->
 <h2 id="ingest-cache-update">7. Ingestion &amp; Updates</h2>
-<p>Ingestion &amp; Updates groups implementation around web, preseed, agents, stores, mostly in agents/pi/manifest.json, src/lib/github-token.ts, src/lib/cloudflare-token.ts. This section covers 559 nodes and 1019 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Ingestion &amp; Updates groups implementation around web, preseed, agents, stores, mostly in agents/pi/manifest.json, src/lib/github-token.ts, src/lib/cloudflare-token.ts. This section covers 544 nodes and 982 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Ingestion &amp; Updates (559 nodes, 1019 edges)
+    %% Section: Ingestion &amp; Updates (544 nodes, 982 edges)
     subgraph ingest_cache_update_src_cloudflare_browser_inter_9115ad92["src/cloudflare-browser-interceptor.ts"]
         src_cloudflare_browser_interceptor_cloudflarebro_475aa257("CloudflareBrowserInterceptor<br/><small>src/cloudflare-browser-interceptor.ts</small>")
         src_cloudflare_browser_interceptor_cloudflarebro_c1133840("fetch()<br/><small>src/cloudflare-browser-interceptor.ts</small>")
@@ -1938,8 +1938,8 @@ flowchart LR
         src_github_interceptor_githubinterceptor_fetch_89bca859("fetch()<br/><small>src/github-interceptor.ts</small>")
     end
     src_tests_lib_cloudflare_token_test_6daa1a36("cloudflare-token.test.ts")
+    src_tests_lib_github_token_test_6178e02a("github-token.test.ts")
     web_ui_src_tests_stores_session_tabs_test_e7354931("session-tabs.test.ts")
-    src_lib_user_cleanup_e20dbff1("user-cleanup.ts")
     src_routes_cloudflare_3951b947("cloudflare.ts")
     web_ui_src_stores_session_7c48c0be("session.ts")
     src_cloudflare_browser_interceptor_cloudflarebro_475aa257 -->|method| src_cloudflare_browser_interceptor_cloudflarebro_c1133840
@@ -1956,7 +1956,7 @@ flowchart LR
     src_cloudflare_browser_interceptor_cloudflarebro_c1133840 -->|calls| src_cloudflare_browser_interceptor_cloudflarebro_e9f496f3
     src_cloudflare_browser_interceptor_cloudflarebro_f9761a31 -->|calls| src_cloudflare_browser_interceptor_cloudflarebro_3882681e
     src_cloudflare_browser_interceptor_cloudflarebro_f9761a31 -->|calls| src_cloudflare_browser_interceptor_cloudflarebro_e9f496f3
-    %% Omitted for readability: 541 nodes, 0 edges
+    %% Omitted for readability: 526 nodes, 0 edges
     class src_cloudflare_browser_interceptor_cloudflarebro_475aa257 klass;
     class src_cloudflare_browser_interceptor_cloudflarebro_c1133840 function;
     class src_cloudflare_browser_interceptor_cloudflarebro_f9761a31 function;
@@ -1971,8 +1971,8 @@ flowchart LR
     class src_github_interceptor_githubinterceptor_056a3851 klass;
     class src_github_interceptor_githubinterceptor_fetch_89bca859 function;
     class src_tests_lib_cloudflare_token_test_6daa1a36 test;
+    class src_tests_lib_github_token_test_6178e02a test;
     class web_ui_src_tests_stores_session_tabs_test_e7354931 test;
-    class src_lib_user_cleanup_e20dbff1 module;
     class src_routes_cloudflare_3951b947 api;
     class web_ui_src_stores_session_7c48c0be ui;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
@@ -2206,14 +2206,6 @@ flowchart LR
 </tr>
 <tr>
   <td>27</td>
-  <td><code>CleanupResult</code><br><small style="color:var(--muted)">src/lib/user-cleanup.ts</small></td>
-  <td><span class="tag tag-class">Class</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>CleanupResult node in src/lib/user-cleanup.ts.</td>
-</tr>
-<tr>
-  <td>28</td>
   <td><code>CloudflareAccount</code><br><small style="color:var(--muted)">src/routes/deploy-keys.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -2221,7 +2213,7 @@ flowchart LR
   <td>CloudflareAccount node in src/routes/deploy-keys.ts.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>28</td>
   <td><code>GithubRepoApiResponse</code><br><small style="color:var(--muted)">src/routes/github.ts</small></td>
   <td><span class="tag tag-endpoint">API</span></td>
   <td>External entry / no inbound edge</td>
@@ -2229,12 +2221,20 @@ flowchart LR
   <td>Turns a local path or remote repository into analysis context.</td>
 </tr>
 <tr>
-  <td>30</td>
+  <td>29</td>
   <td><code>RepoSummary</code><br><small style="color:var(--muted)">src/routes/github.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>RepoSummary node in src/routes/github.ts.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>DeployKeys</code><br><small style="color:var(--muted)">src/types.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td><code>browser-render-token.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/browser-render-token.test.ts</small><br><code>browser-render-token.ts</code><br><small style="color:var(--muted)">src/lib/browser-render-token.ts</small><br><code>cloudflare-oauth.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/cloudflare-oauth.test.ts</small><br>+8 more</td>
+  <td>No direct outbound edge</td>
+  <td>DeployKeys node in src/types.ts.</td>
 </tr>
 </table>
 
@@ -2244,7 +2244,7 @@ flowchart LR
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
       <tr><td><code>agents/pi/manifest.json</code></td><td>68 nodes</td></tr>
-<tr><td><code>src/lib/github-token.ts</code></td><td>41 nodes</td></tr>
+<tr><td><code>src/lib/github-token.ts</code></td><td>40 nodes</td></tr>
 <tr><td><code>src/lib/cloudflare-token.ts</code></td><td>35 nodes</td></tr>
 <tr><td><code>src/stores/session.ts</code></td><td>25 nodes</td></tr>
 <tr><td><code>src/lib/constants.ts</code></td><td>18 nodes</td></tr>
@@ -2255,7 +2255,7 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x415, calls x223, imports x220, imports x73. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x403, calls x213, imports x210, imports x69. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -2609,12 +2609,12 @@ flowchart LR
 
 <!-- ====== 9. Security & Global Graph ====== -->
 <h2 id="security-global">9. Security &amp; Global Graph</h2>
-<p>Security &amp; Global Graph groups implementation around agents, preseed, securitymd, scripts, mostly in documentation/lanes/security.md, engines/regex/detect-text.mjs, sdd/spec/constraints.md. This section covers 291 nodes and 384 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Security &amp; Global Graph groups implementation around agents, preseed, securitymd, scripts, mostly in documentation/lanes/security.md, engines/regex/detect-text.mjs, sdd/spec/constraints.md. This section covers 290 nodes and 382 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Security &amp; Global Graph (291 nodes, 384 edges)
+    %% Section: Security &amp; Global Graph (290 nodes, 382 edges)
     subgraph security_global_pi_extensions_active_repo_memory_c96a2aa4["pi/extensions/active-repo-memory.ts"]
         preseed_agents_pi_extensions_active_repo_memory_0580036a("activeRepoMemoryExtension()<br/><small>pi/extensions/active-repo-memory.ts</small>")
         preseed_agents_pi_extensions_active_repo_memory_abb721b3("rememberActiveRepoFromToolResult()<br/><small>pi/extensions/active-repo-memory.ts</small>")
@@ -2628,8 +2628,8 @@ flowchart LR
     end
     subgraph security_global_engines_regex_detect_text_mjs_42ac1ae4["engines/regex/detect-text.mjs"]
         preseed_agents_pi_skills_impeccable_scripts_dete_9462e8f4("detectText()<br/><small>engines/regex/detect-text.mjs</small>")
-        preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/regex/detect-text.mjs</small>")
         preseed_agents_pi_skills_impeccable_scripts_dete_e81c7f0f("scanInsetStripeCss()<br/><small>engines/regex/detect-text.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5("pi/skills/impeccable/scripts/detector/e...<br/><small>engines/regex/detect-text.mjs</small>")
     end
     subgraph security_global_scripts_browser_ide_ui_state_py_b505674a["scripts/browser-ide-ui-state.py"]
         scripts_browser_ide_ui_state_capture_04aa7863("capture()<br/><small>scripts/browser-ide-ui-state.py</small>")
@@ -2655,7 +2655,7 @@ flowchart LR
     scripts_browser_ide_ui_state_main_6dc560da -->|calls| scripts_browser_ide_ui_state_capture_04aa7863
     scripts_browser_ide_ui_state_main_6dc560da -->|calls| scripts_browser_ide_ui_state_restore_724f6fb4
     preseed_agents_pi_skills_impeccable_scripts_dete_9462e8f4 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_e81c7f0f
-    %% Omitted for readability: 273 nodes, 0 edges
+    %% Omitted for readability: 272 nodes, 0 edges
     class preseed_agents_pi_extensions_active_repo_memory_0580036a function;
     class preseed_agents_pi_extensions_active_repo_memory_abb721b3 function;
     class preseed_agents_pi_extensions_active_repo_memory_39f48a96 entry;
@@ -2666,8 +2666,8 @@ flowchart LR
     class preseed_agents_pi_extensions_active_repo_memory_192c4b56 function;
     class preseed_agents_pi_extensions_active_repo_memory_a7654f81 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_9462e8f4 function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_e81c7f0f function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_ab1f7eb5 function;
     class scripts_browser_ide_ui_state_capture_04aa7863 function;
     class scripts_browser_ide_ui_state_restore_724f6fb4 ui;
     class scripts_browser_ide_ui_state_main_6dc560da function;
@@ -2954,19 +2954,19 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x255, calls x85, references x17, imports x7. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x255, calls x84, references x17, imports x6. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 10. Tests & Fixtures ====== -->
 <h2 id="tests-fixtures">10. Tests &amp; Fixtures</h2>
-<p>Tests &amp; Fixtures groups implementation around tests, web, host, routes, mostly in pi/extensions/memory-vault-helpers.ts, src/content/site.ts, pi/extensions/codeflare-pi.ts. This section covers 4734 nodes and 10366 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Tests &amp; Fixtures groups implementation around tests, web, host, routes, mostly in pi/extensions/memory-vault-helpers.ts, src/content/site.ts, pi/extensions/codeflare-pi.ts. This section covers 4731 nodes and 10407 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Tests &amp; Fixtures (4734 nodes, 10366 edges)
+    %% Section: Tests &amp; Fixtures (4731 nodes, 10407 edges)
     subgraph tests_fixtures_src_tests_container_metrics_test_00f6205d["src/__tests__/container-metrics.test.ts"]
         src_tests_container_metrics_test_mockcontainer_141c2fd6("MockContainer<br/><small>src/__tests__/container-metrics.test.ts</small>")
         src_tests_container_metrics_test_mockcontainer_s_71bf6a15("schedule()<br/><small>src/__tests__/container-metrics.test.ts</small>")
@@ -2989,10 +2989,10 @@ flowchart LR
     end
     src_routes_container_lifecycle_4d144e02("lifecycle.ts")
     src_routes_session_lifecycle_5ea47795("lifecycle.ts")
+    src_routes_setup_index_4657494f("index.ts")
     web_ui_src_components_dashboard_461f500d("Dashboard.tsx")
     web_ui_src_components_layout_4f516fa9("Layout.tsx")
     src_index_811cdc82("index.ts")
-    landing_src_pages_index_d2d4f88f("index.astro")
     web_ui_src_tests_lib_file_upload_test_mockfilere_a8421a60 -->|method| web_ui_src_tests_lib_file_upload_test_mockfilere_406ec370
     src_tests_container_metrics_test_mockcontainer_141c2fd6 -->|method| src_tests_container_metrics_test_mockcontainer_s_71bf6a15
     src_tests_container_metrics_test_mockcontainer_141c2fd6 -->|method| src_tests_container_metrics_test_mockcontainer_d_3a207e8c
@@ -3001,7 +3001,8 @@ flowchart LR
     src_tests_container_metrics_test_mockcontainer_141c2fd6 -->|method| src_tests_container_metrics_test_mockcontainer_c_cda9f4c0
     preseed_agents_pi_extensions_memory_inject_memor_73b326fe -->|method| preseed_agents_pi_extensions_memory_inject_memor_1ee6f65a
     preseed_agents_pi_extensions_post_compaction_rec_89c338f9 -->|method| preseed_agents_pi_extensions_post_compaction_rec_bfb29e15
-    %% Omitted for readability: 4716 nodes, 0 edges
+    src_index_811cdc82 -->|imports| src_routes_setup_index_4657494f
+    %% Omitted for readability: 4713 nodes, 0 edges
     class src_tests_container_metrics_test_mockcontainer_141c2fd6 test;
     class src_tests_container_metrics_test_mockcontainer_s_71bf6a15 test;
     class src_tests_container_metrics_test_mockcontainer_d_3a207e8c test;
@@ -3016,10 +3017,10 @@ flowchart LR
     class preseed_agents_pi_extensions_post_compaction_rec_bfb29e15 function;
     class src_routes_container_lifecycle_4d144e02 module;
     class src_routes_session_lifecycle_5ea47795 module;
+    class src_routes_setup_index_4657494f module;
     class web_ui_src_components_dashboard_461f500d ui;
     class web_ui_src_components_layout_4f516fa9 ui;
     class src_index_811cdc82 module;
-    class landing_src_pages_index_d2d4f88f function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -3300,7 +3301,7 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x3706, imports x2846, imports x1724, calls x1619. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x3708, imports x2866, imports x1735, calls x1629. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -3641,30 +3642,33 @@ flowchart LR
 
 <!-- ====== 12. pi/skills/impeccable/scripts/detector/rules/checks.mjs ====== -->
 <h2 id="pi-skills-impeccable-scripts-detector-rules-chec">12. pi/skills/impeccable/scripts/detector/rules/checks.mjs</h2>
-<p>pi/skills/impeccable/scripts/detector/rules/checks.mjs groups implementation around skills, impeccable, scripts, detector, mostly in detector/rules/checks.mjs, detector/shared/constants.mjs. This section covers 124 nodes and 236 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>pi/skills/impeccable/scripts/detector/rules/checks.mjs groups implementation around skills, impeccable, scripts, detector, mostly in detector/rules/checks.mjs, detector/shared/color.mjs, detector/shared/constants.mjs. This section covers 112 nodes and 209 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: pi/skills/impeccable/scripts/detector/rules/checks.mjs (124 nodes, 236 edges)
-    preseed_agents_pi_skills_impeccable_scripts_dete_d031d03e("checkTextOcclusionDOM()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_6c3ca04e("checkQuality()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8("checkClippedOverflow()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_4b512752("checkElementBorders()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4("checkElementBordersDOM()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_58fb8716("checkElementGptBorderShadow()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_5b4b696c("clippingContainerIsIntentionalViewport()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_50b549a4("positionedChildIsDecorative()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_37291b5d("positionedChildEscapesClip()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_95d7c64d("positionedStyleImpliesEscape()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76("classSelector()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_aaba6c20("checkEdgeFlushCardsDOM()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_cd03c32e("isRenderedForBrowserRule()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_7a046950("checkElementBlinkingCursorDOM()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_c2643f61("keyframesToggleVisibilityDOM()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2("checkBorders()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_24f9f5d1("isTabContextElement()<br/><small>detector/rules/checks.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_dete_658cbf70("isStatusContextElement()<br/><small>detector/rules/checks.mjs</small>")
+    %% Section: pi/skills/impeccable/scripts/detector/rules/checks.mjs (112 nodes, 209 edges)
+    subgraph pi_skills_impeccable_scripts_detector_rules_chec_543482d2["detector/rules/checks.mjs"]
+        preseed_agents_pi_skills_impeccable_scripts_dete_d031d03e("checkTextOcclusionDOM()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_6c3ca04e("checkQuality()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8("checkClippedOverflow()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_4b512752("checkElementBorders()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4("checkElementBordersDOM()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_58fb8716("checkElementGptBorderShadow()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2("checkBorders()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_5b4b696c("clippingContainerIsIntentionalViewport()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_50b549a4("positionedChildIsDecorative()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_37291b5d("positionedChildEscapesClip()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_95d7c64d("positionedStyleImpliesEscape()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76("classSelector()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_aaba6c20("checkEdgeFlushCardsDOM()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_cd03c32e("isRenderedForBrowserRule()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_7a046950("checkElementBlinkingCursorDOM()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_c2643f61("keyframesToggleVisibilityDOM()<br/><small>detector/rules/checks.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_dete_24f9f5d1("isTabContextElement()<br/><small>detector/rules/checks.mjs</small>")
+    end
+    preseed_agents_pi_skills_impeccable_scripts_dete_f64f6104("isNeutralColor()<br/><small>detector/shared/color.mjs</small>")
+    preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_f64f6104
     preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_5b4b696c
     preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_50b549a4
     preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_37291b5d
@@ -3676,18 +3680,17 @@ flowchart LR
     preseed_agents_pi_skills_impeccable_scripts_dete_7a046950 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76
     preseed_agents_pi_skills_impeccable_scripts_dete_4b512752 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2
     preseed_agents_pi_skills_impeccable_scripts_dete_4b512752 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_24f9f5d1
-    preseed_agents_pi_skills_impeccable_scripts_dete_4b512752 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_658cbf70
     preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2
     preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_24f9f5d1
-    preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4 -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_658cbf70
     preseed_agents_pi_skills_impeccable_scripts_dete_d031d03e -->|calls| preseed_agents_pi_skills_impeccable_scripts_dete_d7ba8e76
-    %% Omitted for readability: 106 nodes, 0 edges
+    %% Omitted for readability: 94 nodes, 0 edges
     class preseed_agents_pi_skills_impeccable_scripts_dete_d031d03e function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_6c3ca04e function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_085b86a8 entry;
     class preseed_agents_pi_skills_impeccable_scripts_dete_4b512752 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_d91c63c4 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_58fb8716 function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_5b4b696c entry;
     class preseed_agents_pi_skills_impeccable_scripts_dete_50b549a4 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_37291b5d entry;
@@ -3697,9 +3700,8 @@ flowchart LR
     class preseed_agents_pi_skills_impeccable_scripts_dete_cd03c32e function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_7a046950 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_c2643f61 function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_455df3e2 function;
     class preseed_agents_pi_skills_impeccable_scripts_dete_24f9f5d1 function;
-    class preseed_agents_pi_skills_impeccable_scripts_dete_658cbf70 function;
+    class preseed_agents_pi_skills_impeccable_scripts_dete_f64f6104 function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -3968,63 +3970,67 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>detector/rules/checks.mjs</code></td><td>123 nodes</td></tr>
+      <tr><td><code>detector/rules/checks.mjs</code></td><td>110 nodes</td></tr>
+<tr><td><code>detector/shared/color.mjs</code></td><td>1 nodes</td></tr>
 <tr><td><code>detector/shared/constants.mjs</code></td><td>1 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x122, calls x112, imports x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x109, calls x97, imports x2. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 13. pi/skills/impeccable/scripts/context.mjs ====== -->
 <h2 id="pi-skills-impeccable-scripts-context-mjs">13. pi/skills/impeccable/scripts/context.mjs</h2>
-<p>pi/skills/impeccable/scripts/context.mjs groups implementation around skills, impeccable, scripts, contextmjs, mostly in impeccable/scripts/context.mjs. This section covers 96 nodes and 210 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>pi/skills/impeccable/scripts/context.mjs groups implementation around skills, impeccable, scripts, preseed, mostly in impeccable/scripts/context.mjs, scripts/lib/staleness-notice.mjs. This section covers 106 nodes and 234 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: pi/skills/impeccable/scripts/context.mjs (96 nodes, 210 edges)
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5("cli()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_6290b9c4("computeUpdateDirective()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_d9820eb6("discoverTargetCandidates()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_d88ffeae("discoverRootsForPattern()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_b1a73010("loadContext()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_cf59567e("resolveProject()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_000c7b40("appendBuildPathDirective()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_1c4a2924("readBuildPathAt()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_3a40c257("appendDetectorFallback()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b("automaticHookMode()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_7710c52c("hookEnabledAt()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae("readJson()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_7eea80e1("valueHasHookMarker()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_b0dc8a72("buildResolvedContextDirective()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_b2f2aaec("hasTargetOption()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_8a510177("parseCliOptions()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_face5ed7("pathExistsForTarget()<br/><small>impeccable/scripts/context.mjs</small>")
-    preseed_agents_pi_skills_impeccable_scripts_cont_9b850d46("buildTargetSelectionDirective()<br/><small>impeccable/scripts/context.mjs</small>")
+    %% Section: pi/skills/impeccable/scripts/context.mjs (106 nodes, 234 edges)
+    subgraph pi_skills_impeccable_scripts_context_mjs_impecca_0e99d7d6["impeccable/scripts/context.mjs"]
+        preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5("cli()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_6290b9c4("computeUpdateDirective()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_d9820eb6("discoverTargetCandidates()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_d88ffeae("discoverRootsForPattern()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_b1a73010("loadContext()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_cf59567e("resolveProject()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_000c7b40("appendBuildPathDirective()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_1c4a2924("readBuildPathAt()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_3a40c257("appendDetectorFallback()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b("automaticHookMode()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_088f379f("appendStalenessDirective()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_c34a7c6e("projectRootsDiagnostic()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_7710c52c("hookEnabledAt()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae("readJson()<br/><small>impeccable/scripts/context.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_cont_7eea80e1("valueHasHookMarker()<br/><small>impeccable/scripts/context.mjs</small>")
+    end
+    subgraph pi_skills_impeccable_scripts_context_mjs_scripts_93057ab7["scripts/lib/staleness-notice.mjs"]
+        preseed_agents_pi_skills_impeccable_scripts_lib_de3ba0f5("stalenessCheckDisabled()<br/><small>scripts/lib/staleness-notice.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_lib_3e9b37b6("filterFreshFindings()<br/><small>scripts/lib/staleness-notice.mjs</small>")
+        preseed_agents_pi_skills_impeccable_scripts_lib_9fc5213f("buildStalenessDirective()<br/><small>scripts/lib/staleness-notice.mjs</small>")
+    end
     preseed_agents_pi_skills_impeccable_scripts_cont_000c7b40 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_1c4a2924
     preseed_agents_pi_skills_impeccable_scripts_cont_3a40c257 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b
+    preseed_agents_pi_skills_impeccable_scripts_cont_088f379f -->|calls| preseed_agents_pi_skills_impeccable_scripts_lib_de3ba0f5
+    preseed_agents_pi_skills_impeccable_scripts_cont_088f379f -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_c34a7c6e
+    preseed_agents_pi_skills_impeccable_scripts_cont_088f379f -->|calls| preseed_agents_pi_skills_impeccable_scripts_lib_3e9b37b6
+    preseed_agents_pi_skills_impeccable_scripts_cont_088f379f -->|calls| preseed_agents_pi_skills_impeccable_scripts_lib_9fc5213f
     preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_7710c52c
     preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae
     preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_7eea80e1
-    preseed_agents_pi_skills_impeccable_scripts_cont_b0dc8a72 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_b2f2aaec
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_8a510177
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_b2f2aaec
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_face5ed7
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_9b850d46
     preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_b1a73010
     preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_6290b9c4
-    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_b0dc8a72
     preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_3a40c257
     preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_000c7b40
+    preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_088f379f
     preseed_agents_pi_skills_impeccable_scripts_cont_d9820eb6 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_d88ffeae
     preseed_agents_pi_skills_impeccable_scripts_cont_7710c52c -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae
-    preseed_agents_pi_skills_impeccable_scripts_cont_b1a73010 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_b2f2aaec
+    preseed_agents_pi_skills_impeccable_scripts_cont_c34a7c6e -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_d9820eb6
     preseed_agents_pi_skills_impeccable_scripts_cont_1c4a2924 -->|calls| preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae
-    %% Omitted for readability: 78 nodes, 0 edges
+    %% Omitted for readability: 88 nodes, 0 edges
     class preseed_agents_pi_skills_impeccable_scripts_cont_83f804f5 entry;
     class preseed_agents_pi_skills_impeccable_scripts_cont_6290b9c4 function;
     class preseed_agents_pi_skills_impeccable_scripts_cont_d9820eb6 function;
@@ -4035,14 +4041,14 @@ flowchart LR
     class preseed_agents_pi_skills_impeccable_scripts_cont_1c4a2924 function;
     class preseed_agents_pi_skills_impeccable_scripts_cont_3a40c257 function;
     class preseed_agents_pi_skills_impeccable_scripts_cont_a4066f1b ui;
+    class preseed_agents_pi_skills_impeccable_scripts_cont_088f379f function;
+    class preseed_agents_pi_skills_impeccable_scripts_cont_c34a7c6e function;
     class preseed_agents_pi_skills_impeccable_scripts_cont_7710c52c ui;
     class preseed_agents_pi_skills_impeccable_scripts_cont_eef95fae function;
     class preseed_agents_pi_skills_impeccable_scripts_cont_7eea80e1 ui;
-    class preseed_agents_pi_skills_impeccable_scripts_cont_b0dc8a72 function;
-    class preseed_agents_pi_skills_impeccable_scripts_cont_b2f2aaec function;
-    class preseed_agents_pi_skills_impeccable_scripts_cont_8a510177 entry;
-    class preseed_agents_pi_skills_impeccable_scripts_cont_face5ed7 function;
-    class preseed_agents_pi_skills_impeccable_scripts_cont_9b850d46 function;
+    class preseed_agents_pi_skills_impeccable_scripts_lib_de3ba0f5 function;
+    class preseed_agents_pi_skills_impeccable_scripts_lib_3e9b37b6 function;
+    class preseed_agents_pi_skills_impeccable_scripts_lib_9fc5213f function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -4106,6 +4112,14 @@ flowchart LR
 </tr>
 <tr>
   <td>6</td>
+  <td><code>appendStalenessDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
+  <td><code>buildStalenessDirective()</code><br><small style="color:var(--muted)">scripts/lib/staleness-notice.mjs</small><br><code>collectBootFindings()</code><br><small style="color:var(--muted)">scripts/lib/staleness.mjs</small><br><code>designSidecarCandidatesFor()</code><br><small style="color:var(--muted)">scripts/lib/staleness.mjs</small><br>+3 more</td>
+  <td>appendStalenessDirective() node in impeccable/scripts/context.mjs.</td>
+</tr>
+<tr>
+  <td>7</td>
   <td><code>appendSubagentAuthorizationDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4113,7 +4127,7 @@ flowchart LR
   <td>appendSubagentAuthorizationDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>7</td>
+  <td>8</td>
   <td><code>appendSurfaceBriefContext()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4121,7 +4135,7 @@ flowchart LR
   <td>appendSurfaceBriefContext() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>9</td>
   <td><code>automaticHookMode()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-hook">UI</span></td>
   <td><code>appendDetectorFallback()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4129,7 +4143,7 @@ flowchart LR
   <td>automaticHookMode() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>10</td>
   <td><code>buildMissingTargetDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4137,7 +4151,7 @@ flowchart LR
   <td>buildMissingTargetDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>11</td>
   <td><code>buildResolvedContextDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4145,7 +4159,7 @@ flowchart LR
   <td>buildResolvedContextDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>11</td>
+  <td>12</td>
   <td><code>buildTargetSelectionDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4153,7 +4167,7 @@ flowchart LR
   <td>buildTargetSelectionDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>13</td>
   <td><code>buildUpdateDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>computeUpdateDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4161,7 +4175,7 @@ flowchart LR
   <td>buildUpdateDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>14</td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -4169,7 +4183,7 @@ flowchart LR
   <td>cli() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>15</td>
   <td><code>compareSemver()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>computeUpdateDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4177,7 +4191,7 @@ flowchart LR
   <td>compareSemver() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>16</td>
   <td><code>computeUpdateDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4185,7 +4199,7 @@ flowchart LR
   <td>computeUpdateDirective() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>17</td>
   <td><code>contextSourcePath()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>resolveCandidateContextSummary()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4193,7 +4207,7 @@ flowchart LR
   <td>contextSourcePath() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>18</td>
   <td><code>contextSourceStatus()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>resolveCandidateContextSummary()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4201,7 +4215,7 @@ flowchart LR
   <td>contextSourceStatus() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>19</td>
   <td><code>directChildDirs()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>discoverRootsForPattern()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4209,7 +4223,7 @@ flowchart LR
   <td>directChildDirs() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>20</td>
   <td><code>discoverRootsForPattern()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>discoverTargetCandidates()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4217,7 +4231,7 @@ flowchart LR
   <td>discoverRootsForPattern() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>21</td>
   <td><code>discoverTargetCandidates()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>projectRootsDiagnostic()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br><code>resolveTargetSelection()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4225,7 +4239,7 @@ flowchart LR
   <td>discoverTargetCandidates() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>22</td>
   <td><code>escapeRegExp()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>extractSectionValue()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br><code>segmentMatches()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4233,7 +4247,7 @@ flowchart LR
   <td>escapeRegExp() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>22</td>
+  <td>23</td>
   <td><code>expandSimplePattern()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>discoverRootsForPattern()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4241,7 +4255,7 @@ flowchart LR
   <td>expandSimplePattern() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>23</td>
+  <td>24</td>
   <td><code>extractPlatform()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>collect()</code><br><small style="color:var(--muted)">impeccable/scripts/doctor.mjs</small><br><code>gatherSignals()</code><br><small style="color:var(--muted)">impeccable/scripts/context-signals.mjs</small><br><code>loadContext()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br>+4 more</td>
@@ -4249,7 +4263,7 @@ flowchart LR
   <td>extractPlatform() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>25</td>
   <td><code>extractSectionValue()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>cli()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br><code>extractPlatform()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4257,7 +4271,7 @@ flowchart LR
   <td>extractSectionValue() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>26</td>
   <td><code>fetchLatestSkillVersion()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>computeUpdateDirective()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4265,7 +4279,7 @@ flowchart LR
   <td>Verifies imports, entry points, or version behavior.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>27</td>
   <td><code>findMonorepoRoot()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>resolveProject()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4273,7 +4287,7 @@ flowchart LR
   <td>findMonorepoRoot() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>28</td>
   <td><code>findTargetExample()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>discoverTargetCandidates()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
@@ -4281,7 +4295,7 @@ flowchart LR
   <td>findTargetExample() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>29</td>
   <td><code>firstExisting()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>isCandidateProjectRoot()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br><code>nearestProjectLikeRoot()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br><code>resolveContext()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small><br>+1 more</td>
@@ -4289,20 +4303,12 @@ flowchart LR
   <td>firstExisting() node in impeccable/scripts/context.mjs.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>30</td>
   <td><code>hasFallbackWorkspaceChildren()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>isMonorepoRoot()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td><code>isIgnoredWorkspaceDiscoveryDir()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
   <td>hasFallbackWorkspaceChildren() node in impeccable/scripts/context.mjs.</td>
-</tr>
-<tr>
-  <td>30</td>
-  <td><code>hasGitBoundary()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>findMonorepoRoot()</code><br><small style="color:var(--muted)">impeccable/scripts/context.mjs</small></td>
-  <td>No direct outbound edge</td>
-  <td>Turns a local path or remote repository into analysis context.</td>
 </tr>
 </table>
 
@@ -4311,12 +4317,13 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>impeccable/scripts/context.mjs</code></td><td>96 nodes</td></tr>
+      <tr><td><code>impeccable/scripts/context.mjs</code></td><td>97 nodes</td></tr>
+<tr><td><code>scripts/lib/staleness-notice.mjs</code></td><td>9 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x115, contains x95. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x126, contains x104, imports x3, imports x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -5018,12 +5025,12 @@ flowchart LR
 
 <!-- ====== 16. Other ====== -->
 <h2 id="other">16. Other</h2>
-<p>Other groups implementation around preseed, agents, impeccable, skills, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, browser/injected/index.mjs. This section covers 2602 nodes and 4989 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Other groups implementation around preseed, agents, impeccable, skills, mostly in impeccable/scripts/live-browser.js, scripts/detector/detect-antipatterns-browser.js, browser/injected/index.mjs. This section covers 2592 nodes and 4972 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Other (2602 nodes, 4989 edges)
+    %% Section: Other (2592 nodes, 4972 edges)
     subgraph other_pi_extensions_review_enforcement_ts_41039459["pi/extensions/review-enforcement.ts"]
         preseed_agents_pi_extensions_review_enforcement_ea863ad6("registerReviewEnforcement()<br/><small>pi/extensions/review-enforcement.ts</small>")
         preseed_agents_pi_extensions_review_enforcement_833211a7("CiLaunchIdentity<br/><small>pi/extensions/review-enforcement.ts</small>")
@@ -5061,7 +5068,7 @@ flowchart LR
     preseed_agents_pi_extensions_review_enforcement_40b93e13 -->|calls| preseed_agents_pi_extensions_review_enforcement_8d791f0f
     preseed_agents_pi_extensions_review_enforcement_ea863ad6 -->|calls| preseed_agents_pi_extensions_review_enforcement_29329a1d
     preseed_agents_pi_extensions_review_enforcement_ea863ad6 -->|calls| preseed_agents_pi_extensions_review_enforcement_8d791f0f
-    %% Omitted for readability: 2584 nodes, 0 edges
+    %% Omitted for readability: 2574 nodes, 0 edges
     class preseed_agents_pi_extensions_review_enforcement_ea863ad6 function;
     class preseed_agents_pi_extensions_review_enforcement_833211a7 klass;
     class preseed_agents_pi_extensions_review_enforcement_29329a1d function;
@@ -5360,7 +5367,7 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x2736, contains x1913, imports x142, imports x56. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x2727, contains x1905, imports x142, imports x56. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -5374,7 +5381,7 @@ flowchart LR
       <tr><td>Nodes</td><td>19560</td></tr>
       <tr><td>Edges</td><td>38701</td></tr>
       <tr><td>Hyperedges</td><td>0</td></tr>
-      <tr><td>Communities</td><td>1233</td></tr>
+      <tr><td>Communities</td><td>1237</td></tr>
       <tr><td>Documented Sections</td><td>15</td></tr>
     </table>
   </div>
@@ -5390,7 +5397,7 @@ flowchart LR
 
 <div style="text-align:center; padding:40px 0; color: var(--muted); font-size:0.9rem;">
   <p>codeflare — Architecture Documentation</p>
-  <p>Generated: 2026-08-17 09:28 UTC · graphify callflow-html</p>
+  <p>Generated: 2026-08-17 09:37 UTC · graphify callflow-html</p>
 </div>
 
 </div><!-- .container -->
