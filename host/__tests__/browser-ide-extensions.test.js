@@ -112,7 +112,7 @@ test('REQ-IDE-036 AC1: malformed or unsafe manifests stay byte-for-byte unchange
     JSON.stringify(manifest(Object.fromEntries(Array.from({ length: 51 }, (_, index) => [
       `publisher.extension-${index}`,
       { version: '1.0.0' },
-    ]))),
+    ])))),
     JSON.stringify(manifest({ 'bad/id': { version: '1.0.0' } })),
     JSON.stringify(manifest({ 'publisher.extension': { version: 'x'.repeat(65) } })),
     JSON.stringify(manifest({ 'publisher.extension': { version: 'latest' } })),

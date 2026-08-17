@@ -84,7 +84,7 @@ function writeRegistry(
       targetPlatform: entry.targetPlatform ?? 'universal',
       installedTimestamp: 1_786_921_200_000,
     },
-  })));
+  }))));
 }
 
 function validManifest(extensions: Record<string, Record<string, unknown>>, settings: Record<string, unknown> = {}) {
@@ -205,7 +205,7 @@ test('REQ-IDE-036 AC5: restores at most two missing extensions concurrently', as
   const ids = ['one.extension', 'two.extension', 'three.extension', 'four.extension'];
   writeFileSync(manifestPath, JSON.stringify(validManifest(Object.fromEntries(
     ids.map((id) => [id, { version: '1.0.0' }]),
-  )));
+  ))));
   writeRegistry(extensionsDir);
   let active = 0;
   let maximum = 0;

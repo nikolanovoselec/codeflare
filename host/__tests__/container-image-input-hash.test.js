@@ -91,6 +91,7 @@ describe('deployment container image input hash', () => {
       'openvscode/runtime.txt',
       'preseed/runtime.txt',
       'scripts/browser-ide-ui-state.py',
+      'scripts/browser-ide-extensions.py',
       'scripts/materialize-agent-seed.mjs',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
