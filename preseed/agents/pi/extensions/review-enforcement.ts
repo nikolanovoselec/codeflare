@@ -500,7 +500,7 @@ function resultText(value: unknown): string {
   if (Array.isArray(value)) return value.map(resultText).join("\n");
   if (!value || typeof value !== "object") return "";
   const record = value as Record<string, unknown>;
-  return ["text", "content", "message", "stdout", "stderr", "error"]
+  return ["text", "content", "message", "stdout", "stderr", "error", "result"]
     .map((key) => resultText(record[key]))
     .filter(Boolean)
     .join("\n");
@@ -779,7 +779,7 @@ async function launchBoundaryPlan(
 
   if (existingPlan) {
     appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
-    return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: false };
+    return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
   }
 
   const key = followUpKey("plan", review.repo, review.pr.number, review.pr.headRefOid);
@@ -1363,7 +1363,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (queuedAtCount !== undefined) {
       if (visibleFollowUps <= queuedAtCount) return;
       queuedMissingFollowUps.delete(missingFollowUpKey);
-      return;
     }
     queuedMissingFollowUps.set(missingFollowUpKey, visibleFollowUps);
     if (missingLanes.length > 0) {
