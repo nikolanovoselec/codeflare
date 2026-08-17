@@ -749,7 +749,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(resumedHarness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-121/REQ-AGENT-132 AC7: reconciles an ambiguous failed PR creation against authoritative exact-head state', async () => {
+  it('REQ-AGENT-121/REQ-AGENT-145 AC1: reconciles an ambiguous failed PR creation against authoritative exact-head state', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     const failedCreate = toolResult('create-ambiguous', 'bash', true) as any;
@@ -777,7 +777,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-132 AC8: reconciles an already-existing PR failure against authoritative exact-head state', async () => {
+  it('REQ-AGENT-145 AC2: reconciles an already-existing PR failure against authoritative exact-head state', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     const failureText = 'a pull request for branch "pi" into branch "main" already exists';
@@ -806,7 +806,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-132 AC9: keeps non-ambiguous failed commands inert', async () => {
+  it('REQ-AGENT-145 AC3: keeps non-ambiguous failed commands inert', async () => {
     for (const [toolUseId, command, failureText] of [
       ['push-failed', 'git push origin pi', 'fatal: unable to access remote'],
       ['create-failed', 'gh pr create --base main', 'GraphQL: validation failed'],

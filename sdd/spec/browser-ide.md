@@ -1023,7 +1023,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerWorkspaceProjection --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) --> <!-- @test: scripts/ci/smoke-openvscode-sidebar-image.mjs (REQ-IDE-039 AC1: packaged code-server exposes the Codeflare product name) -->
+1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
 2. The Pi Chat participant uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) -->
 3. The welcome panel uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) -->
 4. The packaged Browser IDE brand icon matches the established product icon. <!-- @impl: Dockerfile::COPY openvscode/agent-sidebar/media/ --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) -->
