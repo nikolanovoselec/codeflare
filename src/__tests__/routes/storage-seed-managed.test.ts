@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ManagedRelease } from '../../lib/remote-curation';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
+import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
 
 const state = vi.hoisted(() => ({
   active: null as null | { digest: string; release: ManagedRelease },
@@ -11,6 +12,7 @@ const state = vi.hoisted(() => ({
 const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [] })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
+const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
 
 vi.mock('../../lib/managed-release-active', () => ({
   getActiveVerifiedManagedRelease: vi.fn(async () => {
@@ -25,12 +27,22 @@ vi.mock('../../lib/r2-seed', () => ({
   reseedContextModePlugin: reseedContext,
 }));
 vi.mock('../../lib/r2-admin', () => ({ createBucketIfNotExists: createBucket }));
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
+  createR2Client: () => ({ fetch: fetchR2 }),
+  getR2Url: (endpoint: string, bucket: string, key?: string) => key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`,
+}));
+vi.mock('../../lib/tutorial-seed.generated', () => ({ SEEDED_DOCUMENTS: [] }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'account', endpoint: 'https://r2.example.com' })) }));
 vi.mock('../../lib/r2-migration', () => ({
   isBucketMigrating: vi.fn(async () => false),
   resolveBucketSseOnEnsure: vi.fn(async () => false),
 }));
-vi.mock('../../lib/agent-seed.generated', () => ({ PRESEED_CONTENT_HASH: 'baked-hash' }));
+vi.mock('../../lib/agent-seed.generated', () => ({
+  AGENTS_SEEDED_CONFIGS: [],
+  PRESEED_CONTENT_HASH: 'baked-hash',
+  RETIRED_PRESEED_KEYS: [],
+}));
 
 import routes from '../../routes/storage/seed';
 
@@ -60,6 +72,33 @@ describe('managed storage reconcile', () => {
     state.active = { digest: 'd'.repeat(64), release };
     state.activeError = null;
     state.cached = null;
+    fetchR2.mockClear();
+  });
+
+  it('REQ-SETUP-014 AC6: configured repository credentials never enter user-bucket writes', async () => {
+    const credential = 'github_pat_user_bucket_forbidden';
+    const configFingerprint = 'f'.repeat(64);
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    kv._set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, {
+      enabled: true,
+      configFingerprint,
+      repository: 'acme/curation',
+    });
+    kv._store.set(getManagedEnvironmentPatKey(configFingerprint), credential);
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+
+    const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+    const call = reconcile.mock.calls[0] as unknown as Parameters<typeof actual.reconcileAgentConfigs>;
+    await actual.reconcileAgentConfigs(...call);
+
+    const writes = fetchR2.mock.calls.filter(([, init]) => init?.method === 'PUT');
+    expect(writes.length).toBeGreaterThan(0);
+    const serializedWrites = writes.map(([url, init]) => JSON.stringify({ url, headers: init?.headers, body: init?.body })).join('\n');
+    expect(serializedWrites).not.toContain(credential);
   });
 
   it('REQ-STOR-020 AC4: successful managed reconcile stamps applied state last', async () => {

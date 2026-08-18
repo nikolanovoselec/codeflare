@@ -700,8 +700,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The Usage page presents a page-specific developer-facing product subtitle. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage -->
-2. The Subscribe page retains its independent subscription positioning. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+1. The Usage page presents a page-specific developer-facing product subtitle. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-024 AC1+AC2: Usage and Subscribe render distinct non-empty positioning) -->
+2. The Subscribe page retains its independent subscription positioning. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-024 AC1+AC2: Usage and Subscribe render distinct non-empty positioning) -->
 
 **Constraints:** Exact marketing prose is not a behavioral contract and is not pinned in tests.
 
@@ -709,7 +709,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
 
-**Verification:** Source review of the two independently owned subtitles
+**Verification:** Automated distinct-positioning component test
 
 **Status:** Implemented
 

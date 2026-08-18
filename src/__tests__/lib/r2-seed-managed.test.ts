@@ -140,25 +140,6 @@ describe('managed release user-bucket reconciliation', () => {
     expect(peak).toBeLessThanOrEqual(16);
   });
 
-  it('REQ-SETUP-014 AC6: repository credentials never enter user-bucket writes', async () => {
-    const credential = 'github_pat_user_bucket_forbidden';
-    const options = {
-      overwrite: true,
-      cleanup: true,
-      managedRelease: { digest: 'd'.repeat(64), release: release(2, [document('.claude/common.md')]) },
-      repositoryCredential: credential,
-    } as Parameters<typeof reconcileAgentConfigs>[4] & { repositoryCredential: string };
-
-    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', options);
-
-    const requests = fetchR2.mock.calls.map(([url, init]) => JSON.stringify({
-      url,
-      headers: init?.headers,
-      body: init?.body,
-    })).join('\n');
-    expect(requests).not.toContain(credential);
-  });
-
   it('REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents', async () => {
     const extension: ManagedRelease['managedExtensions'][number] = {
       id: 'company.markdown', publisher: 'company', name: 'markdown', version: '1.2.3',

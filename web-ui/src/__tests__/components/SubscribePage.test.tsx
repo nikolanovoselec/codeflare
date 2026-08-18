@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@solidjs/testing-library';
 import SubscribePage from '../../components/SubscribePage';
+import UsagePage from '../../components/UsagePage';
 
 // Mock ScrambleText to avoid setInterval noise with fake timers
 vi.mock('../../components/ScrambleText', () => ({
@@ -21,6 +22,13 @@ vi.mock('../../api/client', () => ({
   createCheckoutSession: vi.fn(),
   createPortalSession: vi.fn(),
   createSwitchSession: vi.fn(),
+  getUsage: vi.fn(async () => ({
+    dailySeconds: 0,
+    monthlySeconds: 0,
+    monthlyQuotaSeconds: null,
+    tier: 'Free',
+    mode: 'default',
+  })),
 }));
 
 import { getAuthStatus, getPublicTiers, subscribe, getBillingStatus } from '../../api/client';
@@ -116,6 +124,21 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
   });
 
   describe('Home View', () => {
+    it('REQ-SUB-024 AC1+AC2: Usage and Subscribe render distinct non-empty positioning', async () => {
+      render(() => <SubscribePage />);
+      await waitFor(() => expect(document.querySelector('.login-subtitle')).toBeInTheDocument());
+      const subscribePositioning = document.querySelector('.login-subtitle')?.textContent?.trim();
+      cleanup();
+
+      render(() => <UsagePage />);
+      await waitFor(() => expect(document.querySelector('.login-subtitle')).toBeInTheDocument());
+      const usagePositioning = document.querySelector('.login-subtitle')?.textContent?.trim();
+
+      expect(subscribePositioning).toBeTruthy();
+      expect(usagePositioning).toBeTruthy();
+      expect(usagePositioning).not.toBe(subscribePositioning);
+    });
+
     // Caller-side oracle for the PageFooter extraction: deleting <PageFooter />
     // from this page must fail here, not just in PageFooter's own test.
     it('renders the shared page footer', async () => {
