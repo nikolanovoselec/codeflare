@@ -418,7 +418,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 6. User storage receives only verified release documents, never repository credentials. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-SETUP-014 AC6: configured repository credentials never enter user-bucket writes) -->
 7. Container environments never receive managed repository credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-SETUP-014 AC7: never emits managed repository credentials into the container environment) -->
 
-**Constraints:** Production signing credentials remain outside Codeflare. Repository credentials never enter logs.
+**Constraints:**
+
+- Production signing credentials remain outside Codeflare.
+- Repository credentials never enter logs.
 
 **Priority:** P1
 

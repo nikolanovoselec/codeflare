@@ -95,7 +95,8 @@ describe('managed storage reconcile', () => {
     const call = reconcile.mock.calls[0] as unknown as Parameters<typeof actual.reconcileAgentConfigs>;
     await actual.reconcileAgentConfigs(...call);
 
-    const writes = fetchR2.mock.calls.filter(([, init]) => init?.method === 'PUT');
+    const r2Calls = fetchR2.mock.calls as unknown as Array<[string, RequestInit?]>;
+    const writes = r2Calls.filter(([, init]) => init?.method === 'PUT');
     expect(writes.length).toBeGreaterThan(0);
     const serializedWrites = writes.map(([url, init]) => JSON.stringify({ url, headers: init?.headers, body: init?.body })).join('\n');
     expect(serializedWrites).not.toContain(credential);
