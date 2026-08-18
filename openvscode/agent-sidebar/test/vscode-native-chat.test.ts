@@ -49,7 +49,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-test('REQ-IDE-006 AC1: native host collection captures one-based panel selection and rejects a symlink escape', async () => {
+test('REQ-IDE-006 AC1 + REQ-IDE-041 AC1: native host collection captures one-based panel selection and rejects a symlink escape', async () => {
   const root = await mkdtemp(join(tmpdir(), 'native-chat-context-'));
   roots.push(root);
   const activePath = join(root, 'active.ts');

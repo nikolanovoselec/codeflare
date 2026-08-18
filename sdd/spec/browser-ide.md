@@ -198,7 +198,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Every native Pi request receives bounded current editor content, selection, open workspace documents, diagnostics, and explicit native references; outside-workspace paths, symbolic-link aliases, and malformed references are excluded. Panel Chat represents selection coordinates as one-based human-readable positions. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::snapshotActiveEditor --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, reference, diagnostic, and chat context) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: native host collection captures one-based panel selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
+1. Every native Pi request receives bounded current editor content, selection, open workspace documents, diagnostics, and explicit native references; outside-workspace paths, symbolic-link aliases, and malformed references are excluded. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: native Pi receives bounded editor, reference, diagnostic, and chat context) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1 + REQ-IDE-041 AC1: native host collection captures one-based panel selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
 2. Official Claude receives active-file, selection, native diff, and diagnostics integration through Anthropic's authenticated loopback-only IDE MCP server. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareOfficialClaudeIde --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildOpenVscodeSettings --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated OpenVSCode settings) --> <!-- @manual: On the deployed integration image, attach an active file and selection, request a native diff, and confirm diagnostics reach official Claude on three fresh sessions. -->
 3. The IDE Pi conversation identity comprises panel and editor Inline Chat and excludes terminal tab 1. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/session.ts::FIXED_PI_SPAWN_SPEC --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-005: lazy native Pi reuses one backend after settled turns) --> <!-- @test: openvscode/agent-sidebar/test/pi-session.test.ts (REQ-IDE-005 AC4 + REQ-IDE-006 AC1+AC3: visible Pi resolution uses only the fixed no-session spawn contract) -->
 4. Claude uses a dedicated temporary config tree and cannot attach to or resume terminal tab 1. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC4: projection excludes terminal history, runtime state, and unknown entries) -->
@@ -614,7 +614,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Editor requests capture the invoking host document's unsaved content, selection, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: native host collection captures one-based panel selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
+1. Editor requests capture the invoking host document's unsaved content, selection, diagnostics, explicit references, and bounded recent history while excluding invalid and out-of-workspace resources. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::collectNativePiPromptInput --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1 + REQ-IDE-041 AC1: native host collection captures one-based panel selection and rejects a symlink escape) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1: malformed native reference ranges are ignored at the host boundary) --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006: queued native requests capture their editor and Chat context at invocation) -->
 2. An editor request invokes the local Pi runtime directly without compatibility-provider generation or panel handoff. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::runNativePiChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 3. A valid proposal emits native text edits for the captured document. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 4. The host emits the native edit-completion marker after those edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
@@ -797,9 +797,8 @@ A full code-server browser editor for an advanced running session. The editor op
 4. Accepted edits are deterministically ordered and contain neither a repeated start nor a crossing range. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: repeated edit starts fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: overlapping inline edits fail closed) -->
 5. Every edit position lies within the captured invoking document. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: out-of-bounds inline edits fail closed) -->
 6. The invoking document version still equals its captured version when the host emits edits. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: stale document versions fail closed) -->
-7. Editor Inline Chat exposes the invoking selection and whole range to Pi in the same zero-based UTF-16 coordinate system required by edit proposals. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::snapshotActiveEditor --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 
-**Notes:** Automated coordinate coverage is complete; fresh integration verification is required before promotion to Implemented.
+**Notes:** Automated edit-validation coverage is complete; fresh integration verification is required before promotion to Implemented.
 
 **Constraints:**
 
@@ -1170,5 +1169,28 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Automated managed-settings and profile-preparation tests.
 
 **Status:** Implemented
+
+---
+
+### REQ-IDE-041: Native Chat coordinate representation
+
+**Intent:** Pi receives editor positions in the coordinate system consumed by each native Chat surface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Panel Chat exposes the invoking selection to Pi as one-based human-readable positions. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::snapshotActiveEditor --> <!-- @test: openvscode/agent-sidebar/test/vscode-native-chat.test.ts (REQ-IDE-006 AC1 + REQ-IDE-041 AC1: native host collection captures one-based panel selection and rejects a symlink escape) -->
+2. Editor Inline Chat exposes the invoking selection and whole range to Pi in the same zero-based UTF-16 coordinate system required by edit proposals. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::snapshotActiveEditor --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+
+**Constraints:** Coordinate representation differs only at the surface boundary; edit-envelope and document-range validation remain owned by [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation)
+
+**Verification:** Automated native panel and editor Inline Chat tests verify each coordinate basis; fresh integration verification confirms the selected-text edit transaction.
+
+**Status:** Partial
 
 ---
