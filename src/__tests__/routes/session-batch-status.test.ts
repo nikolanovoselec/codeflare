@@ -444,6 +444,17 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
+    it('reports update_pending during an outage when Enterprise resolves a different applied mode', async () => {
+      managedReleaseState.error = new Error('verified cache unavailable');
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      const res = await createApp({ ENTERPRISE_MODE: 'active' }).request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
     it('reports current only when both the active digest and resolved mode match applied state', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', {

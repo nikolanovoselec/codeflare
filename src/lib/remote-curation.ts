@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
   MANAGED_RELEASE_LIMITS,
+  isExactManagedExtensionVersion,
+  validateManagedReleasePath,
 } from '../../scripts/agent-seed-release-limits.mjs';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from './agent-seed.generated';
 import type { Env } from '../types';
@@ -28,11 +30,6 @@ const RELEASE_ASSET_REDIRECT_HOSTS = new Set([
   'release-assets.githubusercontent.com',
   'github-releases.githubusercontent.com',
 ]);
-const RETIRED_PI_EXTENSIONS = new Set([
-  'review-job-helpers.ts',
-  'review-jobs.ts',
-  'review-lane-guards.ts',
-]);
 const GITHUB_API_ORIGIN = 'https://api.github.com';
 const FRESHNESS_MS = 5 * 60 * 1000;
 const MAX_SAFE_ERROR_BYTES = 512;
@@ -57,7 +54,7 @@ const ExtensionSchema = z.object({
   id: ExtensionIdSchema,
   publisher: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/).max(128),
   name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/).max(128),
-  version: z.string().regex(/^[0-9A-Za-z][0-9A-Za-z.+-]*$/).max(128),
+  version: z.string().max(128).refine(isExactManagedExtensionVersion, 'Extension version must be exact semantic version'),
   targetPlatform: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).max(64),
   engine: z.string().min(1).max(128),
   entrypoint: z.string().min(1).max(512),
@@ -199,25 +196,7 @@ function validateBoundedString(value: string, label: string, maximum: number): v
 }
 
 function assertManagedPath(key: string): void {
-  validateBoundedString(key, 'Managed path', MANAGED_RELEASE_LIMITS.pathBytes);
-  if (
-    new TextEncoder().encode(key).byteLength > MANAGED_RELEASE_LIMITS.pathBytes
-    || key.startsWith('/')
-    || key.endsWith('/')
-    || key.includes('\\')
-    || key.includes('//')
-    || /^[A-Za-z]:\//.test(key)
-    || key.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`Invalid managed path: ${key}`);
-  }
-  if (/(^|[/._-])context-mode([/._-]|$)/i.test(key)) {
-    throw new Error(`Managed release cannot own context-mode path: ${key}`);
-  }
-  const basename = key.slice(key.lastIndexOf('/') + 1);
-  if (RETIRED_PI_EXTENSIONS.has(basename)) {
-    throw new Error(`Managed release cannot restore retired Pi extension: ${key}`);
-  }
+  validateManagedReleasePath(key, 'Managed path');
 }
 
 function compareStrings(left: string, right: string): number {
@@ -324,7 +303,7 @@ export async function parseManagedRelease(compressed: Uint8Array): Promise<Manag
   const uncompressed = await decompressGzip(compressed);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(uncompressed));
+    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(uncompressed));
   } catch {
     throw new Error('Managed release JSON is invalid');
   }
@@ -796,6 +775,13 @@ export async function configureManagedEnvironment(input: {
   });
   const prepared = resolved.deferred?.pointer ?? resolved.active;
   if (!prepared) throw new Error('Managed coding environment has no verified active release');
+
+  // Equality is allowed only for the exact immutable release already selected.
+  // Validate a same-sequence candidate against the authoritative cache pointer
+  // before any replacement PAT or selected configuration is committed.
+  if (resolved.active && prepared.sequence === resolved.active.sequence) {
+    await activateCachedManagedRelease(cache, prepared);
+  }
 
   if (existing && existing.publicKeyHex !== publicKeyHex) {
     const priorState = await readFreshnessState(input.env.KV, getManagedEnvironmentStateKey(existing.configFingerprint));

@@ -100,7 +100,7 @@ function managedExtension(
     engine: '^1.109.0',
     entrypoint: './dist/extension.js',
     extensionPack: [],
-    extensionDependencies: [],
+    extensionDependencies: [] as string[],
     size: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     downloadUrl: `https://open-vsx.org/api/${publisher}/${name}/${version}/file/${publisher}.${name}-${version}.vsix`,
@@ -227,6 +227,23 @@ test('REQ-IDE-042 AC3: a restored company manifest from another release is rejec
   assert.equal(host.warnings.length, 1);
 });
 
+test('REQ-IDE-042 AC3: non-semantic company versions are rejected before download', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const invalid = {
+    ...managedExtension(),
+    version: '01.2.3',
+    downloadUrl: 'https://open-vsx.org/api/cherrymarkdownpublisher/cherry-markdown/01.2.3/file/cherry-markdown.vsix',
+  };
+  writeManagedExtensions(managedExtensionsPath, [invalid]);
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(fetcher.mock.calls.length, 0);
+});
+
 test('REQ-IDE-042 AC3: redirect, size, and digest failures install nothing and clean every temporary directory', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const redirect = managedExtension('acme.bad-redirect', '1.0.0', Buffer.from('redirect'));
@@ -250,6 +267,26 @@ test('REQ-IDE-042 AC3: redirect, size, and digest failures install nothing and c
   assert.deepEqual(host.commands, []);
   const after = readdirSync(tmpdir()).filter((name) => name.startsWith('codeflare-company-extension-') && !before.has(name));
   assert.deepEqual(after, []);
+});
+
+test('REQ-IDE-042 AC3: a matching registry identity is reinstalled from exact signed bytes', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const bytes = Buffer.from('verified company extension');
+  const company = managedExtension('cherrymarkdownpublisher.cherry-markdown', '0.3.1081718', bytes);
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeRegistry(extensionsDir, [{ id: company.id, version: company.version, targetPlatform: company.targetPlatform }]);
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', async (request: Request) => {
+    requests.push(request.url);
+    return new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } });
+  });
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(requests, [company.downloadUrl]);
+  assert.equal(host.commands.length, 1);
+  assert.equal((host.commands[0].arguments[0] as { scheme: string }).scheme, 'file');
 });
 
 test('REQ-IDE-042 AC4: company failures remain bounded and do not block the workbench', async () => {
@@ -384,7 +421,11 @@ test('REQ-IDE-042 AC6: disable stops enforcement, restores prior personal intent
     securityWarningShown: true,
   }));
   writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
-  vi.stubGlobal('fetch', async () => { throw new Error('already installed'); });
+  const companyBytes = Buffer.from('verified company extension');
+  vi.stubGlobal('fetch', async () => new Response(companyBytes, {
+    status: 200,
+    headers: { 'content-length': String(companyBytes.length) },
+  }));
   await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
   unlinkSync(managedExtensionsPath);
   host.commands = [];

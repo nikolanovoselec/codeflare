@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SetupPrefillResponseSchema } from '../../lib/schemas';
 import { applyInitialPrefill } from '../../stores/setup-prefill';
 import type { SetupState } from '../../stores/setup-types';
 
@@ -68,9 +69,9 @@ function state(): SetupState {
 }
 
 describe('managed-environment setup prefill', () => {
-  it('hydrates masked status in every mode without inventing a PAT value', () => {
+  it('REQ-SETUP-013 AC2: hydrates masked status without inventing a PAT value', () => {
     const target = state();
-    applyInitialPrefill(target, {
+    const prefill = SetupPrefillResponseSchema.parse({
       adminUsers: [],
       allowedUsers: [],
       managedEnvironment: {
@@ -86,7 +87,8 @@ describe('managed-environment setup prefill', () => {
         lastCheckedAt: '2026-08-18T00:00:00.000Z',
         patExpiryState: 'valid',
       },
-    } as never);
+    });
+    applyInitialPrefill(target, prefill);
 
     expect(target.managedEnvironmentEnabled).toBe(true);
     expect(target.managedEnvironmentConfigured).toBe(true);

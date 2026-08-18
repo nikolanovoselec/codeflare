@@ -134,7 +134,7 @@ describe('R2 managed release cache boundary', () => {
       endpoint: 'https://account.r2.cloudflarestorage.com',
       bucketName: 'cache-bucket',
       configFingerprint: fingerprint,
-      fetcher,
+      fetcher: fetcher as typeof fetch,
     });
 
     await expect(cache.createActive(pointer(1, '1'.repeat(64)))).resolves.toBe(true);

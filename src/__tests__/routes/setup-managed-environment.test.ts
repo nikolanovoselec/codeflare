@@ -103,7 +103,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
       adminUsers: ['admin@example.com'],
       managedEnvironment,
     };
-    if (env.ENTERPRISE_MODE === 'active') body.dynamicRoutes = ['development'];
+    if ('ENTERPRISE_MODE' in env && env.ENTERPRISE_MODE === 'active') body.dynamicRoutes = ['development'];
 
     const response = await app(env).request('https://codeflare-test.example.com/api/setup/configure', {
       method: 'POST',

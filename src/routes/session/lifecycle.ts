@@ -203,7 +203,7 @@ app.get('/batch-status', async (c) => {
       // Cache availability may fail open only to a previously applied verified
       // bucket state. A fresh bucket remains blocked and must not trigger a
       // reconciliation request until the verified deployment cache is readable.
-      managedReleaseStatus = prefs?.managedEnvironmentApplied ? 'current' : 'update_pending';
+      managedReleaseStatus = prefs?.managedEnvironmentApplied?.mode === mode ? 'current' : 'update_pending';
       preseedNeedsUpgrade = false;
     }
   }

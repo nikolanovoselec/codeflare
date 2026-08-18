@@ -607,6 +607,40 @@ async function deletePriorManagedConfigs(
   return { deleted, warnings };
 }
 
+async function deleteRetiredManagedConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  release: ManagedRelease,
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+  const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
+    const url = getR2Url(endpoint, bucketName, key);
+    try {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+      // A signed retirement may remove only content still marked as Codeflare-owned.
+      // An absent marker preserves a user-created or subsequently replaced object.
+      if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      const response = await client.fetch(url, { method: 'DELETE' });
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+      return { deleted: key };
+    } catch (error) {
+      return { warning: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.deleted) deleted.push(outcome.deleted);
+    if (outcome.warning) warnings.push(outcome.warning);
+  }
+  return { deleted, warnings };
+}
+
 export async function reconcileAgentConfigs(
   env: SeedEnv,
   bucketName: string,
@@ -665,6 +699,17 @@ export async function reconcileAgentConfigs(
         options.priorManagedRelease,
         managedRelease ?? null,
         mode,
+        options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    }
+    if (managedRelease) {
+      const cleanupResult = await deleteRetiredManagedConfigs(
+        env,
+        bucketName,
+        endpoint,
+        managedRelease.release,
         options.r2SseDisabled,
       );
       deleted.push(...cleanupResult.deleted);

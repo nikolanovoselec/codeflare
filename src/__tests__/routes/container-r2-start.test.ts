@@ -94,6 +94,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
   }
 
   beforeEach(() => {
+    vi.clearAllMocks();
     mockKV = createMockKV();
     testState.container = makeContainer();
     testState.createBucketResult = { success: true, created: false };
@@ -153,6 +154,22 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         remoteCurationActive: true,
         remoteCurationReleaseDigest: 'd'.repeat(64),
       }));
+    });
+
+    it('blocks an old applied mode during a cache outage when Enterprise resolves advanced mode', async () => {
+      testState.managedReleaseError = new Error('verified cache unavailable');
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' });
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
 
     it('returns a typed 409 before user-bucket or container work when the active release is not applied', async () => {

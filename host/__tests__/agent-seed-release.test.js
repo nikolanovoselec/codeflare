@@ -233,12 +233,14 @@ describe('REQ-AGENT-147 AC5: measured company extensions', () => {
     });
   });
 
-  it('rejects non-semantic extension labels instead of treating latest as an exact version', async () => {
+  it('rejects non-semantic extension labels instead of treating them as exact versions', async () => {
     const { measureExtensionRecord } = await import(releaseUrl);
-    assert.throws(
-      () => measureExtensionRecord(extensionInput({ manifest: { ...extensionInput().manifest, version: 'latest' } })),
-      /version.*exact|semantic/i,
-    );
+    for (const version of ['latest', '01.2.3', '1.2.3-']) {
+      assert.throws(
+        () => measureExtensionRecord(extensionInput({ manifest: { ...extensionInput().manifest, version } })),
+        /version.*exact|semantic/i,
+      );
+    }
   });
 
   it('rejects hand-authored measurements and dependency sets that are not closed', async () => {

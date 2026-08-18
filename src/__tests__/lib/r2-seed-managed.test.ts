@@ -95,6 +95,29 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deletes).toEqual([`${endpoint}/bucket/.claude/obsolete.md`]);
   });
 
+  it('deletes explicitly retired Codeflare-owned paths even without a prior remote release', async () => {
+    const current = release(2, [document('.claude/current.md')]);
+    current.retiredPaths = ['.pi/agent/extensions/legacy-owned.ts', '.pi/agent/extensions/user-owned.ts'];
+    fetchR2.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith('/legacy-owned.ts') ? 'baked-digest' : null;
+        return Promise.resolve(new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} }));
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: { digest: '2'.repeat(64), release: current },
+    });
+
+    expect(result.deleted).toEqual(['.pi/agent/extensions/legacy-owned.ts']);
+    expect(fetchR2.mock.calls.filter(([, init]) => init?.method === 'DELETE').map(([url]) => url)).toEqual([
+      `${endpoint}/bucket/.pi/agent/extensions/legacy-owned.ts`,
+    ]);
+  });
+
   it('bounds R2 concurrency for a maximum-size managed document set', async () => {
     let inFlight = 0;
     let peak = 0;

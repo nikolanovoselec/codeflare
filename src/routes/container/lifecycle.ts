@@ -200,7 +200,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // A transient deployment-cache read failure may continue only from a
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
-      if (!preferences.managedEnvironmentApplied) throw new ManagedEnvironmentUpdatePendingError();
+      if (!preferences.managedEnvironmentApplied || preferences.managedEnvironmentApplied.mode !== expectedMode) {
+        throw new ManagedEnvironmentUpdatePendingError();
+      }
       remoteCurationActive = true;
       remoteCurationReleaseDigest = preferences.managedEnvironmentApplied.digest;
     }

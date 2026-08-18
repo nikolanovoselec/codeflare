@@ -67,10 +67,10 @@ function release(overrides: Partial<ManagedRelease> = {}): ManagedRelease {
 }
 
 async function signedFixture(value = release(), suppliedKeyPair?: CryptoKeyPair) {
-  const keyPair = suppliedKeyPair ?? await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const keyPair = suppliedKeyPair ?? await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
   const compressed = await gzipBytes(encoder.encode(JSON.stringify(value)));
   const signature = await crypto.subtle.sign('Ed25519', keyPair.privateKey, compressed);
-  const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+  const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey) as ArrayBuffer;
   return { compressed, signature: new Uint8Array(signature), publicKeyHex: hex(publicKey) };
 }
 
@@ -101,10 +101,10 @@ describe('managed coding-environment release verification', () => {
   });
 
   it('aborts gzip expansion at the shared expanded-byte limit', async () => {
-    const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const compressed = await gzipBytes(encoder.encode('x'.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));
     const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', keyPair.privateKey, compressed));
-    const publicKeyHex = hex(await crypto.subtle.exportKey('raw', keyPair.publicKey));
+    const publicKeyHex = hex(await crypto.subtle.exportKey('raw', keyPair.publicKey) as ArrayBuffer);
 
     await expect(verifyManagedRelease({
       compressed,
@@ -144,9 +144,25 @@ describe('managed coding-environment release verification', () => {
     await expect(verifyManagedRelease({ ...fixture, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'e'.repeat(64) })).rejects.toThrow(/runtime/i);
 
     const forbidden = await signedFixture(release({
-      documents: [{ key: '.claude/plugins/context-mode/plugin.json', contentType: 'application/json', content: '{}', modes: ['advanced'] }],
+      documents: [{ key: '.claude/plugins/context-mode/plugin.json', contentType: 'application/json; charset=utf-8', content: '{}', modes: ['advanced'] }],
     }));
     await expect(verifyManagedRelease({ ...forbidden, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/context-mode/i);
+
+    for (const key of ['.ssh/authorized_keys', '.pi/agent/npm/package.json']) {
+      const unsupported = await signedFixture(release({
+        documents: [{ key, contentType: 'text/plain; charset=utf-8', content: 'forbidden', modes: ['advanced'] }],
+      }));
+      await expect(verifyManagedRelease({ ...unsupported, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/supported managed path roots|image-owned Pi package metadata/i);
+    }
+
+    const invalidVersionRelease = release();
+    invalidVersionRelease.managedExtensions[0] = {
+      ...invalidVersionRelease.managedExtensions[0],
+      version: '01.2.3',
+      downloadUrl: 'https://open-vsx.org/api/cherryMarkdownPublisher/cherry-markdown/01.2.3/file/cherry-markdown.vsix',
+    };
+    const invalidVersion = await signedFixture(invalidVersionRelease);
+    await expect(verifyManagedRelease({ ...invalidVersion, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/schema|semantic|version/i);
   });
 
   it('downloads one exact allowed redirect without forwarding GitHub authorization', async () => {
@@ -365,7 +381,7 @@ describe('managed release resolver', () => {
       token: 'secret-pat',
       publicKeyHex: fixture.publicKeyHex,
       expectedRuntimeHash: 'c'.repeat(64),
-      fetcher,
+      fetcher: fetcher as typeof fetch,
       now: new Date('2026-08-18T00:05:01.000Z'),
     });
 
@@ -414,7 +430,7 @@ describe('managed release resolver', () => {
   });
 
   it('stores the PAT only as AES ciphertext, preserves blanks, and commits replacement trust last', async () => {
-    const firstKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const firstKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const firstFixture = await signedFixture(release({ runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH }), firstKeyPair);
     const sameTrustUpdateFixture = await signedFixture(release({
       sequence: 8,
@@ -423,6 +439,15 @@ describe('managed release resolver', () => {
         repositoryId: 123456,
         commitSha: '1'.repeat(40),
         releaseTag: 'release-8-same-trust',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), firstKeyPair);
+    const sameTrustConflictFixture = await signedFixture(release({
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 123456,
+        commitSha: '2'.repeat(40),
+        releaseTag: 'release-7-conflict',
         compilerCommit: 'b'.repeat(40),
       },
     }), firstKeyPair);
@@ -459,6 +484,13 @@ describe('managed release resolver', () => {
         fixture: sameTrustUpdateFixture,
         bundleDigest: await sha256(sameTrustUpdateFixture.compressed),
         signatureDigest: await sha256(sameTrustUpdateFixture.signature),
+      },
+      sameTrustConflict: {
+        id: 76,
+        tag: 'release-7-conflict',
+        fixture: sameTrustConflictFixture,
+        bundleDigest: await sha256(sameTrustConflictFixture.compressed),
+        signatureDigest: await sha256(sameTrustConflictFixture.signature),
       },
       sameSequenceKey: {
         id: 78,
@@ -533,7 +565,7 @@ describe('managed release resolver', () => {
       workerName: 'worker-1',
       endpoint: 'https://account-1.r2.cloudflarestorage.com',
       r2Credentials: { R2_ACCESS_KEY_ID: 'access', R2_SECRET_ACCESS_KEY: 'secret' },
-      fetcher,
+      fetcher: fetcher as typeof fetch,
     };
 
     await configureManagedEnvironment({
@@ -573,6 +605,15 @@ describe('managed release resolver', () => {
       request: { enabled: true, repository: 'acme/curation', personalAccessToken: '', publicKey: '' },
     });
     expect(githubRequests.some((request) => request.headers.get('authorization') === 'Bearer github_pat_first')).toBe(true);
+    const currentEncryptedPat = kv._store.get(patKey)!;
+
+    selected = releases.sameTrustConflict;
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: { enabled: true, repository: 'acme/curation', personalAccessToken: 'github_pat_conflict', publicKey: '' },
+    })).rejects.toThrow(/same sequence.*conflicting identity|conflicting identity.*same sequence/i);
+    expect(kv._store.get(patKey)).toBe(currentEncryptedPat);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
 
     selected = releases.sameTrustUpdate;
     const originalPut = kv.put.getMockImplementation()!;
@@ -589,7 +630,7 @@ describe('managed release resolver', () => {
       request: { enabled: true, repository: 'acme/curation', personalAccessToken: 'github_pat_replacement', publicKey: '' },
     })).rejects.toThrow(/injected selected-config write failure/i);
     kv.put.mockImplementation(originalPut);
-    expect(kv._store.get(patKey)).toBe(encryptedPat);
+    expect(kv._store.get(patKey)).toBe(currentEncryptedPat);
     const activeObject = [...r2.entries()].find(([key]) => key.endsWith(`/configs/${firstConfig.configFingerprint}/active.json`));
     expect(activeObject).toBeDefined();
     expect(JSON.parse(new TextDecoder().decode(activeObject![1].bytes)).sequence).toBe(7);

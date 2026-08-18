@@ -52,6 +52,9 @@ describe('shared agent seed compiler', () => {
 
       assert.match(compiled.runtimeHash, /^[0-9a-f]{64}$/);
       assert.match(compiled.source, new RegExp(`export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${compiled.runtimeHash}';`));
+      const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));
+      assert.ok(licenses.length >= 2);
+      assert.ok(licenses.every((document) => document.contentType === 'text/plain; charset=utf-8'));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });

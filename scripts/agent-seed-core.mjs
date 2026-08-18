@@ -199,6 +199,7 @@ function isClaudeOnlySkill(withinClaude) {
 // ---------------------------------------------------------------------------
 
 function inferContentType(filePath) {
+  if (path.basename(filePath) === 'LICENSE') return 'text/plain; charset=utf-8';
   const extension = path.extname(filePath).toLowerCase();
   switch (extension) {
     case '.md':

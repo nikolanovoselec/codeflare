@@ -12,6 +12,8 @@ import { compileAgentSeed } from './agent-seed-core.mjs';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
   MANAGED_RELEASE_LIMITS,
+  isExactManagedExtensionVersion,
+  validateManagedReleasePath,
 } from './agent-seed-release-limits.mjs';
 
 export const SEED_ABI = 1;
@@ -19,11 +21,6 @@ export const SEED_ABI = 1;
 const MODES = new Set(['default', 'advanced']);
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const RETIRED_PI_EXTENSION_FILES = new Set([
-  'review-job-helpers.ts',
-  'review-jobs.ts',
-  'review-lane-guards.ts',
-]);
 const measuredExtensionRecords = new WeakSet();
 const SUPPORTED_CONTENT_TYPES = new Set(MANAGED_RELEASE_CONTENT_TYPES);
 
@@ -49,38 +46,7 @@ function requireBoundedString(value, label, maximum = 512) {
 }
 
 function validateReleasePath(value, label) {
-  const releasePath = requireBoundedString(value, label, MANAGED_RELEASE_LIMITS.pathBytes);
-  if (
-    Buffer.byteLength(releasePath, 'utf8') > MANAGED_RELEASE_LIMITS.pathBytes
-    || releasePath.startsWith('/')
-    || releasePath.endsWith('/')
-    || releasePath.includes('\\')
-    || releasePath.includes('//')
-    || /^[A-Za-z]:\//.test(releasePath)
-    || releasePath.split('/').some((segment) => segment === '.' || segment === '..' || segment === '')
-  ) {
-    throw new Error(`${label} is an invalid release path: ${releasePath}`);
-  }
-  const supportedRoot = [
-    '.claude/',
-    '.codex/',
-    '.gemini/',
-    '.copilot/',
-    '.config/opencode/',
-    '.pi/agent/',
-  ].some((prefix) => releasePath.startsWith(prefix));
-  if (!supportedRoot) throw new Error(`${label} is outside the supported managed path roots: ${releasePath}`);
-  if (releasePath.startsWith('.pi/agent/npm/')) {
-    throw new Error(`${label} is image-owned Pi package metadata: ${releasePath}`);
-  }
-  if (/(^|[/._-])context-mode([/._-]|$)/i.test(releasePath)) {
-    throw new Error(`${label} is an image-owned context-mode path: ${releasePath}`);
-  }
-  const basename = releasePath.slice(releasePath.lastIndexOf('/') + 1);
-  if (RETIRED_PI_EXTENSION_FILES.has(basename)) {
-    throw new Error(`${label} names a retired Pi extension: ${releasePath}`);
-  }
-  return releasePath;
+  return validateManagedReleasePath(value, label);
 }
 
 function validateSequence(sequence, previousSequence) {
@@ -214,7 +180,7 @@ export function measureExtensionRecord({ bytes, manifest, platform, downloadUrl 
     throw new Error('extension publisher and name must form a valid identity');
   }
   const version = requireBoundedString(manifest.version, 'extension version', 128);
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (!isExactManagedExtensionVersion(version)) {
     throw new Error('extension version must be an exact semantic version');
   }
   const measuredPlatform = requireBoundedString(platform, 'extension platform', 64);

@@ -213,7 +213,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalled();
     });
 
-    it('maps update_pending from the existing batch request without invoking reconciliation', async () => {
+    it('REQ-STOR-020 AC4: maps update_pending without invoking reconciliation', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -226,8 +226,11 @@ describe('Session Store', () => {
       expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
 
-    it('maps upgrading and invokes the existing agent-config reconciliation once', async () => {
-      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise(() => {}));
+    it('REQ-STOR-020 AC3: reconciles upgrading and returns to current after success', async () => {
+      let resolveRecreate: (value: any) => void;
+      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
+        resolveRecreate = resolve;
+      }));
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -239,6 +242,10 @@ describe('Session Store', () => {
 
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+
+      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.managedReleaseStatus).toBe('current');
     });
 
     it('should recognize running sessions on fresh page load', async () => {

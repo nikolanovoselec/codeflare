@@ -91,6 +91,7 @@ const policy = policyJson as {
 
 const extensionIdPattern = new RegExp(policy.extensionIdPattern);
 const extensionVersionPattern = new RegExp(policy.extensionVersionPattern);
+const exactSemanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const targetPlatformPattern = new RegExp(policy.targetPlatformPattern);
 const installedAtPattern = new RegExp(policy.installedAtPattern);
 const sha256Pattern = new RegExp(policy.sha256Pattern);
@@ -194,7 +195,7 @@ function isManagedExtensionRecord(value: unknown): value is ManagedExtensionReco
   if (typeof value.publisher !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value.publisher)) return false;
   if (typeof value.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value.name)) return false;
   if (value.id !== `${value.publisher}.${value.name}`.toLowerCase()) return false;
-  if (typeof value.version !== 'string' || value.version.length > 128 || !/^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(value.version)) return false;
+  if (typeof value.version !== 'string' || value.version.length > 128 || !exactSemanticVersionPattern.test(value.version)) return false;
   if (typeof value.targetPlatform !== 'string' || !targetPlatformPattern.test(value.targetPlatform)) return false;
   if (typeof value.engine !== 'string' || value.engine.length === 0 || value.engine.length > 128) return false;
   if (typeof value.entrypoint !== 'string' || value.entrypoint.length === 0 || value.entrypoint.length > 512) return false;
@@ -670,16 +671,10 @@ export async function reconcileCompanyExtensions(
     }
     return { failures: managedIds, managedIds };
   }
-  let installed: Record<string, ExtensionRecord> = {};
-  try {
-    installed = await loadRegistry(options.extensionsDir);
-  } catch {
-    // An invalid registry requires exact reinstall attempts rather than trusting it.
-  }
-  const required = managed.filter((record) => (
-    installed[record.id]?.version !== record.version
-    || installed[record.id]?.targetPlatform !== record.targetPlatform
-  ));
+  // Registry identity cannot prove the installed bytes match the signed company
+  // digest. Reinstall every active company requirement from its exact verified
+  // VSIX; matching ID/version/platform metadata is not a trust boundary.
+  const required = managed;
   const failures: string[] = [];
   const failedIds = new Set<string>();
   const pending = new Map(required.map((record) => [record.id, record]));
