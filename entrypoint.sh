@@ -839,6 +839,13 @@ bisync_with_r2() {
     if [ -n "$verbose_flag" ]; then
         verbose_args=("$verbose_flag")
     fi
+
+    # Keep outbound state bounded on periodic, manually triggered, recovery,
+    # and final bisync paths. Adapter failures fall back to mtime internally;
+    # process failures remain non-fatal to sync.
+    (cleanup_old_transcripts) || true
+    (cleanup_old_pi_transcripts) || true
+
     echo "[sync] Running bidirectional sync..." | tee -a /tmp/sync.log
 
     # Clear stale bisync lock if no bisync is running
@@ -895,72 +902,22 @@ bisync_with_r2() {
 }
 
 # ============================================================================
-# Cleanup old Claude Code session transcripts — keep only the 5 most recent
+# Main-session transcript cleanup — Claude Code and Pi only (REQ-STOR-012)
 # ============================================================================
+cleanup_agent_transcripts() {
+    local AGENT="$1"
+    local ROOT="$2"
+    local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
+
+    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a /tmp/sync.log
+}
+
 cleanup_old_transcripts() {
-    local PROJECTS_DIR="$USER_HOME/.claude/projects"
-    local KEEP_COUNT=5
-
-    # Find all session transcript JSONL files across all project dirs
-    local ALL_TRANSCRIPTS
-    ALL_TRANSCRIPTS=$(find "$PROJECTS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/subagents/*" 2>/dev/null | sort -t/ -k6) || true
-    local COUNT
-    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null) || COUNT=0
-
-    if [ "$COUNT" -le "$KEEP_COUNT" ]; then
-        return 0
-    fi
-
-    # Sort by modification time (newest first), delete all but the newest KEEP_COUNT
-    local TO_DELETE
-    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1))) || true
-
-    [ -z "$TO_DELETE" ] && return 0
-
-    local DELETED=0
-    for transcript in $TO_DELETE; do
-        [ -f "$transcript" ] || continue
-        rm -f "$transcript"
-        DELETED=$((DELETED + 1))
-    done
-
-    if [ "$DELETED" -gt 0 ]; then
-        echo "[sync-daemon] Cleaned up $DELETED old session transcript(s), kept newest $KEEP_COUNT" | tee -a /tmp/sync.log
-    fi
+    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects"
 }
 
 cleanup_old_pi_transcripts() {
-    local SESSIONS_DIR="$USER_HOME/.pi/agent/sessions"
-    local KEEP_COUNT=5
-
-    [ -d "$SESSIONS_DIR" ] || return 0
-
-    local ALL_TRANSCRIPTS
-    ALL_TRANSCRIPTS=$(find "$SESSIONS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/tasks/*" 2>/dev/null) || true
-    local COUNT
-    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null) || COUNT=0
-
-    if [ "$COUNT" -le "$KEEP_COUNT" ]; then
-        return 0
-    fi
-
-    local TO_DELETE
-    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1))) || true
-
-    [ -z "$TO_DELETE" ] && return 0
-
-    local DELETED=0
-    for transcript in $TO_DELETE; do
-        [ -f "$transcript" ] || continue
-        local TASK_DIR="${transcript%.jsonl}"
-        [ -d "$TASK_DIR/tasks" ] && rm -rf "$TASK_DIR/tasks"
-        rm -f "$transcript"
-        DELETED=$((DELETED + 1))
-    done
-
-    if [ "$DELETED" -gt 0 ]; then
-        echo "[sync-daemon] Cleaned up $DELETED old Pi session transcript(s), kept newest $KEEP_COUNT" | tee -a /tmp/sync.log
-    fi
+    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions"
 }
 
 # ============================================================================
@@ -1033,11 +990,6 @@ start_sync_daemon() {
             tail -c 262144 /tmp/sync.log > /tmp/sync.log.tmp && mv /tmp/sync.log.tmp /tmp/sync.log
             echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
         fi
-
-        # Cleanup old session transcripts before sync (sequential — no race with bisync).
-        # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
-        (cleanup_old_transcripts) || true
-        (cleanup_old_pi_transcripts) || true
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
         # Mark syncing BEFORE the run so /internal/final-sync sees a fresh
@@ -2353,6 +2305,10 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
     if [ $STEP1_RESULT -eq 0 ]; then
         # Ensure workspace directory exists after sync
         mkdir -p "$USER_WORKSPACE"
+        # Prune restored transcripts before any agent PTY is released. The same
+        # functions run inside every later outbound bisync.
+        (cleanup_old_transcripts) || true
+        (cleanup_old_pi_transcripts) || true
         update_sync_status "success" "null"
     else
         update_sync_status "failed" "$SYNC_ERROR"

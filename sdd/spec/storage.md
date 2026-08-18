@@ -358,23 +358,26 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-012: Session Transcript Cleanup
+### REQ-STOR-012: Main Session Transcript Cleanup
 
-**Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
+**Intent:** Claude Code and Pi main-session transcripts must be pruned without trusting restored filesystem modification times, preventing unbounded R2 growth while preserving resumable recent work.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Transcript cleanup runs before each periodic bisync and never overlaps another cleanup run. <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
-2. The five most recent session transcripts (across all projects) are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#session-transcript-cleanup). <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
-3. Session directories themselves are left intact so the agent can still resolve project paths. <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
-4. Cleanup deletions propagate to R2 automatically via the next bisync. <!-- @impl: entrypoint.sh::cleanup_old_transcripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
-5. Subagent transcripts are excluded from bisync entirely so they never reach R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts / REQ-STOR-012 (keeps 5 newest .jsonl, deletes older, leaves session dirs intact, excludes subagents)) -->
+1. Claude Code main transcripts are discovered recursively under `~/.claude/projects/`, and Pi main transcripts are discovered recursively under `~/.pi/agent/sessions/`; Claude subagent/tool/workflow artifacts, Pi task transcripts, and every Codex store remain outside the cleanup candidate sets. The exact paths live in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#session-transcript-cleanup). <!-- @impl: transcript-retention.mjs::discoverTranscripts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+2. Each agent independently retains at most ten main transcript files across all nested project/session directories, ranked by the latest recoverable native activity timestamp with path as the deterministic tie-breaker. <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+3. Claude transcripts are accepted only when their UUID filename, native `sessionId`, supported transcript version, and main-session marker agree; Pi transcripts are accepted only when their UUID filename suffix and version-3 `session` header agree. If any candidate for one agent is unsupported or lacks a recoverable native timestamp, that entire agent instead ranks the same candidate set by filesystem modification time and path while still retaining at most ten files. <!-- @impl: transcript-retention.mjs::parseClaudeTimestamp --> <!-- @impl: transcript-retention.mjs::parsePiTimestamp --> <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+4. Malformed or untimestamped interior/trailing records do not force fallback when the adapter can still validate the native header and recover a latest activity timestamp. <!-- @impl: transcript-retention.mjs::readLatestTimestamp --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+5. Cleanup deletes selected transcript files only, leaves session directories and excluded child artifacts intact, never follows symlinks, and never accesses paths outside the owned agent root. <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+6. Cleanup runs after the initial R2 restore and immediately before each regular or final bisync; cleanup failures remain isolated so they cannot terminate startup or the bisync daemon. <!-- @impl: entrypoint.sh::cleanup_agent_transcripts --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+7. Cleanup deletions propagate to R2 through the following bisync, while the existing Claude subagent and Pi task R2 exclusions remain unchanged. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
 
 **Constraints:**
 
-- Cleanup steps must isolate non-zero exit codes so a benign cleanup failure cannot terminate the bisync daemon.
+- Transcript content, prompt text, message count, file size, and Codeflare session-capture/extraction state must never classify retention candidates.
+- Codex retains its existing storage and filtering behavior and has no native-timestamp adapter.
 
 **Priority:** P1
 
