@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SetupPrefillResponseSchema } from '../../lib/schemas';
 import { applyInitialPrefill } from '../../stores/setup-prefill';
 import type { SetupState } from '../../stores/setup-types';
+import { setupStore } from '../../stores/setup';
 
 function state(): SetupState {
   return {
@@ -69,6 +70,24 @@ function state(): SetupState {
 }
 
 describe('managed-environment setup prefill', () => {
+  it('routes administrator edits through the managed-environment store boundary', () => {
+    setupStore.setManagedEnvironmentEnabled(true);
+    setupStore.setManagedEnvironmentRepository('acme/curation');
+    setupStore.setManagedEnvironmentPersonalAccessToken('github_pat_replacement');
+    setupStore.setManagedEnvironmentPublicKey('ab'.repeat(32));
+
+    expect(setupStore.managedEnvironmentEnabled).toBe(true);
+    expect(setupStore.managedEnvironmentTouched).toBe(true);
+    expect(setupStore.managedEnvironmentRepository).toBe('acme/curation');
+    expect(setupStore.managedEnvironmentPersonalAccessToken).toBe('github_pat_replacement');
+    expect(setupStore.managedEnvironmentPublicKey).toBe('ab'.repeat(32));
+
+    setupStore.setManagedEnvironmentEnabled(false);
+    setupStore.setManagedEnvironmentRepository('');
+    setupStore.setManagedEnvironmentPersonalAccessToken('');
+    setupStore.setManagedEnvironmentPublicKey('');
+  });
+
   it('REQ-SETUP-013 AC2: hydrates masked status without inventing a PAT value', () => {
     const target = state();
     const prefill = SetupPrefillResponseSchema.parse({

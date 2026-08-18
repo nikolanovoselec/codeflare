@@ -422,11 +422,13 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ### Managed Coding Environment Is Stale, Degraded, or Update Pending
 
-**Stale:** No GitHub freshness check has succeeded inside the five-minute window. Reload the dashboard. The Worker uses ETag validation and will verify/cache a newer immutable release if one exists.
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation)
+
+**Stale:** No GitHub freshness check has succeeded inside the five-minute window. Reload the dashboard. The Worker uses ETag validation and will verify/cache a newer immutable release if one exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 **Degraded:** GitHub, PAT decryption, or the deployment cache was unavailable. Already-applied buckets continue from their last verified release. Confirm the repository-scoped PAT still reads the private repository, the configured raw public key matches the release signer, R2 credentials remain valid, and the release contains exactly `seed-v1.json.gz` and `seed-v1.sig` with GitHub SHA-256 digests.
 
-**Update pending:** At least one session owns the user bucket, or a fresh user cannot read a verified active release. Stop all sessions for that user and reload. Reconciliation starts only after the bucket is idle. Do not bypass the typed 409 or seed baked content while curation is enabled.
+**Update pending:** At least one session owns the user bucket, or a fresh user cannot read a verified active release. Stop all sessions for that user and reload. Reconciliation starts only after the bucket is idle. Do not bypass the typed 409 or seed baked content while curation is enabled. <!-- @impl: src/routes/session/lifecycle.ts::default -->
 
 **A published private change is not visible:** Confirm the protected workflow reached an immutable published release, not a draft; its sequence exceeds all prior releases; Setup points to the same numeric repository and signer; and the dashboard freshness window has elapsed. Codeflare discovers releases through dashboard refresh, not image deployment or container restart.
 

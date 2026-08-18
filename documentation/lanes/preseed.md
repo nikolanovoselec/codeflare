@@ -385,16 +385,22 @@ and users click "Recreate AI agent skills & rules".
 
 ## Managed curation ownership
 
+**Requirements:** [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication)
+
 Codeflare has two deliberately separate content timelines:
 
 - Public `preseed/agents/**` is the image-baked fallback baseline.
 - The private `codeflare-curation` repository is the runtime master for deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements.
 
-A curated content change lands in `codeflare-curation` and is published there. Its private Claude and Pi manifests define every included source and its `default`/`advanced` mode membership. Manifest-listed Pi extension TypeScript files are curated and load from R2 without an image redeploy; only Pi npm package/lock/install state and tier-gated context-mode runtime remain image-owned, so a new npm or native dependency still requires a Codeflare runtime change. Curated content is not copied back into this public preseed, and a public baked-preseed edit must never be used to overwrite the usually newer private source. When a task concerns content expected in a managed coding environment, the agent must obtain the private repository and make the change there. When a task explicitly changes only image fallback behavior, it changes this repository only. If the requested behavior must exist in both timelines, make two explicit edits and treat the private version as authoritative rather than running a public-to-private sync.
+A curated content change lands in `codeflare-curation` and is published there. Its private Claude and Pi manifests define every included source and its `default`/`advanced` mode membership. Manifest-listed Pi extension TypeScript files load from R2 without an image redeploy. Pi package/lock/install state and tier-gated context-mode remain image-owned, so new npm or native dependencies require a Codeflare runtime change.
+
+Curated content is not copied into this public preseed, and a public baked-preseed edit must not overwrite newer private source. A task for managed content changes the private repository. A task explicitly limited to image fallback changes this repository only.
+
+Behavior required in both timelines receives two explicit edits, with the private version authoritative; no public-to-private synchronization job is used. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The shared compiler and runtime ABI remain Codeflare-owned. Compiler, transform, seed ABI, or Pi runtime-lock changes land in Codeflare first; after that commit exists, update the exact compiler pin in `codeflare-curation` and run its real compiler integration workflow. Never copy dirty or untracked compiler files into the private repository.
 
-After a private content change merges to protected `main`, the operator runs the one-trigger protected release workflow. It derives the next sequence from verified immutable history, publishes fixed signed assets, and Codeflare sees the release through its normal five-minute dashboard refresh. No image rebuild, source synchronization job, webhook, or container clone participates.
+After a private content change merges to protected `main`, the operator runs the one-trigger protected release workflow. It derives the next sequence from verified immutable history and publishes fixed signed assets. Codeflare discovers the release through its normal five-minute dashboard refresh. No image rebuild, source synchronization job, webhook, or container clone participates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 <a id="preseed-deployment"></a>
 ## Runtime Delivery Pipeline

@@ -18,10 +18,14 @@ describe('Managed coding environment Setup section', () => {
         personalAccessTokenSet
         publicKey="ab"
         publicKeyFingerprint="0123456789abcdef"
+        activeReleaseTag="release-7"
         activeSequence={7}
         activeDigestPrefix="123456789abc"
         freshness="fresh"
+        lastCheckedAt="2026-08-18T00:00:00.000Z"
         patExpiryState="valid"
+        lastError="Last refresh used the verified cache"
+
         onEnabledChange={onEnabledChange}
         onRepositoryChange={onRepositoryChange}
         onPersonalAccessTokenChange={onPersonalAccessTokenChange}
@@ -36,6 +40,9 @@ describe('Managed coding environment Setup section', () => {
     expect(inputs[2].value).toBe('');
     expect(inputs[2].placeholder).toMatch(/saved/i);
     expect(section).not.toHaveTextContent('github_pat');
+    expect(section).toHaveTextContent('Active release-7 · sequence 7 · digest 123456789abc');
+    expect(section).toHaveTextContent('checked 2026-08-18T00:00:00.000Z');
+    expect(section).toHaveTextContent('Last refresh used the verified cache');
 
     await fireEvent.input(inputs[1], { target: { value: 'other/repository' } });
     await fireEvent.input(inputs[2], { target: { value: 'replacement-pat' } });

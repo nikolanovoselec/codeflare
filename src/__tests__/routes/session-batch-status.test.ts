@@ -405,7 +405,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBeUndefined();
     });
 
-    it('reports upgrading on the existing initial batch check when the active verified release is not applied', async () => {
+    it('REQ-STOR-020 AC2: initial status compares managed release and resolved mode', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -414,7 +414,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('reports update_pending and never starts reconciliation while a session is running', async () => {
+    it('REQ-STOR-020 AC4: a running session defers managed reconciliation', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
       const running = makeSession('aabbccdd11223344', 'running');
       mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
@@ -444,7 +444,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('reports update_pending during an outage when Enterprise resolves a different applied mode', async () => {
+    it('REQ-STOR-020 AC5: an outage rejects last-known-good state for another mode', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },

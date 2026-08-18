@@ -370,7 +370,9 @@ Setup reconfiguration does not infer user offboarding from `allowedUsers`; destr
 
 **Optional managed environment step -- `configure_managed_environment`**
 
-Creates the deterministic deployment cache bucket with existing R2 credentials, resolves the numeric GitHub repository identity, verifies and caches the first immutable signed release, primes its configuration-fingerprint namespace, encrypts the PAT, and selects the configuration only after the trust boundary is usable. Replacement repository/key namespaces cannot move prior active state; same-trust PAT replacement does not advance an existing active pointer inside the Setup transaction. Disabling retains cache and credential history for recovery and schedules normal baked reconciliation without offboarding.
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+Creates the deterministic deployment cache bucket with existing R2 credentials, resolves the numeric GitHub repository identity, verifies and caches the first immutable signed release, primes its configuration-fingerprint namespace, encrypts the PAT, and selects the configuration only after the trust boundary is usable. Replacement repository/key namespaces cannot move prior active state; same-trust PAT replacement does not advance an existing active pointer inside the Setup transaction. Disabling retains cache and credential history for recovery and schedules normal baked reconciliation without offboarding. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
 **Step 4 -- `configure_custom_domain`**
 

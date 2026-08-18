@@ -3914,22 +3914,51 @@ None.
 
 **Acceptance Criteria:**
 
-1. Image generation and managed-release generation import one side-effect-free compiler, while the existing CLI wrapper produces byte-identical image output. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
-2. The compiler accepts an explicit source root, applies the existing manifest-driven transformations for both default and advanced modes, and emits deterministic sorted documents, retired keys, the preseed digest, and a full Pi runtime dependency digest exported as `PRESEED_RUNTIME_DEPENDENCY_HASH` in the generated image module. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
-3. A managed release contains exactly seed ABI 1, a positive monotonic sequence, nested numeric repository identity plus release tag and full source/compiler commits, `runtimeDependencyHash`, unique key-and-mode documents, retired paths, and measured `managedExtensions` records. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
-4. The release compiler and Worker use one path validator that rejects traversal, absolute paths, unsupported agent roots, Pi npm package metadata, duplicate key-and-mode pairs, context-mode-owned paths, retired image-only Pi extension names, and undeclared package or native runtime requirements. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: src/lib/remote-curation.ts::assertManagedPath --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: release compilation rejects paths and runtime requirements outside the managed contract) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (rejects a changed signature, repository, sequence, runtime, or managed path before activation) -->
-5. Managed extension pins include independently reviewed exact byte size and SHA-256 in addition to publisher, name, strict semantic version, and platform; Open VSX resolution must match those pins and the packaged engine, entrypoint, extension-pack, and dependency closure before the measured record is signed, and the Worker rejects non-semantic versions independently. <!-- @impl: scripts/agent-seed-release-limits.mjs::isExactManagedExtensionVersion --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: extension resolution measures and closes exact Open VSX artifacts) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (rejects a changed signature, repository, sequence, runtime, or managed path before activation) -->
-6. The release workflow pins the shared compiler to a full tracked Codeflare commit, builds and independently rebuilds deterministic gzip bytes in a read-only job, and passes only that exact artifact to the protected signer. <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: deterministic release bytes and Ed25519 signature) --> <!-- @test: ../codeflare-curation/tests/compiler-integration.test.mjs (real pinned Codeflare compiler integration) -->
-7. Production publication keeps the Ed25519 private key in a reviewer-protected environment, requires the active public key in verified immutable history, creates the fixed bundle and signature assets as a draft, rechecks exact release and asset IDs and digests, publishes by release ID, and requires immutable completion. <!-- @test: ../codeflare-curation/tests/workspace.test.mjs (separates read-only compilation from one-trigger protected signing and exact-ID immutable publication) --> <!-- @test: ../codeflare-curation/tests/signing-keys.test.mjs (managed release signing-key rotation) -->
-8. Compiler and Worker enforce one shared fixed boundary: 8 MiB compressed, 32 MiB expanded, 5,000 documents, 1 MiB per document, 24 MiB aggregate document content, 512 UTF-8 bytes per path, 5,000 retired paths, 20 extensions, 128 MiB per VSIX, 256 MiB aggregate VSIX bytes, and one redirect. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: fixed seed-v1 resource limits) -->
+1. Image and managed-release generation use one side-effect-free compiler, and the existing CLI output remains byte-identical. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+2. Given an explicit source root and mode, compilation emits deterministic documents, retirements, seed identity, and the complete runtime dependency identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
+4. Compiler and Worker reject traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) -->
+5. Extension records derive exact package identity, version, platform, size, digest, entrypoint, and closed dependencies from reviewed bytes. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure) -->
+6. The Worker independently rejects any signed release whose extension records or exact semantic versions violate the release contract. <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC6: independently rejects invalid release records before activation) -->
+7. Compiler and Worker enforce the shared seed-v1 byte, path, document, retirement, extension, and redirect limits. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC7: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC7: enforces the expanded bundle resource limit) -->
 
-**Constraints:** The tier-gated context-mode subtree remains image-owned. The release carries no secret, PAT, VSIX bytes in user storage, or new runtime dependency. The compiler is the only transformation source of truth.
+**Constraints:**
+
+- The tier-gated context-mode subtree remains image-owned.
+- Releases carry no secrets, user-stored VSIX bytes, or new runtime dependency.
+- The shared compiler remains the only transformation source of truth.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
 
-**Verification:** Automated compiler, release-contract, and workflow tests
+**Verification:** Automated compiler and release-contract tests
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-148: Protected managed-release publication
+
+**Intent:** Production publication signs only reproducible managed-release bytes and preserves immutable history.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
+2. Production signing requires reviewer approval, a trusted active public key, exact draft asset identities and digests, and immutable publication. <!-- @manual: Inspect the protected production environment and first immutable release before enabling Setup. -->
+
+**Constraints:**
+
+- The private signing key remains outside Codeflare and user storage.
+- Rollback publishes a higher immutable sequence rather than mutating history.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated deterministic-byte test and protected-environment acceptance
 
 **Status:** Planned
 

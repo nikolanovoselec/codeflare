@@ -77,13 +77,31 @@ describe('managed curation entrypoint behavior', () => {
     assert.equal(readFileSync(pi.file, 'utf8'), 'baked image');
   });
 
-  it('keeps initial restore, transcript cleanup, and bisync baseline ordering outside the curation gate', () => {
-    const initial = source.indexOf('initial_sync_from_r2 &');
-    const relayCall = source.indexOf('relay_managed_pi_extensions || true');
-    const cleanup = source.indexOf('release_agent_pty_after_cleanup', relayCall);
-    const baseline = source.indexOf('establish_bisync_baseline', relayCall);
-    assert.ok(initial !== -1 && relayCall > initial);
-    assert.ok(cleanup > relayCall);
-    assert.ok(baseline > cleanup);
+  it('after initial restore, executes relay and transcript cleanup before the bisync baseline', () => {
+    const start = source.indexOf('relay_managed_pi_extensions || true');
+    const end = source.indexOf('\n\necho "[entrypoint] Startup complete.', start);
+    assert.notEqual(start, -1, 'startup boundary missing');
+    assert.notEqual(end, -1, 'startup boundary terminator missing');
+    const startupBoundary = source.slice(start, end);
+    const events = join(mkdtempSync(join(tmpdir(), 'managed-order-')), 'events');
+    const result = spawnSync('bash', ['-c', [
+      'set -euo pipefail',
+      `EVENTS='${events}'`,
+      "RCLONE_CONFIG_RESULT='0'",
+      "STEP1_RESULT='0'",
+      "SESSION_MODE='default'",
+      'relay_managed_pi_extensions() { echo relay >> "$EVENTS"; }',
+      'release_agent_pty_after_cleanup() { echo cleanup >> "$EVENTS"; }',
+      'establish_bisync_baseline() { echo baseline >> "$EVENTS"; }',
+      'init_user_vault() { :; }',
+      'start_sync_daemon() { :; }',
+      'renice() { :; }',
+      'ionice() { :; }',
+      startupBoundary,
+      'wait',
+    ].join('\n')], { encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), ['relay', 'cleanup', 'baseline']);
   });
 });

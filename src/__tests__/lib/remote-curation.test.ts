@@ -127,7 +127,7 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/64 bytes/i);
   });
 
-  it('rejects a changed signature, repository, sequence, runtime, or managed path before activation', async () => {
+  it('REQ-AGENT-147 AC6: independently rejects invalid release records before activation', async () => {
     const fixture = await signedFixture();
     const changedSignature = new Uint8Array(fixture.signature);
     changedSignature[0] ^= 0xff;
@@ -185,6 +185,28 @@ describe('managed coding-environment release verification', () => {
     expect(first.headers.get('authorization')).toBe('Bearer secret-pat');
     expect(second.headers.has('authorization')).toBe(false);
     expect(second.redirect).toBe('manual');
+  });
+
+  it('aborts managed GitHub requests after the shared ten-second boundary', async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    const fetcher = vi.fn().mockResolvedValue(new Response('bundle', { status: 200 }));
+
+    try {
+      await downloadManagedAsset({
+        url: 'https://api.github.com/repos/acme/curation/releases/assets/1',
+        token: 'secret-pat',
+        fetcher,
+      });
+
+      expect(timeout).toHaveBeenCalledWith(10_000);
+      const request = fetcher.mock.calls[0][0] as Request;
+      expect(request.signal.aborted).toBe(false);
+      controller.abort();
+      expect(request.signal.aborted).toBe(true);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('rejects an asset redirect outside the fixed GitHub object hosts', async () => {

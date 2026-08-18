@@ -35,6 +35,7 @@ const GITHUB_API_ORIGIN = 'https://api.github.com';
 const FRESHNESS_MS = 5 * 60 * 1000;
 const MAX_SAFE_ERROR_BYTES = 512;
 const MAX_GITHUB_METADATA_BYTES = 1024 * 1024;
+const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
 
 const Hex40 = z.string().regex(/^[0-9a-f]{40}$/);
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -354,10 +355,10 @@ export async function downloadManagedAsset(input: {
   if (initialUrl.protocol !== 'https:' || initialUrl.origin !== GITHUB_API_ORIGIN) {
     throw new Error('Managed asset URL must use the GitHub API host');
   }
-  let response = await fetcher(new Request(initialUrl, {
+  let response = await fetchGithub(fetcher, initialUrl, {
     headers: githubHeaders(input.token, 'application/octet-stream'),
     redirect: 'manual',
-  }));
+  });
   let redirects = 0;
   while (response.status >= 300 && response.status < 400) {
     if (redirects >= MANAGED_RELEASE_LIMITS.redirectCount) throw new Error('Managed asset exceeded the redirect limit');
@@ -368,10 +369,10 @@ export async function downloadManagedAsset(input: {
       throw new Error(`Managed asset redirect host is not allowed: ${redirected.hostname}`);
     }
     redirects += 1;
-    response = await fetcher(new Request(redirected, {
+    response = await fetchGithub(fetcher, redirected, {
       headers: { Accept: 'application/octet-stream', 'User-Agent': 'Codeflare' },
       redirect: 'manual',
-    }));
+    });
   }
   if (!response.ok) throw new Error(`Managed asset download failed with HTTP ${response.status}`);
   return readResponseBounded(response, input.maxBytes ?? MANAGED_RELEASE_LIMITS.compressedBytes, 'Managed asset');
@@ -388,6 +389,13 @@ async function readJsonResponseBounded(response: Response, label: string): Promi
   } catch {
     throw new Error(`${label} is invalid JSON`);
   }
+}
+
+async function fetchGithub(fetcher: typeof fetch, url: string | URL, init: RequestInit): Promise<Response> {
+  return fetcher(new Request(url, {
+    ...init,
+    signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+  }));
 }
 
 function githubHeaders(token: string, accept = 'application/vnd.github+json'): HeadersInit {
@@ -519,7 +527,7 @@ export async function resolveManagedEnvironmentRelease(input: {
     const latestUrl = `${GITHUB_API_ORIGIN}/repos/${input.repository}/releases/latest`;
     const headers = new Headers(githubHeaders(input.token));
     if (state.etag) headers.set('If-None-Match', state.etag);
-    let response = await fetcher(new Request(latestUrl, { headers, redirect: 'manual' }));
+    let response = await fetchGithub(fetcher, latestUrl, { headers, redirect: 'manual' });
     const checkedAt = now.toISOString();
     let patExpiresAt = parsePatExpiration(response) ?? state.patExpiresAt;
 
@@ -537,10 +545,10 @@ export async function resolveManagedEnvironmentRelease(input: {
       }
       // KV metadata cannot substitute for missing verified cache bytes. Repeat the
       // metadata read once without the validator so the immutable assets rebuild it.
-      response = await fetcher(new Request(latestUrl, {
+      response = await fetchGithub(fetcher, latestUrl, {
         headers: githubHeaders(input.token),
         redirect: 'manual',
-      }));
+      });
       patExpiresAt = parsePatExpiration(response) ?? patExpiresAt;
     }
     if (!response.ok) throw new Error(`GitHub latest release request failed with HTTP ${response.status}`);
@@ -652,10 +660,10 @@ function normalizeRepository(value: string): string {
 async function resolveRepositoryId(repository: string, token: string, fetcher: typeof fetch): Promise<number> {
   let response: Response;
   try {
-    response = await fetcher(new Request(`${GITHUB_API_ORIGIN}/repos/${repository}`, {
+    response = await fetchGithub(fetcher, `${GITHUB_API_ORIGIN}/repos/${repository}`, {
       headers: githubHeaders(token),
       redirect: 'manual',
-    }));
+    });
   } catch (error) {
     throw new Error(safeError(error, token));
   }

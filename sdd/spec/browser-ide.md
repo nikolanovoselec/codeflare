@@ -1206,20 +1206,23 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. After R2 restore, managed settings accept `.codeflare/managed-extensions.json` only when its release digest matches the Worker-applied digest transported to the container, retain `"*": true`, and add explicit fixed and company extension IDs to the allowance map. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC1: company extension identities extend the personal allowance map) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-042 AC1: company allowance ignores a restored manifest from another applied release) -->
-2. After workbench readiness, company reconciliation runs before personal manifest restore without delaying initial code-server readiness. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC2: company reconciliation precedes personal restore after readiness) -->
-3. Each company extension downloads only its signed-manifest exact URL through the fixed Open VSX host/redirect policy, enforces strict semantic version plus the declared byte cap, size, and SHA-256, reinstalls exact bytes even when registry identity already matches, installs from a temporary local URI with synchronization disabled, and deletes temporary bytes. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: exact verified company VSIX installs from a deleted temporary file) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: a matching registry identity is reinstalled from exact signed bytes) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: non-semantic company versions are rejected before download) -->
-4. Company reconciliation never falls back to a gallery identity or latest version, runs with bounded concurrency, and one failure emits one bounded warning while the IDE and remaining extensions continue. <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4: company failures remain bounded and do not block the workbench) -->
-5. Personal exact-manifest restore and both TypeScript and generation-reap capture paths remain enabled and behaviorally unchanged. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC5: personal restore follows company reconciliation and capture remains active) -->
-6. Disabling curation removes the company requirement on the next safe reconcile but does not force-uninstall an extension retained by the user's personal saved intent. <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC6: disable preserves company extension when personal intent owns it) -->
+1. Restored company requirements apply only when their release identity matches the Worker-applied release; managed settings retain personal allowance and add company identities. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC1: company extension identities extend the personal allowance map) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) -->
+2. After workbench readiness, company reconciliation precedes personal restore without delaying initial IDE readiness. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC2+AC4: company reconciliation precedes personal restore and capture remains active) -->
+3. Company reconciliation avoids gallery fallback, bounds concurrency, and reports bounded failures without blocking the IDE or remaining extensions. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: company failures remain bounded and do not block the workbench) -->
+4. Personal exact-version restore and both capture paths remain active while excluding company-only installs from personal intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4: live capture excludes company-only installs from personal intent) -->
+5. Disabling curation stops company enforcement without force-uninstalling an extension retained by personal intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC5: disable stops enforcement and preserves personal intent) -->
 
-**Constraints:** Company extension bytes remain session-local and never enter R2. The first release pins `cherryMarkdownPublisher.cherry-markdown@0.3.1081718`. Existing fixed Pi and Claude extension inventories remain immutable.
+**Constraints:**
+
+- Company extension bytes remain session-local and never enter R2.
+- The first release pins `cherryMarkdownPublisher.cherry-markdown@0.3.1081718`.
+- Existing fixed Pi and Claude inventories remain immutable.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration), [REQ-IDE-040](#req-ide-040-user-extension-allowance-policy), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-020](storage.md#req-stor-020-managed-coding-environment-reconciliation)
 
-**Verification:** Automated managed-settings, extension persistence, generation-reap, and complete-image smoke tests
+**Verification:** Automated managed-settings, extension-persistence, capture, and image-smoke tests
 
 **Status:** Planned
 
@@ -1247,5 +1250,32 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** GitHub Actions validates cold replacement hydration, warm replay omission, and Inline current-turn isolation. Fresh integration verifies immediate Panel Chat recovery after an Inline result.
 
 **Status:** Partial
+
+---
+
+### REQ-IDE-044: Exact company VSIX verification
+
+**Intent:** Every required company extension installs only from the exact release-approved package bytes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Acquisition uses the signed exact URL and fixed redirect policy, then verifies semantic version, declared size, digest, package identity, and dependency closure. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: non-semantic company versions are rejected before download) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: exact dependency artifacts install before their dependent without gallery fallback) -->
+2. A matching registry identity is reinstalled from the verified package bytes rather than trusted as sufficient evidence. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC2: a matching registry identity is reinstalled from exact signed bytes) -->
+3. Installation uses a temporary local package with synchronization disabled and removes temporary bytes after success or failure. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC3: exact company VSIX installs from a deleted temporary file) -->
+
+**Constraints:**
+
+- Package bytes never enter user R2 or persisted extension intent.
+- Invalid packages install nothing.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated exact-package acquisition and installation tests
+
+**Status:** Planned
 
 ---

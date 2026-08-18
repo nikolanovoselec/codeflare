@@ -96,7 +96,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
     ['onboarding', { ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'oidc' }],
     ['saas', { SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'oidc' }],
     ['enterprise', { ENTERPRISE_MODE: 'active' }],
-  ] as const)('accepts the same managed-environment boundary in %s mode', async (_mode, env) => {
+  ] as const)('REQ-SETUP-013 AC1: every deployment mode accepts the managed-environment boundary', async (_mode, env) => {
     const body: Record<string, unknown> = {
       customDomain: 'code.example.com',
       allowedUsers: ['admin@example.com'],
@@ -138,7 +138,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });
 
-  it('prefill returns masked release status and never returns PAT bytes', async () => {
+  it('REQ-SETUP-013 AC2: prefill returns status without PAT bytes', async () => {
     const response = await app().request('https://codeflare-test.example.com/api/setup/prefill');
     const body = await response.json() as Record<string, unknown>;
 
@@ -151,7 +151,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
     expect(JSON.stringify(body)).not.toContain('github_pat_secret');
   });
 
-  it('disables curation without deleting users or deployment cache history', async () => {
+  it('REQ-SETUP-013 AC5: disabling curation does not offboard users or delete cache history', async () => {
     const response = await app().request('https://codeflare-test.example.com/api/setup/configure', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

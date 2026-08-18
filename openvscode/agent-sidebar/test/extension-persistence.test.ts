@@ -175,7 +175,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-042 AC3: exact verified company VSIX installs from a deleted temporary file', async () => {
+test('REQ-IDE-044 AC3: exact company VSIX installs from a deleted temporary file', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
   const bytes = Buffer.from('verified company extension');
   const record = managedExtension(undefined, undefined, bytes);
@@ -213,7 +213,7 @@ test('REQ-IDE-042 AC3: exact verified company VSIX installs from a deleted tempo
   assert.equal(existsSync(manifestPath), false, 'company bytes and intent do not enter the personal manifest');
 });
 
-test('REQ-IDE-042 AC3: a restored company manifest from another release is rejected before download', async () => {
+test('REQ-IDE-042 AC1: a company manifest from another release is rejected before download', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   writeManagedExtensions(managedExtensionsPath, [managedExtension()]);
   process.env.REMOTE_CURATION_RELEASE_DIGEST = 'b'.repeat(64);
@@ -227,7 +227,7 @@ test('REQ-IDE-042 AC3: a restored company manifest from another release is rejec
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-042 AC3: non-semantic company versions are rejected before download', async () => {
+test('REQ-IDE-044 AC1: non-semantic company versions are rejected before download', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const invalid = {
     ...managedExtension(),
@@ -244,7 +244,7 @@ test('REQ-IDE-042 AC3: non-semantic company versions are rejected before downloa
   assert.equal(fetcher.mock.calls.length, 0);
 });
 
-test('REQ-IDE-042 AC3: redirect, size, and digest failures install nothing and clean every temporary directory', async () => {
+test('REQ-IDE-044 AC1+AC3: invalid bytes install nothing and clean every temporary directory', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const redirect = managedExtension('acme.bad-redirect', '1.0.0', Buffer.from('redirect'));
   const oversized = managedExtension('acme.bad-size', '1.0.0', Buffer.from('size'));
@@ -269,7 +269,7 @@ test('REQ-IDE-042 AC3: redirect, size, and digest failures install nothing and c
   assert.deepEqual(after, []);
 });
 
-test('REQ-IDE-042 AC3: a matching registry identity is reinstalled from exact signed bytes', async () => {
+test('REQ-IDE-044 AC2: a matching registry identity is reinstalled from exact signed bytes', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const bytes = Buffer.from('verified company extension');
   const company = managedExtension('cherrymarkdownpublisher.cherry-markdown', '0.3.1081718', bytes);
@@ -289,7 +289,7 @@ test('REQ-IDE-042 AC3: a matching registry identity is reinstalled from exact si
   assert.equal((host.commands[0].arguments[0] as { scheme: string }).scheme, 'file');
 });
 
-test('REQ-IDE-042 AC4: company failures remain bounded and do not block the workbench', async () => {
+test('REQ-IDE-042 AC3: company failures remain bounded and do not block the workbench', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const records = ['one.extension', 'two.extension', 'zthree.extension'].map((id) => managedExtension(id, '1.0.0', Buffer.from(id)));
   writeManagedExtensions(managedExtensionsPath, records);
@@ -328,7 +328,7 @@ test('REQ-IDE-042 AC4: company failures remain bounded and do not block the work
   assert.match(host.warnings[0], /two\.extension/);
 });
 
-test('REQ-IDE-042 AC3: exact dependency artifacts install before their dependent without gallery fallback', async () => {
+test('REQ-IDE-044 AC1: exact dependency artifacts install before their dependent without gallery fallback', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const dependency = managedExtension('acme.zzz-dependency', '1.0.0', Buffer.from('dependency'));
   const dependent = {
@@ -357,7 +357,7 @@ test('REQ-IDE-042 AC3: exact dependency artifacts install before their dependent
   assert.equal(host.commands.some(({ arguments: args }) => typeof args[0] === 'string'), false);
 });
 
-test('REQ-IDE-042 AC2+AC5: company reconciliation precedes personal restore and capture remains active', async () => {
+test('REQ-IDE-042 AC2+AC4: company reconciliation precedes personal restore and capture remains active', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
   const company = managedExtension();
   writeManagedExtensions(managedExtensionsPath, [company]);
@@ -401,7 +401,7 @@ test('REQ-IDE-042 AC2+AC5: company reconciliation precedes personal restore and 
   for (const subscription of subscriptions) subscription.dispose();
 });
 
-test('REQ-IDE-042 AC6: disable stops enforcement, restores prior personal intent, and never force-uninstalls', async () => {
+test('REQ-IDE-042 AC5: disable stops enforcement and preserves personal intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
   const company = managedExtension();
   writeManagedExtensions(managedExtensionsPath, [company]);
@@ -427,7 +427,7 @@ test('REQ-IDE-042 AC6: disable stops enforcement, restores prior personal intent
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0');
 });
 
-test('REQ-IDE-042 AC5: live capture does not create personal intent solely from a company install', async () => {
+test('REQ-IDE-042 AC4: live capture excludes company-only installs from personal intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
   const company = managedExtension();
   writeManagedExtensions(managedExtensionsPath, [company]);

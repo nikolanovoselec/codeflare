@@ -137,7 +137,7 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
 });
 
 describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
-  it('rejects traversal, absolute, malformed, context-mode, and retired Pi extension paths', async () => {
+  it('REQ-AGENT-147 AC4: rejects paths outside the managed release contract', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     const invalidPaths = [
       '../escape',
@@ -191,8 +191,8 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
   });
 });
 
-describe('REQ-AGENT-147 AC4: fixed seed-v1 resource limits', () => {
-  it('rejects an oversized document, aggregate document set, and retired-path set', async () => {
+describe('REQ-AGENT-147 AC7: fixed seed-v1 resource limits', () => {
+  it('REQ-AGENT-147 AC7: enforces document and retired-path resource limits', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
@@ -219,7 +219,7 @@ describe('REQ-AGENT-147 AC4: fixed seed-v1 resource limits', () => {
     );
   });
 
-  it('refuses to emit an expanded bundle beyond the fixed seed-v1 boundary', async () => {
+  it('REQ-AGENT-147 AC7: enforces the expanded bundle resource limit', async () => {
     const { createReleaseBundle } = await import(releaseUrl);
     assert.throws(
       () => createReleaseBundle({ seedAbi: 1, padding: 'x'.repeat((32 * 1024 * 1024) + 1) }),
@@ -229,7 +229,7 @@ describe('REQ-AGENT-147 AC4: fixed seed-v1 resource limits', () => {
 });
 
 describe('REQ-AGENT-147 AC5: measured company extensions', () => {
-  it('derives artifact size, hash, and package identity instead of trusting curator values', async () => {
+  it('REQ-AGENT-147 AC5: measures exact extension identity and bytes', async () => {
     const { measureExtensionRecord } = await import(releaseUrl);
     const measured = measureExtensionRecord(extensionInput());
 
@@ -259,7 +259,7 @@ describe('REQ-AGENT-147 AC5: measured company extensions', () => {
     }
   });
 
-  it('rejects hand-authored measurements and dependency sets that are not closed', async () => {
+  it('REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure', async () => {
     const { buildAgentSeedRelease, measureExtensionRecord } = await import(releaseUrl);
     const measured = measureExtensionRecord(extensionInput({
       manifest: {
@@ -305,8 +305,8 @@ describe('REQ-AGENT-147 AC5: measured company extensions', () => {
   });
 });
 
-describe('REQ-AGENT-147 AC6: deterministic signed release assets', () => {
-  it('serializes stable JSON, emits gzip with mtime zero, and signs/verifies exact bytes with Ed25519', async () => {
+describe('REQ-AGENT-148 AC1: deterministic signed release assets', () => {
+  it('REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes', async () => {
     const {
       buildAgentSeedRelease,
       createReleaseBundle,

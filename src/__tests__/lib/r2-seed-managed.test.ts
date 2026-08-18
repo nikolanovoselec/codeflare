@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 describe('managed release user-bucket reconciliation', () => {
-  it('filters verified documents by mode and marks every write with the active release digest', async () => {
+  it('REQ-STOR-021 AC1: managed writes carry active release provenance', async () => {
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
       cleanup: true,
@@ -69,7 +69,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(JSON.parse(puts[1][1].body)).toMatchObject({ schemaVersion: 1, release: { sequence: 2, digest: 'd'.repeat(64) }, extensions: [] });
   });
 
-  it('deletes only prior-set-minus-current keys whose marker still matches the prior digest', async () => {
+  it('REQ-STOR-021 AC1: prior release markers guard managed cleanup', async () => {
     const priorDigest = '1'.repeat(64);
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
@@ -95,7 +95,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deletes).toEqual([`${endpoint}/bucket/.claude/obsolete.md`]);
   });
 
-  it('deletes explicitly retired Codeflare-owned paths even without a prior remote release', async () => {
+  it('REQ-STOR-021 AC2: signed retirements delete only Codeflare-owned paths', async () => {
     const current = release(2, [document('.claude/current.md')]);
     current.retiredPaths = ['.pi/agent/extensions/legacy-owned.ts', '.pi/agent/extensions/user-owned.ts'];
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
@@ -140,7 +140,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(peak).toBeLessThanOrEqual(16);
   });
 
-  it('stores company extension metadata only and never writes VSIX bytes or user roots', async () => {
+  it('REQ-STOR-021 AC3: image-owned and user-owned roots remain outside managed documents', async () => {
     const extension: ManagedRelease['managedExtensions'][number] = {
       id: 'company.markdown', publisher: 'company', name: 'markdown', version: '1.2.3',
       targetPlatform: 'linux-x64', engine: '^1.0.0', entrypoint: './dist/extension.js',

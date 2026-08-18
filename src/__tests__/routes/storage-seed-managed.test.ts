@@ -62,7 +62,7 @@ describe('managed storage reconcile', () => {
     state.cached = null;
   });
 
-  it('writes the applied digest, sequence, mode, and timestamp only after every reconcile operation succeeds', async () => {
+  it('REQ-STOR-020 AC3: successful managed reconcile stamps applied state last', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced', workspaceSyncEnabled: true });
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
@@ -123,7 +123,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBeUndefined();
   });
 
-  it('disabling curation safely restores baked reconciliation and clears only company applied state', async () => {
+  it('REQ-STOR-020 AC6: disable converges to baked state without deleting personal intent', async () => {
     state.active = null;
     state.cached = { ...release, sequence: 8 };
     const kv = createMockKV();
