@@ -36,15 +36,6 @@ function extractShellFunction(name) {
   return rest.slice(0, close + 3);
 }
 
-function extractShellFragment(startMarker, endMarker) {
-  const body = readFileSync(ENTRYPOINT, 'utf8');
-  const start = body.indexOf(startMarker);
-  assert.notEqual(start, -1, `${startMarker} must exist in entrypoint.sh`);
-  const end = body.indexOf(endMarker, start);
-  assert.notEqual(end, -1, `${endMarker} must exist after ${startMarker}`);
-  return body.slice(start, end + endMarker.length);
-}
-
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
   return {
@@ -150,13 +141,13 @@ describe('main transcript retention / REQ-STOR-012', () => {
       for (let i = 0; i < 12; i++) writeClaude(claude, i, i, 8_000 + (11 - i));
       const events = join(scratch.dir, 'events');
       const shell = `set +e
-USER_HOME="$TEST_USER_HOME"
+USER_HOME="$1"
+EVENTS="$2"
+TRANSCRIPT_RETENTION_SCRIPT="$3"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
 RCLONE_FILTERS=()
-TRANSCRIPT_RETENTION_SCRIPT="$TEST_RETENTION_SCRIPT"
-EVENTS="$TEST_EVENTS"
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 rclone() {
@@ -171,13 +162,7 @@ ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 '' || true
 `;
 
-      execFileSync('bash', ['-c', shell], {
-        env: {
-          ...process.env,
-          TEST_USER_HOME: scratch.dir,
-          TEST_RETENTION_SCRIPT: RETENTION_SCRIPT,
-          TEST_EVENTS: events,
-        },
+      execFileSync('bash', ['-c', shell, 'retention-test', scratch.dir, events, RETENTION_SCRIPT], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -187,30 +172,25 @@ bisync_with_r2 '' || true
     }
   });
 
-  test('AC6: successful restore invokes cleanup before reporting success', () => {
+  test('AC6: transcript cleanup occurs before the agent PTY release flag', () => {
     const scratch = makeScratch();
     try {
       const events = join(scratch.dir, 'events');
-      const workspace = join(scratch.dir, 'workspace');
-      const postRestore = extractShellFragment(
-        '        # Ensure workspace directory exists after sync',
-        '        update_sync_status "success" "null"',
-      );
+      const releaseFlag = join(scratch.dir, 'init-complete');
       const shell = `set -e
-USER_WORKSPACE="$TEST_WORKSPACE"
-EVENTS="$TEST_EVENTS"
+EVENTS="$1"
+CODEFLARE_INIT_FLAG_FILE="$2"
 cleanup_main_transcripts() { printf '%s\\n' cleanup >> "$EVENTS"; }
-update_sync_status() { printf '%s\\n' status >> "$EVENTS"; }
-${postRestore}
+touch() { printf '%s\\n' release >> "$EVENTS"; }
+${extractShellFunction('release_agent_pty_after_cleanup')}
+release_agent_pty_after_cleanup
 `;
 
-      execFileSync('bash', ['-c', shell], {
-        env: { ...process.env, TEST_WORKSPACE: workspace, TEST_EVENTS: events },
+      execFileSync('bash', ['-c', shell, 'retention-release-test', events, releaseFlag], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      assert.ok(existsSync(workspace));
-      assert.equal(readFileSync(events, 'utf8'), 'cleanup\nstatus\n');
+      assert.equal(readFileSync(events, 'utf8'), 'cleanup\nrelease\n');
     } finally {
       scratch.cleanup();
     }
@@ -221,14 +201,14 @@ ${postRestore}
     try {
       const events = join(scratch.dir, 'events');
       const shell = `set -e
-USER_HOME="$TEST_USER_HOME"
+USER_HOME="$1"
+EVENTS="$2"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
 RCLONE_FILTERS=()
-EVENTS="$TEST_EVENTS"
-cleanup_old_transcripts() { return 7; }
-cleanup_old_pi_transcripts() { return 8; }
+cleanup_old_transcripts() { printf '%s\\n' cleanup-claude >> "$EVENTS"; return 7; }
+cleanup_old_pi_transcripts() { printf '%s\\n' cleanup-pi >> "$EVENTS"; return 8; }
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 find() { return 0; }
@@ -238,12 +218,11 @@ ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 ''
 `;
 
-      execFileSync('bash', ['-c', shell], {
-        env: { ...process.env, TEST_USER_HOME: scratch.dir, TEST_EVENTS: events },
+      execFileSync('bash', ['-c', shell, 'retention-failure-test', scratch.dir, events], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      assert.equal(readFileSync(events, 'utf8').trim(), 'rclone');
+      assert.equal(readFileSync(events, 'utf8'), 'cleanup-claude\ncleanup-pi\nrclone\n');
     } finally {
       scratch.cleanup();
     }

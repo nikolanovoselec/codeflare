@@ -855,6 +855,12 @@ cleanup_main_transcripts() {
     (cleanup_old_pi_transcripts) || true
 }
 
+release_agent_pty_after_cleanup() {
+    cleanup_main_transcripts
+    touch "$CODEFLARE_INIT_FLAG_FILE"
+    echo "[entrypoint] Init complete — wrote $CODEFLARE_INIT_FLAG_FILE (releasing PTY pre-warm)"
+}
+
 # Regular bisync (after baseline is established)
 # Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
@@ -2309,9 +2315,6 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
     if [ $STEP1_RESULT -eq 0 ]; then
         # Ensure workspace directory exists after sync
         mkdir -p "$USER_WORKSPACE"
-        # Prune restored transcripts before any agent PTY is released. The same
-        # functions run inside every later outbound bisync.
-        cleanup_main_transcripts
         update_sync_status "success" "null"
     else
         update_sync_status "failed" "$SYNC_ERROR"
@@ -3672,6 +3675,10 @@ configure_tab_autostart
 # cold transpile, never abort PID 1 (matches the renice/ionice convention below).
 relay_managed_pi_extensions || true
 
+# The terminal server has been polling this flag before spawning tab 1. Prune
+# restored transcripts first, then release the agent PTY as one testable step.
+release_agent_pty_after_cleanup
+
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
 # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
 # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
@@ -3715,16 +3722,6 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     BISYNC_INIT_PID=$!
     echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
 fi
-
-# ============================================================================
-# Init complete — release the terminal server's PTY pre-warm.
-# The server has been listening on port 8080 since the top of MAIN EXECUTION;
-# it has been polling for this flag file before spawning the tab-1 PTY so
-# that pre-warm reads the final .claude.json / .bashrc rather than pre-sync
-# state.
-# ============================================================================
-touch "$CODEFLARE_INIT_FLAG_FILE"
-echo "[entrypoint] Init complete — wrote $CODEFLARE_INIT_FLAG_FILE (releasing PTY pre-warm)"
 
 echo "[entrypoint] Startup complete. Servers running:"
 echo "[entrypoint]   - Terminal server (port 8080): PID $TERMINAL_PID"
