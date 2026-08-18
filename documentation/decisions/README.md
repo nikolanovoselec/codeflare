@@ -3768,7 +3768,7 @@ Registry, extension-host, and contributed-setting changes debounce one in-sessio
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-08-18). Supersedes AD127 only where it required an edit-only proposal tool and model-repeated request correlation; host-owned text-edit validation remains active. Implements [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), and [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-result-envelope).
+**Status:** Accepted (2026-08-18). Supersedes AD127 only where it required an edit-only proposal tool and model-repeated request correlation; host-owned text-edit validation remains active. Implements [REQ-IDE-025](../../sdd/spec/browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), [REQ-IDE-030](../../sdd/spec/browser-ide.md#req-ide-030-native-inline-chat-result-envelope), and [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation).
 
 **Context:** Kimi-K2.6 behind the enterprise OpenAI-compatible dynamic route received a large shared-conversation request with two tools, optional tool choice, and an edit-only contract. It could emit reasoning without a tool call, causing settlement to fail with no proposal. A separate call copied the host request identifier incorrectly, even though that model-visible value was not a security boundary. Informational prompts also had no truthful successful outcome except fabricating an edit.
 

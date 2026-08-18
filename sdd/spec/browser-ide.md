@@ -204,7 +204,6 @@ A full code-server browser editor for an advanced running session. The editor op
 4. Claude uses a dedicated temporary config tree and cannot attach to or resume terminal tab 1. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC4: projection excludes terminal history, runtime state, and unknown entries) -->
 5. Claude preparation links approved credential and configuration sources without copying their values into generated files, settings, logs, or messages. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
 6. Native Pi context that exceeds its budget is reduced by discarding whole units, keeping current editor state ahead of the replayed conversation, rather than by cutting the serialized context. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC6: an over-budget history replay keeps the newest turns and drops the oldest) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC6: a context over the envelope drops whole sections and stays parseable) -->
-7. Pi provider history follows one surface-specific policy: cold or replacement panel turns receive bounded visible history, warm panel turns omit replay, and Inline turns retain only their current-turn suffix so validation feedback survives without stored panel messages. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: replacement Pi hydrates from the requesting Chat surface history) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: a cold Inline turn omits panel history from its embedded editor context) --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
 
 **Constraints:**
 
@@ -777,7 +776,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, result-only provider payloads, Inline-only context, exact tool restoration, and complete-image behavior.
+**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, result-only provider payloads, exact tool restoration, and complete-image behavior.
 
 **Status:** Partial
 
@@ -912,7 +911,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Exactly one result is bound to the host-owned active process generation and editor turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-030: inline results use host correlation and reject duplicates) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one host-correlated edit result without markdown) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: a late result cannot settle a retired process generation) -->
-2. The host request ID is absent from the model-facing result schema and dedicated Inline system prompt. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+2. The model receives no host request ID during an Inline turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
 3. The flat result outcome is either an edit with one to 64 edits or a no-change explanation with zero edits. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi returns a host-correlated no-change result) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline result outcome and edit cardinality must agree) -->
 4. Every accepted result includes one trimmed, single-line explanation of at most 500 characters. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline result summaries are bounded plain text and fail closed) -->
 5. After an invalid raw result, Pi may submit another attempt within the same turn, up to three total attempts; the first valid result is accepted. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw result) -->
@@ -1194,6 +1193,30 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation)
 
 **Verification:** Automated native panel and editor Inline Chat tests verify each coordinate basis; fresh integration verification confirms the selected-text edit transaction.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-043: Native Pi provider history isolation
+
+**Intent:** Each native Pi surface receives only the conversation history required for its current turn.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A cold or replacement panel turn receives bounded visible history from the requesting Chat surface. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: replacement Pi hydrates from the requesting Chat surface history) -->
+2. A warm panel turn omits visible history already retained by the shared Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation) -->
+3. An Inline provider request excludes stored panel history while retaining its complete current-turn suffix. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: a cold Inline turn omits panel history from its embedded editor context) --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+
+**Constraints:** Provider-history filtering does not mutate the stored shared Pi conversation or import terminal Pi history.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates cold replacement hydration, warm replay omission, and Inline current-turn isolation. Fresh integration verifies immediate Panel Chat recovery after an Inline result.
 
 **Status:** Partial
 
