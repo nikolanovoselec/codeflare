@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-18
+
+- **Selected-text Inline Chat uses the proposal coordinate system** ([REQ-IDE-026](browser-ide.md#req-ide-026-native-inline-chat-edit-validation) AC7 added and promoted to Implemented). The host previously serialized the invoking selection and whole range as one-based human-readable context while the proposal tool and validator required zero-based UTF-16 positions. Pi could copy a selected range into an otherwise valid proposal and have its line or end column rejected as `Invalid Inline Chat edit range`; cursor-only requests hid the mismatch because they omit selection context. Editor requests now snapshot host ranges without the display offset, while panel context deliberately keeps its existing one-based coordinates. Behavioral coverage exercises both boundaries without relaxing document-range validation.
+
 ## 2026-08-17
 
 - **PR Checks stop redownloading immutable external tools** ([REQ-OPS-045](operations.md#req-ops-045-parallel-pr-checks-performance) amended). Host and workflow-audit lanes cache exact rclone, zizmor, and actionlint archives by platform plus version/checksum, verify integrity after every restore, and download only on a cache miss.

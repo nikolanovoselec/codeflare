@@ -35,6 +35,7 @@ export interface NativePiEditorSource {
   readonly document: TextDocument;
   readonly selection: Selection;
   readonly wholeRange?: Range;
+  readonly coordinateBase?: 0 | 1;
 }
 
 interface ActiveEditorSnapshot {
@@ -110,23 +111,24 @@ export async function collectNativePiPromptInput(
 function snapshotActiveEditor(editor: NativePiEditorSource | undefined): ActiveEditorSnapshot | undefined {
   if (!editor) return undefined;
   const selection = editor.selection;
+  const coordinateOffset = editor.coordinateBase === 0 ? 0 : 1;
   return {
     uri: editor.document.uri,
     languageId: editor.document.languageId,
     dirty: editor.document.isDirty,
     content: editor.document.getText(),
     selection: selection.isEmpty ? undefined : {
-      startLine: selection.start.line + 1,
-      startColumn: selection.start.character + 1,
-      endLine: selection.end.line + 1,
-      endColumn: selection.end.character + 1,
+      startLine: selection.start.line + coordinateOffset,
+      startColumn: selection.start.character + coordinateOffset,
+      endLine: selection.end.line + coordinateOffset,
+      endColumn: selection.end.character + coordinateOffset,
       text: editor.document.getText(selection),
     },
     wholeRange: editor.wholeRange ? {
-      startLine: editor.wholeRange.start.line + 1,
-      startColumn: editor.wholeRange.start.character + 1,
-      endLine: editor.wholeRange.end.line + 1,
-      endColumn: editor.wholeRange.end.character + 1,
+      startLine: editor.wholeRange.start.line + coordinateOffset,
+      startColumn: editor.wholeRange.start.character + coordinateOffset,
+      endLine: editor.wholeRange.end.line + coordinateOffset,
+      endColumn: editor.wholeRange.end.character + coordinateOffset,
     } : undefined,
   };
 }

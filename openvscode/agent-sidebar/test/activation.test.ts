@@ -379,6 +379,13 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
       activeEditor?: {
         path: string;
         content: string;
+        selection?: {
+          startLine: number;
+          startColumn: number;
+          endLine: number;
+          endColumn: number;
+          text: string;
+        };
         wholeRange?: { startLine: number; startColumn: number; endLine: number; endColumn: number };
       };
     };
@@ -396,19 +403,28 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
     const requestDiagnostic = host.diagnosticLines.find((line) => line.includes('request=')) ?? '';
     assert.match(requestDiagnostic, /target\.ts/);
     assert.doesNotMatch(requestDiagnostic, /decoy\.ts|home\/user\/workspace/);
+    assert.deepEqual(options.input.activeEditor?.selection, {
+      startLine: 0,
+      startColumn: 0,
+      endLine: 0,
+      endColumn: 21,
+      text: 'const targetValue = 1;',
+    });
     assert.deepEqual(options.input.activeEditor?.wholeRange, {
-      startLine: 1,
-      startColumn: 1,
-      endLine: 2,
-      endColumn: 20,
+      startLine: 0,
+      startColumn: 0,
+      endLine: 1,
+      endColumn: 19,
     });
     options.response.progress('Preparing native editor changes…');
     options.response.thinking?.('Preparing a bounded change.');
+    const selection = options.input.activeEditor?.selection;
+    assert.ok(selection);
     options.response.textEdit([{
-      startLine: 0,
-      startCharacter: 6,
-      endLine: 0,
-      endCharacter: 17,
+      startLine: selection.startLine,
+      startCharacter: selection.startColumn,
+      endLine: selection.endLine,
+      endCharacter: selection.endColumn,
       newText: 'generated',
     }], {
       requestId: 'inline-request-1',

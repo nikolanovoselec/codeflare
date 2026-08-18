@@ -154,6 +154,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
             document,
             selection: editorLocation.selection,
             wholeRange: editorLocation.wholeRange,
+            coordinateBase: 0,
           }),
           canonicalWorkspaceFilePath(document.uri),
         ]).then(([collected, canonicalPath]) => {
