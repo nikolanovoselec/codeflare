@@ -691,3 +691,26 @@ Tiers, billing, usage tracking, and quotas.
 **Status:** Implemented
 
 ---
+
+### REQ-SUB-024: Usage Page Product Context
+
+**Intent:** The Usage page may address engineers in its own voice instead of repeating subscription positioning.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Usage page presents a page-specific developer-facing product subtitle. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage -->
+2. The Subscribe page retains its independent subscription positioning. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+
+**Constraints:** Exact marketing prose is not a behavioral contract and is not pinned in tests.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
+
+**Verification:** Source review of the two independently owned subtitles
+
+**Status:** Implemented
+
+---

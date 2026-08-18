@@ -213,6 +213,29 @@ test('REQ-IDE-046 AC1+AC2: exact company VSIX installs from a deleted temporary 
   assert.equal(existsSync(manifestPath), false, 'company bytes and intent do not enter the personal manifest');
 });
 
+test('REQ-IDE-046 AC3: failed company installation removes the temporary VSIX', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const bytes = Buffer.from('verified company extension');
+  const record = managedExtension(undefined, undefined, bytes);
+  writeManagedExtensions(managedExtensionsPath, [record]);
+  writeRegistry(extensionsDir);
+  vi.stubGlobal('fetch', async () => new Response(bytes, {
+    status: 200,
+    headers: { 'content-length': String(bytes.length) },
+  }));
+  let installedPath = '';
+  host.execute = async (_command, source) => {
+    installedPath = (source as { fsPath: string }).fsPath;
+    assert.equal(existsSync(installedPath), true);
+    throw new Error('injected installation failure');
+  };
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: [record.id], managedIds: [record.id] });
+  assert.equal(existsSync(installedPath), false);
+});
+
 test('REQ-IDE-042 AC1: a company manifest from another release is rejected before download', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   writeManagedExtensions(managedExtensionsPath, [managedExtension()]);
