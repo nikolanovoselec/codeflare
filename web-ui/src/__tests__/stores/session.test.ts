@@ -213,6 +213,34 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalled();
     });
 
+    it('maps update_pending from the existing batch request without invoking reconciliation', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('maps upgrading and invokes the existing agent-config reconciliation once', async () => {
+      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise(() => {}));
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+        managedReleaseStatus: 'upgrading',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+    });
+
     it('should recognize running sessions on fresh page load', async () => {
       const mockSessions = [
         {

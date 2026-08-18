@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 const host = vi.hoisted(() => ({
   commands: [] as Array<{ command: string; arguments: unknown[] }>,
@@ -20,6 +21,9 @@ const host = vi.hoisted(() => ({
 
 vi.mock('vscode', () => ({
   ConfigurationTarget: { Global: 1 },
+  Uri: {
+    file: (fsPath: string) => ({ scheme: 'file', fsPath }),
+  },
   ProgressLocation: { Notification: 15 },
   commands: {
     executeCommand: async (command: string, ...args: unknown[]) => {
@@ -63,6 +67,7 @@ import {
   activateExtensionPersistence,
   captureExtensionManifest,
   loadExtensionManifest,
+  reconcileCompanyExtensions,
   restoreExtensionManifest,
 } from '../src/extension-persistence.ts';
 
@@ -74,9 +79,40 @@ function fixture() {
   const extensionsDir = join(root, 'extensions');
   const manifestPath = join(root, '.codeflare', 'ide-extensions.json');
   const syncPidFile = join(root, 'sync-daemon.pid');
+  const managedExtensionsPath = join(root, '.codeflare', 'managed-extensions.json');
   mkdirSync(extensionsDir, { recursive: true });
   mkdirSync(join(manifestPath, '..'), { recursive: true });
-  return { root, extensionsDir, manifestPath, syncPidFile };
+  return { root, extensionsDir, manifestPath, managedExtensionsPath, syncPidFile };
+}
+
+function managedExtension(
+  id = 'cherrymarkdownpublisher.cherry-markdown',
+  version = '0.3.1081718',
+  bytes = Buffer.from('verified company extension'),
+) {
+  const [publisher, name] = id.split('.');
+  return {
+    id,
+    publisher,
+    name,
+    version,
+    targetPlatform: 'universal',
+    engine: '^1.109.0',
+    entrypoint: './dist/extension.js',
+    extensionPack: [],
+    extensionDependencies: [],
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    downloadUrl: `https://open-vsx.org/api/${publisher}/${name}/${version}/file/${publisher}.${name}-${version}.vsix`,
+  };
+}
+
+function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
+  writeFileSync(path, JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: 'a'.repeat(64), sequence: 7 },
+    extensions: records,
+  }));
 }
 
 function writeRegistry(
@@ -123,6 +159,7 @@ beforeEach(() => {
   host.settingsUpdates = [];
   host.updateSetting = async () => undefined;
   host.acknowledgeSecurity = true;
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
   host.warnings = [];
   host.progressTitles = [];
 });
@@ -130,10 +167,245 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR;
   delete process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST;
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
+  delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+test('REQ-IDE-042 AC3: exact verified company VSIX installs from a deleted temporary file', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
+  const bytes = Buffer.from('verified company extension');
+  const record = managedExtension(undefined, undefined, bytes);
+  writeManagedExtensions(managedExtensionsPath, [record]);
+  writeRegistry(extensionsDir);
+  const requests: Request[] = [];
+  vi.stubGlobal('fetch', async (request: Request) => {
+    requests.push(request);
+    if (new URL(request.url).hostname === 'open-vsx.org') {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `https://openvsx.eclipsecontent.org/${record.publisher}/${record.name}/${record.version}/${basename(record.downloadUrl)}`,
+        },
+      });
+    }
+    return new Response(bytes.toString('utf8'), { status: 200, headers: { 'content-length': String(bytes.length) } });
+  });
+  let installedPath = '';
+  host.execute = async (_command, source, options) => {
+    assert.equal(typeof source, 'object');
+    installedPath = (source as { fsPath: string }).fsPath;
+    assert.equal(existsSync(installedPath), true);
+    assert.deepEqual(options, { donotSync: true });
+  };
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: [], managedIds: [record.id] });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, record.downloadUrl);
+  assert.equal(requests.every((request) => request.redirect === 'manual'), true);
+  assert.equal(existsSync(installedPath), false);
+  assert.equal(host.commands.some(({ arguments: args }) => typeof args[0] === 'string'), false, 'company install never falls back to a gallery identity');
+  assert.equal(existsSync(manifestPath), false, 'company bytes and intent do not enter the personal manifest');
+});
+
+test('REQ-IDE-042 AC3: a restored company manifest from another release is rejected before download', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  writeManagedExtensions(managedExtensionsPath, [managedExtension()]);
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'b'.repeat(64);
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(fetcher.mock.calls.length, 0);
+  assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-042 AC3: redirect, size, and digest failures install nothing and clean every temporary directory', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const redirect = managedExtension('acme.bad-redirect', '1.0.0', Buffer.from('redirect'));
+  const oversized = managedExtension('acme.bad-size', '1.0.0', Buffer.from('size'));
+  const changed = managedExtension('acme.bad-hash', '1.0.0', Buffer.from('expected'));
+  writeManagedExtensions(managedExtensionsPath, [redirect, oversized, changed]);
+  writeRegistry(extensionsDir);
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('codeflare-company-extension-')));
+  vi.stubGlobal('fetch', async (request: Request) => {
+    if (request.url === redirect.downloadUrl) {
+      return new Response(null, { status: 302, headers: { location: 'https://example.com/extension.vsix' } });
+    }
+    if (request.url === oversized.downloadUrl) return new Response('too-large');
+    if (request.url === changed.downloadUrl) return new Response('modified');
+    throw new Error('unexpected redirect request');
+  });
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result.failures, [changed.id, redirect.id, oversized.id].sort());
+  assert.deepEqual(host.commands, []);
+  const after = readdirSync(tmpdir()).filter((name) => name.startsWith('codeflare-company-extension-') && !before.has(name));
+  assert.deepEqual(after, []);
+});
+
+test('REQ-IDE-042 AC4: company failures remain bounded and do not block the workbench', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const records = ['one.extension', 'two.extension', 'zthree.extension'].map((id) => managedExtension(id, '1.0.0', Buffer.from(id)));
+  writeManagedExtensions(managedExtensionsPath, records);
+  writeRegistry(extensionsDir);
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.hostname === 'open-vsx.org') {
+      const record = records.find((candidate) => request.url === candidate.downloadUrl);
+      assert.ok(record);
+      return new Response(null, {
+        status: 302,
+        headers: { location: `https://openvsx.eclipsecontent.org/${record.publisher}/${record.name}/${record.version}/${basename(record.downloadUrl)}` },
+      });
+    }
+    const record = records.find((candidate) => url.pathname.startsWith(`/${candidate.publisher}/${candidate.name}/`));
+    assert.ok(record);
+    const bytes = Buffer.from(record.id);
+    return new Response(record.id, { status: 200, headers: { 'content-length': String(bytes.length) } });
+  });
+  let active = 0;
+  let maximum = 0;
+  const releases: Array<() => void> = [];
+  host.execute = async (_command, source) => new Promise<void>((resolve, reject) => {
+    const shouldFail = (source as { fsPath: string }).fsPath.endsWith('/two.extension.vsix');
+    active += 1;
+    maximum = Math.max(maximum, active);
+    releases.push(() => {
+      active -= 1;
+      if (shouldFail) reject(new Error('isolated install failure'));
+      else resolve();
+    });
+  });
+
+  const reconciling = reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  while (releases.length < 2) await flushAsyncWork();
+  assert.equal(active, 2);
+  while (releases.length > 0 || active > 0) {
+    const release = releases.shift();
+    if (release) release();
+    await flushAsyncWork();
+  }
+  const result = await reconciling;
+
+  assert.equal(maximum, 2);
+  assert.deepEqual(result.failures, ['two.extension']);
+  assert.equal(host.warnings.length, 1);
+  assert.match(host.warnings[0], /two\.extension/);
+});
+
+test('REQ-IDE-042 AC3: exact dependency artifacts install before their dependent without gallery fallback', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const dependency = managedExtension('acme.zzz-dependency', '1.0.0', Buffer.from('dependency'));
+  const dependent = {
+    ...managedExtension('acme.aaa-parent', '1.0.0', Buffer.from('parent')),
+    extensionDependencies: [dependency.id],
+  };
+  writeManagedExtensions(managedExtensionsPath, [dependent, dependency]);
+  writeRegistry(extensionsDir);
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const record = [dependent, dependency].find((candidate) => request.url === candidate.downloadUrl);
+    assert.ok(record);
+    const bytes = record.id === dependency.id ? Buffer.from('dependency') : Buffer.from('parent');
+    return new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } });
+  });
+  const installed: string[] = [];
+  host.execute = async (_command, source) => {
+    const id = basename((source as { fsPath: string }).fsPath, '.vsix');
+    if (id === dependent.id) assert.deepEqual(installed, [dependency.id]);
+    installed.push(id);
+  };
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(installed, [dependency.id, dependent.id]);
+  assert.equal(host.commands.some(({ arguments: args }) => typeof args[0] === 'string'), false);
+});
+
+test('REQ-IDE-042 AC2+AC5: company reconciliation precedes personal restore and capture remains active', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const company = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({
+      [company.id]: { version: '0.2.0' },
+      'publisher.personal': { version: '1.0.0' },
+    }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir);
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.hostname === 'open-vsx.org') {
+      return new Response(null, { status: 302, headers: { location: `https://openvsx.eclipsecontent.org/${company.publisher}/${company.name}/${company.version}/${basename(company.downloadUrl)}` } });
+    }
+    return new Response('verified company extension', { status: 200 });
+  });
+  const order: string[] = [];
+  host.execute = async (_command, source) => {
+    if (typeof source === 'string') {
+      order.push(`personal:${source}`);
+      return;
+    }
+    order.push(`company:${company.id}@${company.version}`);
+    writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
+  };
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  const deactivate = await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile, debounceMs: 2_000 },
+  );
+
+  assert.deepEqual(order, [
+    `company:${company.id}@${company.version}`,
+    'personal:publisher.personal@1.0.0',
+  ]);
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0', 'managed company version does not overwrite preserved personal intent');
+  await deactivate();
+  for (const subscription of subscriptions) subscription.dispose();
+});
+
+test('REQ-IDE-042 AC6: disable stops enforcement, restores prior personal intent, and never force-uninstalls', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
+  const company = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ [company.id]: { version: '0.2.0' } }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
+  vi.stubGlobal('fetch', async () => { throw new Error('already installed'); });
+  await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  unlinkSync(managedExtensionsPath);
+  host.commands = [];
+
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+
+  assert.deepEqual(host.commands.map(({ arguments: args }) => args[0]), [`${company.id}@0.2.0`]);
+  assert.equal(host.commands.some(({ command }) => /uninstall/i.test(command)), false);
+  await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile: join(extensionsDir, 'missing.pid') });
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0');
+});
+
+test('REQ-IDE-042 AC5: live capture does not create personal intent solely from a company install', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const company = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
+
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
+  assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
+  assert.deepEqual(host.warnings, []);
 });
 
 test('REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically', async () => {

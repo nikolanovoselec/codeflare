@@ -558,7 +558,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Listing is confined to the two-segment prefixes the seed writes, keeping both the getting-started documents and the large runtime trees outside the sweep's reach. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (lists only inside the seed two-segment prefixes) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never HEADs a key under a runtime tree outside those prefixes) -->
 5. A prefix that is not listed completely, or a candidate set past the fan-out cap, produces a warning and withholds deletion over the scope it cannot vouch for — that prefix for an incomplete listing, the whole sweep for the cap. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes nothing from a prefix whose listing failed part-way) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (treats a truncated page with no continuation token as a failed listing) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep when two prefixes are each under the cap but over it combined) -->
 6. The generated seed enumerates every key no marker can identify — those shipped before the marker existed, recovered by walking the seed module's history, and product-generated files that were never seeded keys at all — and cleanup deletes them by name. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (retires the legacy ~/.claude/hooks/ copies the seed no longer owns) -->
-7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
+7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
 
 **Constraints:**
 
@@ -577,5 +577,33 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Automated test ([r2-seed mode tests](../../src/__tests__/lib/r2-seed-mode.test.ts), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts))
 
 **Status:** Implemented
+
+---
+
+### REQ-STOR-020: Managed coding-environment reconciliation
+
+**Intent:** Verified managed releases converge through the existing R2 upgrade path without mutating a shared bucket during a running session or losing user-owned files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Verified bundle and signature bytes are cached under their digest in one deterministically named deployment-level R2 bucket, and each repository-and-key configuration advances only its `configs/<fingerprint>/active.json` pointer with conditional create/update semantics so concurrent checks cannot downgrade, conflict at the same sequence, or affect the prior configuration during replacement. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1: active release compare-and-swap is monotonic and content-addressed) -->
+2. Initial batch status compares the active release digest and resolved session mode with the user's applied state without adding another polling loop. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC2: initial status compares managed release and resolved mode) -->
+3. With no running session, a mismatch reports UPGRADING, invokes the existing agent-config route, writes verified mode documents and `.codeflare/managed-extensions.json` with fixed R2 concurrency, completes required context-mode reconciliation, and stamps digest, sequence, mode, and time only after every operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC3: successful managed reconcile stamps applied state last) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (bounds R2 concurrency for a maximum-size managed document set) -->
+4. With any running session, a mismatch reports UPDATE PENDING, performs no seed mutation, disables another session in the UI, and the backend start boundary returns the same typed conflict until the final session stops and reconciliation succeeds. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports update_pending and never starts reconciliation while a session is running) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (blocks New Session when enabled curation is unavailable and no release was previously applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-020 AC4: dashboard maps pending managed reconciliation without a new poller) -->
+5. Managed writes use the active release digest as provenance; cleanup compares the prior release document set and deletes an obsolete or mode-narrowed key only when its current marker still matches that prior digest, while an absent or changed marker preserves the user-owned file. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-020 AC5: prior release markers guard managed cleanup) -->
+6. Context-mode's image-owned files remain under `reseedContextModePlugin`, company VSIX bytes never enter R2, and remote curation does not traverse Vault or agent transcript roots. <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-020 AC6: image-owned and user-owned roots remain outside managed documents) -->
+7. Disabling curation makes the baked image hash and resolved mode expected again, applies that state through the same safe gate, clears the managed applied stamp and company requirement, and leaves personal extension intent unchanged. <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC7: disable converges to baked state without deleting personal intent) -->
+
+**Constraints:** No user bucket is mutated while any session for that user is running. Applied state is written last. Existing baked behavior remains byte-identical when curation is not configured.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated cache, storage reconciliation, lifecycle, and dashboard tests
+
+**Status:** Planned
 
 ---

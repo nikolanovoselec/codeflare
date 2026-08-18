@@ -7,19 +7,40 @@ import { isAbsolute, resolve } from "node:path";
 // no protection (REQ-IDE-009, AD114). Ignoring recommendations suppresses the
 // cloned repository's "install recommended extensions" prompt. Disabling the
 // default startup editor leaves the owned Codeflare welcome as the sole welcome.
-export function buildBaseOpenVscodeSettings() {
+const COMPANY_EXTENSION_ID = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/;
+
+function extensionAllowance(managedExtensions = []) {
+  if (!Array.isArray(managedExtensions) || managedExtensions.length > 20) {
+    throw new TypeError("Managed extensions must be a bounded array");
+  }
+  const companyIds = managedExtensions.map((extension) => {
+    const id = extension?.id;
+    if (typeof id !== "string" || !COMPANY_EXTENSION_ID.test(id)) {
+      throw new TypeError("Managed extension identity is invalid");
+    }
+    return id;
+  });
+  if (new Set(companyIds).size !== companyIds.length) throw new TypeError("Managed extension identities must be unique");
+  return Object.fromEntries([
+    ["*", true],
+    ["codeflare.codeflare-agent-sidebar", true],
+    ...[...new Set(companyIds)].sort().map((id) => [id, true]),
+  ]);
+}
+
+export function buildBaseOpenVscodeSettings(managedExtensions = []) {
   return {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
-    "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
+    "extensions.allowed": extensionAllowance(managedExtensions),
     "workbench.startupEditor": "none",
     "chat.titleBar.signIn.enabled": false,
   };
 }
 
-export function buildPiOpenVscodeSettings() {
+export function buildPiOpenVscodeSettings(managedExtensions = []) {
   return {
-    ...buildBaseOpenVscodeSettings(),
+    ...buildBaseOpenVscodeSettings(managedExtensions),
     "chat.disableAIFeatures": true,
     "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
@@ -30,9 +51,9 @@ export function buildPiOpenVscodeSettings() {
   };
 }
 
-export function buildUnsupportedOpenVscodeSettings() {
+export function buildUnsupportedOpenVscodeSettings(managedExtensions = []) {
   return {
-    ...buildBaseOpenVscodeSettings(),
+    ...buildBaseOpenVscodeSettings(managedExtensions),
     "chat.disableAIFeatures": true,
   };
 }
@@ -59,14 +80,14 @@ export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "claudeCode.usePythonEnvironment",
 ]);
 
-export function buildOpenVscodeSettings(claudeConfigDirectory) {
+export function buildOpenVscodeSettings(claudeConfigDirectory, managedExtensions = []) {
   if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
     throw new TypeError("Claude config directory must be absolute");
   }
   const normalized = resolve(claudeConfigDirectory);
   if (normalized === "/") throw new TypeError("Claude config directory cannot be root");
   return {
-    ...buildBaseOpenVscodeSettings(),
+    ...buildBaseOpenVscodeSettings(managedExtensions),
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: normalized },

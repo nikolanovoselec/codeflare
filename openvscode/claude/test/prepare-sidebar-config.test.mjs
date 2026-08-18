@@ -210,6 +210,63 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
   });
 });
 
+test("REQ-IDE-042 AC1: settings preparation reads the restored company extension manifest", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
+  await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
+  await writeFile(managedExtensionsPath, JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
+  }));
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+
+  const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+  assert.deepEqual(written["extensions.allowed"], {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+    "cherrymarkdownpublisher.cherry-markdown": true,
+  });
+});
+
+test("REQ-IDE-042 AC1: company allowance ignores a restored manifest from another applied release", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
+  await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
+  await writeFile(managedExtensionsPath, JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
+  }));
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "b".repeat(64) });
+
+  const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+  assert.deepEqual(written["extensions.allowed"], {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+  });
+});
+
+test("REQ-IDE-042 AC1: invalid company manifest falls back to the baseline allowance without blocking the IDE", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
+  await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
+  await writeFile(managedExtensionsPath, JSON.stringify({ schemaVersion: 1, extensions: [{ id: "invalid" }] }));
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+
+  const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+  assert.deepEqual(written["extensions.allowed"], {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+  });
+});
+
 test("REQ-IDE-005: unsupported inventory disables generic Chat after restoring preferences", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");

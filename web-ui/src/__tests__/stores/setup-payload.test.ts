@@ -54,6 +54,21 @@ function baseState(overrides: Partial<SetupState> = {}): SetupState {
     cloudflareOauthClientId: '',
     cloudflareOauthClientSecret: '',
     cloudflareOauthClientSecretSet: false,
+    managedEnvironmentEnabled: false,
+    managedEnvironmentConfigured: false,
+    managedEnvironmentTouched: false,
+    managedEnvironmentRepository: '',
+    managedEnvironmentPersonalAccessToken: '',
+    managedEnvironmentPersonalAccessTokenSet: false,
+    managedEnvironmentPublicKey: '',
+    managedEnvironmentPublicKeyFingerprint: '',
+    managedEnvironmentActiveReleaseTag: '',
+    managedEnvironmentActiveSequence: null,
+    managedEnvironmentActiveDigestPrefix: '',
+    managedEnvironmentFreshness: 'unconfigured',
+    managedEnvironmentLastCheckedAt: '',
+    managedEnvironmentPatExpiryState: 'unknown',
+    managedEnvironmentLastError: '',
     groupRouting: {},
     ...overrides,
   };
@@ -67,6 +82,35 @@ describe('buildConfigurePayload (setup store split)', () => {
     expect(payload.githubProviderType).toBe('app');
     // Blank secret passes through verbatim — the backend treats '' as "keep existing".
     expect(payload.githubAppClientSecret).toBe('');
+  });
+
+  it('carries the same managed-environment contract outside and inside enterprise mode', () => {
+    const managed = {
+      managedEnvironmentEnabled: true,
+      managedEnvironmentTouched: true,
+      managedEnvironmentRepository: 'acme/curation',
+      managedEnvironmentPersonalAccessToken: '',
+      managedEnvironmentPersonalAccessTokenSet: true,
+      managedEnvironmentPublicKey: 'ab'.repeat(32),
+    };
+    const standard = buildConfigurePayload(baseState({ enterpriseMode: false, ...managed }));
+    const enterprise = buildConfigurePayload(baseState({ enterpriseMode: true, ...managed }));
+    const expected = {
+      enabled: true,
+      repository: 'acme/curation',
+      personalAccessToken: '',
+      publicKey: 'ab'.repeat(32),
+    };
+    expect(standard.managedEnvironment).toEqual(expected);
+    expect(enterprise.managedEnvironment).toEqual(expected);
+  });
+
+  it('sends an explicit disable only for a configured or touched control', () => {
+    expect(buildConfigurePayload(baseState())).not.toHaveProperty('managedEnvironment');
+    expect(buildConfigurePayload(baseState({
+      managedEnvironmentConfigured: true,
+      managedEnvironmentTouched: true,
+    })).managedEnvironment).toEqual({ enabled: false });
   });
 
   it('omits every enterprise-only key outside enterprise mode (byte-identical body guarantee)', () => {

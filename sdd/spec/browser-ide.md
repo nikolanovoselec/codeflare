@@ -1198,6 +1198,33 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
+### REQ-IDE-042: Additive company extension reconciliation
+
+**Intent:** A managed coding environment can require exact verified Browser IDE extensions without replacing personal extension installation or persistence.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After R2 restore, managed settings accept `.codeflare/managed-extensions.json` only when its release digest matches the Worker-applied digest transported to the container, retain `"*": true`, and add explicit fixed and company extension IDs to the allowance map. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC1: company extension identities extend the personal allowance map) --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-042 AC1: company allowance ignores a restored manifest from another applied release) -->
+2. After workbench readiness, company reconciliation runs before personal manifest restore without delaying initial code-server readiness. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC2: company reconciliation precedes personal restore after readiness) -->
+3. Each company extension downloads only its signed-manifest exact URL through the fixed Open VSX host/redirect policy, enforces the declared byte cap, size, and SHA-256, installs from a temporary local URI with synchronization disabled, and deletes temporary bytes. <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: exact verified company VSIX installs from a deleted temporary file) -->
+4. Company reconciliation never falls back to a gallery identity or latest version, runs with bounded concurrency, and one failure emits one bounded warning while the IDE and remaining extensions continue. <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4: company failures remain bounded and do not block the workbench) -->
+5. Personal exact-manifest restore and both TypeScript and generation-reap capture paths remain enabled and behaviorally unchanged. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC5: personal restore follows company reconciliation and capture remains active) -->
+6. Disabling curation removes the company requirement on the next safe reconcile but does not force-uninstall an extension retained by the user's personal saved intent. <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC6: disable preserves company extension when personal intent owns it) -->
+
+**Constraints:** Company extension bytes remain session-local and never enter R2. The first release pins `cherryMarkdownPublisher.cherry-markdown@0.3.1081718`. Existing fixed Pi and Claude extension inventories remain immutable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration), [REQ-IDE-040](#req-ide-040-user-extension-allowance-policy), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-020](storage.md#req-stor-020-managed-coding-environment-reconciliation)
+
+**Verification:** Automated managed-settings, extension persistence, generation-reap, and complete-image smoke tests
+
+**Status:** Planned
+
+---
+
 ### REQ-IDE-043: Native Pi provider history isolation
 
 **Intent:** Each native Pi surface receives only the conversation history required for its current turn.

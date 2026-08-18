@@ -62,6 +62,21 @@ const initialState: SetupState = {
   cloudflareOauthClientId: '',
   cloudflareOauthClientSecret: '',
   cloudflareOauthClientSecretSet: false,
+  managedEnvironmentEnabled: false,
+  managedEnvironmentConfigured: false,
+  managedEnvironmentTouched: false,
+  managedEnvironmentRepository: '',
+  managedEnvironmentPersonalAccessToken: '',
+  managedEnvironmentPersonalAccessTokenSet: false,
+  managedEnvironmentPublicKey: '',
+  managedEnvironmentPublicKeyFingerprint: '',
+  managedEnvironmentActiveReleaseTag: '',
+  managedEnvironmentActiveSequence: null,
+  managedEnvironmentActiveDigestPrefix: '',
+  managedEnvironmentFreshness: 'unconfigured',
+  managedEnvironmentLastCheckedAt: '',
+  managedEnvironmentPatExpiryState: 'unknown',
+  managedEnvironmentLastError: '',
   groupRouting: {},
 };
 
@@ -193,6 +208,14 @@ function setGithubOauthClientSecret(v: string): void { setState('githubOauthClie
 // ─── Connect-to-Cloudflare OAuth client setters ───────────────────────────────
 function setCloudflareOauthClientId(v: string): void { setState('cloudflareOauthClientId', v); }
 function setCloudflareOauthClientSecret(v: string): void { setState('cloudflareOauthClientSecret', v); }
+
+// ─── Managed coding environment (all deployment modes) ──────────────────────
+function setManagedEnvironmentEnabled(v: boolean): void {
+  setState({ managedEnvironmentEnabled: v, managedEnvironmentTouched: true });
+}
+function setManagedEnvironmentRepository(v: string): void { setState('managedEnvironmentRepository', v); }
+function setManagedEnvironmentPersonalAccessToken(v: string): void { setState('managedEnvironmentPersonalAccessToken', v); }
+function setManagedEnvironmentPublicKey(v: string): void { setState('managedEnvironmentPublicKey', v); }
 
 // ─── REQ-ENTERPRISE-013: per-group routing setters ────────────────────────────
 function emptyGroupRouting(): GroupRouting { return { routes: [], defaultRoute: '', reasoning: 'off' }; }
@@ -599,6 +622,21 @@ export const setupStore = {
   get cloudflareOauthClientId() { return state.cloudflareOauthClientId; },
   get cloudflareOauthClientSecret() { return state.cloudflareOauthClientSecret; },
   get cloudflareOauthClientSecretSet() { return state.cloudflareOauthClientSecretSet; },
+  get managedEnvironmentEnabled() { return state.managedEnvironmentEnabled; },
+  get managedEnvironmentConfigured() { return state.managedEnvironmentConfigured; },
+  get managedEnvironmentTouched() { return state.managedEnvironmentTouched; },
+  get managedEnvironmentRepository() { return state.managedEnvironmentRepository; },
+  get managedEnvironmentPersonalAccessToken() { return state.managedEnvironmentPersonalAccessToken; },
+  get managedEnvironmentPersonalAccessTokenSet() { return state.managedEnvironmentPersonalAccessTokenSet; },
+  get managedEnvironmentPublicKey() { return state.managedEnvironmentPublicKey; },
+  get managedEnvironmentPublicKeyFingerprint() { return state.managedEnvironmentPublicKeyFingerprint; },
+  get managedEnvironmentActiveReleaseTag() { return state.managedEnvironmentActiveReleaseTag; },
+  get managedEnvironmentActiveSequence() { return state.managedEnvironmentActiveSequence; },
+  get managedEnvironmentActiveDigestPrefix() { return state.managedEnvironmentActiveDigestPrefix; },
+  get managedEnvironmentFreshness() { return state.managedEnvironmentFreshness; },
+  get managedEnvironmentLastCheckedAt() { return state.managedEnvironmentLastCheckedAt; },
+  get managedEnvironmentPatExpiryState() { return state.managedEnvironmentPatExpiryState; },
+  get managedEnvironmentLastError() { return state.managedEnvironmentLastError; },
   get groupRouting() { return state.groupRouting; },
 
   // Actions
@@ -634,6 +672,10 @@ export const setupStore = {
   setGithubOauthClientSecret,
   setCloudflareOauthClientId,
   setCloudflareOauthClientSecret,
+  setManagedEnvironmentEnabled,
+  setManagedEnvironmentRepository,
+  setManagedEnvironmentPersonalAccessToken,
+  setManagedEnvironmentPublicKey,
   toggleGroupRoute,
   setGroupDefaultRoute,
   setGroupReasoning,

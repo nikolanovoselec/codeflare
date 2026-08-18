@@ -215,6 +215,12 @@ Per-user session admission is best effort: KV counting and the later running wri
 
 Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. Workflow procedure belongs to [CI/CD](ci-cd.md).
 
+### Managed curation signing and repository credentials
+
+The private curation build job is read-only. Only its reviewer-protected publication job receives release-write permission, and only its signing step receives the Ed25519 private PEM from the protected GitHub environment. The matching raw 64-hex public key and retained historical public keys are non-secret verification material. Codeflare Setup stores only the raw active public key and AES-256-GCM-encrypted repository-scoped read PAT. The private key, PAT, release signature, and VSIX bytes never enter a user bucket or container. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
+
+The Worker strips GitHub authorization before the single allowlisted asset redirect, verifies immutable GitHub asset digests before signature validation, and accepts company-extension metadata in the Browser IDE only when its release digest matches the Worker-applied digest transported to that container. Fresh users fail closed when enabled curation has no verified cache; already-applied users may continue from their last verified state during a transient outage. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @impl: src/routes/container/lifecycle.ts::default -->
+
 <a id="container-image-scanning-req-sec-011"></a>
 ### Container image vulnerability gate
 

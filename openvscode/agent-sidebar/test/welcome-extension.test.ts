@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 
-const persistence = vi.hoisted(() => ({ activations: 0, deactivations: 0 }));
+const persistence = vi.hoisted(() => ({
+  activations: 0,
+  deactivations: 0,
+  pending: undefined as Promise<(() => Promise<void>) | undefined> | undefined,
+}));
 
 const host = vi.hoisted(() => ({
   commandHandler: undefined as (() => void) | undefined,
@@ -19,9 +23,9 @@ vi.mock('node:crypto', () => ({
 }));
 
 vi.mock('../src/extension-persistence.ts', () => ({
-  activateExtensionPersistence: async () => {
+  activateExtensionPersistence: () => {
     persistence.activations += 1;
-    return async () => { persistence.deactivations += 1; };
+    return persistence.pending ?? Promise.resolve(async () => { persistence.deactivations += 1; });
   },
 }));
 
@@ -87,6 +91,7 @@ afterEach(() => {
   host.panel = undefined;
   persistence.activations = 0;
   persistence.deactivations = 0;
+  persistence.pending = undefined;
 });
 
 test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', () => {
@@ -96,6 +101,19 @@ test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', ()
   activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
 
   assert.equal(persistence.activations, 1);
+  for (const subscription of subscriptions) subscription.dispose();
+});
+
+test('REQ-IDE-042 AC2: company reconciliation stays lazy and cannot delay the ready workbench', async () => {
+  vi.useFakeTimers();
+  persistence.pending = new Promise(() => undefined);
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+  await vi.runOnlyPendingTimersAsync();
+
+  assert.equal(persistence.activations, 1);
+  assert.equal(host.created, 1);
   for (const subscription of subscriptions) subscription.dispose();
 });
 

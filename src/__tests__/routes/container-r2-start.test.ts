@@ -25,6 +25,8 @@ const testState = vi.hoisted(() => ({
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
+  activeManagedRelease: null as null | { digest: string; release: { sequence: number } },
+  managedReleaseError: null as Error | null,
 }));
 
 vi.mock('@cloudflare/containers', () => ({
@@ -58,6 +60,12 @@ vi.mock('../../lib/circuit-breakers', () => ({
 }));
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
+vi.mock('../../lib/managed-release-active', () => ({
+  getActiveVerifiedManagedRelease: vi.fn(async () => {
+    if (testState.managedReleaseError) throw testState.managedReleaseError;
+    return testState.activeManagedRelease;
+  }),
+}));
 vi.mock('../../middleware/rate-limit', () => ({
   createRateLimiter: vi.fn(() => async (_c: any, next: any) => next()),
 }));
@@ -90,6 +98,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     testState.container = makeContainer();
     testState.createBucketResult = { success: true, created: false };
     testState.seedResult = { written: [], skipped: [] };
+    testState.activeManagedRelease = null;
+    testState.managedReleaseError = null;
     mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
       id: 'abcdef1234567890abcdef12',
       name: 'Test Session',
@@ -111,6 +121,53 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
     };
   }
+
+  describe('managed environment start gate', () => {
+    it('returns a typed 409 before user-bucket or container work when enabled curation is unavailable for a fresh user', async () => {
+      testState.managedReleaseError = new Error('verified cache unavailable');
+      const fetch = createApp();
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+
+    it('retains a previously applied verified release during a transient cache outage', async () => {
+      testState.managedReleaseError = new Error('verified cache unavailable');
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+      });
+      const fetch = createApp();
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(200);
+      const setBucketRequest = testState.container!.fetch.mock.calls
+        .map(([request]) => request as Request)
+        .find((request) => request.url.includes('/_internal/setBucketName'));
+      expect(await setBucketRequest?.clone().json()).toEqual(expect.objectContaining({
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+      }));
+    });
+
+    it('returns a typed 409 before user-bucket or container work when the active release is not applied', async () => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      const fetch = createApp();
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+  });
 
   // AC1: POST /api/container/start creates the user's R2 bucket if it does not exist
   describe('REQ-SESSION-003 AC1: createBucketIfNotExists called on start', () => {

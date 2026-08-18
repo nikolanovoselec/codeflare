@@ -648,6 +648,12 @@ CI monitoring launches independently after required reviewers are launched. It o
 
 **Detailed documentation:** [CI/CD](ci-cd.md), [Preseed](preseed.md)
 
+### Managed Coding-Environment Data Flow
+
+A protected private-repository workflow publishes one immutable signed release. The Worker alone uses the encrypted repository PAT, verifies immutable GitHub metadata, asset digests, Ed25519 signature, sequence, repository identity, seed ABI, runtime hash, paths, bounds, and extension records, then caches content-addressed bytes in deployment R2. Dashboard status compares the selected digest and resolved mode with the user's applied stamp; the existing storage reconcile route mutates the user bucket only when no session runs and stamps completion last. Container startup receives only an active boolean and the applied digest. It never receives GitHub credentials, signing material, bundle/signature bytes, or VSIX bytes. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/routes/storage/seed.ts::default -->
+
+Private curation is the runtime content master; the public baked preseed remains an independent fallback. Publication is discovered through the existing five-minute dashboard refresh rather than a container downloader, webhook, or new polling loop. See [Preseed — Managed curation ownership](preseed.md#managed-curation-ownership) and [AD136](../decisions/README.md#ad136-managed-coding-environments-reconcile-signed-releases-before-session-start).
+
 ## Failure Domains and Recovery Ownership
 
 | Failure domain | Observable disagreement | Authority | Recovery owner | Degradation rule |

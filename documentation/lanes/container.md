@@ -300,6 +300,12 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
     `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the latest classified terminal input or client-to-server Browser IDE frame tracked by the shared host activity tracker). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
 
+### Managed curation startup boundary
+
+The Worker permits startup only when the bucket's applied digest, sequence, and resolved mode match the active verified release. If the deployment cache is transiently unavailable, a bucket with a prior verified applied stamp may continue from that last-known-good state; a fresh bucket receives `MANAGED_ENVIRONMENT_UPDATE_PENDING` and cannot start with baked substitutes.
+
+The set-bucket transport carries `REMOTE_CURATION_ACTIVE=true` together with `REMOTE_CURATION_RELEASE_DIGEST=<64-hex digest>`. The entrypoint uses the boolean only to skip image pre-laydown and the image Pi relay. Browser IDE settings, TypeScript extension reconciliation, and generation-reap capture accept `.codeflare/managed-extensions.json` company records only when its embedded release digest matches the transported digest. Disabling curation clears both environment values on warm and cold container paths. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+
 ---
 
 <a id="claude-code-integration"></a>

@@ -84,6 +84,30 @@ describe('CF-046: SetBucketNameBodySchema', () => {
     });
   });
 
+  describe('REQ-IDE-042: managed release identity transport', () => {
+    it('accepts active curation only with its exact applied release digest', () => {
+      const result = SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects active curation without a digest and inactive curation with one', () => {
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: null,
+      }).success).toBe(false);
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        remoteCurationActive: false,
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+      }).success).toBe(false);
+    });
+  });
+
   // REQ-AGENT-029 AC2: an explicit null deploy credential is a deliberate clear
   // that must validate so it propagates to the container and unsets the value.
   describe('REQ-AGENT-029 AC2: nullable deploy credentials', () => {

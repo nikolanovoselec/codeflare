@@ -358,6 +358,21 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
   // REQ-ENTERPRISE-018 (Governed Mode): the container learns the bucket's R2 SSE-C
   // regime via R2_SSE_DISABLED, emitted iff _r2SseDisabled is set. entrypoint.sh
   // keys off it to drop SSE-C from rclone.conf and re-enable checksums.
+  describe('remote curation release transport', () => {
+    it('emits the active flag and exact applied digest together and clears both when inactive', () => {
+      const digest = 'd'.repeat(64);
+      const active = { ...baseState(), _remoteCurationActive: true, _remoteCurationReleaseDigest: digest };
+      const inactive = { ...baseState(), _remoteCurationActive: false, _remoteCurationReleaseDigest: null };
+
+      expect(buildEnvVars(active, baseEnv)).toEqual(expect.objectContaining({
+        REMOTE_CURATION_ACTIVE: 'true',
+        REMOTE_CURATION_RELEASE_DIGEST: digest,
+      }));
+      expect('REMOTE_CURATION_ACTIVE' in buildEnvVars(inactive, baseEnv)).toBe(false);
+      expect('REMOTE_CURATION_RELEASE_DIGEST' in buildEnvVars(inactive, baseEnv)).toBe(false);
+    });
+  });
+
   describe('R2_SSE_DISABLED (REQ-ENTERPRISE-018)', () => {
     it('emits R2_SSE_DISABLED=true when _r2SseDisabled is set', () => {
       const state = baseState();

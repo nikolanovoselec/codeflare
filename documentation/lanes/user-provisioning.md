@@ -95,6 +95,8 @@ Configured tier modes, paid `subscribedMode`, stored next-session preference, do
 
 ## Offboarding Handoff
 
+Managed coding-environment Setup is deployment configuration, not an entitlement or offboarding source. Enabling, replacing, disabling, or omitting its fields must never delete users, sessions, credentials, KV projections, or user R2 buckets. Destructive offboarding requires the explicit authoritative workflow tracked separately in issue #905.
+
 Provisioning owns orchestration; specialist owners perform each operation:
 
 | Handoff | Current result contract |

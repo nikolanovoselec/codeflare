@@ -31,6 +31,7 @@ interface PollingStateView {
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
   sessionMetrics: Record<string, SessionMetrics>;
+  managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
 }
 
 type StateGetter = () => PollingStateView;
@@ -53,6 +54,7 @@ let updateSessionStatusFn: StatusUpdater;
 let isSessionInitializingFn: InitChecker;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
+let applyManagedReleaseBatchFn: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
 
 export function registerPollingDeps(deps: {
   getState: StateGetter;
@@ -62,6 +64,7 @@ export function registerPollingDeps(deps: {
   isSessionInitializing: InitChecker;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
+  applyManagedReleaseBatch: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
 }): void {
   getState = deps.getState;
   setStateProduce = deps.setStateProduce;
@@ -70,6 +73,7 @@ export function registerPollingDeps(deps: {
   isSessionInitializingFn = deps.isSessionInitializing;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
+  applyManagedReleaseBatchFn = deps.applyManagedReleaseBatch;
 }
 
 // ============================================================================
@@ -130,12 +134,17 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 export async function refreshSessionStatuses(): Promise<void> {
   try {
     const state = getState();
-    const batchResponse = await api.getBatchSessionStatus();
+    const batchResponse = await api.getBatchSessionStatus({
+      includePreseedCheck: state.managedReleaseStatus === 'update_pending' || state.managedReleaseStatus === 'upgrading',
+    });
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
     if (batchResponse.usage) {
       setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
+    if (batchResponse.managedReleaseStatus !== undefined) {
+      applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade);
     }
 
     // REQ-ENTERPRISE-020: mirror the Governed Mode migration flags on EVERY background poll (not just the

@@ -383,6 +383,19 @@ the official Anthropic plugin marketplace URL for user discovery.
 **Updates**: Preseed files update when the pipeline is redeployed
 and users click "Recreate AI agent skills & rules".
 
+## Managed curation ownership
+
+Codeflare has two deliberately separate content timelines:
+
+- Public `preseed/agents/**` is the image-baked fallback baseline.
+- The private `codeflare-curation` repository is the runtime master for deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements.
+
+A curated content change lands in `codeflare-curation` and is published there. Its private Claude and Pi manifests define every included source and its `default`/`advanced` mode membership. Manifest-listed Pi extension TypeScript files are curated and load from R2 without an image redeploy; only Pi npm package/lock/install state and tier-gated context-mode runtime remain image-owned, so a new npm or native dependency still requires a Codeflare runtime change. Curated content is not copied back into this public preseed, and a public baked-preseed edit must never be used to overwrite the usually newer private source. When a task concerns content expected in a managed coding environment, the agent must obtain the private repository and make the change there. When a task explicitly changes only image fallback behavior, it changes this repository only. If the requested behavior must exist in both timelines, make two explicit edits and treat the private version as authoritative rather than running a public-to-private sync.
+
+The shared compiler and runtime ABI remain Codeflare-owned. Compiler, transform, seed ABI, or Pi runtime-lock changes land in Codeflare first; after that commit exists, update the exact compiler pin in `codeflare-curation` and run its real compiler integration workflow. Never copy dirty or untracked compiler files into the private repository.
+
+After a private content change merges to protected `main`, the operator runs the one-trigger protected release workflow. It derives the next sequence from verified immutable history, publishes fixed signed assets, and Codeflare sees the release through its normal five-minute dashboard refresh. No image rebuild, source synchronization job, webhook, or container clone participates.
+
 <a id="preseed-deployment"></a>
 ## Runtime Delivery Pipeline
 
@@ -392,12 +405,14 @@ All preseed content is deployed via the manifest pipeline:
    `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes
    (`default`, `advanced`, or both)
-3. `scripts/generate-agent-seed.mjs` reads manifest + files
-   (manifest-driven, ignores non-manifest files like
-   `plugins/cache/`), generates `src/lib/agent-seed.generated.ts`
-   with `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH`
-   (deterministic SHA-256 over all documents sorted by key,
-   truncated to 16 hex chars)
+3. The side-effect-free `scripts/agent-seed-core.mjs` reads manifest + files
+   (manifest-driven, ignores non-manifest files like `plugins/cache/`) and applies
+   every agent transform. `scripts/generate-agent-seed.mjs` is the image-build CLI
+   wrapper; it generates `src/lib/agent-seed.generated.ts` with the
+   `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH` (deterministic SHA-256
+   over all documents sorted by key, truncated to 16 hex chars). The shared core
+   also exposes the full Pi lockfile digest that binds managed releases to the
+   runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2
@@ -410,7 +425,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-Advanced mode also delivers a composable design suite. `design` is its default entry point: it routes product-interface decisions to `ui-ux-pro-max`, static PNG/PDF work to `canvas-design`, distinctive frontend implementation to the Codeflare-owned `frontend-design`, and critique/polish to `impeccable` where that optional full bundle is installed. The canonical files live under `preseed/agents/claude/skills/`; the normal generator adapts them for each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @impl: scripts/generate-agent-seed.mjs::generate -->
+Advanced mode also delivers a composable design suite. `design` is its default entry point: it routes product-interface decisions to `ui-ux-pro-max`, static PNG/PDF work to `canvas-design`, distinctive frontend implementation to the Codeflare-owned `frontend-design`, and critique/polish to `impeccable` where that optional full bundle is installed. The canonical files live under `preseed/agents/claude/skills/`; the normal generator adapts them for each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare
@@ -984,7 +999,7 @@ The npm package is installed and patched at image-build time in both the global 
 
 Claude's three PR reviewer definitions are Bash-only report lanes with embedded policies and no write surface. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
 
-Reasoning effort is pinned to `medium` for all three Claude reviewer lanes, and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter -->
+Reasoning effort is pinned to `medium` for all three Claude reviewer lanes, and the generator strips the Claude-only `effort` key from every transformed runtime ([REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) AC6). <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter -->
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is

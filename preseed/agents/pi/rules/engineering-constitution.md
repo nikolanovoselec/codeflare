@@ -35,3 +35,7 @@ PR-boundary ordering, payload, triage, and root-ownership details live in Git Wo
 ## Work continuity
 
 Finish the current concrete step safely before switching instructions unless the user explicitly says to stop, pause, or reprioritize.
+
+## Task tracking
+
+The `todo` extension is the authoritative live task tracker. User phrases such as **create tasks**, **create todo tasks**, **use todos**, **track todos**, **update the tasks**, or **open tasks** are direct instructions to invoke the `todo` tool immediately. If the tool is inactive, activate it with `capability` first. Never substitute a Vault note, Markdown checklist, plan document, or prose-only acknowledgement for a requested `todo` update. Keep task states and dependencies current throughout multi-step work, with exactly one task `in_progress`; do not mark implementation tasks complete until their required verification passes.

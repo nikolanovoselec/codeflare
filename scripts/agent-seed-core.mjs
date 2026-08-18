@@ -1,0 +1,1012 @@
+#!/usr/bin/env node
+import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..');
+
+// ---------------------------------------------------------------------------
+// Agent configurations
+// ---------------------------------------------------------------------------
+
+const AGENT_CONFIGS = {
+  codex: {
+    instructionsKey: '.codex/AGENTS.md',
+    skillsPrefix: '.codex/skills',
+    agentsPrefix: null,
+    agentExtension: null,
+    homePath: '~/.codex',
+  },
+  // Antigravity (`agy`) reads global config from ~/.gemini: GEMINI.md (auto-loaded
+  // across all workspaces), skills/, and agents/ all remain the current convention
+  // (the .gemini -> .agents migration is workspace-scoped only; codeflare seeds the
+  // home directory). See REQ-AGENT-007.
+  antigravity: {
+    instructionsKey: '.gemini/GEMINI.md',
+    skillsPrefix: '.gemini/skills',
+    agentsPrefix: '.gemini/agents',
+    agentExtension: '.md',
+    homePath: '~/.gemini',
+  },
+  copilot: {
+    instructionsKey: '.copilot/copilot-instructions.md',
+    skillsPrefix: null,
+    agentsPrefix: '.copilot/agents',
+    agentExtension: '.agent.md',
+    homePath: '~/.copilot',
+  },
+  opencode: {
+    instructionsKey: '.config/opencode/AGENTS.md',
+    skillsPrefix: '.config/opencode/skills',
+    agentsPrefix: '.config/opencode/agents',
+    agentExtension: '.md',
+    homePath: '~/.config/opencode',
+  },
+  pi: {
+    instructionsKey: '.pi/agent/AGENTS.md',
+    skillsPrefix: '.pi/agent/skills',
+    agentsPrefix: '.pi/agent/agents',
+    agentExtension: '.md',
+    homePath: '~/.pi/agent',
+  },
+};
+
+const TOOL_MAP = {
+  codex: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'shell', Grep: 'grep', Glob: 'glob' },
+  antigravity: { Read: 'read_file', Write: 'write_file', Edit: 'replace', Bash: 'run_shell_command', Grep: 'search_file_content', Glob: 'glob' },
+  copilot: { Read: 'read', Write: 'editFiles', Edit: 'editFiles', Bash: 'execute', Grep: 'search', Glob: 'search' },
+  opencode: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'search', Glob: 'glob' },
+  pi: {
+    Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'grep', Glob: 'find',
+    'mcp__graphify__query_graph': 'graphify_query',
+    'mcp__graphify__get_node': 'graphify_explain',
+    'mcp__graphify__get_neighbors': 'graphify_explain',
+    'mcp__graphify__get_community': 'graphify_query',
+    'mcp__graphify__god_nodes': 'graphify_query',
+    'mcp__graphify__shortest_path': 'graphify_path',
+    'mcp__graphify__graph_stats': 'graphify_query',
+    'mcp__context-mode__ctx_execute': 'ctx_execute',
+    'mcp__context-mode__ctx_batch_execute': 'ctx_batch_execute',
+    'mcp__context-mode__ctx_execute_file': 'ctx_execute_file',
+    'mcp__context-mode__ctx_search': 'ctx_search',
+    'mcp__context-mode__ctx_fetch_and_index': 'ctx_fetch_and_index',
+  },
+};
+
+const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);
+const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
+// impeccable is Claude-only in the transform fan-out: it ships a large offline/live
+// detector bundle, so embedding it into codex/gemini/opencode would bloat the seed for
+// agents that won't use it. Pi gets a DEDICATED native copy (preseed/agents/pi/skills/
+// impeccable, paths re-pointed at ~/.pi/agent) emitted verbatim — no prose mangling of its
+// .mjs scripts. So impeccable reaches exactly Claude (this tree) + Pi (native), nothing else.
+const CLAUDE_ONLY_SKILLS = new Set(['consult-llm', 'impeccable']);
+
+// Pi hides only deterministic internals that are loaded by a named command,
+// extension event, or reviewer embedding. Proactive skills stay model-visible.
+const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
+  ['agents-sdk', 'Build AI agents on Cloudflare with Agents SDK state, Workflows, and WebSockets.'],
+  ['api-design', 'Design REST API resources, status codes, pagination, filtering, and errors.'],
+  ['backend-patterns', 'Apply backend architecture, API, database, and Node.js server patterns.'],
+  ['cloudflare', 'Cloudflare reference for Workers, Pages, storage, AI, networking, and security.'],
+  ['cloudflare-email-service', 'Send Cloudflare email and configure routing, SPF, DKIM, and DMARC.'],
+  ['cloudflare-one', 'Design Cloudflare One Zero Trust with Access, Gateway, WARP, and DLP.'],
+  ['cloudflare-one-migrations', 'Plan migrations from VPN, Zscaler, or Palo Alto to Cloudflare One.'],
+  ['cloudflare-stack', 'Default Cloudflare stack for a new project without stated preferences.'],
+  ['content-hash-cache-pattern', 'Cache file processing by SHA-256 content hash with automatic invalidation.'],
+  ['database-migrations', 'Plan database migrations, rollbacks, data changes, and zero-downtime rollout.'],
+  ['deploy-credentials', 'Use GitHub and Cloudflare credentials safely for Git, Wrangler, and deploys.'],
+  ['deployment-patterns', 'Design deployment and CI/CD workflows, health checks, rollbacks, and containers.'],
+  ['design-taste-frontend', 'Design distinctive frontend landing pages, portfolios, and redesigns.'],
+  ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
+  ['emil-design-eng', "Apply Emil Kowalski's UI polish, component, interaction, and animation."],
+  ['frontend-patterns', 'Apply React and Next.js patterns for state, performance, and architecture.'],
+  ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
+  ['sandbox-stable', 'Build Cloudflare Sandbox apps against the current stable package.'],
+  ['sandbox-next', 'Build Cloudflare Sandbox apps against the 1.0 preview package.'],
+  ['sandbox-migrate-to-next', 'Migrate Cloudflare Sandbox apps from stable to the 1.0 preview.'],
+  ['search-first', 'Research existing libraries and patterns before coding a custom solution.'],
+  ['ship', 'Ship, deploy, publish, or push a project to GitHub and Cloudflare.'],
+  ['turnstile-spin', 'Set up Cloudflare Turnstile widgets and server-side siteverify validation.'],
+  ['vault-note-capture', 'Capture a note when the user says note, save, write down, or remember this.'],
+  ['vault-operations', 'Operate the persistent /home/user/Vault layout, sync, and graph safely.'],
+  ['web-perf', 'Audit web performance and Core Web Vitals with Chrome DevTools.'],
+  ['workers-best-practices', 'Review Cloudflare Workers for production correctness, security, and efficiency.'],
+  ['wrangler', 'Use Cloudflare Wrangler to deploy and manage Workers, KV, R2, D1, and Queues.'],
+]);
+
+const PI_MODEL_HIDDEN_SKILLS = new Set([
+  'code-review-checklist',
+  'doc-enforce',
+  'doc-enforce-lanes',
+  'doc-enforce-shape',
+  'doc-enforce-truth',
+  'sdd-clean',
+  'sdd-init',
+  'spec-driven-development',
+  'spec-enforce',
+  'spec-enforce-ac',
+  'spec-enforce-truth',
+  'tdd-enforce',
+]);
+
+// These canonical principles are already preserved by the compact Pi-native
+// constitution, so duplicating their long-form prose in AGENTS.md adds no policy.
+const PI_COMPACTED_RULES = new Set([
+  'rules/cloudflare-environment.md',
+  'rules/no-local-builds.md',
+]);
+
+const PI_COVERED_RULES = new Map([
+  ['rules/documentation-discipline.md', 'doc-enforce'],
+  ['rules/frontend-components.md', 'frontend-components'],
+  ['rules/spec-discipline.md', 'spec-driven-development'],
+  ['rules/tdd-discipline.md', 'tdd-enforce'],
+  ['rules/vault-note-capture.md', 'vault-note-capture'],
+]);
+
+const PI_RULE_SKILL_GROUPS = new Map([
+  ['rules/cloudflare-workers.md', {
+    name: 'codeflare-cloudflare-workers',
+    description: 'Use when editing Cloudflare Worker source or Wrangler configuration.',
+  }],
+  ['rules/golang/', {
+    name: 'codeflare-go',
+    description: 'Use when editing Go source, modules, security behavior, or tests.',
+  }],
+  ['rules/python/', {
+    name: 'codeflare-python',
+    description: 'Use when editing Python source, types, security behavior, or tests.',
+  }],
+  ['rules/swift/', {
+    name: 'codeflare-swift',
+    description: 'Use when editing Swift source, packages, security behavior, or tests.',
+  }],
+  ['rules/typescript/', {
+    name: 'codeflare-typescript',
+    description: 'Use when editing TypeScript or JavaScript source, security behavior, or tests.',
+  }],
+]);
+
+// ---------------------------------------------------------------------------
+// Classification
+// ---------------------------------------------------------------------------
+
+function classifyFile(withinClaude) {
+  if (withinClaude.startsWith('hooks/')) return 'hook';
+  if (withinClaude.startsWith('commands/')) return 'command';
+  if (withinClaude.startsWith('plugins/')) return 'plugin';
+  if (withinClaude.startsWith('rules/')) return 'rule';
+  if (withinClaude.startsWith('skills/')) return 'skill';
+  if (withinClaude.startsWith('agents/')) return 'agent';
+  throw new Error(`Cannot classify file: ${withinClaude}`);
+}
+
+function isClaudeOnlyFile(withinClaude) {
+  return CLAUDE_ONLY_FILES.has(withinClaude);
+}
+
+function isClaudeOnlySkill(withinClaude) {
+  const match = withinClaude.match(/^skills\/([^/]+)\//);
+  return match ? CLAUDE_ONLY_SKILLS.has(match[1]) : false;
+}
+
+// ---------------------------------------------------------------------------
+// Content type inference
+// ---------------------------------------------------------------------------
+
+function inferContentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  switch (extension) {
+    case '.md':
+      return 'text/markdown; charset=utf-8';
+    case '.txt':
+      return 'text/plain; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.yml':
+    case '.yaml':
+      return 'text/yaml; charset=utf-8';
+    case '.csv':
+      return 'text/csv; charset=utf-8';
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.sh':
+      return 'application/x-shellscript; charset=utf-8';
+    case '.py':
+      return 'text/x-python; charset=utf-8';
+    case '.ts':
+      return 'text/typescript; charset=utf-8';
+    case '.js':
+    case '.mjs':
+    case '.cjs':
+      return 'text/javascript; charset=utf-8';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Adaptation functions
+// ---------------------------------------------------------------------------
+
+/** Replace ~/.claude/ references with the target agent's config path. */
+function adaptPaths(content, agentId) {
+  const config = AGENT_CONFIGS[agentId];
+  return content.replaceAll('~/.claude/', `${config.homePath}/`);
+}
+
+// Claude-Code-only tools that have no equivalent in any transformed runtime and must be
+// dropped from every transform. `Skill` invokes a Claude skill via the Skill tool;
+// codex/gemini/copilot/opencode have no equivalent, while native Pi reviewers receive
+// canonical policy through generated system-prompt inclusion. Leaving `Skill` in a
+// transformed tools array would declare a tool that does not exist there.
+const CLAUDE_ONLY_TOOLS = new Set(['Skill']);
+
+/** Remap a Claude tools array to the target agent's tool names. Deduplicates. */
+function remapTools(toolsArray, agentId) {
+  const map = TOOL_MAP[agentId];
+  const mapped = toolsArray.filter((t) => !CLAUDE_ONLY_TOOLS.has(t)).map((t) => map[t] || t);
+  return [...new Set(mapped)];
+}
+
+const PI_RUNTIME_REPLACEMENTS = [
+  ['mcp__graphify__god_nodes(top_n=50)', 'graphify_query("top 50 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_n=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_k=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__get_neighbors(<concept-or-symbol>)', 'graphify_explain(<concept-or-symbol>)'],
+  ['mcp__graphify__get_node(<symbol>)', 'graphify_explain(<symbol>)'],
+  ['mcp__graphify__shortest_path', 'graphify_path'],
+  ['mcp__graphify__query_graph', 'graphify_query'],
+  ['mcp__graphify__get_neighbors', 'graphify_explain'],
+  ['mcp__graphify__get_node', 'graphify_explain'],
+  ['mcp__graphify__get_community', 'graphify_explain'],
+  ['mcp__graphify__god_nodes', 'graphify_query'],
+  ['mcp__graphify__graph_stats', 'graphify_query'],
+  ['mcp__graphify__*', 'Pi graphify tools'],
+  ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
+  ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
+  ['mcp__context-mode__ctx_execute', 'ctx_execute'],
+  ['mcp__context-mode__ctx_search', 'ctx_search'],
+  ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+  // Pi markdown must not name Claude models (REQ-AGENT-007); the graphify
+  // extraction-spec pins Claude's subagent tier in prose, which the frontmatter
+  // model-pin removal cannot reach.
+  ['spawn with `model: "sonnet"`', 'spawn with the runtime default model'],
+  ['must include `model: "sonnet"`', 'must use the runtime default model'],
+  ['never escalate to Opus', 'never escalate to a larger model'],
+  // Pi has no model names anywhere in its runtime -- it selects reasoning effort
+  // and nothing else -- and REQ-AGENT-007 forbids Claude model names in Pi
+  // markdown. The Claude text names the tier because a Claude reader can act on
+  // it; the Pi text says the same thing in the only vocabulary Pi has.
+  [
+    '`run-memory-capture.sh` passes `--model sonnet --effort medium`, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`.',
+    'The capture runs at medium reasoning effort, overridable with `CODEFLARE_MEMORY_EFFORT`.',
+  ],
+
+  ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
+  ['`EnterPlanMode`', 'the Pi `Plan` agent'],
+  ['Task(subagent_type', 'subagent(subagent_type'],
+  ['Task tool', 'subagent tool'],
+  ['Agent tool', 'subagent tool'],
+  ['Agent call', 'subagent call'],
+  ['Claude Code', 'Pi'],
+];
+
+function adaptPiRuntimeNames(content) {
+  let next = content;
+  for (const [from, to] of PI_RUNTIME_REPLACEMENTS) next = next.replaceAll(from, to);
+  return next;
+}
+
+/**
+ * Adapt an agent definition's frontmatter: remap tools and remove Claude-specific
+ * model pins so transformed agents default to the active runtime model.
+ * Body content gets path adaptation only.
+ */
+function adaptAgentFrontmatter(content, agentId) {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match) return adaptPaths(content, agentId);
+
+  const [, frontmatter, body] = match;
+  const lines = frontmatter.split('\n');
+  const newLines = [];
+  const agentName = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  // vault-extract alone: memory-capture is a pi-native file now, so the
+  // pi-native branch emits it verbatim and never reaches this adapter.
+  const piExtractionAgent = agentId === 'pi' && agentName === 'vault-extract';
+  let sawTools = false;
+
+  for (const line of lines) {
+    if (line.startsWith('model:')) continue;
+    // Claude-only reasoning-effort pin: transformed runtimes (pi, codex, gemini,
+    // copilot, opencode) have no equivalent frontmatter key and must not carry it.
+    if (line.startsWith('effort:')) continue;
+    if (piExtractionAgent && line.startsWith('description:')) {
+      newLines.push('description: Visible Pi Vault extraction worker. The root launches one public background request and retains request-specific execution and staged-manifest state until exact native success.');
+      continue;
+    }
+
+    if (line.startsWith('tools:')) {
+      sawTools = true;
+      if (piExtractionAgent) {
+        newLines.push('tools: bash');
+        continue;
+      }
+      const toolsMatch = line.match(/tools:\s*(\[.*\])/);
+      if (toolsMatch) {
+        const tools = JSON.parse(toolsMatch[1]);
+        const remapped = remapTools(tools, agentId);
+        // OpenCode expects tools as a record {name: true}, not an array.
+        if (agentId === 'opencode') {
+          const record = Object.fromEntries(remapped.map((t) => [t, true]));
+          newLines.push(`tools: ${JSON.stringify(record)}`);
+        } else if (agentId === 'pi') {
+          const allowed = [
+            'read', 'grep', 'find', 'ls', 'bash', 'edit', 'write',
+            'graphify_query', 'graphify_path', 'graphify_explain',
+            // Browser Run native tools (REQ-BROWSER-003), registered by the
+            // browser-run.ts extension in advanced mode when a Cloudflare token
+            // is present. Harmless when absent (the extension registers nothing,
+            // so Pi drops the names).
+            'browser_markdown', 'browser_content', 'browser_scrape',
+            // context-mode helpers: declared in the shared agent frontmatter and remapped
+            // to Pi-native names above. Harmless when context-mode is off (the tools do not
+            // exist, so Pi drops them), usable when /ctx enables it. No Pi-specific agent edits.
+            'ctx_execute', 'ctx_batch_execute', 'ctx_execute_file', 'ctx_search', 'ctx_fetch_and_index',
+          ];
+          const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
+          const dropped = remapped.filter((t) => !allowed.includes(t));
+          if (dropped.length > 0) {
+            console.warn(`[generate:agent-seed] Pi agent: dropped tools not in allowlist: ${dropped.join(', ')}`);
+          }
+          newLines.push(`tools: ${piTools.length > 0 ? piTools.join(', ') : 'none'}`);
+        } else {
+          const cleaned = remapped.filter((t) => !t.startsWith('mcp__'));
+          newLines.push(`tools: ${JSON.stringify(cleaned)}`);
+        }
+      } else {
+        newLines.push(line);
+      }
+      continue;
+    }
+
+    newLines.push(line);
+  }
+
+  if (agentId === 'pi') {
+    if (!sawTools) newLines.push('tools: read, grep, find, ls, bash, edit, write');
+    newLines.push('prompt_mode: replace');
+    newLines.push('extensions: true');
+    if (piExtractionAgent) {
+      newLines.push('thinking: medium');
+      newLines.push('run_in_background: true');
+    }
+  }
+
+  let adaptedBody = adaptPaths(body, agentId);
+  if (agentId === 'pi') adaptedBody = adaptPiRuntimeNames(adaptedBody);
+  // memory-capture is deliberately NOT here. It used to be rewritten into Pi's
+  // contract by six exact-string replacements over Claude's prose, and prose
+  // moves: two of the six had already gone stale and were silently no-oping, so
+  // Pi shipped Claude's `.vars` carrier wording instead of its own snapshot
+  // contract, and an ordinary edit to the Claude agent then handed Pi Claude's
+  // six-turn budget over Pi's own four (AD103). A replacement that misses fails
+  // open into the other runtime's contract, with nothing to notice it. Pi now
+  // owns `preseed/agents/pi/agents/memory-capture.md` outright, which the
+  // pi-native branch below emits verbatim in place of any transform.
+  if (agentId === 'pi' && agentName === 'vault-extract') {
+    adaptedBody = adaptedBody
+      .replace('You are the vault-extract subagent. You run in the background, triggered by the vault-monitor daemon.', 'You are the vault-extract subagent. The root Pi session launches you through one visible public background request after detecting user-curated Vault changes.')
+      .replace('The full 5-step contract lives in the prompt file passed to you by the hook. Read that file and the `.vars` file the hook gave you, then execute the contract verbatim. The contract\'s first step is to delete the `.vars` file (dedup gate).', 'The bounded one-pass contract lives in the prompt file passed by the root request. Read that file and the request-specific immutable execution snapshot, then execute the contract verbatim. Do not delete the execution snapshot, active pointer, or staged manifest; the root promotes and cleans them only after exact native success.')
+      .replace('Inputs the hook passes:', 'Inputs the root public request passes:')
+      .replace('`VARS_FILE`: path to the trigger marker at `~/.cache/codeflare-hooks/vault-extract.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).')
+      .replace('You do not need to respond to the user; this is background ingestion.', 'Use only Bash. All policy needed for this bounded task is in the deployed prompt and immutable snapshot; do not read skills, project documentation, or unrelated files. In the normal path, use one Bash call to read/validate the prompt, snapshot, and frozen files, then one Bash call to write and commit the result.\n\nYou do not need to respond to the user; this is background ingestion.');
+  }
+
+  return `---\n${newLines.join('\n')}\n---\n${adaptedBody}`;
+}
+
+const PI_SDD_SKILLS = new Set([
+  'spec-driven-development',
+  'sdd-init',
+  'sdd-clean',
+  'spec-enforce',
+  'spec-enforce-ac',
+  'spec-enforce-truth',
+  'doc-enforce',
+  'doc-enforce-lanes',
+  'doc-enforce-shape',
+  'doc-enforce-truth',
+  'tdd-enforce',
+]);
+
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use only tools exposed by the current agent. Report-only reviewers use Bash; root sessions may use Bash/Read/Grep/Find/Edit/Write. Do not assume context-mode \`ctx_*\` tools exist.\n- Root sessions may use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. Report-only reviewers inspect repository artifacts through Bash and do not invoke Graphify tools.\n- Root sessions use Pi's \`subagent\` tool for delegation and the \`Plan\` agent for Plan Mode. Report-only reviewers never launch subagents or mutate files.\n`;
+
+function compactPiSkillDescription(content, skillName) {
+  return content.replace(/^description:\s*(.+)$/m, (_match, rawDescription) => {
+    const override = PI_SKILL_DESCRIPTION_OVERRIDES.get(skillName);
+    if (override) return `description: ${JSON.stringify(override)}`;
+
+    let description = rawDescription.trim();
+    if (description.startsWith('"') && description.endsWith('"')) {
+      try { description = JSON.parse(description); } catch { /* Preserve the raw YAML scalar. */ }
+    }
+    if (description.length <= 80) return `description: ${JSON.stringify(description)}`;
+    const prefix = description.slice(0, 77).replace(/\s+\S*$/, '').trimEnd();
+    return `description: ${JSON.stringify(`${prefix}…`)}`;
+  });
+}
+
+function setPiModelVisibility(content, skillName) {
+  if (!skillName || !PI_MODEL_HIDDEN_SKILLS.has(skillName)) return content;
+  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match || /^disable-model-invocation:/m.test(match[1])) return content;
+  return `---\n${match[1]}\ndisable-model-invocation: true\n---\n${match[2]}`;
+}
+
+function adaptPiSkillContent(content, withinClaude) {
+  let next = adaptPiRuntimeNames(adaptPaths(content, 'pi'));
+
+  const skillName = withinClaude.match(/^skills\/([^/]+)\//)?.[1];
+  // Note goes on the skill prose only: appending markdown to a skill's
+  // executable aux files (.py/.mjs) makes them unparseable at runtime.
+  if (PI_SDD_SKILLS.has(skillName) && withinClaude.endsWith('SKILL.md')) {
+    const parts = next.split('\n---\n');
+    next = parts.length >= 3
+      ? `${parts[0]}\n---\n${parts.slice(1).join('\n---\n')}${PI_SDD_COMPATIBILITY_NOTE}`
+      : `${next}${PI_SDD_COMPATIBILITY_NOTE}`;
+  }
+  if (!withinClaude.endsWith('SKILL.md')) return next;
+  return setPiModelVisibility(compactPiSkillDescription(next, skillName), skillName);
+}
+
+/** Adapt skill content for the target runtime. */
+function adaptSkillContent(content, agentId, withinClaude) {
+  if (agentId === 'pi') return adaptPiSkillContent(content, withinClaude);
+  return adaptPaths(content, agentId);
+}
+
+/**
+ * Concatenate applicable rule files into a single instructions markdown file.
+ * Rules are sorted alphabetically for deterministic output.
+ */
+function renderInstructionsFile(ruleFiles, agentId) {
+  const sections = ruleFiles
+    .sort((a, b) => a.withinClaude.localeCompare(b.withinClaude))
+    .map((f) => agentId === 'pi'
+      ? adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId))
+      : adaptPaths(f.content.trim(), agentId));
+  return sections.join('\n\n---\n\n') + '\n';
+}
+
+function hasPathsFrontmatter(content) {
+  return /^---\n[\s\S]*?^paths:/m.test(content);
+}
+
+function stripFrontmatter(content) {
+  return content.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+}
+
+function piRuleSkillGroup(withinClaude) {
+  for (const [prefix, group] of PI_RULE_SKILL_GROUPS) {
+    if (withinClaude === prefix || withinClaude.startsWith(prefix)) return group;
+  }
+  return undefined;
+}
+
+function renderPiRuleSkills(sourceFiles) {
+  const groups = new Map();
+  for (const file of sourceFiles) {
+    if (file.category !== 'rule' || isClaudeOnlyFile(file.withinClaude) || !hasPathsFrontmatter(file.content)) continue;
+    const group = piRuleSkillGroup(file.withinClaude);
+    if (!group) throw new Error(`Pi path-scoped rule has no skill group: ${file.withinClaude}`);
+    const existing = groups.get(group.name) ?? { ...group, files: [], modes: file.modes };
+    if (JSON.stringify(existing.modes) !== JSON.stringify(file.modes)) {
+      throw new Error(`Pi rule skill group has inconsistent modes: ${group.name}`);
+    }
+    existing.files.push(file);
+    groups.set(group.name, existing);
+  }
+
+  return [...groups.values()].map((group) => ({
+    key: `.pi/agent/skills/${group.name}/SKILL.md`,
+    contentType: 'text/markdown; charset=utf-8',
+    content: [
+      '---',
+      `name: ${group.name}`,
+      `description: ${group.description}`,
+      '---',
+      '',
+      `# ${group.name}`,
+      '',
+      ...group.files
+        .sort((left, right) => left.withinClaude.localeCompare(right.withinClaude))
+        .flatMap((file, index) => [
+          ...(index > 0 ? ['', '---', ''] : []),
+          adaptPiRuntimeNames(adaptPaths(stripFrontmatter(file.content), 'pi')),
+        ]),
+      '',
+    ].join('\n'),
+    modes: group.modes,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function validateManifestPath(p) {
+  if (p.includes('..')) throw new Error(`Path traversal in manifest: ${p}`);
+  if (p.startsWith('/')) throw new Error(`Leading slash in manifest path: ${p}`);
+  if (p.startsWith('.')) throw new Error(`Leading dot in manifest path: ${p}`);
+  if (p.includes('\\')) throw new Error(`Backslash in manifest path: ${p}`);
+}
+
+function validateModes(manifest, label) {
+  for (const manifestKey of Object.keys(manifest)) {
+    validateManifestPath(manifestKey);
+    const entry = manifest[manifestKey];
+    if (!Array.isArray(entry.modes) || entry.modes.length === 0) {
+      throw new Error(`${label} manifest entry "${manifestKey}" has empty or missing modes`);
+    }
+    for (const mode of entry.modes) {
+      if (mode !== 'default' && mode !== 'advanced') {
+        throw new Error(`Invalid mode "${mode}" in ${label} manifest entry "${manifestKey}"`);
+      }
+    }
+  }
+}
+
+function piNativeKey(withinPi) {
+  if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('skills/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('rules/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('scripts/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('prompts/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('agents/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('npm/')) return `.pi/agent/${withinPi}`;
+  if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
+  if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
+  if (withinPi === 'settings.json') return '.pi/agent/settings.json';
+  throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
+}
+
+const SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
+
+// Runtime-agnostic: an agent that carries the exact skills its lane needs has
+// nothing left to discover. Pi has always worked this way because it has no
+// Skill tool; Claude reviewers reach for one instead, which costs a listing of
+// every installed skill up front plus a discovery call at runtime.
+function expandSkillIncludes(content, withinPath, skillContents, label) {
+  const directives = [...content.matchAll(SKILL_INCLUDE_PATTERN)];
+  if (directives.length === 0) return content;
+  if (!withinPath.startsWith('agents/')) {
+    throw new Error(`${label} skill includes are only valid in agent definitions: ${withinPath}`);
+  }
+
+  const included = new Set();
+  let expanded = content;
+  for (const directive of directives) {
+    const skillName = directive[1];
+    const skillContent = skillContents.get(skillName);
+    if (included.has(skillName)) {
+      throw new Error(`Duplicate ${label} skill include "${skillName}" in ${withinPath}`);
+    }
+    if (skillContent === undefined) {
+      throw new Error(`${label} agent ${withinPath} includes unseeded skill "${skillName}"`);
+    }
+
+    // Replacer function: a string replacement would interpret $$, $&, $` and
+    // $' in the skill body as special patterns and silently corrupt the seed.
+    expanded = expanded.replace(
+      directive[0],
+      () => `<embedded-skill name="${skillName}">\n${skillContent}</embedded-skill>`,
+    );
+    included.add(skillName);
+  }
+  return expanded;
+}
+
+// Replace an agent's "## Embedded canonical policy" section (heading, prose and
+// directives) with a retrieval pointer for runtimes that receive the skills as
+// files instead. Agents without the section are returned unchanged.
+function stripEmbeddedPolicySection(content, config) {
+  const section = /^## Embedded canonical policy\n[\s\S]*?(?=^## )/m;
+  if (!section.test(content)) return content;
+  // Every other "embedded" reference has to move too. Replacing the section
+  // alone left the rest of the prompt asserting policy that is no longer there
+  // and forbidding the retrieval that would supply it.
+  const derefer = (text, how) => text
+    .replace(/embedded `([a-z-]+)` policy/g, (m, name) => `${how(m, name)} policy`)
+    .replace(/the embedded ([a-z-]+) policy/g, (m, name) => `the ${how(m, name)} policy`)
+    .replace(/\bis embedded below\b[^.]*\./g, `is installed as files; ${how('', 'the named policy')}.`)
+    .replace(/\bexactly as embedded above\b/g, 'exactly as written in the installed policy files')
+    .replace(/\byour policy is embedded above\b/g, 'your policy is installed as files');
+  // No skillsPrefix means this runtime receives no skill files at all, so name
+  // no path: there is nothing to point at.
+  if (!config.skillsPrefix) {
+    return derefer(content.replace(section, ''), () => 'canonical');
+  }
+  const path = (name) => `\`~/${config.skillsPrefix}/${name}/SKILL.md\``;
+  return derefer(
+    content.replace(
+      section,
+      `## Canonical policy\n\nYour lane's enforcement policy is installed as files. Read the ones your\nmanifest says apply, in your existing shell call:\n\n\`\`\`bash\ncat ~/${config.skillsPrefix}/<name>/SKILL.md\n\`\`\`\n\nRead one only when its condition actually fires.\n\n`,
+    ),
+    (_match, name) => path(name || '<name>'),
+  );
+}
+
+/** Ensure no duplicate (key, mode) pairs across all documents. */
+function validateDocuments(documents) {
+  const seen = new Map();
+  for (const doc of documents) {
+    for (const mode of doc.modes) {
+      const existing = seen.get(doc.key);
+      if (existing && existing.has(mode)) {
+        throw new Error(`Duplicate (key, mode) pair: key="${doc.key}", mode="${mode}"`);
+      }
+      if (!existing) {
+        seen.set(doc.key, new Set([mode]));
+      } else {
+        existing.add(mode);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+
+function computePreseedHash(documents, retired) {
+  const sorted = [...documents].sort((a, b) => a.key.localeCompare(b.key));
+  // The retired list is part of the hash because the hash is what triggers an
+  // upgrade (REQ-AGENT-049), and the upgrade is when cleanup runs. Hashing only
+  // the documents would let a release that retires a key ship without any bucket
+  // ever reconciling -- the deletion would sit inert until unrelated content
+  // happened to change.
+  return createHash('sha256')
+    .update(JSON.stringify({ documents: sorted, retired: retired.keys }))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function toGeneratedModuleSource(documents, retired, runtimeHash) {
+  const hash = computePreseedHash(documents, retired);
+  const serializedDocuments = JSON.stringify(documents, null, 2);
+  const serializedRetired = JSON.stringify(retired.keys, null, 2);
+  return `/* eslint-disable */
+// Auto-generated by scripts/generate-agent-seed.mjs
+// Do not edit manually.
+
+type SeedDocument = {
+  key: string;
+  contentType: string;
+  content: string;
+  modes: ('default' | 'advanced')[];
+};
+
+export const PRESEED_CONTENT_HASH = '${hash}';
+
+/** Full Pi package-lock digest defining the managed release runtime ABI. */
+export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${runtimeHash}';
+
+export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
+
+/**
+ * Keys shipped by builds that predate the provenance marker. Nothing stored in
+ * R2 identifies them, so they are deleted by name in one clean-slate pass.
+ * A key retired from here on carries a stale marker, which identifies it without
+ * an enumeration, so a seeded key never belongs here. Appended to only for a
+ * product-generated orphan that was never a seeded key at all: no marker can
+ * exist for it and no sweep can reach it. See preseed/retired-keys.json.
+ */
+export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+export async function computeAgentRuntimeHash(rootDir = DEFAULT_ROOT_DIR) {
+  const lockBytes = await fs.readFile(path.join(rootDir, 'preseed/agents/pi/package-lock.json'));
+  return createHash('sha256').update(lockBytes).digest('hex');
+}
+
+export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
+  const claudeDir = path.join(rootDir, 'preseed/agents/claude');
+  const piDir = path.join(rootDir, 'preseed/agents/pi');
+
+  // Load and validate manifest
+  const manifestPath = path.join(claudeDir, 'manifest.json');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+
+  validateModes(manifest, 'Claude');
+  for (const [skillName, description] of PI_SKILL_DESCRIPTION_OVERRIDES) {
+    if (description.length > 80) {
+      throw new Error(`Pi skill description exceeds 80 characters: ${skillName}`);
+    }
+  }
+
+  // Read all manifest-listed files (manifest-driven, not filesystem-driven,
+  // so non-manifest files like plugins/cache/** are safely ignored)
+  const sourceFiles = [];
+  for (const [withinClaude, entry] of Object.entries(manifest)) {
+    const absolutePath = path.join(claudeDir, withinClaude);
+    let content;
+    try {
+      content = await fs.readFile(absolutePath, 'utf8');
+    } catch {
+      throw new Error(`Manifest references "${withinClaude}" but file does not exist`);
+    }
+    const category = classifyFile(withinClaude);
+    sourceFiles.push({ withinClaude, content, modes: entry.modes, category });
+  }
+
+  // An agent that ships its lane's skills needs no Skill tool, and without one
+  // it is never handed the listing of every installed skill nor spends a turn
+  // fetching one -- the reviewer receives its instructions instead of hunting
+  // for them. This is a Claude-output-only expansion: the transformed runtimes
+  // carry their own smaller agent set and must not inherit an inlined copy of
+  // every enforcement skill, so their directives are stripped instead.
+  const claudeSkillContents = new Map();
+  for (const file of sourceFiles) {
+    const skillName = file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+    if (file.category === 'skill' && skillName) claudeSkillContents.set(skillName, file.content);
+  }
+  const claudeAgentContent = (file) => (file.category === 'agent'
+    ? expandSkillIncludes(file.content, file.withinClaude, claudeSkillContents, 'Claude')
+    : file.content);
+
+  const documents = [];
+
+  // --- Claude documents (emit as-is) ---
+  for (const file of sourceFiles) {
+    documents.push({
+      key: `.claude/${file.withinClaude}`,
+      contentType: inferContentType(file.withinClaude),
+      content: claudeAgentContent(file),
+      modes: file.modes,
+    });
+  }
+
+  // --- Pi native runtime assets (extensions, MCP config, npm package metadata) ---
+  const piManifestPath = path.join(piDir, 'manifest.json');
+  let piNativeCount = 0;
+  const piNativeSkillKeys = new Set();
+  const piNativeAgentKeys = new Set();
+  const piNativeRuleKeys = new Set();
+  const piNativeRuleFiles = [];
+  const piSkillContents = new Map();
+  for (const file of sourceFiles) {
+    const skillName = file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+    if (file.category === 'skill' && skillName && !isClaudeOnlySkill(file.withinClaude)) {
+      piSkillContents.set(skillName, adaptSkillContent(file.content, 'pi', file.withinClaude));
+    }
+  }
+  try {
+    const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
+    validateModes(piManifest, 'Pi');
+    for (const withinPi of Object.keys(piManifest)) {
+      if (withinPi.startsWith('skills/')) {
+        piNativeSkillKeys.add(withinPi.slice('skills/'.length));
+        const skillName = withinPi.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+        if (skillName) {
+          piSkillContents.set(skillName, await fs.readFile(path.join(piDir, withinPi), 'utf8'));
+        }
+      }
+      if (withinPi.startsWith('agents/')) piNativeAgentKeys.add(withinPi.slice('agents/'.length));
+      if (withinPi.startsWith('rules/')) piNativeRuleKeys.add(withinPi);
+    }
+    for (const [withinPi, entry] of Object.entries(piManifest)) {
+      const absolutePath = path.join(piDir, withinPi);
+      let content;
+      try {
+        content = await fs.readFile(absolutePath, 'utf8');
+      } catch {
+        throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
+      }
+      content = expandSkillIncludes(content, withinPi, piSkillContents, 'Pi');
+      if (withinPi.startsWith('rules/')) {
+        piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
+      }
+      documents.push({
+        key: piNativeKey(withinPi),
+        contentType: inferContentType(withinPi),
+        content,
+        modes: entry.modes,
+      });
+      piNativeCount++;
+    }
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+
+  const canonicalSkillNames = new Set(
+    sourceFiles
+      .map((file) => file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1])
+      .filter(Boolean),
+  );
+  // Every key in the three Pi rule-transform collections must resolve to a real
+  // Claude rule. PI_COVERED_RULES was already checked; PI_COMPACTED_RULES and
+  // PI_RULE_SKILL_GROUPS were not, and both fail SILENTLY in the wrong
+  // direction: a renamed or merged Claude rule leaves a dead key, the rule
+  // stops being excluded, and it flows into Pi's AGENTS.md -- the opposite of
+  // what the collection exists to do, with no error anywhere.
+  const claudeRuleKeys = sourceFiles
+    .filter((file) => file.category === 'rule')
+    .map((file) => file.withinClaude);
+  // Directory keys ("rules/golang/") match by prefix, mirroring
+  // piRuleSkillGroup's own lookup semantics; file keys match exactly.
+  const resolvesToRule = (key) => key.endsWith('/')
+    ? claudeRuleKeys.some((rule) => rule.startsWith(key))
+    : claudeRuleKeys.includes(key);
+  for (const [label, keys] of [
+    ['PI_COMPACTED_RULES', [...PI_COMPACTED_RULES]],
+    ['PI_COVERED_RULES', [...PI_COVERED_RULES.keys()]],
+    ['PI_RULE_SKILL_GROUPS', [...PI_RULE_SKILL_GROUPS.keys()]],
+  ]) {
+    for (const key of keys) {
+      if (!resolvesToRule(key)) {
+        throw new Error(`${label} references a rule absent from the Claude source set: ${key}`);
+      }
+    }
+  }
+  for (const [rule, owner] of PI_COVERED_RULES) {
+    if (!canonicalSkillNames.has(owner) && ![...piNativeSkillKeys].some((key) => key === `${owner}/SKILL.md`)) {
+      throw new Error(`Pi covered rule owner is not seeded: ${rule} -> ${owner}`);
+    }
+  }
+  documents.push(...renderPiRuleSkills(sourceFiles));
+
+  // --- Non-Claude agent documents ---
+  for (const [agentId, config] of Object.entries(AGENT_CONFIGS)) {
+    // Instructions files (one per mode, same key, different content)
+    for (const mode of ['default', 'advanced']) {
+      const rules = [
+        ...sourceFiles.filter(
+          (f) =>
+            f.category === 'rule' &&
+            f.modes.includes(mode) &&
+            !isClaudeOnlyFile(f.withinClaude) &&
+            !(agentId === 'pi' && (
+              piNativeRuleKeys.has(f.withinClaude)
+              || PI_COMPACTED_RULES.has(f.withinClaude)
+              || hasPathsFrontmatter(f.content)
+              || PI_COVERED_RULES.has(f.withinClaude)
+            ))
+        ),
+        ...(agentId === 'pi' ? piNativeRuleFiles.filter((f) => f.modes.includes(mode)) : []),
+      ];
+      if (rules.length > 0) {
+        documents.push({
+          key: config.instructionsKey,
+          contentType: 'text/markdown; charset=utf-8',
+          content: renderInstructionsFile(rules, agentId),
+          modes: [mode],
+        });
+      }
+    }
+
+    // Skills (if the agent supports them)
+    if (config.skillsPrefix) {
+      for (const file of sourceFiles) {
+        if (file.category !== 'skill') continue;
+        if (isClaudeOnlySkill(file.withinClaude)) continue;
+
+        const relPath = file.withinClaude.slice('skills/'.length);
+        if (agentId === 'pi' && piNativeSkillKeys.has(relPath)) continue;
+        const key = `${config.skillsPrefix}/${relPath}`;
+
+        documents.push({
+          key,
+          contentType: inferContentType(file.withinClaude),
+          content: adaptSkillContent(file.content, agentId, file.withinClaude),
+          modes: file.modes,
+        });
+      }
+    }
+
+    // Agent definitions (if the agent supports them)
+    if (config.agentsPrefix) {
+      for (const file of sourceFiles) {
+        if (file.category !== 'agent') continue;
+
+        const fileName = file.withinClaude.slice('agents/'.length);
+        if (agentId === 'pi' && piNativeAgentKeys.has(fileName)) continue;
+        const baseName = fileName.replace(/\.md$/, '');
+        const key = `${config.agentsPrefix}/${baseName}${config.agentExtension}`;
+
+        // The whole embedded-policy section goes, not just the directives:
+        // inlining every enforcement skill into each transformed runtime would
+        // multiply the seed for agents that never run the PR lanes, but leaving
+        // the surrounding prose behind is worse than either choice. It promises
+        // policy that is no longer there and tells the agent there is nothing
+        // further to retrieve, while these runtimes do receive the skills on
+        // disk through the skills loop above. Replace it with the pointer they
+        // can actually act on.
+        documents.push({
+          key,
+          contentType: 'text/markdown; charset=utf-8',
+          content: adaptAgentFrontmatter(
+            stripEmbeddedPolicySection(file.content, config),
+            agentId,
+          ),
+          modes: file.modes,
+        });
+      }
+    }
+  }
+
+  // Validate output
+  validateDocuments(documents);
+
+  // An unexpanded directive means a consumer receives the literal comment
+  // instead of its policy. The Claude expansion and the transform strip are
+  // both anchored on headings and section shape, so a renamed heading or a
+  // section moved to end-of-file would no-op silently and ship the raw text.
+  for (const doc of documents) {
+    if (doc.content.includes('@include-skill')) {
+      throw new Error(`Unexpanded @include-skill directive in ${doc.key}`);
+    }
+  }
+
+  const retiredPath = path.join(rootDir, 'preseed/retired-keys.json');
+  let retired;
+  try {
+    retired = JSON.parse(await fs.readFile(retiredPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`preseed/retired-keys.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // Every entry reaches both the preseed hash and the generated module, so a
+  // non-string here ships a key nothing can ever match.
+  if (!Array.isArray(retired.keys) || !retired.keys.every((key) => typeof key === 'string')) {
+    throw new Error('preseed/retired-keys.json: expected "keys" to be an array of strings');
+  }
+  const liveKeys = new Set(documents.map((doc) => doc.key));
+  const resurrected = retired.keys.filter((key) => liveKeys.has(key));
+  if (resurrected.length > 0) {
+    // Seeding and deleting the same key in one reconcile would leave the bucket
+    // missing a live file. Take it off the frozen list instead.
+    throw new Error(
+      `retired-keys.json lists ${resurrected.length} key(s) the current build still seeds: ${resurrected.join(', ')}`
+    );
+  }
+
+  const runtimeHash = await computeAgentRuntimeHash(rootDir);
+  const source = toGeneratedModuleSource(documents, retired, runtimeHash);
+  return {
+    documents,
+    retiredKeys: [...retired.keys],
+    preseedHash: computePreseedHash(documents, retired),
+    runtimeHash,
+    source,
+    counts: {
+      claude: sourceFiles.length,
+      piNative: piNativeCount,
+      transformed: documents.length - sourceFiles.length - piNativeCount,
+    },
+  };
+}
+
+export async function generateAgentSeed({
+  rootDir = DEFAULT_ROOT_DIR,
+  outputFile = path.join(rootDir, 'src/lib/agent-seed.generated.ts'),
+  log = console.log,
+} = {}) {
+  const compiled = await compileAgentSeed({ rootDir });
+  await fs.writeFile(outputFile, compiled.source, 'utf8');
+  log(
+    `[generate:agent-seed] Wrote ${compiled.documents.length} document(s) to ${path.relative(rootDir, outputFile)}` +
+      ` (${compiled.counts.claude} Claude + ${compiled.counts.piNative} Pi native + ${compiled.counts.transformed} transformed)`
+  );
+  return compiled;
+}
