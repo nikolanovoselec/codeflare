@@ -187,6 +187,18 @@ describe('managed coding-environment release verification', () => {
     expect(second.redirect).toBe('manual');
   });
 
+  it('REQ-SETUP-014 AC3: rejects a non-GitHub API origin before sending repository authorization', async () => {
+    const fetcher = vi.fn();
+
+    await expect(downloadManagedAsset({
+      url: 'https://example.com/repos/acme/curation/releases/assets/1',
+      token: 'secret-pat',
+      fetcher,
+    })).rejects.toThrow(/GitHub API host/i);
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('aborts managed GitHub requests after the shared ten-second boundary', async () => {
     const controller = new AbortController();
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
@@ -415,7 +427,7 @@ describe('managed release resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('retains the last verified active release and reports degraded freshness during a GitHub outage', async () => {
+  it('REQ-SETUP-014 AC5: degraded diagnostics redact repository credentials', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
@@ -445,13 +457,14 @@ describe('managed release resolver', () => {
       token: 'secret-pat',
       publicKeyHex: 'ab'.repeat(32),
       expectedRuntimeHash: 'c'.repeat(64),
-      fetcher: vi.fn(async () => new Response('', { status: 503 })),
+      fetcher: vi.fn(async () => { throw new Error('secret-pat failed during GitHub outage'); }),
       now: new Date('2026-08-18T00:05:01.000Z'),
     });
 
     expect(resolved.active).toEqual(active);
     expect(resolved.freshness).toBe('degraded');
-    expect(resolved.lastError).toMatch(/503/);
+    expect(resolved.lastError).toContain('[redacted]');
+    expect(resolved.lastError).not.toContain('secret-pat');
   });
 
   it('stores the PAT only as AES ciphertext, preserves blanks, and commits replacement trust last', async () => {

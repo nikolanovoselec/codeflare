@@ -175,7 +175,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test('REQ-IDE-044 AC3: exact company VSIX installs from a deleted temporary file', async () => {
+test('REQ-IDE-046 AC1+AC2: exact company VSIX installs from a deleted temporary file', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
   const bytes = Buffer.from('verified company extension');
   const record = managedExtension(undefined, undefined, bytes);
@@ -227,7 +227,23 @@ test('REQ-IDE-042 AC1: a company manifest from another release is rejected befor
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-044 AC1: non-semantic company versions are rejected before download', async () => {
+test('REQ-IDE-044 AC1: unsigned company download URLs are rejected before download', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const invalid = {
+    ...managedExtension(),
+    downloadUrl: 'https://example.com/company-extension.vsix',
+  };
+  writeManagedExtensions(managedExtensionsPath, [invalid]);
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(fetcher.mock.calls.length, 0);
+});
+
+test('REQ-IDE-044 AC3: non-semantic company versions are rejected before download', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const invalid = {
     ...managedExtension(),
@@ -244,7 +260,7 @@ test('REQ-IDE-044 AC1: non-semantic company versions are rejected before downloa
   assert.equal(fetcher.mock.calls.length, 0);
 });
 
-test('REQ-IDE-044 AC1+AC3: invalid bytes install nothing and clean every temporary directory', async () => {
+test('REQ-IDE-044 AC2+AC4+AC5 + REQ-IDE-046 AC3: invalid bytes install nothing and clean every temporary directory', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const redirect = managedExtension('acme.bad-redirect', '1.0.0', Buffer.from('redirect'));
   const oversized = managedExtension('acme.bad-size', '1.0.0', Buffer.from('size'));
@@ -269,7 +285,7 @@ test('REQ-IDE-044 AC1+AC3: invalid bytes install nothing and clean every tempora
   assert.deepEqual(after, []);
 });
 
-test('REQ-IDE-044 AC2: a matching registry identity is reinstalled from exact signed bytes', async () => {
+test('REQ-IDE-044 AC7: a matching registry identity is reinstalled from exact signed bytes', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const bytes = Buffer.from('verified company extension');
   const company = managedExtension('cherrymarkdownpublisher.cherry-markdown', '0.3.1081718', bytes);
@@ -328,7 +344,7 @@ test('REQ-IDE-045 AC3+AC4: company failures remain bounded and do not block the 
   assert.match(host.warnings[0], /two\.extension/);
 });
 
-test('REQ-IDE-044 AC1 + REQ-IDE-045 AC2: exact dependencies install without gallery fallback', async () => {
+test('REQ-IDE-044 AC6 + REQ-IDE-045 AC2: exact dependencies install without gallery fallback', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const dependency = managedExtension('acme.zzz-dependency', '1.0.0', Buffer.from('dependency'));
   const dependent = {

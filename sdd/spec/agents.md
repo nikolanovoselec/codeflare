@@ -309,7 +309,7 @@ Multi-agent support, preseed system, and session modes.
 6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race) -->
 7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121/REQ-AGENT-141: resumed sessions keep a visible plan inert through FIX and restore Goal pause) -->
 
-**Constraints:** A failure in detached Goal pause control cannot block review or CI work.
+**Constraints:** A failure in review-owned Goal pause control cannot block review or CI work.
 
 **Priority:** P1
 
@@ -3968,7 +3968,7 @@ None.
 
 **Intent:** Compiler extraction does not change the existing image-generation contract.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 

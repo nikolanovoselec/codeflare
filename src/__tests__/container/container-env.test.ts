@@ -130,6 +130,17 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.ENTERPRISE_MODE).toBe('active');
   });
 
+  it('REQ-SETUP-014 AC7: never emits managed repository credentials into the container environment', () => {
+    const state = baseState() as unknown as ContainerEnvState & { _managedRepositoryToken: string };
+    state._managedRepositoryToken = 'github_pat_container_forbidden';
+    const env = { MANAGED_REPOSITORY_TOKEN: 'github_pat_env_forbidden' } as unknown as Env;
+
+    const vars = buildEnvVars(state, env);
+
+    expect(JSON.stringify(vars)).not.toContain('github_pat_');
+    expect(vars).not.toHaveProperty('MANAGED_REPOSITORY_TOKEN');
+  });
+
   // REQ-SEC-005 AC3: ENCRYPTION_KEY is forwarded from Worker -> DO state ->
   // container env var so entrypoint create_rclone_config can append the
   // sse_customer_key_base64 / sse_customer_algorithm lines.

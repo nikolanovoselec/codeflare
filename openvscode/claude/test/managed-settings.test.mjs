@@ -120,7 +120,7 @@ test("REQ-IDE-040 AC1: every inventory applies the managed user-extension allowa
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("extensions.allowed"), true);
 });
 
-test("REQ-IDE-042 AC1: company extension identities extend the personal allowance map", () => {
+test("REQ-IDE-042 AC2: company extension identities extend the personal allowance map", () => {
   const company = [
     { id: "cherrymarkdownpublisher.cherry-markdown" },
     { id: "acme.review-tools" },

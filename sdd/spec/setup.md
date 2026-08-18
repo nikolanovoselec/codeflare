@@ -412,17 +412,19 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. Repository credentials are stored only through the existing confidential KV boundary. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and commits replacement trust last) -->
 2. Prefill returns only bounded non-secret managed-environment status. <!-- @impl: src/lib/remote-curation.ts::getManagedEnvironmentPrefill --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-014 AC2: prefill returns bounded status without PAT bytes) -->
-3. Repository authorization is sent only to GitHub's API host. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::resolveRepositoryId --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (downloads one exact allowed redirect without forwarding GitHub authorization) -->
+3. Repository authorization is rejected before transmission when an asset URL does not use GitHub's API host. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC3: rejects a non-GitHub API origin before sending repository authorization) -->
 4. Release asset authorization is removed before every allowed redirect. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (downloads one exact allowed redirect without forwarding GitHub authorization) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (rejects an asset redirect outside the fixed GitHub object hosts) -->
-5. Repository credentials never enter logs, API responses, user storage, or containers. <!-- @impl: src/lib/remote-curation.ts::safeError --> <!-- @impl: src/lib/remote-curation.ts::getManagedEnvironmentPrefill --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-014 AC2: prefill returns bounded status without PAT bytes) -->
+5. Persisted managed-release diagnostics redact repository credentials. <!-- @impl: src/lib/remote-curation.ts::safeError --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5: degraded diagnostics redact repository credentials) -->
+6. User storage receives only verified release documents, never repository credentials. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
+7. Container environments never receive managed repository credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-SETUP-014 AC7: never emits managed repository credentials into the container environment) -->
 
-**Constraints:** Production signing credentials remain outside Codeflare.
+**Constraints:** Production signing credentials remain outside Codeflare. Repository credentials never enter logs.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated credential storage, prefill, host, redirect, and redaction tests
+**Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
 
 **Status:** Planned
 
