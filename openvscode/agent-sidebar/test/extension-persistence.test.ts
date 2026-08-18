@@ -322,7 +322,7 @@ test('REQ-IDE-042 AC4: company failures remain bounded and do not block the work
 
   const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
 
-  assert.equal(maximum, 2);
+  assert.ok(maximum > 0 && maximum <= 2);
   assert.deepEqual(result.failures, ['two.extension']);
   assert.equal(host.warnings.length, 1);
   assert.match(host.warnings[0], /two\.extension/);

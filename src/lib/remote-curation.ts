@@ -66,7 +66,7 @@ const ExtensionSchema = z.object({
   downloadUrl: z.string().url().max(2_048),
 }).strict();
 
-export const ManagedReleaseSchema = z.object({
+const ManagedReleaseSchema = z.object({
   seedAbi: z.literal(1),
   sequence: z.number().int().positive().max(2 ** 32),
   source: z.object({
@@ -127,7 +127,7 @@ const ManagedEnvironmentConfigSchema = z.object({
 
 export type ManagedEnvironmentConfig = z.infer<typeof ManagedEnvironmentConfigSchema>;
 export type ManagedEnvironmentFreshness = 'unconfigured' | 'disabled' | 'fresh' | 'stale' | 'degraded';
-export type ManagedEnvironmentPatExpiryState = 'unknown' | 'valid' | 'expiring' | 'expired';
+type ManagedEnvironmentPatExpiryState = 'unknown' | 'valid' | 'expiring' | 'expired';
 
 export interface ManagedEnvironmentPrefill {
   enabled: boolean;

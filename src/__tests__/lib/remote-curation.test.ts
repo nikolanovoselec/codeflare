@@ -683,7 +683,7 @@ describe('managed release resolver', () => {
     })).rejects.toThrow(/injected replacement-config write failure/i);
     kv.put.mockImplementation(originalPut);
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
-    expect([...kv._store.keys()].filter((key) => key.startsWith('managed-environment:pat:'))).toEqual([patKey]);
+    expect([...kv._store.keys()].filter((key) => key.startsWith('setup:managed_environment_pat:'))).toEqual([patKey]);
 
     await configureManagedEnvironment({
       ...base,
