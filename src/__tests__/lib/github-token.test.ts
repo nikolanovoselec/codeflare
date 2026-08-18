@@ -381,6 +381,16 @@ describe('disconnectGithub', () => {
     expect(await mockKV.get(KEY)).toBeNull();
   });
 
+  it('fails open and clears an OAuth token when provider revocation rejects', async () => {
+    mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'oauth' } satisfies DeployKeys);
+    mockFetch.mockRejectedValueOnce(new Error('network unavailable'));
+
+    await disconnectGithub(env(OAUTH_ENV), BUCKET);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(await mockKV.get(KEY)).toBeNull();
+  });
+
   it('does NOT call GitHub revoke for a manually-pasted PAT but still clears it', async () => {
     mockKV._set(KEY, { githubToken: 'ghp_pat', githubTokenSource: 'pat' } satisfies DeployKeys);
 
