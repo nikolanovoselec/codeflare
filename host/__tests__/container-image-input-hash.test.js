@@ -133,10 +133,15 @@ describe('deployment container image input hash', () => {
     const productionTag = imageHashResult().tag;
     assert.notEqual(productionTag, baseline.tag);
 
+    write('transcript-retention.mjs', 'retention change\n');
+    commit('retention script change');
+    const retentionTag = imageHashResult().tag;
+    assert.notEqual(retentionTag, productionTag);
+
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
     const scriptTag = imageHashResult().tag;
-    assert.notEqual(scriptTag, productionTag);
+    assert.notEqual(scriptTag, retentionTag);
 
     write('scripts/patch-pi-goal-review-control.mjs', 'Goal control patch change\n');
     commit('Goal patch change');

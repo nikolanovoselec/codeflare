@@ -36,6 +36,15 @@ function extractShellFunction(name) {
   return rest.slice(0, close + 3);
 }
 
+function extractShellFragment(startMarker, endMarker) {
+  const body = readFileSync(ENTRYPOINT, 'utf8');
+  const start = body.indexOf(startMarker);
+  assert.notEqual(start, -1, `${startMarker} must exist in entrypoint.sh`);
+  const end = body.indexOf(endMarker, start);
+  assert.notEqual(end, -1, `${endMarker} must exist after ${startMarker}`);
+  return body.slice(start, end + endMarker.length);
+}
+
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
   return {
@@ -177,13 +186,17 @@ bisync_with_r2 '' || true
     try {
       const events = join(scratch.dir, 'events');
       const releaseFlag = join(scratch.dir, 'init-complete');
+      const startupRelease = extractShellFragment(
+        '# The terminal server has been polling this flag before spawning tab 1.',
+        'release_agent_pty_after_cleanup',
+      );
       const shell = `set -e
 EVENTS="$1"
 CODEFLARE_INIT_FLAG_FILE="$2"
 cleanup_main_transcripts() { printf '%s\\n' cleanup >> "$EVENTS"; }
 touch() { printf '%s\\n' release >> "$EVENTS"; }
 ${extractShellFunction('release_agent_pty_after_cleanup')}
-release_agent_pty_after_cleanup
+${startupRelease}
 `;
 
       execFileSync('bash', ['-c', shell, 'retention-release-test', events, releaseFlag], {
