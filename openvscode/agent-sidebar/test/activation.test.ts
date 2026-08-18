@@ -190,7 +190,21 @@ function installActiveEditor(
     languageId: 'typescript',
     isDirty: true,
     isClosed: false,
-    getText: () => content,
+    getText: (range?: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+    }) => {
+      if (!range) return content;
+      const first = lines[range.start.line] ?? '';
+      if (range.start.line === range.end.line) {
+        return first.slice(range.start.character, range.end.character);
+      }
+      return [
+        first.slice(range.start.character),
+        ...lines.slice(range.start.line + 1, range.end.line),
+        (lines[range.end.line] ?? '').slice(0, range.end.character),
+      ].join('\n');
+    },
     lineAt: (line: number) => ({ text: lines[line] ?? '' }),
   };
   const selection = {
@@ -408,7 +422,7 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
       startColumn: 0,
       endLine: 0,
       endColumn: 22,
-      text: 'const targetValue = 1;\nreturn targetValue;\n',
+      text: 'const targetValue = 1;',
     });
     assert.deepEqual(options.input.activeEditor?.wholeRange, {
       startLine: 0,
