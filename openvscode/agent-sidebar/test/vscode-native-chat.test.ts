@@ -49,7 +49,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-test('REQ-IDE-005 AC2: native host collection captures active selection and rejects a symlink escape', async () => {
+test('REQ-IDE-006 AC1 + REQ-IDE-041 AC1: native host collection captures one-based panel selection and rejects a symlink escape', async () => {
   const root = await mkdtemp(join(tmpdir(), 'native-chat-context-'));
   roots.push(root);
   const activePath = join(root, 'active.ts');
@@ -111,7 +111,13 @@ test('REQ-IDE-005 AC2: native host collection captures active selection and reje
   } as never, root);
 
   assert.equal(input.activeEditor?.path, activePath);
-  assert.equal(input.activeEditor?.selection?.text, 'broken');
+  assert.deepEqual(input.activeEditor?.selection, {
+    startLine: 1,
+    startColumn: 18,
+    endLine: 1,
+    endColumn: 24,
+    text: 'broken',
+  });
   assert.deepEqual(input.openFiles, [activePath, referencePath]);
   assert.equal(input.references[0]?.path, referencePath);
   assert.equal(input.references[0]?.text, 'export const reference = true;\n');

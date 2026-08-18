@@ -705,7 +705,8 @@ COPY host/package.json /app/host/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && echo "Build timestamp $(date)" > /build-timestamp.txt
+COPY transcript-retention.mjs /transcript-retention.mjs
+RUN chmod +x /entrypoint.sh /transcript-retention.mjs && echo "Build timestamp $(date)" > /build-timestamp.txt
 
 # Reset working directory
 WORKDIR /

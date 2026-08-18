@@ -374,7 +374,7 @@ function runRcloneFilterWiring() {
   );
   const steadyState = extractBefore(
     'bisync_with_r2() {',
-    '# Cleanup old Claude Code session transcripts',
+    '# ============================================================================\n# Background sync daemon',
     'bisync_with_r2',
   );
   const script = [
@@ -391,6 +391,7 @@ function runRcloneFilterWiring() {
     `rclone() { { printf '%s\\n' '__CALL__'; printf '%s\\n' "$@"; } >> '${callsFile}'; return 0; }`,
     'pgrep() { return 1; }',
     'find() { return 0; }',
+    'cleanup_main_transcripts() { :; }',
     'recover_vanished_files() { return 1; }',
     filterSetup,
     initialSync,
@@ -424,6 +425,25 @@ describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', 
     }
   });
 
+});
+
+describe('REQ-STOR-012: child transcripts stay outside R2 sync', () => {
+  it('passes Claude subagent and Pi task exclusions to initial sync and both bisync calls', () => {
+    const { code, stderr, calls } = runRcloneFilterWiring();
+    assert.equal(code, 0, `rclone sync fixture exited non-zero: ${stderr}`);
+    const exclusions = [
+      '- .claude/projects/**/subagents/**',
+      '- .pi/agent/sessions/**/tasks/**',
+    ];
+    for (const call of calls) {
+      for (const pattern of exclusions) {
+        assert.ok(
+          call.some((arg, index) => arg === '--filter' && call[index + 1] === pattern),
+          `${call[0]} omitted ${pattern}`,
+        );
+      }
+    }
+  });
 });
 
 describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)', () => {

@@ -78,6 +78,7 @@ function runSuccessfulBisync(home) {
     `RECOVERY_FILTER_FILE=${JSON.stringify(recoveryFile)}`,
     'RCLONE_FILTERS=()',
     'pgrep() { return 1; }',
+    'cleanup_main_transcripts() { :; }',
     'rclone() { return 0; }',
     'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
     extractFunction('repair_hook_exec_bits'),
