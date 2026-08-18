@@ -1,6 +1,5 @@
 // Verifies the engineering constitution has one canonical Claude owner and one
-// Pi-native adaptation delivered through the generated instruction surface in
-// both Pi modes.
+// Pi-native advanced-mode adaptation while Git Workflow remains in both modes.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -30,7 +29,7 @@ describe('engineering constitution preseed', () => {
     assert.deepEqual(entry.modes, ['advanced'], 'constitution rule must be advanced-gated');
   });
 
-  it('seeds one Pi-native constitution adaptation in both modes', () => {
+  it('seeds one Pi-native constitution adaptation in advanced mode', () => {
     assert.ok(
       existsSync(resolve(piDir, 'rules/engineering-constitution.md')),
       'Pi engineering constitution adaptation must exist',
@@ -38,19 +37,22 @@ describe('engineering constitution preseed', () => {
     const manifest = JSON.parse(readFileSync(resolve(piDir, 'manifest.json'), 'utf8'));
     assert.deepEqual(
       manifest['rules/engineering-constitution.md']?.modes,
-      ['default', 'advanced'],
-      'Pi constitution must be present in Standard and Pro modes',
+      ['advanced'],
+      'Pi constitution must be present only in Pro and Enterprise mode',
     );
   });
 
-  it('delivers exactly the compact policy in both generated Pi modes', () => {
-    const expected = `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`;
+  it('delivers Git Workflow in both modes and the constitution only in advanced mode', () => {
+    const expectedByMode = {
+      default: `${piGitWorkflow.trim()}\n`,
+      advanced: `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`,
+    };
     for (const mode of ['default', 'advanced']) {
       const instructions = generatedDocuments.find(
         (document) => document.key === '.pi/agent/AGENTS.md' && document.modes.includes(mode),
       );
       assert.ok(instructions, `Pi ${mode} AGENTS.md must exist`);
-      assert.equal(instructions.content, expected, `${mode} Pi policy composition drifted`);
+      assert.equal(instructions.content, expectedByMode[mode], `${mode} Pi policy composition drifted`);
     }
   });
 });

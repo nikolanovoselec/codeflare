@@ -17,4 +17,6 @@ export const MANAGED_RELEASE_LIMITS: ManagedReleaseLimits;
 export const MANAGED_EXTENSION_VERSION_PATTERN: RegExp;
 export function isExactManagedExtensionVersion(value: unknown): value is string;
 export const MANAGED_RELEASE_PATH_PREFIXES: readonly string[];
+export function isManagedReleaseContextModePath(value: unknown): value is string;
 export function validateManagedReleasePath(value: unknown, label?: string): string;
+export function validateManagedRetiredPath(value: unknown, label?: string): string;

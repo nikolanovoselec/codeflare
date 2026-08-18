@@ -42,13 +42,18 @@ export const MANAGED_RELEASE_PATH_PREFIXES = Object.freeze([
   '.pi/agent/',
 ]);
 
+const MANAGED_RETIRED_PATH_PREFIXES = Object.freeze([
+  ...MANAGED_RELEASE_PATH_PREFIXES,
+  '.agents/',
+]);
+
 const RETIRED_PI_EXTENSION_FILES = new Set([
   'review-job-helpers.ts',
   'review-jobs.ts',
   'review-lane-guards.ts',
 ]);
 
-export function validateManagedReleasePath(value, label = 'managed release path') {
+function validatePathStructure(value, label) {
   if (
     typeof value !== 'string'
     || value.length === 0
@@ -64,18 +69,41 @@ export function validateManagedReleasePath(value, label = 'managed release path'
   ) {
     throw new Error(`${label} is an invalid release path: ${String(value)}`);
   }
-  if (!MANAGED_RELEASE_PATH_PREFIXES.some((prefix) => value.startsWith(prefix))) {
-    throw new Error(`${label} is outside the supported managed path roots: ${value}`);
-  }
-  if (value.startsWith('.pi/agent/npm/')) {
-    throw new Error(`${label} is image-owned Pi package metadata: ${value}`);
-  }
-  if (/(^|[/._-])context-mode([/._-]|$)/i.test(value)) {
-    throw new Error(`${label} is an image-owned context-mode path: ${value}`);
-  }
-  const basename = value.slice(value.lastIndexOf('/') + 1);
-  if (RETIRED_PI_EXTENSION_FILES.has(basename)) {
-    throw new Error(`${label} names a retired Pi extension: ${value}`);
-  }
   return value;
+}
+
+export function isManagedReleaseContextModePath(value) {
+  return typeof value === 'string' && /(^|[/._-])context-mode([/._-]|$)/i.test(value);
+}
+
+export function validateManagedReleasePath(value, label = 'managed release path') {
+  const releasePath = validatePathStructure(value, label);
+  if (!MANAGED_RELEASE_PATH_PREFIXES.some((prefix) => releasePath.startsWith(prefix))) {
+    throw new Error(`${label} is outside the supported managed path roots: ${releasePath}`);
+  }
+  if (releasePath.startsWith('.pi/agent/npm/')) {
+    throw new Error(`${label} is image-owned Pi package metadata: ${releasePath}`);
+  }
+  if (isManagedReleaseContextModePath(releasePath)) {
+    throw new Error(`${label} is an image-owned context-mode path: ${releasePath}`);
+  }
+  const basename = releasePath.slice(releasePath.lastIndexOf('/') + 1);
+  if (RETIRED_PI_EXTENSION_FILES.has(basename)) {
+    throw new Error(`${label} names a retired Pi extension: ${releasePath}`);
+  }
+  return releasePath;
+}
+
+export function validateManagedRetiredPath(value, label = 'managed retired path') {
+  const releasePath = validatePathStructure(value, label);
+  if (!MANAGED_RETIRED_PATH_PREFIXES.some((prefix) => releasePath.startsWith(prefix))) {
+    throw new Error(`${label} is outside the supported managed retired path roots: ${releasePath}`);
+  }
+  if (releasePath.startsWith('.pi/agent/npm/')) {
+    throw new Error(`${label} is image-owned Pi package metadata: ${releasePath}`);
+  }
+  if (isManagedReleaseContextModePath(releasePath)) {
+    throw new Error(`${label} is an image-owned context-mode path: ${releasePath}`);
+  }
+  return releasePath;
 }

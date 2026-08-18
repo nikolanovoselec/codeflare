@@ -311,27 +311,16 @@ test('REQ-IDE-042 AC4: company failures remain bounded and do not block the work
   });
   let active = 0;
   let maximum = 0;
-  const releases: Array<() => void> = [];
-  host.execute = async (_command, source) => new Promise<void>((resolve, reject) => {
+  host.execute = async (_command, source) => {
     const shouldFail = (source as { fsPath: string }).fsPath.endsWith('/two.extension.vsix');
     active += 1;
     maximum = Math.max(maximum, active);
-    releases.push(() => {
-      active -= 1;
-      if (shouldFail) reject(new Error('isolated install failure'));
-      else resolve();
-    });
-  });
-
-  const reconciling = reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
-  while (releases.length < 2) await flushAsyncWork();
-  assert.equal(active, 2);
-  while (releases.length > 0 || active > 0) {
-    const release = releases.shift();
-    if (release) release();
     await flushAsyncWork();
-  }
-  const result = await reconciling;
+    active -= 1;
+    if (shouldFail) throw new Error('isolated install failure');
+  };
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
 
   assert.equal(maximum, 2);
   assert.deepEqual(result.failures, ['two.extension']);
@@ -444,7 +433,13 @@ test('REQ-IDE-042 AC5: live capture does not create personal intent solely from 
   writeManagedExtensions(managedExtensionsPath, [company]);
   writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
 
-  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
+  assert.equal(await captureExtensionManifest({
+    extensionsDir,
+    manifestPath,
+    syncPidFile,
+    managedExtensionsPath,
+    managedReleaseDigest: 'a'.repeat(64),
+  }), true);
   assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
   assert.deepEqual(host.warnings, []);
 });

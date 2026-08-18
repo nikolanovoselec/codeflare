@@ -4,6 +4,7 @@ import {
   MANAGED_RELEASE_LIMITS,
   isExactManagedExtensionVersion,
   validateManagedReleasePath,
+  validateManagedRetiredPath,
 } from '../../scripts/agent-seed-release-limits.mjs';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from './agent-seed.generated';
 import type { Env } from '../types';
@@ -240,7 +241,7 @@ function assertReleaseSemantics(release: ManagedRelease): void {
 
   assertSorted(release.retiredPaths, 'Managed retired paths');
   for (const key of release.retiredPaths) {
-    assertManagedPath(key);
+    validateManagedRetiredPath(key, 'Managed retired path');
     if (livePaths.has(key)) throw new Error(`Managed path is both live and retired: ${key}`);
   }
   if (new Set(release.retiredPaths).size !== release.retiredPaths.length) throw new Error('Managed release contains duplicate retired paths');

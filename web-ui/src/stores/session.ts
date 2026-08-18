@@ -257,7 +257,10 @@ async function loadSessions(): Promise<void> {
       ? batchResponse.managedReleaseStatus
       : undefined;
     if (managedReleaseStatus === undefined) setState('managedReleaseStatus', null);
-    applyManagedReleaseBatch(managedReleaseStatus, batchResponse.preseedNeedsUpgrade);
+    const preseedNeedsUpgrade = 'preseedNeedsUpgrade' in batchResponse
+      ? batchResponse.preseedNeedsUpgrade
+      : undefined;
+    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade);
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every

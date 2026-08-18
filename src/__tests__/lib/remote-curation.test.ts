@@ -155,6 +155,9 @@ describe('managed coding-environment release verification', () => {
       await expect(verifyManagedRelease({ ...unsupported, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/supported managed path roots|image-owned Pi package metadata/i);
     }
 
+    const forbiddenRetirement = await signedFixture(release({ retiredPaths: ['.claude/plugins/context-mode/hooks.json'] }));
+    await expect(verifyManagedRelease({ ...forbiddenRetirement, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/context-mode/i);
+
     const invalidVersionRelease = release();
     invalidVersionRelease.managedExtensions[0] = {
       ...invalidVersionRelease.managedExtensions[0],
@@ -516,7 +519,7 @@ describe('managed release resolver', () => {
       const url = new URL(request.url);
       if (url.hostname === 'api.github.com') {
         githubRequests.push(request);
-        if (/\/repos\/acme\/curation$/.test(url.pathname)) {
+        if (url.pathname === '/repos/acme/curation') {
           return new Response(JSON.stringify({ id: 123456 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (url.pathname.endsWith('/releases/latest')) {

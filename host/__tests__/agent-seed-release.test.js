@@ -100,6 +100,22 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
     });
   });
 
+  it('retains historical managed retirements while excluding image-owned context-mode paths', async () => {
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    const release = await buildAgentSeedRelease(releaseOptions(compiledSeed({
+      retiredKeys: [
+        '.agents/skills/legacy/SKILL.md',
+        '.claude/plugins/context-mode/hooks.json',
+        '.pi/agent/extensions/review-jobs.ts',
+      ],
+    })));
+
+    assert.deepEqual(release.retiredPaths, [
+      '.agents/skills/legacy/SKILL.md',
+      '.pi/agent/extensions/review-jobs.ts',
+    ]);
+  });
+
   it('rejects non-positive, unsafe, non-monotonic, and incomplete release identities', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     for (const overrides of [
@@ -141,7 +157,7 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     for (const key of invalidPaths) {
       await assert.rejects(
         buildAgentSeedRelease(releaseOptions(compiledSeed({
-          documents: [{ key, contentType: 'text/plain', content: 'x', modes: ['default'] }],
+          documents: [{ key, contentType: 'text/plain; charset=utf-8', content: 'x', modes: ['default'] }],
         }))),
         /path|context-mode|retired Pi extension/i,
       );
@@ -152,22 +168,22 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
-        documents: [{ key: '.claude/a', contentType: 'text/plain', content: 'x', modes: ['expert'] }],
+        documents: [{ key: '.claude/a', contentType: 'text/plain; charset=utf-8', content: 'x', modes: ['expert'] }],
       }))),
       /mode/i,
     );
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
         documents: [
-          { key: '.claude/a', contentType: 'text/plain', content: 'one', modes: ['default'] },
-          { key: '.claude/a', contentType: 'text/plain', content: 'two', modes: ['default'] },
+          { key: '.claude/a', contentType: 'text/plain; charset=utf-8', content: 'one', modes: ['default'] },
+          { key: '.claude/a', contentType: 'text/plain; charset=utf-8', content: 'two', modes: ['default'] },
         ],
       }))),
       /duplicate.*key.*mode/i,
     );
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
-        documents: [{ key: '.claude/a', contentType: 'text/plain', content: 'x', modes: ['default'] }],
+        documents: [{ key: '.claude/a', contentType: 'text/plain; charset=utf-8', content: 'x', modes: ['default'] }],
         retiredKeys: ['.claude/a'],
       }))),
       /both live and retired/i,
@@ -180,7 +196,7 @@ describe('REQ-AGENT-147 AC4: fixed seed-v1 resource limits', () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
-        documents: [{ key: '.claude/large', contentType: 'text/plain', content: 'x'.repeat((1024 * 1024) + 1), modes: ['default'] }],
+        documents: [{ key: '.claude/large', contentType: 'text/plain; charset=utf-8', content: 'x'.repeat((1024 * 1024) + 1), modes: ['default'] }],
       }))),
       /document.*bytes|document.*limit/i,
     );
@@ -188,7 +204,7 @@ describe('REQ-AGENT-147 AC4: fixed seed-v1 resource limits', () => {
       buildAgentSeedRelease(releaseOptions(compiledSeed({
         documents: Array.from({ length: 25 }, (_, index) => ({
           key: `.claude/large-${index}`,
-          contentType: 'text/plain',
+          contentType: 'text/plain; charset=utf-8',
           content: 'x'.repeat(1024 * 1024),
           modes: ['default'],
         })),
@@ -256,7 +272,7 @@ describe('REQ-AGENT-147 AC5: measured company extensions', () => {
       buildAgentSeedRelease(releaseOptions(compiledSeed(), {
         managedExtensions: [{ ...measured }],
       })),
-      /measured/i,
+      /measure/i,
     );
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed(), { managedExtensions: [measured] })),

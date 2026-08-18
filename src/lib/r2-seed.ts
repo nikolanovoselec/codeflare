@@ -81,7 +81,8 @@ async function mapWithConcurrency<T, R>(
   values: readonly T[],
   worker: (value: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results = new Array<R>(values.length);
+  const results: R[] = [];
+  results.length = values.length;
   let nextIndex = 0;
   let firstError: unknown;
   const workers = Array.from({ length: Math.min(R2_SEED_CONCURRENCY, values.length) }, async () => {

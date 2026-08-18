@@ -95,7 +95,7 @@ export async function getManagedReleaseCacheBucketName(
   const identity = `${accountId.trim()}\0${workerName.trim() || 'codeflare'}`;
   if (!accountId.trim()) throw new Error('Managed release cache requires a Cloudflare account ID');
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity)));
-  const suffix = [...digest.slice(0, 12)].map((value) => value.toString(16).padStart(2, '0')).join('');
+  const suffix = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, '0')).join('');
   return `codeflare-managed-${suffix}`;
 }
 

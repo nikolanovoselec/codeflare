@@ -13,7 +13,9 @@ import {
   MANAGED_RELEASE_CONTENT_TYPES,
   MANAGED_RELEASE_LIMITS,
   isExactManagedExtensionVersion,
+  isManagedReleaseContextModePath,
   validateManagedReleasePath,
+  validateManagedRetiredPath,
 } from './agent-seed-release-limits.mjs';
 
 export const SEED_ABI = 1;
@@ -130,10 +132,11 @@ function normalizeDocuments(documents) {
 
 function normalizeRetiredPaths(retiredKeys, livePaths) {
   if (!Array.isArray(retiredKeys)) throw new Error('compiled retiredKeys must be an array');
-  if (retiredKeys.length > MANAGED_RELEASE_LIMITS.retiredPathCount) throw new Error('retired path count exceeds the fixed limit');
+  const remotelyOwnedRetiredKeys = retiredKeys.filter((retiredPath) => !isManagedReleaseContextModePath(retiredPath));
+  if (remotelyOwnedRetiredKeys.length > MANAGED_RELEASE_LIMITS.retiredPathCount) throw new Error('retired path count exceeds the fixed limit');
   const seen = new Set();
-  const retiredPaths = retiredKeys.map((retiredPath, index) => {
-    const validated = validateReleasePath(retiredPath, `retired path ${index}`);
+  const retiredPaths = remotelyOwnedRetiredKeys.map((retiredPath, index) => {
+    const validated = validateManagedRetiredPath(retiredPath, `retired path ${index}`);
     if (seen.has(validated)) throw new Error(`duplicate retired path: ${validated}`);
     if (livePaths.has(validated)) throw new Error(`path is both live and retired: ${validated}`);
     seen.add(validated);
