@@ -407,8 +407,8 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
       startLine: 0,
       startColumn: 0,
       endLine: 0,
-      endColumn: 21,
-      text: 'const targetValue = 1;',
+      endColumn: 22,
+      text: 'const targetValue = 1;\nreturn targetValue;\n',
     });
     assert.deepEqual(options.input.activeEditor?.wholeRange, {
       startLine: 0,
