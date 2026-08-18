@@ -36,6 +36,15 @@ function extractShellFunction(name) {
   return rest.slice(0, close + 3);
 }
 
+function extractShellFragment(startMarker, endMarker) {
+  const body = readFileSync(ENTRYPOINT, 'utf8');
+  const start = body.indexOf(startMarker);
+  assert.notEqual(start, -1, `${startMarker} must exist in entrypoint.sh`);
+  const end = body.indexOf(endMarker, start);
+  assert.notEqual(end, -1, `${endMarker} must exist after ${startMarker}`);
+  return body.slice(start, end + endMarker.length);
+}
+
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
   return {
@@ -54,26 +63,32 @@ function setMtime(path, seconds) {
 
 function writeClaude(root, index, nativeSecond, mtimeSecond, options = {}) {
   const id = uuid(index);
+  const transcriptId = options.sessionId ?? id;
+  const filenameId = options.filenameId ?? id;
   const project = options.project ?? join(root, `project ${index % 2}`, 'nested');
   mkdirSync(project, { recursive: true });
-  const path = join(project, `${id}.jsonl`);
+  const path = join(project, `${filenameId}.jsonl`);
   const records = [
     JSON.stringify({ type: 'last-prompt', sessionId: id }),
     JSON.stringify({
       type: 'user',
-      sessionId: id,
+      sessionId: transcriptId,
       version: options.version ?? '2.1.224',
-      isSidechain: false,
-      timestamp: `2026-08-18T10:00:${String(nativeSecond).padStart(2, '0')}.000Z`,
+      isSidechain: options.isSidechain ?? false,
+      timestamp: options.omitTimestamps
+        ? undefined
+        : `2026-08-18T10:00:${String(nativeSecond).padStart(2, '0')}.000Z`,
     }),
   ];
   if (options.malformedInterior) records.push('{malformed');
   records.push(JSON.stringify({
     type: 'assistant',
-    sessionId: id,
+    sessionId: transcriptId,
     version: options.version ?? '2.1.224',
-    isSidechain: false,
-    timestamp: `2026-08-18T10:01:${String(nativeSecond).padStart(2, '0')}.000Z`,
+    isSidechain: options.isSidechain ?? false,
+    timestamp: options.omitTimestamps
+      ? undefined
+      : `2026-08-18T10:01:${String(nativeSecond).padStart(2, '0')}.000Z`,
   }));
   if (options.malformedTail) records.push('{partial');
   writeFileSync(path, `${records.join('\n')}\n`);
@@ -83,15 +98,18 @@ function writeClaude(root, index, nativeSecond, mtimeSecond, options = {}) {
 
 function writePi(root, index, nativeSecond, mtimeSecond, options = {}) {
   const id = uuid(index);
+  const filenameId = options.filenameId ?? id;
   const sessionDir = options.sessionDir ?? join(root, `workspace ${index % 2}`, 'nested');
   mkdirSync(sessionDir, { recursive: true });
-  const path = join(sessionDir, `2026-08-18T10-00-${String(index).padStart(2, '0')}Z_${id}.jsonl`);
-  const records = [JSON.stringify({
-    type: 'session',
+  const path = join(sessionDir, `2026-08-18T10-00-${String(index).padStart(2, '0')}Z_${filenameId}.jsonl`);
+  const header = {
+    type: options.type ?? 'session',
     version: options.version ?? 3,
-    id,
+    id: options.sessionId ?? id,
     timestamp: `2026-08-18T10:00:${String(nativeSecond).padStart(2, '0')}.000Z`,
-  })];
+  };
+  if (options.parentSession) header.parentSession = options.parentSession;
+  const records = [JSON.stringify(header)];
   if (options.malformedInterior) records.push('{malformed');
   records.push(JSON.stringify({
     type: 'message',
@@ -132,13 +150,13 @@ describe('main transcript retention / REQ-STOR-012', () => {
       for (let i = 0; i < 12; i++) writeClaude(claude, i, i, 8_000 + (11 - i));
       const events = join(scratch.dir, 'events');
       const shell = `set +e
-USER_HOME='${scratch.dir}'
+USER_HOME="$TEST_USER_HOME"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
 RCLONE_FILTERS=()
-TRANSCRIPT_RETENTION_SCRIPT='${RETENTION_SCRIPT}'
-EVENTS='${events}'
+TRANSCRIPT_RETENTION_SCRIPT="$TEST_RETENTION_SCRIPT"
+EVENTS="$TEST_EVENTS"
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 rclone() {
@@ -148,13 +166,84 @@ rclone() {
 ${extractShellFunction('cleanup_agent_transcripts')}
 ${extractShellFunction('cleanup_old_transcripts')}
 ${extractShellFunction('cleanup_old_pi_transcripts')}
+${extractShellFunction('cleanup_main_transcripts')}
 ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 '' || true
 `;
 
-      execFileSync('bash', ['-c', shell], { stdio: ['ignore', 'pipe', 'pipe'] });
+      execFileSync('bash', ['-c', shell], {
+        env: {
+          ...process.env,
+          TEST_USER_HOME: scratch.dir,
+          TEST_RETENTION_SCRIPT: RETENTION_SCRIPT,
+          TEST_EVENTS: events,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
       assert.equal(readFileSync(events, 'utf8').trim(), '10');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('AC6: successful restore invokes cleanup before reporting success', () => {
+    const scratch = makeScratch();
+    try {
+      const events = join(scratch.dir, 'events');
+      const workspace = join(scratch.dir, 'workspace');
+      const postRestore = extractShellFragment(
+        '        # Ensure workspace directory exists after sync',
+        '        update_sync_status "success" "null"',
+      );
+      const shell = `set -e
+USER_WORKSPACE="$TEST_WORKSPACE"
+EVENTS="$TEST_EVENTS"
+cleanup_main_transcripts() { printf '%s\\n' cleanup >> "$EVENTS"; }
+update_sync_status() { printf '%s\\n' status >> "$EVENTS"; }
+${postRestore}
+`;
+
+      execFileSync('bash', ['-c', shell], {
+        env: { ...process.env, TEST_WORKSPACE: workspace, TEST_EVENTS: events },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      assert.ok(existsSync(workspace));
+      assert.equal(readFileSync(events, 'utf8'), 'cleanup\nstatus\n');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('AC7: cleanup failure does not prevent the outbound bisync', () => {
+    const scratch = makeScratch();
+    try {
+      const events = join(scratch.dir, 'events');
+      const shell = `set -e
+USER_HOME="$TEST_USER_HOME"
+R2_BUCKET_NAME=test
+RCLONE_CONFIG=/dev/null
+RECOVERY_FILTER_FILE=/dev/null
+RCLONE_FILTERS=()
+EVENTS="$TEST_EVENTS"
+cleanup_old_transcripts() { return 7; }
+cleanup_old_pi_transcripts() { return 8; }
+repair_hook_exec_bits() { :; }
+pgrep() { return 1; }
+find() { return 0; }
+rclone() { printf '%s\\n' rclone >> "$EVENTS"; return 0; }
+${extractShellFunction('cleanup_main_transcripts')}
+${extractShellFunction('bisync_with_r2')}
+bisync_with_r2 ''
+`;
+
+      execFileSync('bash', ['-c', shell], {
+        env: { ...process.env, TEST_USER_HOME: scratch.dir, TEST_EVENTS: events },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      assert.equal(readFileSync(events, 'utf8').trim(), 'rclone');
     } finally {
       scratch.cleanup();
     }
@@ -203,21 +292,66 @@ bisync_with_r2 '' || true
     }
   });
 
-  test('AC4: one unsupported main transcript switches the entire agent to deterministic mtime retention', () => {
-    const scratch = makeScratch();
-    try {
-      const pi = join(scratch.dir, '.pi', 'agent', 'sessions');
-      const paths = [];
-      for (let i = 0; i < 12; i++) {
-        paths.push(writePi(pi, i, 11 - i, 40_000 + i, { version: i === 5 ? 4 : 3 }));
+  test('AC4: every unsupported identity branch switches the entire agent to mtime retention', () => {
+    const cases = [
+      {
+        label: 'Claude filename/session mismatch',
+        agent: 'claude',
+        write: (root, i) => writeClaude(root, i, 11 - i, 40_000 + i, i === 5 ? { sessionId: uuid(90) } : {}),
+      },
+      {
+        label: 'Claude unsupported version',
+        agent: 'claude',
+        write: (root, i) => writeClaude(root, i, 11 - i, 40_000 + i, i === 5 ? { version: '2.2.0' } : {}),
+      },
+      {
+        label: 'Claude sidechain marker',
+        agent: 'claude',
+        write: (root, i) => writeClaude(root, i, 11 - i, 40_000 + i, i === 5 ? { isSidechain: true } : {}),
+      },
+      {
+        label: 'Claude missing native activity',
+        agent: 'claude',
+        write: (root, i) => writeClaude(root, i, 11 - i, 40_000 + i, i === 5 ? { omitTimestamps: true } : {}),
+      },
+      {
+        label: 'Pi filename/header mismatch',
+        agent: 'pi',
+        write: (root, i) => writePi(root, i, 11 - i, 40_000 + i, i === 5 ? { sessionId: uuid(90) } : {}),
+      },
+      {
+        label: 'Pi unsupported version',
+        agent: 'pi',
+        write: (root, i) => writePi(root, i, 11 - i, 40_000 + i, i === 5 ? { version: 4 } : {}),
+      },
+      {
+        label: 'Pi non-session header',
+        agent: 'pi',
+        write: (root, i) => writePi(root, i, 11 - i, 40_000 + i, i === 5 ? { type: 'message' } : {}),
+      },
+      {
+        label: 'Pi parent-session marker',
+        agent: 'pi',
+        write: (root, i) => writePi(root, i, 11 - i, 40_000 + i, i === 5 ? { parentSession: uuid(91) } : {}),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const scratch = makeScratch();
+      try {
+        const root = testCase.agent === 'claude'
+          ? join(scratch.dir, '.claude', 'projects')
+          : join(scratch.dir, '.pi', 'agent', 'sessions');
+        const paths = [];
+        for (let i = 0; i < 12; i++) paths.push(testCase.write(root, i));
+
+        const output = runRetention(testCase.agent, root);
+
+        assert.match(output, /mode=mtime-fallback/, testCase.label);
+        assert.deepEqual(paths.filter(existsSync).sort(), paths.slice(2).sort(), testCase.label);
+      } finally {
+        scratch.cleanup();
       }
-
-      const output = runRetention('pi', pi);
-
-      assert.match(output, /mode=mtime-fallback/);
-      assert.deepEqual(paths.filter(existsSync).map((p) => Number(basename(p).match(/(\d{12})\.jsonl$/)[1])).sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    } finally {
-      scratch.cleanup();
     }
   });
 

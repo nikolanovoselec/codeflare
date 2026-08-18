@@ -831,6 +831,30 @@ establish_bisync_baseline() {
     return 1
 }
 
+# ============================================================================
+# Main-session transcript cleanup — Claude Code and Pi only (REQ-STOR-012)
+# ============================================================================
+cleanup_agent_transcripts() {
+    local AGENT="$1"
+    local ROOT="$2"
+    local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
+
+    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a /tmp/sync.log
+}
+
+cleanup_old_transcripts() {
+    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects"
+}
+
+cleanup_old_pi_transcripts() {
+    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions"
+}
+
+cleanup_main_transcripts() {
+    (cleanup_old_transcripts) || true
+    (cleanup_old_pi_transcripts) || true
+}
+
 # Regular bisync (after baseline is established)
 # Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
@@ -843,8 +867,7 @@ bisync_with_r2() {
     # Keep outbound state bounded on periodic, manually triggered, recovery,
     # and final bisync paths. Adapter failures fall back to mtime internally;
     # process failures remain non-fatal to sync.
-    (cleanup_old_transcripts) || true
-    (cleanup_old_pi_transcripts) || true
+    cleanup_main_transcripts
 
     echo "[sync] Running bidirectional sync..." | tee -a /tmp/sync.log
 
@@ -899,25 +922,6 @@ bisync_with_r2() {
         repair_hook_exec_bits
     fi
     return $RESULT
-}
-
-# ============================================================================
-# Main-session transcript cleanup — Claude Code and Pi only (REQ-STOR-012)
-# ============================================================================
-cleanup_agent_transcripts() {
-    local AGENT="$1"
-    local ROOT="$2"
-    local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
-
-    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a /tmp/sync.log
-}
-
-cleanup_old_transcripts() {
-    cleanup_agent_transcripts "claude" "$USER_HOME/.claude/projects"
-}
-
-cleanup_old_pi_transcripts() {
-    cleanup_agent_transcripts "pi" "$USER_HOME/.pi/agent/sessions"
 }
 
 # ============================================================================
@@ -2307,8 +2311,7 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
         mkdir -p "$USER_WORKSPACE"
         # Prune restored transcripts before any agent PTY is released. The same
         # functions run inside every later outbound bisync.
-        (cleanup_old_transcripts) || true
-        (cleanup_old_pi_transcripts) || true
+        cleanup_main_transcripts
         update_sync_status "success" "null"
     else
         update_sync_status "failed" "$SYNC_ERROR"
