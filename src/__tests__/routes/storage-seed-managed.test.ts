@@ -62,7 +62,7 @@ describe('managed storage reconcile', () => {
     state.cached = null;
   });
 
-  it('REQ-STOR-020 AC3: successful managed reconcile stamps applied state last', async () => {
+  it('REQ-STOR-020 AC4: successful managed reconcile stamps applied state last', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced', workspaceSyncEnabled: true });
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
@@ -123,7 +123,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBeUndefined();
   });
 
-  it('REQ-STOR-020 AC6: disable converges to baked state without deleting personal intent', async () => {
+  it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {
     state.active = null;
     state.cached = { ...release, sequence: 8 };
     const kv = createMockKV();

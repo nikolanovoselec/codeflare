@@ -138,7 +138,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });
 
-  it('REQ-SETUP-013 AC2: prefill returns status without PAT bytes', async () => {
+  it('REQ-SETUP-014 AC2: prefill returns bounded status without PAT bytes', async () => {
     const response = await app().request('https://codeflare-test.example.com/api/setup/prefill');
     const body = await response.json() as Record<string, unknown>;
 

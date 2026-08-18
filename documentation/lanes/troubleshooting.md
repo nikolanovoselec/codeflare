@@ -422,7 +422,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ### Managed Coding Environment Is Stale, Degraded, or Update Pending
 
-**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation)
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission)
 
 **Stale:** No GitHub freshness check has succeeded inside the five-minute window. Reload the dashboard. The Worker uses ETag validation and will verify/cache a newer immutable release if one exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 

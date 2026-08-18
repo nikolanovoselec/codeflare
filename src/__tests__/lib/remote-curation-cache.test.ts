@@ -54,7 +54,7 @@ function memoryCache(initial?: { pointer: ActiveManagedRelease; etag: string }) 
 
 // REQ-STOR-020: activation is content-addressed and monotonic under races.
 describe('managed release deployment cache', () => {
-  it('REQ-STOR-020 AC1: active release compare-and-swap is monotonic and content-addressed', async () => {
+  it('REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic', async () => {
     const state = memoryCache();
     const candidate = pointer(2, 'd'.repeat(64));
 

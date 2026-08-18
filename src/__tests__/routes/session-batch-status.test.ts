@@ -405,7 +405,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBeUndefined();
     });
 
-    it('REQ-STOR-020 AC2: initial status compares managed release and resolved mode', async () => {
+    it('REQ-STOR-020 AC3: initial status compares managed release and resolved mode', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -414,7 +414,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('REQ-STOR-020 AC4: a running session defers managed reconciliation', async () => {
+    it('REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
       const running = makeSession('aabbccdd11223344', 'running');
       mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));

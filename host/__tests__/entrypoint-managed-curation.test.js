@@ -77,19 +77,30 @@ describe('managed curation entrypoint behavior', () => {
     assert.equal(readFileSync(pi.file, 'utf8'), 'baked image');
   });
 
-  it('after initial restore, executes relay and transcript cleanup before the bisync baseline', () => {
-    const start = source.indexOf('relay_managed_pi_extensions || true');
-    const end = source.indexOf('\n\necho "[entrypoint] Startup complete.', start);
-    assert.notEqual(start, -1, 'startup boundary missing');
-    assert.notEqual(end, -1, 'startup boundary terminator missing');
-    const startupBoundary = source.slice(start, end);
-    const events = join(mkdtempSync(join(tmpdir(), 'managed-order-')), 'events');
+  it('executes initial restore, relay, transcript cleanup, and bisync baseline in order', () => {
+    const syncSection = source.indexOf('# R2 SYNC STARTUP');
+    const restoreStart = source.indexOf('if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then', syncSection);
+    const restoreEnd = source.indexOf('\n\nconfigure_pi_goal_defaults()', restoreStart);
+    const startupStart = source.indexOf('relay_managed_pi_extensions || true');
+    const startupEnd = source.indexOf('\n\necho "[entrypoint] Startup complete.', startupStart);
+    assert.ok(syncSection !== -1 && restoreStart > syncSection, 'initial restore boundary missing');
+    assert.ok(restoreEnd > restoreStart && startupStart > restoreEnd, 'initial restore must precede startup release');
+    assert.ok(startupEnd > startupStart, 'startup boundary terminator missing');
+    const initialRestoreBoundary = source.slice(restoreStart, restoreEnd);
+    const startupBoundary = source.slice(startupStart, startupEnd);
+    const root = mkdtempSync(join(tmpdir(), 'managed-order-'));
+    const events = join(root, 'events');
     const result = spawnSync('bash', ['-c', [
       'set -euo pipefail',
       `EVENTS='${events}'`,
+      `USER_WORKSPACE='${join(root, 'workspace')}'`,
       "RCLONE_CONFIG_RESULT='0'",
-      "STEP1_RESULT='0'",
+      "ENTERPRISE_MODE=''",
+      "SYNC_ERROR='null'",
       "SESSION_MODE='default'",
+      'lay_down_agent_seed_preseed() { :; }',
+      'update_sync_status() { :; }',
+      'initial_sync_from_r2() { echo initial >> "$EVENTS"; }',
       'relay_managed_pi_extensions() { echo relay >> "$EVENTS"; }',
       'release_agent_pty_after_cleanup() { echo cleanup >> "$EVENTS"; }',
       'establish_bisync_baseline() { echo baseline >> "$EVENTS"; }',
@@ -97,11 +108,12 @@ describe('managed curation entrypoint behavior', () => {
       'start_sync_daemon() { :; }',
       'renice() { :; }',
       'ionice() { :; }',
+      initialRestoreBoundary,
       startupBoundary,
       'wait',
     ].join('\n')], { encoding: 'utf8' });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), ['relay', 'cleanup', 'baseline']);
+    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), ['initial', 'relay', 'cleanup', 'baseline']);
   });
 });

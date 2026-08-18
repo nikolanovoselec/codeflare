@@ -3914,7 +3914,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Image and managed-release generation use one side-effect-free compiler, and the existing CLI output remains byte-identical. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 2. Given an explicit source root and mode, compilation emits deterministic documents, retirements, seed identity, and the complete runtime dependency identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
 4. Compiler and Worker reject traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) -->
@@ -3930,7 +3930,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
+**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-149](#req-agent-149-shared-compiler-cli-compatibility), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
 
 **Verification:** Automated compiler and release-contract tests
 
@@ -3959,6 +3959,28 @@ None.
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated deterministic-byte test and protected-environment acceptance
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-149: Shared compiler CLI compatibility
+
+**Intent:** Compiler extraction does not change the existing image-generation contract.
+
+**Applies To:** Admin, User
+
+**Acceptance Criteria:**
+
+1. The existing CLI wrapper generates byte-identical image output through the shared compiler. <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+
+**Constraints:** The wrapper remains import-safe and side-effect free.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+
+**Verification:** Automated shared-compiler compatibility test
 
 **Status:** Planned
 

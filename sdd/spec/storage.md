@@ -582,30 +582,25 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-020: Managed coding-environment reconciliation
 
-**Intent:** Verified managed releases converge through the existing R2 upgrade path without mutating a shared bucket during a running session.
+**Intent:** Verified managed releases converge through the existing R2 upgrade path.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Verified assets are content-addressed in one deployment cache, and each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1: active release compare-and-swap is monotonic and content-addressed) -->
-2. Initial status compares active release identity and resolved mode with applied user state through the existing polling path. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC2: initial status compares managed release and resolved mode) -->
-3. With no running session, a mismatch reconciles verified mode content and stamps applied identity only after every operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC3: successful managed reconcile stamps applied state last) -->
-4. With any running session, a mismatch performs no mutation, reports pending status, and rejects another start until reconciliation succeeds. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC4: a running session defers managed reconciliation) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-020 AC4: maps update_pending without invoking reconciliation) -->
+1. Verified assets are content-addressed in one deployment cache. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
+2. Each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
+3. Initial status compares active release identity and resolved mode with applied user state through the existing polling path. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC3: initial status compares managed release and resolved mode) -->
+4. With no running session, a mismatch reconciles verified mode content and stamps applied identity only after every operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC4: successful managed reconcile stamps applied state last) -->
 5. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveVerifiedManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC5: an outage rejects last-known-good state for another mode) -->
-6. Disabling curation safely restores baked expectations, clears company applied state, and leaves personal extension intent unchanged. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC6: disable converges to baked state without deleting personal intent) -->
 
-**Constraints:**
-
-- No user bucket is mutated while any session for that user runs.
-- Applied state is written last.
-- Unconfigured baked behavior remains byte-identical.
+**Constraints:** Applied state is written last.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated cache, lifecycle, reconciliation, and dashboard tests
+**Verification:** Automated cache and reconciliation tests
 
 **Status:** Planned
 
@@ -619,9 +614,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Managed writes carry release provenance, and obsolete content is deleted only while its marker matches the prior release. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1: managed writes carry active release provenance) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1: prior release markers guard managed cleanup) -->
-2. Signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: signed retirements delete only Codeflare-owned paths) -->
-3. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: image-owned and user-owned roots remain outside managed documents) -->
+1. Managed writes carry active release provenance. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1: managed writes carry active release provenance) -->
+2. Obsolete content is deleted only while its marker matches the prior release. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: prior release markers guard managed cleanup) -->
+3. Signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
+4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 
 **Constraints:**
 
@@ -633,6 +629,33 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated provenance and retirement tests
+
+**Status:** Planned
+
+---
+
+### REQ-STOR-022: Managed reconciliation admission
+
+**Intent:** Managed reconciliation never mutates a user bucket while a session owns it.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A release mismatch performs no bucket mutation while any user session runs. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) -->
+2. A release mismatch reports pending status while any user session runs. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
+3. The backend rejects another start until managed reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) -->
+4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
+5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
+6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
+
+**Constraints:** Unconfigured baked behavior remains byte-identical.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-coding-environment-reconciliation), [REQ-IDE-042](browser-ide.md#req-ide-042-additive-company-extension-reconciliation)
+
+**Verification:** Automated session-status, start-admission, dashboard, and disable tests
 
 **Status:** Planned
 

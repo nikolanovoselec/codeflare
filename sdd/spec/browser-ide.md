@@ -1200,17 +1200,19 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-042: Additive company extension reconciliation
 
-**Intent:** A managed coding environment can require exact verified Browser IDE extensions without replacing personal extension installation or persistence.
+**Intent:** Company extension requirements coexist with personal extension installation and persistence.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Restored company requirements apply only when their release identity matches the Worker-applied release; managed settings retain personal allowance and add company identities. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC1: company extension identities extend the personal allowance map) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) -->
-2. After workbench readiness, company reconciliation precedes personal restore without delaying initial IDE readiness. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC2+AC4: company reconciliation precedes personal restore and capture remains active) -->
-3. Company reconciliation avoids gallery fallback, bounds concurrency, and reports bounded failures without blocking the IDE or remaining extensions. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC3: company failures remain bounded and do not block the workbench) -->
-4. Personal exact-version restore and both capture paths remain active while excluding company-only installs from personal intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4: live capture excludes company-only installs from personal intent) -->
-5. Disabling curation stops company enforcement without force-uninstalling an extension retained by personal intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC5: disable stops enforcement and preserves personal intent) -->
+1. Restored company requirements apply only when their release identity matches the Worker-applied release. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) -->
+2. Managed settings retain personal allowance while adding company identities. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC1: company extension identities extend the personal allowance map) -->
+3. Personal exact-version restoration remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes personal restore and capture) -->
+4. TypeScript capture remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent) -->
+5. Generation-reap capture remains active after company reconciliation. <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-042 AC5: generation-reap capture preserves prior intent but never creates it solely from company installs) -->
+6. Company-only installations never become personal saved intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent) -->
+7. Disabling curation stops company enforcement without force-uninstalling an extension retained by personal intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC7: disable stops enforcement and preserves personal intent) -->
 
 **Constraints:**
 
@@ -1222,7 +1224,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration), [REQ-IDE-040](#req-ide-040-user-extension-allowance-policy), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-020](storage.md#req-stor-020-managed-coding-environment-reconciliation)
 
-**Verification:** Automated managed-settings, extension-persistence, capture, and image-smoke tests
+**Verification:** Automated managed-settings, restore, capture, and disable tests
 
 **Status:** Planned
 
@@ -1261,7 +1263,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Acquisition uses the signed exact URL and fixed redirect policy, then verifies semantic version, declared size, digest, package identity, and dependency closure. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: non-semantic company versions are rejected before download) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: exact dependency artifacts install before their dependent without gallery fallback) -->
+1. Acquisition uses the signed exact URL and fixed redirect policy, then verifies semantic version, declared size, digest, package identity, and dependency closure. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: non-semantic company versions are rejected before download) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1 + REQ-IDE-045 AC2: exact dependencies install without gallery fallback) -->
 2. A matching registry identity is reinstalled from the verified package bytes rather than trusted as sufficient evidence. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC2: a matching registry identity is reinstalled from exact signed bytes) -->
 3. Installation uses a temporary local package with synchronization disabled and removes temporary bytes after success or failure. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC3: exact company VSIX installs from a deleted temporary file) -->
 
@@ -1275,6 +1277,31 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated exact-package acquisition and installation tests
+
+**Status:** Planned
+
+---
+
+### REQ-IDE-045: Company extension reconciliation orchestration
+
+**Intent:** Company reconciliation remains lazy, bounded, and isolated from IDE readiness.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After workbench readiness, company reconciliation precedes personal restore without delaying initial IDE readiness. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes personal restore and capture) -->
+2. Company reconciliation never falls back to a gallery identity or latest version. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1 + REQ-IDE-045 AC2: exact dependencies install without gallery fallback) -->
+3. Company extension installation uses fixed bounded concurrency. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC3+AC4: company failures remain bounded and do not block the workbench) -->
+4. One company extension failure reports one bounded warning while the IDE and remaining installations continue. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC3+AC4: company failures remain bounded and do not block the workbench) -->
+
+**Constraints:** Reconciliation starts only after workbench readiness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
+
+**Verification:** Automated readiness, fallback, concurrency, and failure-isolation tests
 
 **Status:** Planned
 

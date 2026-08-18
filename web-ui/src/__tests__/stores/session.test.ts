@@ -213,7 +213,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalled();
     });
 
-    it('REQ-STOR-020 AC4: maps update_pending without invoking reconciliation', async () => {
+    it('REQ-STOR-022 AC2: maps update_pending without invoking reconciliation', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
