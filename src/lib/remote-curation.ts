@@ -814,8 +814,8 @@ export async function configureManagedEnvironment(input: {
   };
   const patKey = getManagedEnvironmentPatKey(configFingerprint);
   const sameNamespace = existing?.configFingerprint === configFingerprint;
-  const priorConfigRaw = sameNamespace ? await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) : null;
-  const priorPatRaw = sameNamespace ? await input.env.KV.get(patKey) : null;
+  const priorConfigRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+  const priorPatRaw = await input.env.KV.get(patKey);
 
   const activatePrepared = async (): Promise<ActiveManagedRelease> => {
     if (!resolved.deferred) return prepared;
@@ -834,11 +834,24 @@ export async function configureManagedEnvironment(input: {
 
   if (!sameNamespace) {
     // A replacement trust boundary is isolated in its fingerprinted namespace,
-    // so activation cannot alter the selected prior configuration. Select it last.
-    const active = await activatePrepared();
-    await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
-    await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(candidate));
-    return { enabled: true, active };
+    // so activation cannot alter the selected prior configuration. Select it last,
+    // and remove any candidate credential if that final selection fails.
+    try {
+      const active = await activatePrepared();
+      await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
+      await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(candidate));
+      return { enabled: true, active };
+    } catch (error) {
+      try {
+        if (priorPatRaw === null) await input.env.KV.delete(patKey);
+        else await input.env.KV.put(patKey, priorPatRaw);
+        if (priorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+        else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, priorConfigRaw);
+      } catch {
+        throw new Error('Managed coding environment reconfiguration failed and prior KV state could not be restored');
+      }
+      throw error;
+    }
   }
 
   // PAT-only and same-trust refreshes share the selected namespace. Update the

@@ -664,6 +664,27 @@ describe('managed release resolver', () => {
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
 
     immutable = true;
+    rejectedConfigWrite = false;
+    kv.put.mockImplementation(async (key, value, options) => {
+      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG && !rejectedConfigWrite) {
+        rejectedConfigWrite = true;
+        throw new Error('injected replacement-config write failure');
+      }
+      await originalPut(key, value, options);
+    });
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'acme/curation',
+        personalAccessToken: 'github_pat_rotated',
+        publicKey: replacementFixture.publicKeyHex,
+      },
+    })).rejects.toThrow(/injected replacement-config write failure/i);
+    kv.put.mockImplementation(originalPut);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
+    expect([...kv._store.keys()].filter((key) => key.startsWith('managed-environment:pat:'))).toEqual([patKey]);
+
     await configureManagedEnvironment({
       ...base,
       request: {
