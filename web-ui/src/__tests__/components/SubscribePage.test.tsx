@@ -29,6 +29,8 @@ vi.mock('../../api/client', () => ({
     tier: 'Free',
     mode: 'default',
   })),
+  getR2Status: vi.fn().mockResolvedValue({ ready: false }),
+  ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
 }));
 
 import { getAuthStatus, getPublicTiers, subscribe, getBillingStatus } from '../../api/client';
