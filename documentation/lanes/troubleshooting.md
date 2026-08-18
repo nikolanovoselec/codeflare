@@ -383,11 +383,11 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 ### R2 Bucket Cleanup on User Deletion
 
-`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set - raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), and deletes the scoped R2 token.
+Explicit user removal calls `cleanupUserData()` in `src/lib/user-cleanup.ts`, which destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set; raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), and deletes the scoped R2 token. Setup reconfiguration never invokes this destructive workflow.
 
 It then empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
-If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode:** only admin-role users removed from the admin list are cleaned up - JIT-provisioned regular users are preserved. Each user's KV entry is checked for `role: 'admin'` before qualifying for removal.
+If worker-level R2 credentials are not configured (for example, setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. GitHub revocation is also best-effort: failure is logged, local GitHub credentials are cleared, and explicit cleanup continues.
 
 <a id="agent-runtime-review-and-ci"></a>
 **Agent Runtime, Review, and CI**

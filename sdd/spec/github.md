@@ -147,15 +147,15 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-005: Disconnect and offboarding revocation
 
-**Intent:** Disconnecting (or offboarding) revokes and removes the user's GitHub token.
+**Intent:** Disconnecting or offboarding removes the local GitHub credential after a best-effort provider revocation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. `POST /api/github/disconnect` requires a successful GitHub revocation for App/OAuth sources before clearing github fields; provider/network failure retains deploy-keys for retry. A successful clear removes the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) -->
+1. `POST /api/github/disconnect` attempts GitHub revocation for App/OAuth sources, then clears the local GitHub fields even when provider configuration, network access, or revocation fails. The clear removes the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (revokes + clears the token and returns success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) -->
 2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
-3. User offboarding revokes GitHub and Cloudflare OAuth grants before deleting local credentials; any provider failure aborts local credential deletion so retry state remains. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: revokes the GitHub token at GitHub, then deletes the deploy-keys entry) -->
+3. User offboarding attempts GitHub revocation without blocking local cleanup on failure; Cloudflare OAuth revocation retains its own provider-owned result contract. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: a failed GitHub revocation does not block local offboarding) -->
 
 **Constraints:**
 

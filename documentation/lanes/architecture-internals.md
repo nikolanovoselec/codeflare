@@ -54,7 +54,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
-**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')`. This performs full cleanup identical to `DELETE /api/users/:email`. **Self-removal prevention:** the backend rejects the request if the current authenticated user is not in the submitted admin list. The Zod schema enforces at least 1 admin user.
+**Reconfiguration boundary:** `POST /configure` updates deployment configuration and Access policy but never invokes `cleanupUserData()` or infers user offboarding from the submitted `allowedUsers` list. Destructive cleanup belongs to an explicit user-removal workflow. **Self-removal prevention:** the backend rejects the request if the current authenticated user is not in the submitted admin list. The Zod schema enforces at least one admin user.
 
 ---
 

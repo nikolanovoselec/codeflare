@@ -227,7 +227,7 @@ The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (
 | GET | `/api/github/status` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | Connection state (`enabled`, `configured`, `connected`, `login`, `source`); never the token |
 | GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
 | GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `?tier=minimal\|recommended\|advanced` maps to the OAuth-App scope; `503 GITHUB_NOT_CONFIGURED` when no provider configured (rate-limited 20/min) |
-| POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Revoke at GitHub (App/OAuth) and clear the stored token (rate-limited 20/min) |
+| POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Attempt GitHub revocation (App/OAuth), then clear the stored token even if revocation fails (rate-limited 20/min) |
 | POST | `/api/github/clone` | Session cookie | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) | Clone `{repo, ref?, sessionId}` into a **running** session's workspace; relays the container's outcome verbatim (`200` cloned / `409 CLONE_TARGET_EXISTS` / `502 CLONE_FAILED` / `504`); `503 NOT_RUNNING` when the container is asleep (rate-limited 20/min) |
 
 The OAuth callback is mounted separately under `/auth/github` (`src/routes/github-auth.ts`, registered via `app.route('/auth/github', githubAuthRoutes)` in `src/index.ts`) — it is **not** an `/api/github` route:
@@ -359,9 +359,7 @@ Sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets via `PUT /a
 
 If the API returns error code `10215` (latest version not deployed -- common after `wrangler versions upload`), the handler deploys the latest Worker version at 100% traffic and retries the secret write.
 
-**Step 3a -- `cleanup_stale_users` (conditional)**
-
-Runs only when reconfiguring and the new `allowedUsers` list has removed previously allowed users. Performs full cleanup of each stale user's KV entries and associated data.
+Setup reconfiguration does not infer user offboarding from `allowedUsers`; destructive user cleanup is outside this endpoint.
 
 **Step 4 -- `configure_custom_domain`**
 

@@ -5,10 +5,9 @@ import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from '../../lib/agent
 import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
-import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
-import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { setupRateLimiter, logger, getWorkerNameFromHostname, upsertStep } from './shared';
 import type { SetupStep } from './shared';
@@ -319,39 +318,10 @@ app.post('/configure', async (c) => {
       const normalizedAllowed = [...new Set(allowedUsers.map(e => e.trim().toLowerCase()))];
       const normalizedAdmins = [...new Set(adminUsers.map(e => e.trim().toLowerCase()))];
 
-      // Remove stale users not in the new allowedUsers list (full cleanup).
-      // In SaaS mode, only clean up removed admins — JIT-provisioned regular
-      // users are managed via User Management, not setup.
-      {
-        const allowedSet = new Set(normalizedAllowed);
-        const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
-        const isSaasMode = isSaasModeActive(c.env.SAAS_MODE);
-
-        const staleEmails: string[] = [];
-        for (const key of existingUserKeys) {
-          const email = emailFromKvKey(key.name);
-          if (allowedSet.has(email)) continue;
-
-          if (isSaasMode) {
-            // In SaaS mode, only remove users who were admins (not JIT regular users)
-            const userData = await c.env.KV.get(key.name, 'json') as { role?: string } | null;
-            if (userData?.role === 'admin') {
-              staleEmails.push(email);
-            }
-          } else {
-            staleEmails.push(email);
-          }
-        }
-
-        if (staleEmails.length > 0) {
-          await runStep('cleanup_stale_users', async () => {
-            for (const staleEmail of staleEmails) {
-              logger.info('Removing stale user with full cleanup', { email: staleEmail });
-              await cleanupUserData(staleEmail, c.env);
-            }
-          });
-        }
-      }
+      // Setup configures deployment access policy; destructive user offboarding is
+      // intentionally owned by an explicit user-removal workflow. A full configure
+      // payload cannot prove that an absent enterprise Access-group/JIT user has
+      // actually been removed, so it must never trigger credential or storage cleanup.
 
       // Store users in KV with role.
       // In SaaS mode, preserve existing fields for admin users
@@ -428,8 +398,8 @@ app.post('/configure', async (c) => {
       // the "Configuring Codeflare" progress screen reflects what setup is actually doing
       // (REQ-ENTERPRISE-017, WS6) instead of hiding it inside set_secrets/finalize. All
       // writes are enterprise-gated, mirroring their KV readers; a step is emitted only
-      // when its field(s) are present in the body (the same conditional-step pattern as
-      // cleanup_stale_users), so non-enterprise / unrelated reconfigures stay quiet.
+      // when its field(s) are present in the body, so non-enterprise and unrelated
+      // reconfigures stay quiet.
       if (isEnterpriseMode(c.env)) {
         // Access groups that gate JIT provisioning (REQ-ENTERPRISE-010/014). Persisted
         // comma-joined (the format access.ts parseAccessGroups splits on); schema already

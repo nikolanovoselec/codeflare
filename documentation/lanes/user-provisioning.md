@@ -100,13 +100,14 @@ Provisioning owns orchestration; specialist owners perform each operation:
 | Handoff | Current result contract |
 |---|---|
 | Active sessions | Cleanup attempts container destruction; a failure is logged, then the session KV entry is still deleted. Numeric `deletedSessions` counts deleted KV entries, not confirmed container teardowns |
-| GitHub/Cloudflare provider bindings | Provider revocation failure aborts cleanup rather than deleting the user record |
-| User/bucket KV | Cleanup removes normalized user-scoped control keys after provider revocation succeeds |
+| GitHub provider binding | Cleanup attempts provider revocation, logs failure, clears the local credential, and continues |
+| Cloudflare provider binding | Provider revocation failure aborts cleanup under its provider-owned contract |
+| User/bucket KV | Cleanup removes normalized user-scoped control keys after the provider handoffs settle |
 | R2 token | Deletion failure is logged and can leave `tokenDeleted: false` |
 | R2 objects and bucket | Empty/delete failure is logged and can leave `bucketDeleted: false` |
 | Usage/accounting state | Billing/Timekeeper cleanup removes the user's projection where implemented |
 
-The current route logs the cleanup result but returns `{ success: true, email }` even when cleanup is unconfirmed. Operators must treat container-destruction warnings and false `tokenDeleted` or `bucketDeleted` results as residual cleanup work; the numeric session count alone does not confirm teardown. The API does not currently provide a fail-closed completion receipt. Exact route contracts belong to the [API Reference](api-reference.md#user-management).
+The current route logs the cleanup result but returns `{ success: true, email }` even when cleanup is unconfirmed. GitHub revocation warnings indicate possible residual provider access but do not retain local credentials or stop cleanup. Operators must treat container-destruction warnings and false `tokenDeleted` or `bucketDeleted` results as residual cleanup work; the numeric session count alone does not confirm teardown. The API does not currently provide a fail-closed completion receipt. Exact route contracts belong to the [API Reference](api-reference.md#user-management).
 
 ## Compatibility and Migration
 

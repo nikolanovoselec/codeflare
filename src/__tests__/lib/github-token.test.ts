@@ -364,19 +364,21 @@ describe('disconnectGithub', () => {
     expect(await mockKV.get(KEY)).toBeNull();
   });
 
-  it('retains an OAuth token when provider configuration is unavailable', async () => {
+  it('fails open and clears an OAuth token when provider configuration is unavailable', async () => {
     mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'oauth' } satisfies DeployKeys);
 
-    await expect(disconnectGithub(env(), BUCKET)).rejects.toThrow('provider unavailable');
-    expect(await mockKV.get(KEY)).not.toBeNull();
+    await disconnectGithub(env(), BUCKET);
+
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 
-  it('retains an OAuth token when provider revocation returns non-success', async () => {
+  it('fails open and clears an OAuth token when provider revocation returns non-success', async () => {
     mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'oauth' } satisfies DeployKeys);
     mockFetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) });
 
-    await expect(disconnectGithub(env(OAUTH_ENV), BUCKET)).rejects.toThrow('HTTP 503');
-    expect(await mockKV.get(KEY)).not.toBeNull();
+    await disconnectGithub(env(OAUTH_ENV), BUCKET);
+
+    expect(await mockKV.get(KEY)).toBeNull();
   });
 
   it('does NOT call GitHub revoke for a manually-pasted PAT but still clears it', async () => {

@@ -1,9 +1,8 @@
 /**
  * Centralized user data cleanup logic.
  *
- * Extracted from the DELETE /api/users/:email handler so it can be
- * reused by setup/configure (stale user removal) and any future
- * user-deletion code paths.
+ * Owned by explicit user-removal paths. Deployment configuration must not
+ * invoke this destructive workflow or infer offboarding from a settings payload.
  */
 import type { Env, Session } from '../types';
 import { resolveBucketName } from './access';
@@ -194,7 +193,8 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
 
   // --- Block A2: provider revocation before local credential deletion ---
-  // Provider failures abort cleanup so deploy-keys remains available for retry.
+  // GitHub revocation is best-effort and clears local credentials on failure;
+  // Cloudflare keeps its provider-owned failure contract.
   await disconnectGithub(env, bucketName);
   await disconnectCloudflare(env, bucketName);
 
