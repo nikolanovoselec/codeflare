@@ -74,8 +74,9 @@ export interface NativePiTextEdit {
   readonly newText: string;
 }
 
-export interface NativePiInlineEditProposal {
+export interface NativePiInlineEditResult {
   readonly requestId: string;
+  readonly outcome: 'edit' | 'noChange';
   readonly summary: string;
   readonly edits: readonly NativePiTextEdit[];
 }
@@ -109,7 +110,7 @@ export interface NativePiTurnObserver {
 
 export interface NativePiBackend {
   runPrompt(message: string, observer: NativePiTurnObserver): Promise<void>;
-  runInlineEditPrompt?(message: string, observer: NativePiTurnObserver): Promise<NativePiInlineEditProposal>;
+  runInlineEditPrompt?(message: string, observer: NativePiTurnObserver): Promise<NativePiInlineEditResult>;
   abort(): Promise<void>;
   stop(): Promise<void>;
   isReusable(): boolean;
@@ -125,7 +126,7 @@ export interface NativePiCancellation {
 }
 
 export interface NativePiResponse extends NativePiTurnObserver {
-  textEdit?(edits: readonly NativePiTextEdit[], proposal: NativePiInlineEditProposal): void;
+  textEdit?(edits: readonly NativePiTextEdit[], result: NativePiInlineEditResult): void;
 }
 
 export interface RunNativePiChatOptions {
@@ -373,13 +374,15 @@ export async function runNativePiChat(options: RunNativePiChatOptions): Promise<
   if (options.cancellation.isCancellationRequested) requestAbort();
   try {
     if (!cancelled) {
-      const prompt = buildNativePiPrompt(options.input, { hydrateHistory: options.hydrateHistory });
+      const prompt = buildNativePiPrompt(options.input, {
+        hydrateHistory: options.mode === 'inline-edit' ? false : options.hydrateHistory,
+      });
       if (options.mode === 'inline-edit') {
         if (!options.backend.runInlineEditPrompt || !options.response.textEdit) {
-          throw new Error('Native Pi backend does not support host-owned Inline Chat edits');
+          throw new Error('Native Pi backend does not support host-owned Inline Chat results');
         }
-        const proposal = await options.backend.runInlineEditPrompt(prompt, options.response);
-        if (!cancelled) options.response.textEdit(proposal.edits, proposal);
+        const result = await options.backend.runInlineEditPrompt(prompt, options.response);
+        if (!cancelled) options.response.textEdit(result.edits, result);
       } else {
         await options.backend.runPrompt(prompt, options.response);
       }

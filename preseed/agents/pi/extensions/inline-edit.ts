@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 export const INLINE_EDIT_COMMAND = "codeflare-inline-edit";
-export const INLINE_EDIT_TOOL = "codeflare_submit_inline_edits";
+export const INLINE_EDIT_TOOL = "codeflare_submit_inline_result";
 const MAX_COMMAND_BYTES = 2 * 1024 * 1024;
 
 export type InlineEditCommandPayload = {
@@ -10,8 +10,8 @@ export type InlineEditCommandPayload = {
   prompt: string;
 };
 
-type InlineEditProposal = {
-  requestId: string;
+type InlineEditResult = {
+  outcome: string;
   summary: string;
   edits: Array<{
     startLine: number;
@@ -25,7 +25,7 @@ type InlineEditProposal = {
 type ActiveInlineEdit = {
   readonly requestId: string;
   readonly previousTools: readonly string[];
-  proposalSubmitted: boolean;
+  resultSubmitted: boolean;
 };
 
 export function encodeInlineEditCommandPayload(payload: InlineEditCommandPayload): string {
@@ -61,6 +61,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isOpenAiFunctionTool(value: unknown, name: string): boolean {
+  return isRecord(value)
+    && value.type === "function"
+    && isRecord(value.function)
+    && value.function.name === name;
+}
+
+export function constrainInlineOpenAiPayload(payload: unknown): unknown {
+  if (!isRecord(payload) || !Array.isArray(payload.messages) || !Array.isArray(payload.tools)) return payload;
+  const resultTool = payload.tools.find((tool) => isOpenAiFunctionTool(tool, INLINE_EDIT_TOOL));
+  if (!resultTool) return payload;
+  return {
+    ...payload,
+    tools: [resultTool],
+    tool_choice: { type: "function", function: { name: INLINE_EDIT_TOOL } },
+    parallel_tool_calls: false,
+  };
+}
+
 export default function registerInlineEditMode(pi: ExtensionAPI): void {
   let active: ActiveInlineEdit | undefined;
 
@@ -72,16 +91,17 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
 
   pi.registerTool({
     name: INLINE_EDIT_TOOL,
-    label: "Submit native Inline Chat edits",
-    description: "Submit one bounded set of host-owned text edits for the invoking Codeflare Inline Chat document.",
-    promptSnippet: "Submit the final native Inline Chat text edits",
+    label: "Submit native Inline Chat result",
+    description: "Submit one host-owned edit or no-change result for the invoking Codeflare Inline Chat document.",
+    promptSnippet: "Submit the final native Inline Chat result",
     promptGuidelines: [
-      "Submit one valid codeflare_submit_inline_edits proposal for a native Inline Chat request and do not emit prose afterward.",
-      "If Pi rejects invalid tool arguments, correct them within the same turn; never submit a second accepted proposal.",
-      "Include one concise plain-text summary of what the edits change and why; do not expose chain-of-thought.",
+      `Submit exactly one ${INLINE_EDIT_TOOL} call and do not emit prose afterward.`,
+      "Use outcome edit with one or more edits only when the document must change.",
+      "Use outcome noChange with an empty edits array for explanations or when no document change is needed.",
+      "If invalid arguments are rejected, correct them within the same turn; never submit a second accepted result.",
     ],
     parameters: Type.Object({
-      requestId: Type.String({ minLength: 15, maxLength: 87 }),
+      outcome: Type.String({ enum: ["edit", "noChange"] }),
       summary: Type.String({ minLength: 1, maxLength: 500 }),
       edits: Type.Array(Type.Object({
         startLine: Type.Integer({ minimum: 0 }),
@@ -89,31 +109,41 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
         endLine: Type.Integer({ minimum: 0 }),
         endCharacter: Type.Integer({ minimum: 0 }),
         newText: Type.String({ maxLength: 262_144 }),
-      }), { minItems: 1, maxItems: 64 }),
+      }), { minItems: 0, maxItems: 64 }),
     }),
-    async execute(_toolCallId: string, proposal: InlineEditProposal) {
-      if (!active || proposal.requestId !== active.requestId) {
-        throw new Error("Native Inline Chat proposal request correlation failed");
+    async execute(_toolCallId: string, result: InlineEditResult) {
+      if (!active) throw new Error("Native Inline Chat has no active editor turn");
+      if (active.resultSubmitted) throw new Error("Native Inline Chat result was already submitted");
+      if (result.outcome !== "edit" && result.outcome !== "noChange") {
+        throw new Error("Native Inline Chat result outcome is invalid");
       }
-      if (active.proposalSubmitted) {
-        throw new Error("Native Inline Chat proposal was already submitted");
+      if (
+        (result.outcome === "edit" && result.edits.length === 0)
+        || (result.outcome === "noChange" && result.edits.length !== 0)
+      ) {
+        throw new Error("Native Inline Chat result outcome does not match its edits");
       }
-      active.proposalSubmitted = true;
+      active.resultSubmitted = true;
       return {
-        content: [{ type: "text", text: "Native Inline Chat edit proposal accepted by the host adapter." }],
-        details: { requestId: proposal.requestId, editCount: proposal.edits.length, summary: proposal.summary },
+        content: [{ type: "text", text: "Native Inline Chat result accepted by the host adapter." }],
+        details: {
+          requestId: active.requestId,
+          outcome: result.outcome,
+          editCount: result.edits.length,
+          summary: result.summary,
+        },
         terminate: true,
       };
     },
   });
 
   pi.registerCommand(INLINE_EDIT_COMMAND, {
-    description: "Run one host-owned native Inline Chat edit turn",
+    description: "Run one host-owned native Inline Chat turn",
     handler: async (args, ctx) => {
       if (active) throw new Error("Native Inline Chat mode is already active");
       const payload = decodeInlineEditCommandPayload(args.trim());
       const previousTools = pi.getActiveTools().filter((name) => name !== INLINE_EDIT_TOOL);
-      active = { requestId: payload.requestId, previousTools, proposalSubmitted: false };
+      active = { requestId: payload.requestId, previousTools, resultSubmitted: false };
       pi.setActiveTools([INLINE_EDIT_TOOL]);
       try {
         await ctx.waitForIdle();
@@ -130,22 +160,40 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
     pi.setActiveTools(initial);
   });
 
-  pi.on("before_agent_start", (event: any) => {
+  pi.on("before_agent_start", () => {
     if (!active) return;
-    const contract = [
-      "You are handling a Codeflare native Inline Chat edit request.",
-      `The required requestId is ${active.requestId}.`,
-      `Submit one valid ${INLINE_EDIT_TOOL} proposal with edits for the invoking editor document.`,
-      "If invalid arguments are rejected, correct them within this turn; never submit a second accepted proposal.",
-      "Coordinates are zero-based UTF-16 line and character positions.",
-      "Return only host-owned edits and the bounded proposal summary. Do not apply or simulate filesystem changes.",
-    ].join(" ");
-    return { systemPrompt: `${String(event?.systemPrompt ?? "")}\n\n${contract}`.trim() };
+    return {
+      systemPrompt: [
+        "You are handling one Codeflare native Inline Chat request.",
+        `Call ${INLINE_EDIT_TOOL} exactly once and emit no prose outside that call.`,
+        "Use outcome edit only for a required document change; otherwise use outcome noChange with an empty edits array and a concise explanation.",
+        "Edit coordinates are zero-based UTF-16 line and character positions.",
+        "Do not use filesystem tools or expose chain-of-thought.",
+      ].join(" "),
+    };
+  });
+
+  pi.on("context", (event: any) => {
+    if (!active || !Array.isArray(event?.messages)) return;
+    let currentUserIndex = -1;
+    for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+      const message = event.messages[index];
+      if (isRecord(message) && message.role === "user") {
+        currentUserIndex = index;
+        break;
+      }
+    }
+    return { messages: currentUserIndex < 0 ? [] : event.messages.slice(currentUserIndex) };
+  });
+
+  pi.on("before_provider_request", (event: any) => {
+    if (!active) return;
+    return constrainInlineOpenAiPayload(event?.payload);
   });
 
   pi.on("tool_call", (event: any) => {
     if (!active || event?.toolName === INLINE_EDIT_TOOL) return;
-    return { block: true, reason: "Native Inline Chat permits only host-owned edit proposals" };
+    return { block: true, reason: "Native Inline Chat permits only the host-owned result tool" };
   });
 
   pi.on("agent_settled", restoreTools);

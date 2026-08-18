@@ -3,7 +3,7 @@ import { setImmediate as waitForImmediate, setTimeout as waitForTimeout } from '
 import { test } from 'vitest';
 
 import { ApprovalBridge, type ApprovalHost, type ApprovalManifest } from '../src/pi/approval-bridge.ts';
-import { PiRpcBackend, parseInlineEditProposal } from '../src/pi/node-rpc-backend.ts';
+import { PiRpcBackend, parseInlineEditResult } from '../src/pi/node-rpc-backend.ts';
 import type { PiChildProcess, PiProcessSpawner, PiSpawnSpec } from '../src/pi/session.ts';
 
 class UnexpectedApprovalHost implements ApprovalHost {
@@ -371,7 +371,7 @@ test('REQ-IDE-027: a native Pi panel turn streams reasoning, bounds tool progres
   await backend.stop();
 });
 
-test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown', async () => {
+test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one host-correlated edit result without markdown', async () => {
   const markdown: string[] = [];
   const thinking: string[] = [];
   const progress: string[] = [];
@@ -394,10 +394,10 @@ test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edi
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
+    toolName: 'codeflare_submit_inline_result',
     toolCallId: 'inline-tool-1',
     args: {
-      requestId: payload.requestId,
+      outcome: 'edit',
       summary: 'Replaced the declaration because the old value was invalid.',
       edits: [
         {
@@ -429,6 +429,7 @@ test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edi
 
   assert.deepEqual(await turn, {
     requestId: payload.requestId,
+    outcome: 'edit',
     summary: 'Replaced the declaration because the old value was invalid.',
     edits: [
       {
@@ -454,7 +455,69 @@ test('REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edi
   await backend.stop();
 });
 
-test('REQ-IDE-030: inline proposal summaries are bounded plain text and fail closed', () => {
+test('REQ-IDE-030: inline Pi returns a host-correlated no-change result', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('explain the selected function', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
+  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
+  spawner.children[0]?.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_result',
+    args: {
+      outcome: 'noChange',
+      summary: 'The selected function already has the requested behavior.',
+      edits: [],
+    },
+  });
+  spawner.children[0]?.emit({ type: 'agent_settled' });
+
+  assert.deepEqual(await turn, {
+    requestId: payload.requestId,
+    outcome: 'noChange',
+    summary: 'The selected function already has the requested behavior.',
+    edits: [],
+  });
+  assert.equal(backend.isReusable(), true);
+  await backend.stop();
+});
+
+test('REQ-IDE-030: a late result cannot settle a retired process generation', async () => {
+  const spawner = new FakePiSpawner();
+  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runInlineEditPrompt('generate code', {
+    markdown: () => undefined,
+    progress: () => undefined,
+  });
+  await waitForImmediate();
+
+  const child = spawner.children[0];
+  assert.ok(child);
+  const rejected = assert.rejects(turn, /process stopped/i);
+  await backend.stop();
+  child.emit({
+    type: 'tool_execution_start',
+    toolName: 'codeflare_submit_inline_result',
+    args: {
+      outcome: 'noChange',
+      summary: 'This late result must be ignored.',
+      edits: [],
+    },
+  });
+  child.emit({ type: 'agent_settled' });
+
+  await rejected;
+  assert.equal(backend.isReusable(), false);
+});
+
+test('REQ-IDE-030: inline result summaries are bounded plain text and fail closed', () => {
   const edit = {
     startLine: 0,
     startCharacter: 0,
@@ -463,23 +526,23 @@ test('REQ-IDE-030: inline proposal summaries are bounded plain text and fail clo
     newText: 'safe',
   };
 
-  assert.throws(() => parseInlineEditProposal({
-    requestId: 'inline-request-1',
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'edit',
     edits: [edit],
-  }, 'inline-request-1'), /proposal summary is invalid/i);
-  assert.throws(() => parseInlineEditProposal({
-    requestId: 'inline-request-1',
+  }, 'inline-request-1'), /result summary is invalid/i);
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'edit',
     summary: 'Unsafe\nsecond line',
     edits: [edit],
-  }, 'inline-request-1'), /proposal summary is invalid/i);
-  assert.throws(() => parseInlineEditProposal({
-    requestId: 'inline-request-1',
+  }, 'inline-request-1'), /result summary is invalid/i);
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'edit',
     summary: 'x'.repeat(501),
     edits: [edit],
-  }, 'inline-request-1'), /proposal summary is invalid/i);
+  }, 'inline-request-1'), /result summary is invalid/i);
 });
 
-test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposal', async () => {
+test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw result', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -494,15 +557,15 @@ test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposa
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
-    args: { requestId: payload.requestId, edits: [{ newText: 'invalid' }] },
+    toolName: 'codeflare_submit_inline_result',
+    args: { outcome: 'edit', summary: 'Invalid geometry.', edits: [{ newText: 'invalid' }] },
   });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
+    toolName: 'codeflare_submit_inline_result',
     args: {
-      requestId: payload.requestId,
-      summary: 'Inserted a corrected proposal after schema feedback.',
+      outcome: 'edit',
+      summary: 'Inserted a corrected result after schema feedback.',
       edits: [{
         startLine: 0,
         startCharacter: 0,
@@ -516,7 +579,8 @@ test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposa
 
   assert.deepEqual(await turn, {
     requestId: payload.requestId,
-    summary: 'Inserted a corrected proposal after schema feedback.',
+    outcome: 'edit',
+    summary: 'Inserted a corrected result after schema feedback.',
     edits: [{
       startLine: 0,
       startCharacter: 0,
@@ -529,7 +593,7 @@ test('REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposa
   await backend.stop();
 });
 
-test('REQ-IDE-030: invalid-only settlement reports a bounded proposal category', async () => {
+test('REQ-IDE-030: invalid-only settlement reports a bounded result category', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -538,18 +602,16 @@ test('REQ-IDE-030: invalid-only settlement reports a bounded proposal category',
   });
   await waitForImmediate();
 
-  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
-  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
-    args: { requestId: payload.requestId, edits: [{ newText: 'invalid' }] },
+    toolName: 'codeflare_submit_inline_result',
+    args: { outcome: 'edit', edits: [{ newText: 'invalid' }] },
   });
   spawner.children[0]?.emit({ type: 'agent_settled' });
 
-  await assert.rejects(turn, /proposal summary is invalid/i);
+  await assert.rejects(turn, /result summary is invalid/i);
   assert.equal(backend.isReusable(), false);
   await backend.stop();
 });
@@ -602,7 +664,7 @@ test('REQ-IDE-028: asynchronous inline dispatch errors reject after command acce
   await backend.stop();
 });
 
-test('REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal', async () => {
+test('REQ-IDE-028: unrelated extension errors do not discard a valid inline result', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -623,9 +685,9 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
   });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
+    toolName: 'codeflare_submit_inline_result',
     args: {
-      requestId: payload.requestId,
+      outcome: 'edit',
       summary: 'Inserted the safe value because the target was empty.',
       edits: [{
         startLine: 0,
@@ -640,6 +702,7 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
 
   assert.deepEqual(await turn, {
     requestId: payload.requestId,
+    outcome: 'edit',
     summary: 'Inserted the safe value because the target was empty.',
     edits: [{
       startLine: 0,
@@ -653,7 +716,7 @@ test('REQ-IDE-028: unrelated extension errors do not discard a valid inline prop
   await backend.stop();
 });
 
-test('REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backend', async () => {
+test('REQ-IDE-030: inline Pi rejects a duplicate result and retires the backend', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -662,15 +725,13 @@ test('REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backen
   });
   await waitForImmediate();
 
-  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
-  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
-  const proposal = {
+  const result = {
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
+    toolName: 'codeflare_submit_inline_result',
     args: {
-      requestId: payload.requestId,
+      outcome: 'edit',
       summary: 'Inserted the safe value because the target was empty.',
       edits: [{
         startLine: 0,
@@ -681,8 +742,8 @@ test('REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backen
       }],
     },
   };
-  spawner.children[0]?.emit(proposal);
-  spawner.children[0]?.emit(proposal);
+  spawner.children[0]?.emit(result);
+  spawner.children[0]?.emit(result);
 
   await assert.rejects(turn, /invalid or duplicate tool/i);
   await waitForImmediate();
@@ -699,15 +760,13 @@ test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the
   });
   await waitForImmediate();
 
-  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string; message?: string };
-  const encoded = (prompt.message ?? '').split(/\s+/, 2)[1] ?? '';
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { requestId: string };
+  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({
     type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
+    toolName: 'codeflare_submit_inline_result',
     args: {
-      requestId: payload.requestId,
+      outcome: 'edit',
       summary: 'Inserted bounded values because the target was empty.',
       edits: Array.from({ length: 65 }, () => ({
         startLine: 0,
@@ -720,47 +779,39 @@ test('REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the
   });
   spawner.children[0]?.emit({ type: 'agent_settled' });
 
-  await assert.rejects(turn, /proposal edit count is invalid/i);
+  await assert.rejects(turn, /result edit count is invalid/i);
   await waitForImmediate();
   assert.equal(backend.isReusable(), false);
   await backend.stop();
 });
 
-test('REQ-IDE-030: inline Pi rejects an uncorrelated proposal and retires the backend', async () => {
-  const spawner = new FakePiSpawner();
-  const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
-  const turn = backend.runInlineEditPrompt('generate code', {
-    markdown: () => undefined,
-    progress: () => undefined,
-  });
-  await waitForImmediate();
+test('REQ-IDE-030: inline result outcome and edit cardinality must agree', () => {
+  const edit = {
+    startLine: 0,
+    startCharacter: 0,
+    endLine: 0,
+    endCharacter: 0,
+    newText: 'safe',
+  };
 
-  const prompt = JSON.parse(spawner.children[0]?.writes[0] ?? '{}') as { id?: string };
-  spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
-  spawner.children[0]?.emit({
-    type: 'tool_execution_start',
-    toolName: 'codeflare_submit_inline_edits',
-    args: {
-      requestId: 'inline-wrong000',
-      summary: 'Inserted an unsafe value from an uncorrelated proposal.',
-      edits: [{
-        startLine: 0,
-        startCharacter: 0,
-        endLine: 0,
-        endCharacter: 0,
-        newText: 'unsafe',
-      }],
-    },
-  });
-  spawner.children[0]?.emit({ type: 'agent_settled' });
-
-  await assert.rejects(turn, /proposal correlation is invalid/i);
-  await waitForImmediate();
-  assert.equal(backend.isReusable(), false);
-  await backend.stop();
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'edit',
+    summary: 'Missing the required edit.',
+    edits: [],
+  }, 'inline-request-1'), /result edit count is invalid/i);
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'noChange',
+    summary: 'No edit is needed.',
+    edits: [edit],
+  }, 'inline-request-1'), /no-change result edits are invalid/i);
+  assert.throws(() => parseInlineEditResult({
+    outcome: 'unknown',
+    summary: 'Unknown result.',
+    edits: [],
+  }, 'inline-request-1'), /result outcome is invalid/i);
 });
 
-test('REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal', async () => {
+test('REQ-IDE-030: inline Pi fails closed when settlement has no valid result', async () => {
   const spawner = new FakePiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));
   const turn = backend.runInlineEditPrompt('generate code', {
@@ -773,7 +824,7 @@ test('REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal'
   spawner.children[0]?.emit({ id: prompt.id, type: 'response', command: 'prompt', success: true });
   spawner.children[0]?.emit({ type: 'agent_settled' });
 
-  await assert.rejects(turn, /did not submit.*edit proposal/i);
+  await assert.rejects(turn, /did not submit.*inline chat result/i);
   await waitForImmediate();
   assert.equal(backend.isReusable(), false);
   await backend.stop();
