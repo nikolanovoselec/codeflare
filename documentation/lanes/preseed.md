@@ -390,11 +390,19 @@ and users click "Recreate AI agent skills & rules".
 Codeflare has two deliberately separate content timelines:
 
 - Public `preseed/agents/**` is the image-baked fallback baseline.
-- The private `codeflare-curation` repository is the runtime master for deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements.
+- The private [`codeflare-curation`](https://github.com/nikolanovoselec/codeflare-curation) repository is the runtime master for deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements. Access is required; it is not readable from the public repository.
 
 A curated content change lands in `codeflare-curation` and is published there. Its private Claude and Pi manifests define every included source and its `default`/`advanced` mode membership. Manifest-listed Pi extension TypeScript files load from R2 without an image redeploy. Pi package/lock/install state and tier-gated context-mode remain image-owned, so new npm or native dependencies require a Codeflare runtime change.
 
 Curated content is not copied into this public preseed, and a public baked-preseed edit must not overwrite newer private source. A task for managed content changes the private repository. A task explicitly limited to image fallback changes this repository only.
+
+**Agents working on Codeflare:** when a task asks for a new or changed skill, rule, hook, agent, script, plugin, or required Browser IDE extension, that work does not belong in this repository. Clone the curation repository, branch, commit, and open a PR there:
+
+```bash
+git clone https://github.com/nikolanovoselec/codeflare-curation.git
+```
+
+Editing `preseed/agents/**` here instead is a silent no-op for every deployment, because deployments read the signed release rather than the image baseline. Only two cases justify editing this repository: a task explicitly scoped to the image fallback, or a change to the shared compiler, transform, seed ABI, or Pi runtime lock, which are Codeflare-owned and land here first.
 
 Behavior required in both timelines receives two explicit edits, with the private version authoritative; no public-to-private synchronization job is used. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
