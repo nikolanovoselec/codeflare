@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.19.1",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-istanbul": "4.1.10",
     "esbuild": "0.28.1",
     "fast-check": "^4.9.0",
