@@ -424,13 +424,13 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission)
 
-**Stale:** No GitHub freshness check has succeeded inside the five-minute window. Reload the dashboard. The Worker uses ETag validation and will verify/cache a newer immutable release if one exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+**Symptom:** Setup or the dashboard reports stale, degraded, or update-pending managed curation, or a published private change does not appear.
 
-**Degraded:** GitHub, PAT decryption, or the deployment cache was unavailable. Already-applied buckets continue from their last verified release. Confirm the repository-scoped PAT still reads the private repository, the configured raw public key matches the release signer, R2 credentials remain valid, and the release contains exactly `seed-v1.json.gz` and `seed-v1.sig` with GitHub SHA-256 digests.
+**Cause:** Stale means no GitHub freshness check succeeded inside the five-minute window. Degraded means GitHub, PAT decryption, or the deployment cache was unavailable. Update pending means a session owns the user bucket or a fresh user cannot read a verified release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/routes/session/lifecycle.ts::default -->
 
-**Update pending:** At least one session owns the user bucket, or a fresh user cannot read a verified active release. Stop all sessions for that user and reload. Reconciliation starts only after the bucket is idle. Do not bypass the typed 409 or seed baked content while curation is enabled. <!-- @impl: src/routes/session/lifecycle.ts::default -->
+**Fix:** For stale state, leave the dashboard open through its next background refresh; the Worker uses ETag validation to verify and cache a newer immutable release. For degraded state, confirm the scoped PAT reads the private repository, the configured public key matches the signer, R2 credentials remain valid, and the release contains exactly `seed-v1.json.gz` and `seed-v1.sig` with GitHub SHA-256 digests. Already-applied buckets continue from their last verified release.
 
-**A published private change is not visible:** Confirm the protected workflow reached an immutable published release, not a draft; its sequence exceeds all prior releases; Setup points to the same numeric repository and signer; and the dashboard freshness window has elapsed. Codeflare discovers releases through dashboard refresh, not image deployment or container restart.
+For update pending, stop every session for that user; reconciliation starts only after the bucket is idle. Do not bypass the typed 409 or seed baked content while curation is enabled. For a missing private change, confirm the protected workflow published an immutable non-draft release with a higher sequence and that Setup points to the same repository and signer. Discovery uses dashboard refresh, not image deployment or container restart.
 
 ### Pi Todo Tasks Disappear After Subagent Activity
 

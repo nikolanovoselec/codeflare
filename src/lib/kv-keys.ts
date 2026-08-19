@@ -11,8 +11,8 @@ import { createLogger } from './logger';
  * Must fit within Cloudflare KV's 1024-byte metadata limit (~195 bytes worst case).
  */
 export interface SessionListMetadata {
-  /** status: 'r' = running, 's' = stopped */
-  s?: 'r' | 's';
+  /** status: 'r' = running, 'i' = initializing, 's' = stopped */
+  s?: 'r' | 'i' | 's';
   /** lastActiveAt ISO string */
   la?: string;
   /** lastStartedAt ISO string */
@@ -43,7 +43,7 @@ export interface SessionListMetadata {
 /** Build compressed list metadata from a Session object. */
 export function buildSessionMetadata(session: Session): SessionListMetadata {
   const meta: SessionListMetadata = {
-    s: session.status === 'running' ? 'r' : 's',
+    s: session.status === 'running' ? 'r' : session.status === 'initializing' ? 'i' : 's',
     la: session.lastActiveAt,
     sa: session.lastStartedAt,
   };

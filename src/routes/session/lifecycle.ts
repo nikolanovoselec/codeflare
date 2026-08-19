@@ -22,6 +22,7 @@ import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 import { getActiveVerifiedManagedRelease } from '../../lib/managed-release-active';
 import { resolveSessionMode } from '../../lib/session-mode';
+import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 
 /**
  * Check container health and PTY status for a session.
@@ -111,6 +112,7 @@ app.get('/batch-status', async (c) => {
 
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
+  let hasOwningSession = false;
 
   for (const key of keys) {
     const meta = key.metadata as SessionListMetadata | null;
@@ -118,6 +120,7 @@ app.get('/batch-status', async (c) => {
       // Fast path: read status straight from list metadata (zero KV.get).
       // KV status is authoritative - the container writes 'stopped' on exit.
       const sessionId = key.name.split(':').pop()!;
+      if (countsTowardSessionLimit(meta.s)) hasOwningSession = true;
       statuses[sessionId] = expandSessionMetadata(meta);
     } else {
       // Pre-migration key without metadata - queue for fallback KV.get
@@ -132,6 +135,7 @@ app.get('/batch-status', async (c) => {
     );
     for (const session of fallbackResults) {
       if (!session) continue;
+      if (countsTowardSessionLimit(session.status)) hasOwningSession = true;
       statuses[session.id] = expandSessionMetadata(buildSessionMetadata(session));
     }
   }
@@ -178,7 +182,6 @@ app.get('/batch-status', async (c) => {
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     const mode = resolveSessionMode(prefs ?? null, c.env);
-    const hasRunningSession = Object.values(statuses).some((status) => status.status === 'running');
     try {
       const active = await getActiveVerifiedManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
@@ -188,7 +191,7 @@ app.get('/batch-status', async (c) => {
 
       if (active || applied) {
         managedReleaseStatus = managedMismatch
-          ? (hasRunningSession ? 'update_pending' : 'upgrading')
+          ? (hasOwningSession ? 'update_pending' : 'upgrading')
           : 'current';
       }
 
@@ -198,7 +201,7 @@ app.get('/batch-status', async (c) => {
       );
       // Never fire the mutating route while a session owns the bucket. The
       // update_pending state remains visible and blocks another start.
-      preseedNeedsUpgrade = (managedMismatch || bakedMismatch) && !hasRunningSession;
+      preseedNeedsUpgrade = (managedMismatch || bakedMismatch) && !hasOwningSession;
     } catch {
       // Cache availability may fail open only to a previously applied verified
       // bucket state. A fresh bucket remains blocked and must not trigger a

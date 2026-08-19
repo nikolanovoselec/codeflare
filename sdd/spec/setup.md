@@ -382,9 +382,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. Every deployment mode accepts an optional repository, scoped read token, verification key, and enabled state. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC1: every deployment mode accepts the managed-environment boundary) -->
 2. A blank token replacement preserves the stored repository credential. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
-3. Enablement or repository replacement selects a candidate only after its cache namespace contains a complete verified release; failure preserves prior configuration and active state. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
-4. The configured signing public key cannot be changed after initial activation. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
-5. Disabling retains verified history and schedules baked convergence without invoking user offboarding or destructive cleanup. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC5: disabling curation does not offboard users or delete cache history) -->
+3. Enablement or repository replacement selects a candidate only after its cache namespace contains a complete verified release. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
+4. Candidate failure preserves the prior selected configuration and active release. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
+5. The configured signing public key cannot be changed after initial activation. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement) -->
+6. Disabling retains verified history and schedules baked convergence without invoking user offboarding or destructive cleanup. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC6: disabling curation does not offboard users or delete cache history) -->
 
 **Constraints:**
 
@@ -398,7 +399,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Automated Setup-route and transactional trust tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -429,6 +430,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---

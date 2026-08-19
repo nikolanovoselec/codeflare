@@ -151,7 +151,7 @@ describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
     expect(JSON.stringify(body)).not.toContain('github_pat_secret');
   });
 
-  it('REQ-SETUP-013 AC5: disabling curation does not offboard users or delete cache history', async () => {
+  it('REQ-SETUP-013 AC6: disabling curation does not offboard users or delete cache history', async () => {
     const response = await app().request('https://codeflare-test.example.com/api/setup/configure', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

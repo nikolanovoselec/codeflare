@@ -191,8 +191,8 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
   });
 });
 
-describe('REQ-AGENT-147 AC7: fixed seed-v1 resource limits', () => {
-  it('REQ-AGENT-147 AC7: enforces document and retired-path resource limits', async () => {
+describe('REQ-AGENT-147 AC6: fixed seed-v1 resource limits', () => {
+  it('REQ-AGENT-147 AC6: enforces document and retired-path resource limits', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
@@ -219,7 +219,7 @@ describe('REQ-AGENT-147 AC7: fixed seed-v1 resource limits', () => {
     );
   });
 
-  it('REQ-AGENT-147 AC7: enforces the expanded bundle resource limit', async () => {
+  it('REQ-AGENT-147 AC6: enforces the expanded bundle resource limit', async () => {
     const { createReleaseBundle } = await import(releaseUrl);
     assert.throws(
       () => createReleaseBundle({ seedAbi: 1, padding: 'x'.repeat((32 * 1024 * 1024) + 1) }),

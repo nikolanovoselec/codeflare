@@ -3910,17 +3910,16 @@ None.
 
 **Intent:** A deployment can curate agent configuration independently of the container image without introducing a second transformation pipeline or weakening release integrity.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 2. Given an explicit source root and mode, compilation emits deterministic documents, retirements, seed identity, and the complete runtime dependency identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
-4. Compiler and Worker reject traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) -->
+4. Compilation rejects traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) -->
 5. Extension records derive exact package identity, version, platform, size, digest, entrypoint, and closed dependencies from reviewed bytes. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure) -->
-6. The Worker independently rejects any signed release whose extension records or exact semantic versions violate the release contract. <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC6: independently rejects invalid release records before activation) -->
-7. Compiler and Worker enforce the shared seed-v1 byte, path, document, retirement, extension, and redirect limits. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC7: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC7: enforces the expanded bundle resource limit) -->
+6. Compilation enforces the shared seed-v1 byte, path, document, retirement, extension, and redirect limits. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces the expanded bundle resource limit) -->
 
 **Constraints:**
 
@@ -3934,7 +3933,7 @@ None.
 
 **Verification:** Automated compiler and release-contract tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3960,7 +3959,7 @@ None.
 
 **Verification:** Automated deterministic-byte test and protected-environment acceptance
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -3982,6 +3981,30 @@ None.
 
 **Verification:** Automated shared-compiler compatibility test
 
-**Status:** Planned
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-150: Independent managed-release activation validation
+
+**Intent:** The Worker independently rejects a signed managed release that violates the compiler-owned release contract.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Activation rejects unsupported paths, image-owned content, duplicate ownership, and undeclared runtime requirements. <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1+AC2: independently rejects invalid release records before activation) -->
+2. Activation rejects invalid extension records and non-semantic exact versions. <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1+AC2: independently rejects invalid release records before activation) -->
+3. Activation aborts release expansion beyond the shared byte limit. <!-- @impl: src/lib/remote-curation.ts::verifyManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC3: aborts gzip expansion at the shared expanded-byte limit) -->
+
+**Constraints:** Signature validity never bypasses release-contract validation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated Worker release-verification tests
+
+**Status:** Implemented
 
 ---

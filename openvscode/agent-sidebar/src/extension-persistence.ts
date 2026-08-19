@@ -101,6 +101,7 @@ const manifestTopKeys = new Set(['version', 'securityWarningShown', 'extensions'
 const extensionRecordKeys = new Set(['version', 'targetPlatform', 'installedAt', 'sha256']);
 const ACKNOWLEDGEMENT = 'I understand';
 const INSTALL_COMMAND = 'workbench.extensions.installExtension';
+const UNINSTALL_COMMAND = 'workbench.extensions.uninstallExtension';
 const COMPANY_MANIFEST_MAX_BYTES = 256 * 1024;
 const COMPANY_EXTENSION_MAX_BYTES = 128 * 1024 * 1024;
 const COMPANY_EXTENSIONS_MAX_BYTES = 256 * 1024 * 1024;
@@ -290,8 +291,11 @@ async function companyProvenanceIds(
 }
 
 async function preserveCompanyMarker(extensionsDir: string, activeIds: readonly string[]): Promise<void> {
-  if (activeIds.length === 0) return;
-  const ids = [...new Set([...(await loadCompanyMarker(extensionsDir)), ...activeIds])].sort();
+  const ids = [...new Set(activeIds)].sort();
+  if (ids.length === 0) {
+    await rm(markerPath(extensionsDir), { force: true });
+    return;
+  }
   await atomicWrite(markerPath(extensionsDir), `${JSON.stringify(ids)}\n`);
 }
 
@@ -661,21 +665,32 @@ export async function reconcileCompanyExtensions(
     return { failures: ['managed-extension-manifest'], managedIds: [] };
   }
   const managedIds = managed.map(({ id }) => id);
+  const managedIdSet = new Set(managedIds);
+  const priorIds = await loadCompanyMarker(options.extensionsDir);
+  const failures: string[] = [];
+  const failedRemovals: string[] = [];
+  for (const id of [...priorIds].filter((priorId) => !managedIdSet.has(priorId)).sort()) {
+    try {
+      await vscode.commands.executeCommand(UNINSTALL_COMMAND, id, { donotSync: true });
+    } catch {
+      failures.push(id);
+      failedRemovals.push(id);
+    }
+  }
   try {
-    await preserveCompanyMarker(options.extensionsDir, managedIds);
+    await preserveCompanyMarker(options.extensionsDir, [...managedIds, ...failedRemovals]);
   } catch {
     try {
       await vscode.window.showWarningMessage('Company Browser IDE extensions could not be reconciled.');
     } catch {
       // Reconciliation remains isolated from notification delivery.
     }
-    return { failures: managedIds, managedIds };
+    return { failures: [...new Set([...failures, ...managedIds])].sort(), managedIds };
   }
   // Registry identity cannot prove the installed bytes match the signed company
   // digest. Reinstall every active company requirement from its exact verified
   // VSIX; matching ID/version/platform metadata is not a trust boundary.
   const required = managed;
-  const failures: string[] = [];
   const failedIds = new Set<string>();
   const pending = new Map(required.map((record) => [record.id, record]));
   while (pending.size > 0) {
@@ -719,7 +734,7 @@ export async function reconcileCompanyExtensions(
     const visible = failures.slice(0, 10).join(', ');
     const omitted = failures.length > 10 ? ` and ${failures.length - 10} more` : '';
     try {
-      await vscode.window.showWarningMessage(`Could not install company Browser IDE extensions: ${visible}${omitted}.`);
+      await vscode.window.showWarningMessage(`Could not reconcile company Browser IDE extensions: ${visible}${omitted}.`);
     } catch {
       // Reconciliation remains isolated from notification delivery.
     }

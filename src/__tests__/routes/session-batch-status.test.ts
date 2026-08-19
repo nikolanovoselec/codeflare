@@ -90,7 +90,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   }
 
-  function makeSession(id: string, status: 'running' | 'stopped', overrides: Partial<Session> = {}): Session {
+  function makeSession(id: string, status: Session['status'], overrides: Partial<Session> = {}): Session {
     return {
       id,
       name: `Session ${id}`,
@@ -424,6 +424,18 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
+    it('REQ-STOR-022 AC1+AC2: an initializing session also defers reconciliation', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      const initializing = makeSession('aabbccdd11223344', 'initializing');
+      mockKV._set('session:test-bucket:aabbccdd11223344', initializing, buildSessionMetadata(initializing));
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
     it('blocks New Session when enabled curation is unavailable and no release was previously applied', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -444,7 +456,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-020 AC5: an outage rejects last-known-good state for another mode', async () => {
+    it('REQ-STOR-020 AC6: an outage rejects last-known-good state for another mode', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },

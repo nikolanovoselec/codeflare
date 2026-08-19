@@ -131,11 +131,11 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
  * array or set loading state, so the dashboard doesn't flicker.
  * Also updates storage stats when storageStats is present in the batch response.
  */
-export async function refreshSessionStatuses(): Promise<void> {
+export async function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   try {
     const state = getState();
     const batchResponse = await api.getBatchSessionStatus({
-      includePreseedCheck: state.managedReleaseStatus === 'update_pending' || state.managedReleaseStatus === 'upgrading',
+      includePreseedCheck: forceManagedReleaseCheck || state.managedReleaseStatus !== null,
     });
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);

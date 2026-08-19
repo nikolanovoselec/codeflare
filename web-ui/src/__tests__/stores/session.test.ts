@@ -483,6 +483,20 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
     });
+
+    it('REQ-STOR-020 AC3: checks for a later managed release while status is current', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
+    });
   });
 
   describe('createSession', () => {
@@ -805,6 +819,32 @@ describe('Session Store', () => {
       sessionStore.dismissInitProgressForSession('session-1');
 
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+    });
+
+    it('refreshes managed release status immediately after an update-pending start failure', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1',
+        name: 'Test Session',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'stopped', ptyActive: false } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+      let rejectStart: ((error: string) => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
+        rejectStart = onError;
+        return () => {};
+      });
+
+      const starting = sessionStore.startSession('session-1');
+      const rejected = expect(starting).rejects.toThrow(/update is pending/i);
+      rejectStart?.('Container start failed: Managed coding environment update is pending');
+      await rejected;
+      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
     });
   });
 

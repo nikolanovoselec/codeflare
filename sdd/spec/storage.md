@@ -591,8 +591,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. Verified assets are content-addressed in one deployment cache. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
 2. Each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
 3. Initial status compares active release identity and resolved mode with applied user state through the existing polling path. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC3: initial status compares managed release and resolved mode) -->
-4. With no running session, a mismatch reconciles verified mode content and stamps applied identity only after every operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC4: successful managed reconcile stamps applied state last) -->
-5. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveVerifiedManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC5: an outage rejects last-known-good state for another mode) -->
+4. With no owning session, a release mismatch reconciles verified mode content. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC4+AC5: successful managed reconcile stamps applied state last) -->
+5. Applied identity is stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-020 AC4+AC5: successful managed reconcile stamps applied state last) -->
+6. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveVerifiedManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-020 AC6: an outage rejects last-known-good state for another mode) -->
 
 **Constraints:** Applied state is written last.
 
@@ -602,7 +603,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated cache and reconciliation tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -630,7 +631,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated provenance and retirement tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -642,8 +643,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A release mismatch performs no bucket mutation while any user session runs. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) -->
-2. A release mismatch reports pending status while any user session runs. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
+1. A release mismatch performs no bucket mutation while any user session owns the bucket. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: an initializing session also defers reconciliation) -->
+2. A release mismatch reports pending status while any user session owns the bucket. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: an initializing session also defers reconciliation) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
 3. The backend rejects another start until managed reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) -->
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
@@ -657,6 +658,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated session-status, start-admission, dashboard, and disable tests
 
-**Status:** Planned
+**Status:** Implemented
 
 ---

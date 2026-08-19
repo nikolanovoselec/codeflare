@@ -104,7 +104,7 @@ test('REQ-IDE-016 AC3: welcome activation starts lazy extension persistence', ()
   for (const subscription of subscriptions) subscription.dispose();
 });
 
-test('REQ-IDE-042 AC2: company reconciliation stays lazy and cannot delay the ready workbench', async () => {
+test('REQ-IDE-042 AC2 + REQ-IDE-045 AC2: company reconciliation stays lazy and cannot delay the ready workbench', async () => {
   vi.useFakeTimers();
   persistence.pending = new Promise(() => undefined);
   const subscriptions: Array<{ dispose(): void }> = [];

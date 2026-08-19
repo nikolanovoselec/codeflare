@@ -74,7 +74,7 @@ async function signedFixture(value = release(), suppliedKeyPair?: CryptoKeyPair)
   return { compressed, signature: new Uint8Array(signature), publicKeyHex: hex(publicKey) };
 }
 
-// REQ-AGENT-147 and REQ-SETUP-013: the Worker is the trust boundary. These
+// REQ-AGENT-150 and REQ-SETUP-013: the Worker is the trust boundary. These
 // tests assert activation inputs, not validation copy or implementation text.
 describe('managed coding-environment release verification', () => {
   it('REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract', async () => {
@@ -100,7 +100,7 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/commitSha/i);
   });
 
-  it('aborts gzip expansion at the shared expanded-byte limit', async () => {
+  it('REQ-AGENT-150 AC3: aborts gzip expansion at the shared expanded-byte limit', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const compressed = await gzipBytes(encoder.encode('x'.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));
     const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', keyPair.privateKey, compressed));
@@ -127,7 +127,7 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/64 bytes/i);
   });
 
-  it('REQ-AGENT-147 AC6: independently rejects invalid release records before activation', async () => {
+  it('REQ-AGENT-150 AC1+AC2: independently rejects invalid release records before activation', async () => {
     const fixture = await signedFixture();
     const changedSignature = new Uint8Array(fixture.signature);
     changedSignature[0] ^= 0xff;

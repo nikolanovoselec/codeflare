@@ -328,7 +328,7 @@ test('REQ-IDE-044 AC7: a matching registry identity is reinstalled from exact si
   assert.equal((host.commands[0].arguments[0] as { scheme: string }).scheme, 'file');
 });
 
-test('REQ-IDE-045 AC3+AC4: company failures remain bounded and do not block the workbench', async () => {
+test('REQ-IDE-045 AC4+AC5: company failures remain bounded and do not block the workbench', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const records = ['one.extension', 'two.extension', 'zthree.extension'].map((id) => managedExtension(id, '1.0.0', Buffer.from(id)));
   writeManagedExtensions(managedExtensionsPath, records);
@@ -367,7 +367,7 @@ test('REQ-IDE-045 AC3+AC4: company failures remain bounded and do not block the 
   assert.match(host.warnings[0], /two\.extension/);
 });
 
-test('REQ-IDE-044 AC6 + REQ-IDE-045 AC2: exact dependencies install without gallery fallback', async () => {
+test('REQ-IDE-044 AC6 + REQ-IDE-045 AC3: exact dependencies install without gallery fallback', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const dependency = managedExtension('acme.zzz-dependency', '1.0.0', Buffer.from('dependency'));
   const dependent = {
@@ -440,7 +440,7 @@ test('REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes per
   for (const subscription of subscriptions) subscription.dispose();
 });
 
-test('REQ-IDE-042 AC7: disable stops enforcement and preserves personal intent', async () => {
+test('disabling company enforcement preserves personal extension intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
   const company = managedExtension();
   writeManagedExtensions(managedExtensionsPath, [company]);
@@ -464,6 +464,34 @@ test('REQ-IDE-042 AC7: disable stops enforcement and preserves personal intent',
   assert.equal(host.commands.some(({ command }) => /uninstall/i.test(command)), false);
   await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile: join(extensionsDir, 'missing.pid') });
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions[company.id].version, '0.2.0');
+});
+
+test('REQ-IDE-042 AC7: removed company extensions are uninstalled before personal intent is restored', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
+  const company = managedExtension();
+  const companyBytes = Buffer.from('verified company extension');
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ [company.id]: { version: '0.2.0' } }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
+  vi.stubGlobal('fetch', async () => new Response(companyBytes, {
+    status: 200,
+    headers: { 'content-length': String(companyBytes.length) },
+  }));
+  await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  writeManagedExtensions(managedExtensionsPath, []);
+  host.commands = [];
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  await restoreExtensionManifest({ extensionsDir, manifestPath });
+
+  assert.deepEqual(result, { failures: [], managedIds: [] });
+  assert.deepEqual(host.commands.map(({ command, arguments: args }) => [command, args[0]]), [
+    ['workbench.extensions.uninstallExtension', company.id],
+    ['workbench.extensions.installExtension', `${company.id}@0.2.0`],
+  ]);
 });
 
 test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent', async () => {
