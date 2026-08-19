@@ -142,9 +142,11 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     if (!managedGateApplies) {
       try {
         managedGateApplies = Boolean(await getActiveManagedRelease(c.env));
-      } catch {
-        // Enabled without a verified active release: fail closed with the same typed
-        // error as the session check below rather than a generic 500.
+      } catch (err) {
+        // Fail closed with the same typed error as the session check below rather than a
+        // generic 500, but keep the cause: an unverified release and a transient KV/R2
+        // read failure are indistinguishable from the response alone.
+        logger.warn('Managed release resolution failed; failing closed', { error: String(err) });
         throw new ManagedEnvironmentUpdatePendingError();
       }
     }
@@ -245,7 +247,13 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // its own half-applied sessionMode, skips this block entirely, and reports success
       // over a bucket that was never reconciled.
       if (managedInvolved) {
-        await c.env.KV.put(key, JSON.stringify(existing));
+        // Best-effort: a failing restore must not replace the reconciliation error that
+        // this branch exists to report.
+        try {
+          await c.env.KV.put(key, JSON.stringify(existing));
+        } catch (restoreErr) {
+          logger.error('Failed to restore preferences after managed reconcile failure', { error: String(restoreErr) });
+        }
         throw err;
       }
       logger.warn('Auto-reconcile on preferences change failed (non-fatal)', { error: String(err) });

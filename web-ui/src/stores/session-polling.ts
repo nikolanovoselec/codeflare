@@ -127,6 +127,9 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 
 const MANAGED_RELEASE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let lastManagedCheckAt = 0;
+// The poll runs on setInterval without awaiting, so a request outliving the interval
+// would otherwise let a second poll probe the same release again.
+let managedCheckInFlight = false;
 
 /**
  * Lightweight status refresh - only fetches batch-status and updates
@@ -143,9 +146,12 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     const now = Date.now();
     const includePreseedCheck = forceManagedReleaseCheck
       || (state.managedReleaseStatus !== null
+        && !managedCheckInFlight
         && (state.managedReleaseStatus !== 'current'
           || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
-    const batchResponse = await api.getBatchSessionStatus({ includePreseedCheck });
+    if (includePreseedCheck) managedCheckInFlight = true;
+    const batchResponse = await api.getBatchSessionStatus({ includePreseedCheck })
+      .finally(() => { if (includePreseedCheck) managedCheckInFlight = false; });
     // Only a completed check consumes the window; a failed call must not suppress the next.
     if (includePreseedCheck) lastManagedCheckAt = now;
     const batchStatuses = batchResponse.statuses;

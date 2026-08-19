@@ -497,6 +497,50 @@ describe('Session Store', () => {
 
       expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
     });
+
+    it('REQ-STOR-020 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      // Move past the freshness window so this does not depend on whether an earlier
+      // test in this module already stamped it.
+      vi.advanceTimersByTime(6 * 60 * 1000);
+      mockGetBatchSessionStatus.mockClear();
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true });
+    });
+
+    it('REQ-STOR-020 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      vi.advanceTimersByTime(6 * 60 * 1000);
+      mockGetBatchSessionStatus.mockClear();
+
+      let release: (() => void) | undefined;
+      mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise((resolve) => {
+        release = () => resolve({ statuses: {}, maxSessions: 3, managedReleaseStatus: 'current' } as never);
+      }));
+
+      const first = sessionStore.refreshSessionStatuses();
+      const second = sessionStore.refreshSessionStatuses();
+      release?.();
+      await Promise.all([first, second]);
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false });
+    });
   });
 
   describe('createSession', () => {
