@@ -252,7 +252,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         try {
           await c.env.KV.put(key, JSON.stringify(existing));
         } catch (restoreErr) {
-          logger.error('Failed to restore preferences after managed reconcile failure', { error: String(restoreErr) });
+          logger.error('Failed to restore preferences after managed reconcile failure', restoreErr instanceof Error ? restoreErr : new Error(String(restoreErr)));
         }
         throw err;
       }

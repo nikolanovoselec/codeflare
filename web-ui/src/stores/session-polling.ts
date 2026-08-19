@@ -127,9 +127,21 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 
 const MANAGED_RELEASE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let lastManagedCheckAt = 0;
-// The poll runs on setInterval without awaiting, so a request outliving the interval
-// would otherwise let a second poll probe the same release again.
-let managedCheckInFlight = false;
+// The poll runs on setInterval without awaiting, and a forced check can start while one
+// is outstanding, so this counts probes rather than flagging one: clearing on the first
+// settle would let the next poll re-probe while another is still in flight.
+let managedChecksInFlight = 0;
+
+/** Issue the batch-status call, counting an outstanding managed-release probe. */
+async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
+  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck });
+  managedChecksInFlight += 1;
+  try {
+    return await api.getBatchSessionStatus({ includePreseedCheck });
+  } finally {
+    managedChecksInFlight -= 1;
+  }
+}
 
 /**
  * Lightweight status refresh - only fetches batch-status and updates
@@ -146,12 +158,10 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     const now = Date.now();
     const includePreseedCheck = forceManagedReleaseCheck
       || (state.managedReleaseStatus !== null
-        && !managedCheckInFlight
+        && managedChecksInFlight === 0
         && (state.managedReleaseStatus !== 'current'
           || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
-    if (includePreseedCheck) managedCheckInFlight = true;
-    const batchResponse = await api.getBatchSessionStatus({ includePreseedCheck })
-      .finally(() => { if (includePreseedCheck) managedCheckInFlight = false; });
+    const batchResponse = await fetchBatchSessionStatus(includePreseedCheck);
     // Only a completed check consumes the window; a failed call must not suppress the next.
     if (includePreseedCheck) lastManagedCheckAt = now;
     const batchStatuses = batchResponse.statuses;

@@ -505,9 +505,9 @@ describe('Session Store', () => {
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      // Move past the freshness window so this does not depend on whether an earlier
-      // test in this module already stamped it.
-      vi.advanceTimersByTime(6 * 60 * 1000);
+      // The window stamp is module-level while useFakeTimers resets the clock to the same
+      // base each test, so advance well past any stamp an earlier test could have left.
+      vi.advanceTimersByTime(60 * 60 * 1000);
       mockGetBatchSessionStatus.mockClear();
       mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
 
@@ -519,18 +519,19 @@ describe('Session Store', () => {
     });
 
     it('REQ-STOR-020 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
+      // A transient status is checked on every poll, so this isolates the in-flight guard
+      // from the freshness window and from any stamp an earlier test left behind.
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
-        managedReleaseStatus: 'current',
+        managedReleaseStatus: 'update_pending',
       } as never);
       await sessionStore.loadSessions();
-      vi.advanceTimersByTime(6 * 60 * 1000);
       mockGetBatchSessionStatus.mockClear();
 
       let release: (() => void) | undefined;
       mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise((resolve) => {
-        release = () => resolve({ statuses: {}, maxSessions: 3, managedReleaseStatus: 'current' } as never);
+        release = () => resolve({ statuses: {}, maxSessions: 3, managedReleaseStatus: 'update_pending' } as never);
       }));
 
       const first = sessionStore.refreshSessionStatuses();
