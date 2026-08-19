@@ -590,7 +590,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Verified assets are content-addressed in one deployment cache. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
 2. Each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
-3. Concurrent key selections for one repository serialize through a repository-stable conditional pointer, and a losing rollback restores the pointer's authoritative selection. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+3. Concurrent key selections for one repository serialize through a repository-stable conditional pointer. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+4. A losing concurrent selection repairs selected KV to the pointer's latest authoritative selection. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 
 **Constraints:** A losing selection cannot overwrite or roll back the repository pointer's winner.
 
@@ -694,15 +695,15 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A release mismatch with no owning session reads one verified cached gzip for reconciliation. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC5: successful managed reconcile loads cached content and stamps applied state last) -->
 2. Reconciliation writes byte-identical content selected for the resolved mode. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
-3. Reconciliation retains only bounded release metadata and one document body. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC2+AC5: retains bounded metadata and streams identical documents) -->
+3. Reconciliation retains only bounded release metadata and one document body. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
 4. Reconciliation uses at most six concurrent R2 operations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC4: bounds R2 concurrency for a maximum-size managed document set) -->
-5. Applied identity is stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC5: successful managed reconcile loads cached content and stamps applied state last) -->
+5. Applied identity is stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC5: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5: does not stamp applied state when context-mode reconciliation fails) -->
 
 **Constraints:** Applied state is written last.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-150](agents.md#req-agent-150-independent-managed-release-activation-validation)
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-151](agents.md#req-agent-151-bounded-managed-release-streaming)
 
 **Verification:** Automated streaming, reconciliation, and storage-route tests
 

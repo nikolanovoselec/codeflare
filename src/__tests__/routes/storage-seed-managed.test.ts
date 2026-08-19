@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
-import type { ActiveVerifiedManagedRelease, VerifiedManagedReleaseContent } from '../../lib/managed-release-active';
+import {
+  getActiveVerifiedManagedRelease,
+  type ActiveVerifiedManagedRelease,
+  type VerifiedManagedReleaseContent,
+} from '../../lib/managed-release-active';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
@@ -126,6 +130,7 @@ describe('managed storage reconcile', () => {
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
 
     expect(response.status).toBe(200);
+    expect(getActiveVerifiedManagedRelease).toHaveBeenCalledTimes(1);
     expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
       managedRelease: expect.objectContaining({
         digest: 'd'.repeat(64),
@@ -141,7 +146,7 @@ describe('managed storage reconcile', () => {
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
   });
 
-  it('does not stamp applied state when context-mode reconciliation fails', async () => {
+  it('REQ-STOR-024 AC5: does not stamp applied state when context-mode reconciliation fails', async () => {
     reseedContext.mockRejectedValueOnce(new Error('context failed'));
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });

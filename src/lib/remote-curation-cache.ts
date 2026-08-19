@@ -4,7 +4,7 @@ import { createR2Client, getR2Url } from './r2-client';
 
 const MAX_ACTIVE_POINTER_BYTES = 16 * 1024;
 
-export interface ManagedReleaseSelection {
+interface ManagedReleaseSelection {
   schemaVersion: 1;
   enabled: true;
   repository: string;

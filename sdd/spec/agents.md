@@ -3993,11 +3993,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Activation rejects unsupported paths, image-owned content, duplicate ownership, and undeclared runtime requirements. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1+AC3: independently rejects invalid release records before activation) -->
-2. Activation retains only bounded release metadata and one document body during validation. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC2+AC5: retains bounded metadata and streams identical documents) -->
-3. Activation rejects invalid extension records and non-semantic exact versions. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1+AC3: independently rejects invalid release records before activation) -->
-4. Activation aborts streaming release expansion beyond the shared byte limit. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC4: aborts gzip expansion at the shared expanded-byte limit) -->
-5. Successful validation streams byte-identical document payloads without retaining the complete expanded release. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC2+AC5: retains bounded metadata and streams identical documents) -->
+1. Activation rejects unsupported document and retirement paths. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+2. Activation rejects image-owned content. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+3. Activation rejects duplicate document ownership. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+4. Activation rejects undeclared runtime requirements. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+5. Activation rejects invalid extension records. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+6. Activation rejects non-semantic exact extension versions. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
 
 **Constraints:** Signature validity never bypasses release-contract validation.
 
@@ -4006,6 +4007,31 @@ None.
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated Worker release-verification tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-151: Bounded managed-release streaming
+
+**Intent:** Managed-release validation and application remain memory-bounded without changing signed document bytes.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Validation retains only bounded release metadata and one document body. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
+2. Validation aborts release expansion beyond the shared byte limit. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC2: aborts gzip expansion at the shared expanded-byte limit) -->
+3. Successful validation streams byte-identical document payloads. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
+4. Streaming does not retain the complete expanded release. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
+
+**Constraints:** Validation completes before user-bucket mutation begins.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
+
+**Verification:** Automated Worker streaming tests
 
 **Status:** Implemented
 

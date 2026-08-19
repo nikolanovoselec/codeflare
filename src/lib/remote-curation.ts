@@ -1063,19 +1063,28 @@ export async function configureManagedEnvironment(input: {
     const restoreTentativeSelection = async (): Promise<void> => {
       if (commitPriorPatRaw === null) await input.env.KV.delete(patKey);
       else await input.env.KV.put(patKey, commitPriorPatRaw);
-      const settled = await sequenceCache.readActive();
-      if (settled?.pointer.selection
-        && settled.pointer.selection.configFingerprint !== candidate.configFingerprint) {
-        await input.env.KV.put(
-          SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG,
-          JSON.stringify(settled.pointer.selection),
-        );
-        return;
+
+      const authoritativeRaw = (
+        pointer: ActiveManagedRelease | undefined,
+      ): string | null => pointer?.selection
+        && pointer.selection.configFingerprint !== candidate.configFingerprint
+        ? JSON.stringify(pointer.selection)
+        : commitPriorConfigRaw;
+
+      let expectedRaw: string | null = selectedCandidateRaw;
+      while (true) {
+        const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+        if (selectedRaw !== expectedRaw) return;
+
+        const settled = await sequenceCache.readActive();
+        const replacementRaw = authoritativeRaw(settled?.pointer);
+        if (replacementRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+        else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, replacementRaw);
+
+        const confirmed = await sequenceCache.readActive();
+        if (authoritativeRaw(confirmed?.pointer) === replacementRaw) return;
+        expectedRaw = replacementRaw;
       }
-      const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
-      if (selectedRaw !== selectedCandidateRaw) return;
-      if (commitPriorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
-      else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, commitPriorConfigRaw);
     };
     try {
       await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
