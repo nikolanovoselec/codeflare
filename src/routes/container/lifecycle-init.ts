@@ -64,6 +64,10 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // workspaceSyncEnabled) so a regime flip OFF on a warm DO resets the stale state;
     // buildEnvVars omits the R2_SSE_DISABLED env var when false (byte-identical container).
     r2SseDisabled: params.r2SseDisabled === true,
+    // Always transport a definite boolean so disabling curation restores the
+    // baked entrypoint paths on a warm Durable Object.
+    remoteCurationActive: params.remoteCurationActive === true,
+    remoteCurationReleaseDigest: params.remoteCurationReleaseDigest ?? null,
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
     // REQ-ENTERPRISE-004: forward the user's matched Access groups so the

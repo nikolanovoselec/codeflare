@@ -213,6 +213,41 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalled();
     });
 
+    it('REQ-STOR-022 AC2: maps update_pending without invoking reconciliation', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('REQ-STOR-020 AC3: reconciles upgrading and returns to current after success', async () => {
+      let resolveRecreate: (value: any) => void;
+      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
+        resolveRecreate = resolve;
+      }));
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+        managedReleaseStatus: 'upgrading',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+
+      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.managedReleaseStatus).toBe('current');
+    });
+
     it('should recognize running sessions on fresh page load', async () => {
       const mockSessions = [
         {
@@ -447,6 +482,20 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
+    });
+
+    it('REQ-STOR-020 AC3: checks for a later managed release while status is current', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
     });
   });
 
@@ -770,6 +819,32 @@ describe('Session Store', () => {
       sessionStore.dismissInitProgressForSession('session-1');
 
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+    });
+
+    it('refreshes managed release status immediately after an update-pending start failure', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1',
+        name: 'Test Session',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'stopped', ptyActive: false } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+      let rejectStart: ((error: string) => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
+        rejectStart = onError;
+        return () => {};
+      });
+
+      const starting = sessionStore.startSession('session-1');
+      const rejected = expect(starting).rejects.toThrow(/update is pending/i);
+      rejectStart?.('Container start failed: Managed coding environment update is pending');
+      await rejected;
+      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
     });
   });
 

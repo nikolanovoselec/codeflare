@@ -356,6 +356,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/"
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
+    --filter "+ .codeflare/managed-extensions.json"
     --filter "- .codeflare/**"
 
     # Package manager caches — regenerated on npm/bun install
@@ -675,6 +676,10 @@ repair_hook_exec_bits() {
 # be detected by --size-only, so honoring "preserve in-container edits" keeps today's
 # full download). Idempotent and mode-aware.
 lay_down_agent_seed_preseed() {
+    if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
+        echo "[entrypoint] Managed release active: skipping baked agent seed lay-down" | tee -a /tmp/sync.log
+        return 0
+    fi
     [ "${R2_SSE_DISABLED:-}" = "true" ] || return 0
     local mode="${SESSION_MODE:-default}"
     # AGENT_SEED_BAKE_DIR overrides the image bake root (defaults to the baked path);
@@ -708,6 +713,10 @@ lay_down_agent_seed_preseed() {
 # the subsequent bisync then treats local as authoritative and self-heals R2 instead of
 # pulling the stale copy back. Idempotent and mode-aware.
 relay_managed_pi_extensions() {
+    if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
+        echo "[entrypoint] Managed release active: preserving R2-restored Pi extensions" | tee -a /tmp/sync.log
+        return 0
+    fi
     # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
     # preseed/agents/pi/extensions here, UNFILTERED — all managed extensions). NOT the
     # mode-filtered agent-seed-bake: its default subset omits advanced-only extensions

@@ -129,6 +129,18 @@ export class BucketMigratingError extends AppError {
   }
 }
 
+/** A verified coding-environment release must converge before another container starts. */
+export class ManagedEnvironmentUpdatePendingError extends AppError {
+  constructor() {
+    super(
+      'MANAGED_ENVIRONMENT_UPDATE_PENDING',
+      409,
+      'Managed coding environment update is pending',
+      'Your managed coding environment must finish updating before another session can start.',
+    );
+  }
+}
+
 /** Convert unknown catch values to Error instances */
 export function toError(error: unknown): Error {
   if (error instanceof Error) return error;

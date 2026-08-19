@@ -293,10 +293,10 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) | Run the setup wizard (streams NDJSON progress) |
+| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration) | Run the setup wizard (streams NDJSON progress) |
 | GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) | Whether setup is complete (always public) |
 | GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection), [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) | Prefill setup form from existing Access groups |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection), [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) | Prefill setup form without returning managed repository PAT or public-key bytes |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)). Once setup is marked complete, the same endpoints require an admin-role session.
 
@@ -319,7 +319,13 @@ Content-Type: application/json
   "customDomain":   "claude.example.com",
   "allowedUsers":   ["alice@example.com", "bob@example.com"],
   "adminUsers":     ["alice@example.com"],
-  "allowedOrigins": [".example.com"]          // optional
+  "allowedOrigins": [".example.com"],         // optional
+  "managedEnvironment": {                      // optional in every deployment mode
+    "enabled": true,
+    "repository": "owner/private-curation",
+    "personalAccessToken": "github_pat_...",
+    "publicKey": "<64 lowercase hex characters>"
+  }
 }
 ```
 
@@ -329,6 +335,9 @@ Validation rules (enforced by Zod before streaming starts):
 - `allowedUsers` -- non-empty array of valid email addresses.
 - `adminUsers` -- non-empty array of valid emails; every admin must also appear in `allowedUsers`.
 - `allowedOrigins` -- optional array of domain suffix patterns (each must start with `.`).
+- `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, a repository-scoped read PAT, and a raw lowercase 64-hex Ed25519 public key.
+
+The PAT and public key are required on first configuration. Blank values preserve the selected encrypted boundary during reconfiguration. A replacement public key is selected only after the latest immutable release verifies with it without rolling back the active sequence. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
 The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
 
@@ -360,6 +369,12 @@ Sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets via `PUT /a
 If the API returns error code `10215` (latest version not deployed -- common after `wrangler versions upload`), the handler deploys the latest Worker version at 100% traffic and retries the secret write.
 
 Setup reconfiguration does not infer user offboarding from `allowedUsers`; destructive user cleanup is outside this endpoint.
+
+**Optional managed environment step -- `configure_managed_environment`**
+
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+Creates the deterministic deployment cache bucket with existing R2 credentials, resolves the numeric GitHub repository identity, verifies and caches the first immutable signed release, primes its configuration-fingerprint namespace, encrypts the PAT, and selects the configuration only after the trust boundary is usable. Replacement repository/key namespaces cannot move prior active state; same-trust PAT replacement does not advance an existing active pointer inside the Setup transaction. Disabling retains cache and credential history for recovery and schedules normal baked reconciliation without offboarding. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
 **Step 4 -- `configure_custom_domain`**
 

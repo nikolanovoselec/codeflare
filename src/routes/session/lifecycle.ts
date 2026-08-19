@@ -20,6 +20,9 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
+import { getActiveManagedRelease } from '../../lib/managed-release-active';
+import { resolveSessionMode } from '../../lib/session-mode';
+import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 
 /**
  * Check container health and PTY status for a session.
@@ -109,6 +112,7 @@ app.get('/batch-status', async (c) => {
 
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
+  let hasOwningSession = false;
 
   for (const key of keys) {
     const meta = key.metadata as SessionListMetadata | null;
@@ -116,6 +120,7 @@ app.get('/batch-status', async (c) => {
       // Fast path: read status straight from list metadata (zero KV.get).
       // KV status is authoritative - the container writes 'stopped' on exit.
       const sessionId = key.name.split(':').pop()!;
+      if (countsTowardSessionLimit(meta.s)) hasOwningSession = true;
       statuses[sessionId] = expandSessionMetadata(meta);
     } else {
       // Pre-migration key without metadata - queue for fallback KV.get
@@ -130,6 +135,7 @@ app.get('/batch-status', async (c) => {
     );
     for (const session of fallbackResults) {
       if (!session) continue;
+      if (countsTowardSessionLimit(session.status)) hasOwningSession = true;
       statuses[session.id] = expandSessionMetadata(buildSessionMetadata(session));
     }
   }
@@ -169,15 +175,40 @@ app.get('/batch-status', async (c) => {
     // Non-fatal - usage display is best-effort
   }
 
-  // REQ-AGENT-049: preseed upgrade check (initial load only, not 5s polls)
+  // Initial-load upgrade decision. Remote curation piggybacks on this existing
+  // request and existing reconcile route; it does not add another poller.
   let preseedNeedsUpgrade: boolean | undefined;
+  let managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | undefined;
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
-    preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
-      // REQ-ENTERPRISE-001 AC6: a pre-existing enterprise bucket whose stored
-      // preference is not yet Pro upgrades via the same dashboard UPDATING flow
-      // as a release upgrade; the seed route stamps the preference on success.
-      || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced');
+    const mode = resolveSessionMode(prefs ?? null, c.env);
+    try {
+      const active = await getActiveManagedRelease(c.env);
+      const applied = prefs?.managedEnvironmentApplied;
+      const managedMismatch = active
+        ? applied?.digest !== active.digest || applied.mode !== mode || applied.sequence !== active.pointer.sequence
+        : applied !== undefined;
+
+      if (active || applied) {
+        managedReleaseStatus = managedMismatch
+          ? (hasOwningSession ? 'update_pending' : 'upgrading')
+          : 'current';
+      }
+
+      const bakedMismatch = !active && (
+        prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
+        || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced')
+      );
+      // Never fire the mutating route while a session owns the bucket. The
+      // update_pending state remains visible and blocks another start.
+      preseedNeedsUpgrade = (managedMismatch || bakedMismatch) && !hasOwningSession;
+    } catch {
+      // Cache availability may fail open only to a previously applied verified
+      // bucket state. A fresh bucket remains blocked and must not trigger a
+      // reconciliation request until the verified deployment cache is readable.
+      managedReleaseStatus = prefs?.managedEnvironmentApplied?.mode === mode ? 'current' : 'update_pending';
+      preseedNeedsUpgrade = false;
+    }
   }
 
   // REQ-ENTERPRISE-020: Governed Mode regime reconcile. Decide synchronously so THIS
@@ -215,7 +246,7 @@ app.get('/batch-status', async (c) => {
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, managedReleaseStatus, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
 });
 
 /**

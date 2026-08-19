@@ -5,19 +5,22 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
-import { getPreferencesKey } from '../lib/kv-keys';
+import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { ValidationError, BucketMigratingError } from '../lib/error-types';
+import { ValidationError, BucketMigratingError, ManagedEnvironmentUpdatePendingError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
-import { reconcileAgentConfigs } from '../lib/r2-seed';
+import { reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../lib/r2-seed';
 import { isR2SseDisabledForBucket, isBucketMigrating } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
 import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
+import { countsTowardSessionLimit } from './container/lifecycle-validation';
+import { getActiveVerifiedManagedRelease, getVerifiedManagedReleaseByDigest } from '../lib/managed-release-active';
+import { PRESEED_CONTENT_HASH } from '../lib/agent-seed.generated';
 
 const logger = createLogger('preferences');
 
@@ -131,8 +134,17 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // REQ-ENTERPRISE-020: a sessionMode change triggers an R2 agent-config reconcile below;
   // refuse it while the bucket's encryption regime is migrating so configs are never written
   // in the wrong (pre-flip) regime. Non-R2 preference changes are unaffected.
-  if (body.sessionMode && body.sessionMode !== existing.sessionMode && await isBucketMigrating(c.env, bucketName)) {
-    throw new BucketMigratingError();
+  if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
+    const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
+    for (const sessionKey of sessionKeys) {
+      const metadata = sessionKey.metadata as SessionListMetadata | null;
+      if (metadata?.s && countsTowardSessionLimit(metadata.s)) throw new ManagedEnvironmentUpdatePendingError();
+      if (!metadata?.s) {
+        const session = await c.env.KV.get<{ status?: string }>(sessionKey.name, 'json');
+        if (countsTowardSessionLimit(session?.status)) throw new ManagedEnvironmentUpdatePendingError();
+      }
+    }
+    if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   }
 
   const updated: UserPreferences = { ...existing, ...body } as UserPreferences;
@@ -150,17 +162,61 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // REQ-ENTERPRISE-020: reconcile in the bucket's current regime so a Governed Mode
       // (plain) bucket gets plaintext configs, not unreadable SSE-C ones.
       const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
+      const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
+      let priorManagedRelease: PriorManagedReleaseSelection | undefined;
+      if (existing.managedEnvironmentApplied) {
+        const priorRelease = activeManagedRelease?.digest === existing.managedEnvironmentApplied.digest
+          ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
+          : await getVerifiedManagedReleaseByDigest(c.env, existing.managedEnvironmentApplied.digest);
+        if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
+        priorManagedRelease = {
+          digest: existing.managedEnvironmentApplied.digest,
+          mode: existing.managedEnvironmentApplied.mode,
+          ...priorRelease,
+        };
+      }
+      const managedOptions = activeManagedRelease
+        ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+        : priorManagedRelease
+          ? { managedRelease: null, priorManagedRelease }
+          : {};
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
         contextModeEnabled,
         r2SseDisabled,
+        ...managedOptions,
       });
+      if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
+        throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
+      }
+      if (activeManagedRelease) {
+        await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled);
+      }
+
+      const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
+      const withoutApplied = Object.fromEntries(
+        Object.entries(latest).filter(([preferenceKey]) => preferenceKey !== 'managedEnvironmentApplied'),
+      ) as UserPreferences;
+      const applied: UserPreferences = activeManagedRelease
+        ? {
+            ...latest,
+            managedEnvironmentApplied: {
+              digest: activeManagedRelease.digest,
+              sequence: activeManagedRelease.release.sequence,
+              mode: body.sessionMode,
+              appliedAt: new Date().toISOString(),
+            },
+          }
+        : { ...withoutApplied, lastPreseedHash: PRESEED_CONTENT_HASH };
+      await c.env.KV.put(key, JSON.stringify(applied));
+
       logger.info('Auto-reconciled agent configs on preferences change', {
         bucketName,
         previousMode: existing.sessionMode ?? 'default',
         newMode: body.sessionMode,
         contextModeEnabled,
+        managedReleaseDigest: activeManagedRelease?.digest,
         written: result.written.length,
         deleted: result.deleted.length,
       });
@@ -172,7 +228,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // REQ-ENTERPRISE-001 AC2: the response reports the enterprise-forced Pro mode.
   // Non-sessionMode fields keep the raw client value; sessionMode itself is
   // coerced to Pro at the top of this handler under enterprise.
-  return c.json(withEffectiveSessionMode(updated, c.env));
+  const current = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
+  return c.json(withEffectiveSessionMode(current, c.env));
 });
 
 export default app;

@@ -10,6 +10,7 @@ import { AGENT_OPTIONS } from '../../lib/agent-catalog';
 import GitHubProviderChooser from './GitHubProviderChooser';
 import CloudflareProviderChooser from './CloudflareProviderChooser';
 import SetupSection from './SetupSection';
+import ManagedEnvironmentSection from './ManagedEnvironmentSection';
 import '../../styles/configure-step.css';
 
 const REASONING_OPTIONS = [
@@ -421,6 +422,26 @@ const ConfigureStep: Component = () => {
         </SetupSection>
       </Show>
 
+      <ManagedEnvironmentSection
+        enabled={setupStore.managedEnvironmentEnabled}
+        repository={setupStore.managedEnvironmentRepository}
+        personalAccessToken={setupStore.managedEnvironmentPersonalAccessToken}
+        personalAccessTokenSet={setupStore.managedEnvironmentPersonalAccessTokenSet}
+        publicKey={setupStore.managedEnvironmentPublicKey}
+        publicKeyFingerprint={setupStore.managedEnvironmentPublicKeyFingerprint}
+        activeReleaseTag={setupStore.managedEnvironmentActiveReleaseTag}
+        activeSequence={setupStore.managedEnvironmentActiveSequence}
+        activeDigestPrefix={setupStore.managedEnvironmentActiveDigestPrefix}
+        freshness={setupStore.managedEnvironmentFreshness}
+        lastCheckedAt={setupStore.managedEnvironmentLastCheckedAt}
+        patExpiryState={setupStore.managedEnvironmentPatExpiryState}
+        lastError={setupStore.managedEnvironmentLastError}
+        onEnabledChange={(value) => setupStore.setManagedEnvironmentEnabled(value)}
+        onRepositoryChange={(value) => setupStore.setManagedEnvironmentRepository(value)}
+        onPersonalAccessTokenChange={(value) => setupStore.setManagedEnvironmentPersonalAccessToken(value)}
+        onPublicKeyChange={(value) => setupStore.setManagedEnvironmentPublicKey(value)}
+      />
+
       {/* GitHub (admin, any mode — the Setup wizard is admin-gated everywhere).
           REQ-GITHUB-008: the connect flow uses this dedicated app, distinct from the
           SaaS login OAuth app. */}
@@ -471,7 +492,13 @@ const ConfigureStep: Component = () => {
           disabled={
             !setupStore.customDomain ||
             setupStore.adminUsers.length === 0 ||
-            (setupStore.enterpriseMode && setupStore.dynamicRoutes.length === 0)
+            (setupStore.enterpriseMode && setupStore.dynamicRoutes.length === 0) ||
+            (setupStore.managedEnvironmentEnabled && (
+              !setupStore.managedEnvironmentRepository.trim() ||
+              (!setupStore.managedEnvironmentPersonalAccessTokenSet && !setupStore.managedEnvironmentPersonalAccessToken.trim()) ||
+              (!setupStore.managedEnvironmentPublicKeyFingerprint && !setupStore.managedEnvironmentPublicKey.trim()) ||
+              (Boolean(setupStore.managedEnvironmentPublicKey.trim()) && !/^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim()))
+            ))
           }
         >
           Continue

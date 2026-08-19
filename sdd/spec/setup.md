@@ -371,3 +371,65 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-013: Managed coding-environment configuration
+
+**Intent:** An administrator can configure one verified managed coding environment for every deployment mode without disturbing user data.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Every deployment mode accepts an optional repository, scoped read token, verification key, and enabled state. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC1: every deployment mode accepts the managed-environment boundary) -->
+2. A blank token replacement preserves the stored repository credential. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+3. Enablement, repository replacement, or public-key replacement selects a candidate only after its cache namespace contains a complete verified release. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+4. Candidate failure preserves the prior selected configuration and active release. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+5. Public-key replacement is selected only after its signed release verifies without rolling back or conflicting with the active sequence. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+6. Disabling retains verified history and schedules baked convergence without invoking user offboarding or destructive cleanup. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC6: disabling curation does not offboard users or delete cache history) -->
+
+**Constraints:**
+
+- Setup cannot infer offboarding from omitted users.
+- Production signing keys remain outside Codeflare.
+- The user-facing label is “Managed coding environment.”
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence), [REQ-SETUP-014](#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](agents.md#req-agent-148-protected-managed-release-publication)
+
+**Verification:** Automated Setup-route and transactional trust tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-014: Managed repository credential boundary
+
+**Intent:** Managed-release repository credentials remain confined to the Worker trust boundary.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Repository credentials are stored only through the existing confidential KV boundary. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+2. Prefill returns only bounded non-secret managed-environment status. <!-- @impl: src/lib/remote-curation.ts::getManagedEnvironmentPrefill --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-014 AC2: prefill returns bounded status without PAT bytes) -->
+3. Repository authorization is rejected before transmission when an asset URL does not use GitHub's API host. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC3: rejects a non-GitHub API origin before sending repository authorization) -->
+4. Release asset authorization is removed before every allowed redirect. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (downloads one exact allowed redirect without forwarding GitHub authorization) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (rejects an asset redirect outside the fixed GitHub object hosts) -->
+5. Persisted managed-release diagnostics redact repository credentials. <!-- @impl: src/lib/remote-curation.ts::safeError --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5: degraded diagnostics redact repository credentials) -->
+6. User storage receives only verified release documents, never repository credentials. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-SETUP-014 AC6: configured repository credentials never enter user-bucket writes) -->
+7. Container environments never receive managed repository credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-SETUP-014 AC7: never emits managed repository credentials into the container environment) -->
+
+**Constraints:**
+
+- Production signing credentials remain outside Codeflare.
+- Repository credentials never enter logs.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
+
+**Status:** Implemented
+
+---

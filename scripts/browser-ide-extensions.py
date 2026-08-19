@@ -13,6 +13,28 @@ import stat
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit
+
+
+_MANAGED_EXTENSION_KEYS = {
+    "id",
+    "publisher",
+    "name",
+    "version",
+    "targetPlatform",
+    "engine",
+    "entrypoint",
+    "extensionPack",
+    "extensionDependencies",
+    "size",
+    "sha256",
+    "downloadUrl",
+}
+_MANAGED_EXTENSIONS_MAX_BYTES = 256 * 1024
+_MANAGED_EXTENSION_MAX_COUNT = 20
+_MANAGED_EXTENSION_MAX_BYTES = 128 * 1024 * 1024
+_MANAGED_EXTENSIONS_AGGREGATE_BYTES = 256 * 1024 * 1024
+_COMPANY_MARKER = ".codeflare-company-extensions.json"
 
 
 class UnsafeInput(ValueError):
@@ -102,6 +124,110 @@ def _validate_manifest(value: Any, policy: dict[str, Any]) -> dict[str, Any]:
         ):
             raise UnsafeInput("invalid setting value")
     return value
+
+
+def _read_managed_extension_ids(manifest_path: Path, extensions_dir: Path, policy: dict[str, Any]) -> set[str]:
+    extension_id = re.compile(policy["extensionIdPattern"])
+    target_platform = re.compile(policy["targetPlatformPattern"])
+    sha256 = re.compile(policy["sha256Pattern"])
+    managed_path = manifest_path.with_name("managed-extensions.json")
+    active: set[str] = set()
+    if managed_path.exists() or managed_path.is_symlink():
+        managed = _read_json_file(managed_path, _MANAGED_EXTENSIONS_MAX_BYTES)
+        release = managed.get("release") if isinstance(managed, dict) else None
+        records = managed.get("extensions") if isinstance(managed, dict) else None
+        if (
+            not isinstance(managed, dict)
+            or set(managed) != {"schemaVersion", "release", "extensions"}
+            or managed.get("schemaVersion") != 1
+            or not isinstance(release, dict)
+            or set(release) != {"digest", "sequence"}
+            or not isinstance(release.get("digest"), str)
+            or not sha256.fullmatch(release["digest"])
+            or not isinstance(release.get("sequence"), int)
+            or isinstance(release["sequence"], bool)
+            or release["sequence"] <= 0
+            or not isinstance(records, list)
+            or len(records) > _MANAGED_EXTENSION_MAX_COUNT
+        ):
+            raise UnsafeInput("invalid managed extension manifest")
+        expected_release_digest = os.environ.get("REMOTE_CURATION_RELEASE_DIGEST", "")
+        if not sha256.fullmatch(expected_release_digest) or release["digest"] != expected_release_digest:
+            records = []
+        aggregate_size = 0
+        for record in records:
+            if not isinstance(record, dict) or set(record) != _MANAGED_EXTENSION_KEYS:
+                raise UnsafeInput("invalid managed extension record")
+            extension = record.get("id")
+            publisher = record.get("publisher")
+            name = record.get("name")
+            version = record.get("version")
+            platform = record.get("targetPlatform")
+            size = record.get("size")
+            digest = record.get("sha256")
+            packs = record.get("extensionPack")
+            dependencies = record.get("extensionDependencies")
+            if (
+                not isinstance(extension, str)
+                or not extension_id.fullmatch(extension)
+                or not isinstance(publisher, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,127}", publisher)
+                or not isinstance(name, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,127}", name)
+                or extension != f"{publisher}.{name}".lower()
+                or not isinstance(version, str)
+                or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,127}", version)
+                or not isinstance(platform, str)
+                or not target_platform.fullmatch(platform)
+                or not isinstance(record.get("engine"), str)
+                or not 0 < len(record["engine"]) <= 128
+                or not isinstance(record.get("entrypoint"), str)
+                or not 0 < len(record["entrypoint"]) <= 512
+                or not isinstance(packs, list)
+                or not isinstance(dependencies, list)
+                or not all(isinstance(value, str) and extension_id.fullmatch(value) for value in [*packs, *dependencies])
+                or not isinstance(size, int)
+                or isinstance(size, bool)
+                or not 0 < size <= _MANAGED_EXTENSION_MAX_BYTES
+                or not isinstance(digest, str)
+                or not sha256.fullmatch(digest)
+            ):
+                raise UnsafeInput("invalid managed extension record")
+            url = urlsplit(record.get("downloadUrl")) if isinstance(record.get("downloadUrl"), str) else None
+            expected_prefix = f"/api/{quote(publisher)}/{quote(name)}/{quote(version)}/file/"
+            if (
+                url is None
+                or url.scheme != "https"
+                or url.hostname != "open-vsx.org"
+                or url.port is not None
+                or url.username is not None
+                or url.password is not None
+                or url.query
+                or url.fragment
+                or not url.path.startswith(expected_prefix)
+                or len(url.path) <= len(expected_prefix)
+            ):
+                raise UnsafeInput("invalid managed extension URL")
+            if extension in active:
+                raise UnsafeInput("duplicate managed extension identity")
+            active.add(extension)
+            aggregate_size += size
+        if aggregate_size > _MANAGED_EXTENSIONS_AGGREGATE_BYTES:
+            raise UnsafeInput("managed extensions exceed aggregate bound")
+        for record in records:
+            if not set([*record["extensionPack"], *record["extensionDependencies"]]).issubset(active):
+                raise UnsafeInput("managed extension dependency closure is incomplete")
+
+    marker_path = extensions_dir / _COMPANY_MARKER
+    prior: set[str] = set()
+    if marker_path.exists() or marker_path.is_symlink():
+        try:
+            marker = _read_json_file(marker_path, policy["manifestMaxBytes"])
+            if isinstance(marker, list) and all(isinstance(value, str) and extension_id.fullmatch(value) for value in marker):
+                prior = set(marker)
+        except UnsafeInput:
+            pass
+    return active | prior
 
 
 def _read_registry(extensions_dir: Path, policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -220,6 +346,7 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
             if not _parent_chain_is_safe(manifest_path):
                 raise UnsafeInput("manifest parent redirects through a symlink")
             current = {"version": 1, "extensions": {}, "settings": {}}
+        company_ids = _read_managed_extension_ids(manifest_path, extensions_dir, policy)
         obsolete = _read_obsolete(extensions_dir, policy)
         present = {
             extension: record
@@ -230,12 +357,17 @@ def capture(extensions_dir: Path, manifest_path: Path, policy_path: Path) -> boo
         next_extensions: dict[str, dict[str, Any]] = {}
         warning_acknowledged = current.get("securityWarningShown") is True
         for extension, record in current["extensions"].items():
+            if extension in company_ids:
+                next_extensions[extension] = record
+                continue
             if extension in present and warning_acknowledged:
                 continue
             if not _obsolete_proves_uninstall(extension, record, obsolete):
                 next_extensions[extension] = record
         if warning_acknowledged:
             for extension, record in present.items():
+                if extension in company_ids:
+                    continue
                 previous = current["extensions"].get(extension)
                 if isinstance(previous, dict) and isinstance(previous.get("sha256"), str):
                     record = {**record, "sha256": previous["sha256"]}

@@ -12,6 +12,7 @@ import {
 
 export const MANAGED_SETTINGS_PATH = "/etc/codeflare/claude-sidebar/settings.json";
 const PROFILE_STORAGE_MAX_BYTES = 256 * 1024;
+const MANAGED_EXTENSIONS_MAX_BYTES = 256 * 1024;
 const ACCOUNTS_VISIBILITY_STORAGE_KEY = "workbench.activity.showAccounts";
 
 export const SIDEBAR_LINK_ALLOWLIST = Object.freeze([
@@ -71,7 +72,51 @@ export async function prepareOfficialClaudeIde(options) {
   const existing = await lstatOrUndefined(targetRoot);
   if (existing) await validatePreparedSidebarConfig(targetRoot);
   else await prepareSidebarConfig({ sourceRoot, targetRoot });
-  await prepareOpenVscodeSettings({ serverDataRoot, claudeConfigRoot: targetRoot });
+  await prepareOpenVscodeSettings({
+    serverDataRoot,
+    claudeConfigRoot: targetRoot,
+    managedExtensionsPath: options?.managedExtensionsPath,
+  });
+}
+
+async function loadManagedExtensions(managedExtensionsPath, managedReleaseDigest) {
+  const expectedDigest = managedReleaseDigest ?? process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  if (!/^[0-9a-f]{64}$/.test(expectedDigest ?? '')) return [];
+  try {
+    const path = managedExtensionsPath === undefined
+      ? resolve(process.env.HOME ?? "/home/user", ".codeflare", "managed-extensions.json")
+      : validateRoot(managedExtensionsPath, "managed extensions");
+    const info = await lstatOrUndefined(path);
+    if (!info) return [];
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > MANAGED_EXTENSIONS_MAX_BYTES) {
+      throw new Error("managed extensions must be a bounded real file");
+    }
+    const bytes = await readFile(path);
+    if (bytes.length > MANAGED_EXTENSIONS_MAX_BYTES) throw new Error("managed extensions exceed their bound");
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    if (
+      !parsed
+      || typeof parsed !== "object"
+      || Array.isArray(parsed)
+      || Object.keys(parsed).sort().join(",") !== "extensions,release,schemaVersion"
+      || parsed.schemaVersion !== 1
+      || !parsed.release
+      || typeof parsed.release !== "object"
+      || Array.isArray(parsed.release)
+      || Object.keys(parsed.release).sort().join(",") !== "digest,sequence"
+      || !/^[0-9a-f]{64}$/.test(parsed.release.digest)
+      || parsed.release.digest !== expectedDigest
+      || !Number.isSafeInteger(parsed.release.sequence)
+      || parsed.release.sequence <= 0
+      || !Array.isArray(parsed.extensions)
+    ) {
+      throw new Error("managed extensions manifest is invalid");
+    }
+    return parsed.extensions;
+  } catch {
+    console.error("[openvscode] Ignoring invalid managed extension manifest; using baseline extension allowance");
+    return [];
+  }
 }
 
 async function writeOpenVscodeUserSettings(serverDataRoot, settings) {
@@ -166,19 +211,22 @@ async function writeOpenVscodeProfileState(serverDataRoot) {
 export async function prepareOpenVscodeSettings(options) {
   const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
   const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
-  await writeOpenVscodeUserSettings(serverDataRoot, buildOpenVscodeSettings(claudeConfigRoot));
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  await writeOpenVscodeUserSettings(serverDataRoot, buildOpenVscodeSettings(claudeConfigRoot, managedExtensions));
 }
 
 // Seed the kind-independent base settings for the pi and none inventories,
 // which have no Claude config projection. REQ-IDE-009.
-export async function prepareBaseOpenVscodeSettings(serverDataRoot) {
+export async function prepareBaseOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
-  await writeOpenVscodeUserSettings(root, buildPiOpenVscodeSettings());
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  await writeOpenVscodeUserSettings(root, buildPiOpenVscodeSettings(managedExtensions));
 }
 
-export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot) {
+export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
-  await writeOpenVscodeUserSettings(root, buildUnsupportedOpenVscodeSettings());
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  await writeOpenVscodeUserSettings(root, buildUnsupportedOpenVscodeSettings(managedExtensions));
 }
 
 async function validatePreparedSidebarConfig(targetRoot) {

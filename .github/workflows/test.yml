@@ -195,6 +195,14 @@ jobs:
               - 'host/**'
               - 'preseed/**'
               - 'scripts/browser-ide-ui-state.py'
+              # Shared seed compiler and release-contract behavior is exercised
+              # by host/__tests__/agent-seed-{core,release}.test.js.
+              - 'scripts/agent-seed-core.mjs'
+              - 'scripts/agent-seed-core.d.mts'
+              - 'scripts/agent-seed-release.mjs'
+              - 'scripts/agent-seed-release.d.mts'
+              - 'scripts/agent-seed-release-limits.mjs'
+              - 'scripts/agent-seed-release-limits.d.mts'
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'

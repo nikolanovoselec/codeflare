@@ -28,6 +28,8 @@ export interface ContainerEnvState {
   _strictEgress?: boolean;
   /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C is disabled. Emits R2_SSE_DISABLED so entrypoint.sh drops SSE-C from rclone.conf + enables checksums. */
   _r2SseDisabled?: boolean;
+  _remoteCurationActive?: boolean;
+  _remoteCurationReleaseDigest?: string | null;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -80,6 +82,8 @@ interface RestartPrefsInput {
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode regime, re-sent each start (read fresh from the bucket marker). */
   r2SseDisabled?: boolean;
+  remoteCurationActive?: boolean;
+  remoteCurationReleaseDigest?: string | null;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
@@ -107,6 +111,8 @@ export interface SetBucketNameCreds {
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode regime forwarded from /start. */
   r2SseDisabled?: boolean;
+  remoteCurationActive?: boolean;
+  remoteCurationReleaseDigest?: string | null;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
@@ -262,6 +268,11 @@ export function buildEnvVars(
     // checksums (R2 default at-rest encryption keeps usable MD5 ETags). Emitted only
     // when active so a non-Governed container's env is byte-identical to today.
     ...(state._r2SseDisabled && { R2_SSE_DISABLED: 'true' }),
+    // One transport boolean owns both image-authoritative entrypoint skips.
+    ...(state._remoteCurationActive && { REMOTE_CURATION_ACTIVE: 'true' }),
+    ...(state._remoteCurationActive && state._remoteCurationReleaseDigest && {
+      REMOTE_CURATION_RELEASE_DIGEST: state._remoteCurationReleaseDigest,
+    }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
@@ -381,6 +392,13 @@ export async function applyBucketName(
   // REQ-ENTERPRISE-018: Governed Mode regime (re-sent each start). Default false
   // (SSE-C on) when omitted, so a non-Governed container is byte-identical to today.
   state._r2SseDisabled = r2Creds?.r2SseDisabled === true;
+  state._remoteCurationActive = r2Creds?.remoteCurationActive === true;
+  const remoteCurationReleaseDigest = r2Creds?.remoteCurationReleaseDigest;
+  state._remoteCurationReleaseDigest = state._remoteCurationActive
+    && typeof remoteCurationReleaseDigest === 'string'
+    && /^[0-9a-f]{64}$/.test(remoteCurationReleaseDigest)
+    ? remoteCurationReleaseDigest
+    : null;
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
@@ -527,6 +545,19 @@ export async function applyPrefsOnRestart(
   if (typeof input.r2SseDisabled === 'boolean' && input.r2SseDisabled !== (state._r2SseDisabled === true)) {
     state._r2SseDisabled = input.r2SseDisabled;
     changed = true;
+  }
+  if (typeof input.remoteCurationActive === 'boolean' && input.remoteCurationActive !== (state._remoteCurationActive === true)) {
+    state._remoteCurationActive = input.remoteCurationActive;
+    changed = true;
+  }
+  if (input.remoteCurationReleaseDigest !== undefined) {
+    const digest = input.remoteCurationActive === true && /^[0-9a-f]{64}$/.test(input.remoteCurationReleaseDigest ?? '')
+      ? input.remoteCurationReleaseDigest
+      : null;
+    if (digest !== (state._remoteCurationReleaseDigest ?? null)) {
+      state._remoteCurationReleaseDigest = digest;
+      changed = true;
+    }
   }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;

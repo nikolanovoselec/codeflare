@@ -4,6 +4,8 @@
  * (setup-prefill.ts) can type against the state without importing the store.
  */
 export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ManagedEnvironmentFreshness = 'unconfigured' | 'disabled' | 'fresh' | 'stale' | 'degraded';
+export type ManagedEnvironmentPatExpiryState = 'unknown' | 'valid' | 'expiring' | 'expired';
 
 /** Per-group routing entry (REQ-ENTERPRISE-013). */
 export interface GroupRouting {
@@ -92,6 +94,23 @@ export interface SetupState {
   cloudflareOauthClientId: string;
   cloudflareOauthClientSecret: string;
   cloudflareOauthClientSecretSet: boolean;
+  // Deployment-level managed coding environment (all modes). Secrets are write-only:
+  // the PAT field holds only a freshly typed replacement and is blank after prefill.
+  managedEnvironmentEnabled: boolean;
+  managedEnvironmentConfigured: boolean;
+  managedEnvironmentTouched: boolean;
+  managedEnvironmentRepository: string;
+  managedEnvironmentPersonalAccessToken: string;
+  managedEnvironmentPersonalAccessTokenSet: boolean;
+  managedEnvironmentPublicKey: string;
+  managedEnvironmentPublicKeyFingerprint: string;
+  managedEnvironmentActiveReleaseTag: string;
+  managedEnvironmentActiveSequence: number | null;
+  managedEnvironmentActiveDigestPrefix: string;
+  managedEnvironmentFreshness: ManagedEnvironmentFreshness;
+  managedEnvironmentLastCheckedAt: string;
+  managedEnvironmentPatExpiryState: ManagedEnvironmentPatExpiryState;
+  managedEnvironmentLastError: string;
   // REQ-ENTERPRISE-013: per-group routing, keyed by Access group name.
   groupRouting: Record<string, GroupRouting>;
 }

@@ -55,6 +55,16 @@ vi.mock('../../lib/migration-containers', () => ({
   hasHealthyContainer: vi.fn(async () => false),
   drainContainers: vi.fn(async () => {}),
 }));
+const managedReleaseState = vi.hoisted(() => ({
+  active: null as null | { digest: string; pointer: { sequence: number } },
+  error: null as Error | null,
+}));
+vi.mock('../../lib/managed-release-active', () => ({
+  getActiveManagedRelease: vi.fn(async () => {
+    if (managedReleaseState.error) throw managedReleaseState.error;
+    return managedReleaseState.active;
+  }),
+}));
 
 import lifecycleRoutes from '../../routes/session/lifecycle';
 import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
@@ -68,6 +78,8 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     // assertions are unaffected; the Governed Mode block overrides these per test.
     vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as never, migrating: false, pending: false });
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
+    managedReleaseState.active = null;
+    managedReleaseState.error = null;
   });
 
   function createApp(envOverrides: Partial<Env> = {}) {
@@ -78,7 +90,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   }
 
-  function makeSession(id: string, status: 'running' | 'stopped', overrides: Partial<Session> = {}): Session {
+  function makeSession(id: string, status: Session['status'], overrides: Partial<Session> = {}): Session {
     return {
       id,
       name: `Session ${id}`,
@@ -391,6 +403,83 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };
       expect(body.preseedNeedsUpgrade).toBeUndefined();
+    });
+
+    it('REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      const running = makeSession('aabbccdd11223344', 'running');
+      mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      const session = makeSession('aabbccdd11223344', 'stopped');
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, {
+        ...buildSessionMetadata(session),
+        s: 'i',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('blocks New Session when enabled curation is unavailable and no release was previously applied', async () => {
+      managedReleaseState.error = new Error('verified cache unavailable');
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('reports the last applied verified release as current during a transient cache outage', async () => {
+      managedReleaseState.error = new Error('verified cache unavailable');
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('current');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode', async () => {
+      managedReleaseState.error = new Error('verified cache unavailable');
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      const res = await createApp({ ENTERPRISE_MODE: 'active' }).request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('reports current only when both the active digest and resolved mode match applied state', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('current');
+      expect(body.preseedNeedsUpgrade).toBe(false);
     });
   });
 

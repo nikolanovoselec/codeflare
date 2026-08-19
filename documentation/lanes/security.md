@@ -215,6 +215,16 @@ Per-user session admission is best effort: KV counting and the later running wri
 
 Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. Workflow procedure belongs to [CI/CD](ci-cd.md).
 
+### Managed curation signing and repository credentials
+
+The private curation build job is read-only. Only its publication job receives release-write permission, and only its signing step receives the Ed25519 private PEM, scoped to the dedicated `managed-seed-production` GitHub environment. Approval rules on that environment are deployment configuration, so the workflow does not assume they are present. Production workflow acceptance is defined by [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication).
+
+The matching raw 64-hex public key is non-secret verification material. Codeflare Setup stores only that public key and an AES-256-GCM-encrypted repository-scoped read PAT. A replacement key is selected only after its signed release verifies without rolling back or conflicting with the active sequence; failure preserves the prior trust boundary. Neither value enters a user bucket or container. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
+
+The Worker strips GitHub authorization before the single allowlisted asset redirect, verifies immutable GitHub asset digests before signature validation, and accepts company-extension metadata in the Browser IDE only when its release digest matches the Worker-applied digest transported to that container. Registry ID/version/platform metadata is not treated as byte identity: each active company requirement is reinstalled from its exact signed size- and SHA-256-verified VSIX, and temporary bytes are deleted. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions -->
+
+Under [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), removed company IDs are uninstalled before personal restoration; failures remain company-protected, are reported, and retry later. Fresh users fail closed when enabled curation has no verified cache; already-applied users may continue from their last verified state during a transient outage. <!-- @impl: src/routes/container/lifecycle.ts::default --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence -->
+
 <a id="container-image-scanning-req-sec-011"></a>
 ### Container image vulnerability gate
 

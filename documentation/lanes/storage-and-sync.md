@@ -39,6 +39,12 @@ Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. 
 
 **Tier config merge:** `getTierConfig()` merges stored KV tiers with hardcoded defaults via `{ ...default, ...stored }`. New fields (like `maxStorageBytes`) backfill from defaults even when KV was saved before the field existed. Admin-saved values always take priority. The admin `PUT /api/admin/tiers` Zod schema includes `maxStorageBytes` so it persists on save.
 
+### Managed release cache and user reconciliation
+
+Managed curation uses one deterministic deployment-level R2 bucket, separate from every user bucket. Signed immutable assets are content-addressed under `releases/<bundle-sha256>/`; repository-and-key trust boundaries select them through `configs/<configuration-fingerprint>/active.json` with conditional create/update semantics. User reconciliation reads only this verified cache and never GitHub. <!-- @impl: src/lib/remote-curation-cache.ts::createR2ManagedReleaseCache -->
+
+A user's applied digest, sequence, and mode live in preferences. The existing dashboard check reports upgrading or update pending. The existing agent-config route writes mode documents and `.codeflare/managed-extensions.json` with bounded R2 concurrency, deletes prior-owned obsolete paths only when provenance still matches, applies signed retirements only to objects that retain a Codeflare ownership marker, reconciles image-owned context-mode separately, and stamps applied state last. No user bucket is mutated while any session for that user runs. Company VSIX bytes are downloaded only inside the session and never stored in R2. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::default -->
+
 ### Why rclone bisync (Not s3fs)
 
 s3fs FUSE: every file op = network call (~340ms PUT, ~50ms HEAD), fragile on network hiccups, "Socket not connected" errors.

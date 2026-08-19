@@ -9,7 +9,7 @@ import { getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
-import { setupRateLimiter, logger, getWorkerNameFromHostname, upsertStep } from './shared';
+import { setupRateLimiter, logger, getWorkerNameFromHostname, upsertStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 import { handleGetAccount } from './account';
 import { handleDeriveR2Credentials } from './credentials';
@@ -20,6 +20,7 @@ import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from '../../lib/onboarding';
 import { isEnterpriseMode } from '../../lib/subscription';
+import { configureManagedEnvironment } from '../../lib/remote-curation';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -100,6 +101,23 @@ const ConfigureBodySchema = z.object({
   // save ⇒ keep the stored secret). Mirrors the GitHub OAuth provider fields.
   cloudflareOauthClientId: z.string().max(256).optional(),
   cloudflareOauthClientSecret: z.string().max(512).optional(),
+  // Deployment-level and available in every mode. Empty secret/key values on an
+  // enabled reconfigure preserve the selected encrypted trust configuration.
+  managedEnvironment: z.discriminatedUnion('enabled', [
+    z.object({ enabled: z.literal(false) }).strict(),
+    z.object({
+      enabled: z.literal(true),
+      repository: z.string().max(256).refine(
+        (value) => value.trim() === '' || /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(value.trim()),
+        'Managed coding environment repository must use owner/name format',
+      ),
+      personalAccessToken: z.string().max(2_048),
+      publicKey: z.string().refine(
+        (value) => value.trim() === '' || /^[0-9a-f]{64}$/.test(value.trim()),
+        'Managed coding environment public key must be 64 lowercase hex characters',
+      ),
+    }).strict(),
+  ]).optional(),
   // REQ-ENTERPRISE-013 (enterprise-only): per-group routing. Keyed by Access group
   // name -> { routes (subset of dynamicRoutes), defaultRoute (∈ that group's routes),
   // reasoning }. Absent ⇒ the global catalog applies to everyone (unchanged behavior).
@@ -206,7 +224,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   if (isEnterpriseMode(c.env) && activeAgents?.some((agent) => !installedAgents(c.env).includes(agent))) {
@@ -247,6 +265,9 @@ app.post('/configure', async (c) => {
     if (!(await getOrImportKey(c.env))) {
       throw new ValidationError('ENCRYPTION_KEY must be configured before storing a client secret');
     }
+  }
+  if (managedEnvironment?.enabled && !(await getOrImportKey(c.env))) {
+    throw new ValidationError('ENCRYPTION_KEY must be configured before storing the managed repository PAT');
   }
 
   const { readable, writable } = new TransformStream();
@@ -313,6 +334,25 @@ app.post('/configure', async (c) => {
       await runStep('set_secrets', (operationSteps) =>
         handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, operationSteps, workerName)
       );
+
+      // Prime the candidate cache namespace before committing its selected trust
+      // configuration. The derived credentials are passed directly because newly
+      // written Worker secrets are not guaranteed to be visible in this request.
+      if (managedEnvironment !== undefined) {
+        await runStep('configure_managed_environment', async () => {
+          await withSetupRetry(() => configureManagedEnvironment({
+            env: c.env,
+            accountId,
+            workerName,
+            endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+            r2Credentials: {
+              R2_ACCESS_KEY_ID: r2AccessKeyId,
+              R2_SECRET_ACCESS_KEY: r2SecretAccessKey,
+            },
+            request: managedEnvironment,
+          }), 'managedEnvironment');
+        });
+      }
 
       // Normalize and deduplicate emails before any KV operations
       const normalizedAllowed = [...new Set(allowedUsers.map(e => e.trim().toLowerCase()))];

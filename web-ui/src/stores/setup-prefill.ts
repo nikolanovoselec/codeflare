@@ -20,6 +20,25 @@ function applyProviderPrefill(s: SetupState, prefill: SetupPrefill): void {
   s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
   s.cloudflareOauthClientId = prefill.cloudflareOauthClientId;
   s.cloudflareOauthClientSecretSet = prefill.cloudflareOauthClientSecretSet;
+
+  const managed = prefill.managedEnvironment;
+  s.managedEnvironmentEnabled = managed.enabled;
+  s.managedEnvironmentConfigured = managed.configured;
+  s.managedEnvironmentTouched = false;
+  s.managedEnvironmentRepository = managed.repository;
+  s.managedEnvironmentPersonalAccessToken = '';
+  s.managedEnvironmentPersonalAccessTokenSet = managed.personalAccessTokenSet;
+  // The signing key is also write-only on prefill; its fingerprint tells the
+  // administrator what remains selected while blank preserves it on save.
+  s.managedEnvironmentPublicKey = '';
+  s.managedEnvironmentPublicKeyFingerprint = managed.publicKeyFingerprint;
+  s.managedEnvironmentActiveReleaseTag = managed.activeReleaseTag ?? '';
+  s.managedEnvironmentActiveSequence = managed.activeSequence ?? null;
+  s.managedEnvironmentActiveDigestPrefix = managed.activeDigestPrefix ?? '';
+  s.managedEnvironmentFreshness = managed.freshness;
+  s.managedEnvironmentLastCheckedAt = managed.lastCheckedAt ?? '';
+  s.managedEnvironmentPatExpiryState = managed.patExpiryState;
+  s.managedEnvironmentLastError = managed.lastError ?? '';
 }
 
 /** Enterprise + gateway config shared by the enterprise-reconfig and initial paths. */

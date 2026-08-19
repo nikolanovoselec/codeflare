@@ -119,3 +119,21 @@ test("REQ-IDE-040 AC1: every inventory applies the managed user-extension allowa
   assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config")["extensions.allowed"], expected);
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("extensions.allowed"), true);
 });
+
+test("REQ-IDE-042 AC2: company extension identities extend the personal allowance map", () => {
+  const company = [
+    { id: "cherrymarkdownpublisher.cherry-markdown" },
+    { id: "acme.review-tools" },
+  ];
+  const expected = {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+    "acme.review-tools": true,
+    "cherrymarkdownpublisher.cherry-markdown": true,
+  };
+
+  assert.deepEqual(buildBaseOpenVscodeSettings(company)["extensions.allowed"], expected);
+  assert.deepEqual(buildPiOpenVscodeSettings(company)["extensions.allowed"], expected);
+  assert.deepEqual(buildUnsupportedOpenVscodeSettings(company)["extensions.allowed"], expected);
+  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", company)["extensions.allowed"], expected);
+});

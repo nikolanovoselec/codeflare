@@ -9,7 +9,7 @@ import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mo
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, BucketMigratingError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getTierConfig, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
@@ -26,6 +26,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
+import { getActiveManagedRelease } from '../../lib/managed-release-active';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -177,6 +178,34 @@ app.post('/start', containerStartRateLimiter, async (c) => {
   try {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
+    const user = c.get('user');
+    const preferencesKey = getPreferencesKey(bucketName);
+    const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
+    const expectedMode = resolveSessionMode(preferences, c.env);
+    let remoteCurationActive = false;
+    let remoteCurationReleaseDigest: string | undefined;
+    try {
+      const activeManagedRelease = await getActiveManagedRelease(c.env);
+      const applied = preferences.managedEnvironmentApplied;
+      const mismatch = activeManagedRelease
+        ? applied?.digest !== activeManagedRelease.digest
+          || applied.mode !== expectedMode
+          || applied.sequence !== activeManagedRelease.pointer.sequence
+        : applied !== undefined;
+      if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
+      remoteCurationActive = activeManagedRelease !== null;
+      remoteCurationReleaseDigest = activeManagedRelease?.digest;
+    } catch (error) {
+      if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
+      // A transient deployment-cache read failure may continue only from a
+      // previously applied verified release. A fresh bucket has no trustworthy
+      // managed state and must remain behind the same typed update gate.
+      if (!preferences.managedEnvironmentApplied || preferences.managedEnvironmentApplied.mode !== expectedMode) {
+        throw new ManagedEnvironmentUpdatePendingError();
+      }
+      remoteCurationActive = true;
+      remoteCurationReleaseDigest = preferences.managedEnvironmentApplied.digest;
+    }
 
     // REQ-ENTERPRISE-020: refuse to start a container while the bucket is migrating its
     // encryption regime. A container bakes the bucket's SSE-C regime at boot and its rclone
@@ -186,7 +215,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       throw new BucketMigratingError();
     }
 
-    const user = c.get('user');
     const maxSessions = getMaxSessions(user.role, c.env);
 
     // Step 1: Validate session and check limits (including usage quota)
@@ -207,8 +235,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
 
     const containerId = getContainerId(bucketName, sessionId);
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
-    const preferencesKey = getPreferencesKey(bucketName);
-    const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     let sessionMode = resolveSessionMode(preferences, c.env);
@@ -308,6 +334,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       encryptionKey: c.env.ENCRYPTION_KEY,
       // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).
       r2SseDisabled,
+      remoteCurationActive,
+      remoteCurationReleaseDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured

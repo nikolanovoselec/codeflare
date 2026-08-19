@@ -284,6 +284,13 @@ export interface UserPreferences {
   userTimezone?: string;
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
+  /** Last verified managed release fully reconciled into this user's bucket. */
+  managedEnvironmentApplied?: {
+    digest: string;
+    sequence: number;
+    mode: SessionMode;
+    appliedAt: string;
+  };
   /**
    * REQ-ENTERPRISE-020: DEPRECATED legacy per-bucket R2 encryption regime marker.
    * Superseded by the `r2-regime:<bucket>` state object (src/lib/r2-regime-state.ts), which a
@@ -386,6 +393,10 @@ export interface ContainerConfigPayload {
    * regime, resolved by ensureBucketAndSeed after migration. Forwarded to the
    * container so entrypoint.sh drops SSE-C from rclone.conf and enables checksums. */
   r2SseDisabled?: boolean;
+  /** True only when this bucket has fully applied the active verified managed release. */
+  remoteCurationActive?: boolean;
+  /** Digest that binds restored company-extension metadata to that applied release. */
+  remoteCurationReleaseDigest?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

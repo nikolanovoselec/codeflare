@@ -37,7 +37,7 @@ function capture(extensionsDir, manifest) {
     '--extensions-dir', extensionsDir,
     '--manifest', manifest,
     '--policy', POLICY,
-  ]);
+  ], { env: { ...process.env, REMOTE_CURATION_RELEASE_DIGEST: 'a'.repeat(64) } });
 }
 
 function manifest(extensionEntries = {}, settings = {}) {
@@ -46,6 +46,32 @@ function manifest(extensionEntries = {}, settings = {}) {
     securityWarningShown: true,
     extensions: extensionEntries,
     settings,
+  };
+}
+
+function managedExtension(id, version) {
+  const [publisher, name] = id.split('.');
+  return {
+    id,
+    publisher,
+    name,
+    version,
+    targetPlatform: 'universal',
+    engine: '^1.109.0',
+    entrypoint: './dist/extension.js',
+    extensionPack: [],
+    extensionDependencies: [],
+    size: 2578697,
+    sha256: '7363ae578eeaedf124ba6676accb86a565b4e9f82f80eeeba8f104f72d74fb69',
+    downloadUrl: `https://open-vsx.org/api/${publisher}/${name}/${version}/file/${publisher}.${name}-${version}.vsix`,
+  };
+}
+
+function managedManifest(extensions) {
+  return {
+    schemaVersion: 1,
+    release: { digest: 'a'.repeat(64), sequence: 7 },
+    extensions,
   };
 }
 
@@ -147,6 +173,40 @@ test('REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchange
 
   assert.equal(lstatSync(manifestPath).isSymbolicLink(), true);
   assert.equal(readFileSync(target, 'utf8'), original);
+});
+
+test('REQ-IDE-042 AC5: generation-reap capture preserves prior intent but never creates it solely from company installs', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const companyId = 'cherrymarkdownpublisher.cherry-markdown';
+  const company = managedExtension(companyId, '0.3.1081718');
+  const managedPath = join(manifestPath, '..', 'managed-extensions.json');
+  writeFileSync(managedPath, JSON.stringify(managedManifest([company])));
+  writeFileSync(manifestPath, JSON.stringify(manifest({
+    [companyId]: { version: '0.2.0', targetPlatform: 'universal' },
+  })));
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
+    registryEntry(companyId, company.version),
+    registryEntry('acme.company-only', '1.0.0'),
+  ]));
+  writeFileSync(managedPath, JSON.stringify(managedManifest([
+    company,
+    managedExtension('acme.company-only', '1.0.0'),
+  ])));
+
+  capture(extensionsDir, manifestPath);
+
+  let captured = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  assert.deepEqual(captured.extensions, {
+    [companyId]: { version: '0.2.0', targetPlatform: 'universal' },
+  });
+
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([companyId, 'acme.company-only']));
+  rmSync(managedPath);
+  capture(extensionsDir, manifestPath);
+  captured = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  assert.deepEqual(captured.extensions, {
+    [companyId]: { version: '0.2.0', targetPlatform: 'universal' },
+  });
 });
 
 test('REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement', () => {
