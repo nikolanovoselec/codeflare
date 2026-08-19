@@ -125,6 +125,44 @@ describe('managed coding-environment release verification', () => {
     expect(streamed).toEqual(documents.map((document) => ({ ...document, modes: [...document.modes] })));
   });
 
+  it('REQ-AGENT-151 AC4: applies backpressure after six pending document callbacks', async () => {
+    const documentCount = 20;
+    const fixture = await signedFixture(release({
+      documents: Array.from({ length: documentCount }, (_, index) => ({
+        key: `.claude/rules/${String(index).padStart(2, '0')}.md`,
+        contentType: 'text/markdown; charset=utf-8',
+        content: `# Rule ${index}`,
+        modes: ['advanced'],
+      })),
+    }));
+    let releaseCallbacks: (() => void) | undefined;
+    const callbacksReleased = new Promise<void>((resolve) => { releaseCallbacks = resolve; });
+    let reachedConcurrencyLimit: (() => void) | undefined;
+    const concurrencyLimitReached = new Promise<void>((resolve) => { reachedConcurrencyLimit = resolve; });
+    let started = 0;
+    let active = 0;
+    let peak = 0;
+
+    const streaming = streamManagedReleaseDocuments(fixture.compressed, async () => {
+      started += 1;
+      active += 1;
+      peak = Math.max(peak, active);
+      if (started === 6) reachedConcurrencyLimit?.();
+      await callbacksReleased;
+      active -= 1;
+    });
+
+    await concurrencyLimitReached;
+    await Promise.resolve();
+    expect(started).toBe(6);
+    expect(peak).toBe(6);
+
+    releaseCallbacks?.();
+    await streaming;
+    expect(started).toBe(documentCount);
+    expect(active).toBe(0);
+  });
+
   it('REQ-AGENT-151 AC2: aborts gzip expansion at the shared expanded-byte limit', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const compressed = await gzipBytes(encoder.encode(' '.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));

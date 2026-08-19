@@ -171,6 +171,8 @@ interface DeferredManagedReleaseActivation {
   patExpiresAt?: string;
 }
 
+const MAX_SELECTION_REPAIR_ATTEMPTS = 4;
+
 function bytesFromHex(value: string, expectedBytes: number, label: string): Uint8Array {
   if (!new RegExp(`^[0-9a-f]{${expectedBytes * 2}}$`).test(value)) {
     throw new Error(`${label} must be ${expectedBytes * 2} lowercase hex characters`);
@@ -1072,7 +1074,7 @@ export async function configureManagedEnvironment(input: {
         : commitPriorConfigRaw;
 
       let expectedRaw: string | null = selectedCandidateRaw;
-      while (true) {
+      for (let attempt = 0; attempt < MAX_SELECTION_REPAIR_ATTEMPTS; attempt += 1) {
         const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
         if (selectedRaw !== expectedRaw) return;
 
@@ -1085,6 +1087,7 @@ export async function configureManagedEnvironment(input: {
         if (authoritativeRaw(confirmed?.pointer) === replacementRaw) return;
         expectedRaw = replacementRaw;
       }
+      throw new Error('Managed coding environment selection repair did not converge');
     };
     try {
       await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
@@ -1098,7 +1101,10 @@ export async function configureManagedEnvironment(input: {
     } catch (error) {
       try {
         await restoreTentativeSelection();
-      } catch {
+      } catch (restoreError) {
+        if (restoreError instanceof Error && restoreError.message.includes('selection repair did not converge')) {
+          throw restoreError;
+        }
         throw new Error('Managed coding environment reconfiguration failed and prior KV state could not be restored');
       }
       throw error;
