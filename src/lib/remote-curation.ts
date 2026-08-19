@@ -447,7 +447,9 @@ export async function parseManagedReleaseStream(
   const flushDocuments = async (): Promise<void> => {
     if (!onDocument) return;
     while (documentQueue.length > 0) {
-      await waitForDocumentSlot();
+      if (inFlightDocuments.size >= RELEASE_STREAM_WRITE_CONCURRENCY) {
+        await waitForDocumentSlot();
+      }
       scheduleDocument(documentQueue.shift()!);
     }
   };
