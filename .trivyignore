@@ -713,3 +713,22 @@ CVE-2026-13311
 # CLI with no listening gRPC/xDS server. apt re-resolves gh on every deploy,
 # entry drops once Debian ships a rebuilt gh:
 GHSA-hrxh-6v49-42gf
+
+# golang.org/x/mod v0.37.0 vendored in the apt-distributed gh binary — two Go
+# module supply-chain verification flaws, both fixed in x/mod 0.40.0:
+#
+# CVE-2026-56864 (GO-2026-6180): sumdb Client.Lookup accepted unrelated,
+# unauthenticated hashes, so a malicious GOSUMDB could serve arbitrary module
+# content not contained within the transparency log.
+# CVE-2026-56865 (GO-2026-6179): sumdb/tlog tileHashReader.ReadHashes did not
+# verify tiles against their parents, so a malicious GOPROXY could forge up to
+# two tiles, bypass the GOSUMDB check, and persist attacker-controlled module
+# content into a local Go module cache.
+#
+# Both reach only the Go module download/verification path (GOPROXY/GOSUMDB
+# during `go mod`). gh is a GitHub API client that never downloads or verifies
+# Go modules at runtime, so neither Client.Lookup nor tileHashReader.ReadHashes
+# is reachable in the shipped binary. apt re-resolves gh on every deploy, entry
+# drops once Debian ships a gh rebuilt against x/mod 0.40.0:
+CVE-2026-56864
+CVE-2026-56865
