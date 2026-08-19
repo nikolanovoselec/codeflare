@@ -97,6 +97,7 @@ describe('Session Store', () => {
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
     sessionStore._resetMissCounters();
     sessionStore._resetAuthExpired();
+    sessionStore._resetManagedCheckState();
   });
 
   afterEach(() => {
@@ -505,9 +506,6 @@ describe('Session Store', () => {
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      // The window stamp is module-level while useFakeTimers resets the clock to the same
-      // base each test, so advance well past any stamp an earlier test could have left.
-      vi.advanceTimersByTime(60 * 60 * 1000);
       mockGetBatchSessionStatus.mockClear();
       mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
 

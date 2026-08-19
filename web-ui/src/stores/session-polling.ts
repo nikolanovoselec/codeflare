@@ -132,6 +132,12 @@ let lastManagedCheckAt = 0;
 // settle would let the next poll re-probe while another is still in flight.
 let managedChecksInFlight = 0;
 
+/** Test-only: clear the module-level probe window and in-flight count between cases. */
+export function resetManagedCheckState(): void {
+  lastManagedCheckAt = 0;
+  managedChecksInFlight = 0;
+}
+
 /** Issue the batch-status call, counting an outstanding managed-release probe. */
 async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
   if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck });

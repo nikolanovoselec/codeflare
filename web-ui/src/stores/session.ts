@@ -47,6 +47,7 @@ import {
   stopSessionListPolling,
   markSessionStarted,
   clearSessionStartedGuard,
+  resetManagedCheckState,
 } from './session-polling';
 
 // Re-export usage functions so existing consumers keep working
@@ -665,4 +666,5 @@ export const sessionStore = {
   refreshSessionStatuses,
   _resetMissCounters: () => sessionMissCounters.clear(),
   _resetAuthExpired: () => setAuthExpired(false),
+  _resetManagedCheckState: () => resetManagedCheckState(),
 };
