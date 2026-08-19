@@ -3946,12 +3946,15 @@ None.
 **Acceptance Criteria:**
 
 1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
-2. Production signing requires reviewer approval, the configured active public key, exact draft asset identities and digests, and immutable publication. <!-- @manual: Inspect the protected production environment and first immutable release before enabling Setup. -->
+2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
+3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
+4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
 
 **Constraints:**
 
 - The private signing key remains outside Codeflare and user storage.
 - Rollback publishes a higher immutable sequence rather than mutating history.
+- Production signing runs only in the protected `managed-seed-production` deployment environment, under whatever approval policy that environment is configured to enforce.
 
 **Priority:** P1
 
@@ -3959,7 +3962,7 @@ None.
 
 **Verification:** Automated deterministic-byte test and protected-environment acceptance
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

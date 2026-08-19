@@ -217,7 +217,7 @@ Governed dependencies/actions/images are pinned through their owning lock/manife
 
 ### Managed curation signing and repository credentials
 
-The private curation build job is read-only. Only its reviewer-protected publication job receives release-write permission, and only its signing step receives the Ed25519 private PEM from the protected GitHub environment. Production workflow acceptance is defined by [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication).
+The private curation build job is read-only. Only its publication job receives release-write permission, and only its signing step receives the Ed25519 private PEM, scoped to the dedicated `managed-seed-production` GitHub environment. Approval rules on that environment are deployment configuration, so the workflow does not assume they are present. Production workflow acceptance is defined by [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication).
 
 The matching raw 64-hex public key is non-secret verification material. Codeflare Setup stores only that public key and an AES-256-GCM-encrypted repository-scoped read PAT. A replacement key is selected only after its signed release verifies without rolling back or conflicting with the active sequence; failure preserves the prior trust boundary. Neither value enters a user bucket or container. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
