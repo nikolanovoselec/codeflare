@@ -742,9 +742,6 @@ export async function configureManagedEnvironment(input: {
   const publicKeyHex = input.request.publicKey?.trim() || existing?.publicKeyHex;
   if (!repository) throw new ValidationError('Managed coding environment repository is required when enabled');
   if (!publicKeyHex) throw new ValidationError('Managed coding environment Ed25519 public key is required when enabled');
-  if (existing && existing.publicKeyHex !== publicKeyHex) {
-    throw new ValidationError('Managed coding environment public key cannot be changed after initial configuration');
-  }
   bytesFromHex(publicKeyHex, 32, 'Ed25519 public key');
 
   const existingPat = existing

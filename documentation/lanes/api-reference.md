@@ -337,7 +337,7 @@ Validation rules (enforced by Zod before streaming starts):
 - `allowedOrigins` -- optional array of domain suffix patterns (each must start with `.`).
 - `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, a repository-scoped read PAT, and a raw lowercase 64-hex Ed25519 public key.
 
-The PAT and public key are required on first configuration. Blank values preserve the selected encrypted boundary during reconfiguration; the configured public key cannot be replaced.
+The PAT and public key are required on first configuration. Blank values preserve the selected encrypted boundary during reconfiguration. A replacement public key is selected only after the latest immutable release verifies with it.
 
 The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
 

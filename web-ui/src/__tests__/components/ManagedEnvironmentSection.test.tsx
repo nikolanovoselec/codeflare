@@ -5,7 +5,7 @@ import ManagedEnvironmentSection from '../../components/setup/ManagedEnvironment
 afterEach(cleanup);
 
 describe('Managed coding environment Setup section', () => {
-  it('routes mutable trust inputs without exposing the PAT or allowing public-key replacement', async () => {
+  it('routes repository, PAT, and public-key replacements without exposing saved values', async () => {
     const onEnabledChange = vi.fn();
     const onRepositoryChange = vi.fn();
     const onPersonalAccessTokenChange = vi.fn();
@@ -39,8 +39,8 @@ describe('Managed coding environment Setup section', () => {
     expect(inputs[2].type).toBe('password');
     expect(inputs[2].value).toBe('');
     expect(inputs[2].placeholder).toMatch(/saved/i);
-    expect(inputs[3].disabled).toBe(true);
-    expect(inputs[3].placeholder).toMatch(/saved/i);
+    expect(inputs[3].disabled).toBe(false);
+    expect(inputs[3].placeholder).toMatch(/replace/i);
     expect(section).not.toHaveTextContent('github_pat');
     expect(section).toHaveTextContent('Active release-7 · sequence 7 · digest 123456789abc');
     expect(section).toHaveTextContent('checked 2026-08-18T00:00:00.000Z');
@@ -48,9 +48,10 @@ describe('Managed coding environment Setup section', () => {
 
     await fireEvent.input(inputs[1], { target: { value: 'other/repository' } });
     await fireEvent.input(inputs[2], { target: { value: 'replacement-pat' } });
+    await fireEvent.input(inputs[3], { target: { value: 'ab'.repeat(32) } });
     expect(onRepositoryChange).toHaveBeenCalledWith('other/repository');
     expect(onPersonalAccessTokenChange).toHaveBeenCalledWith('replacement-pat');
-    expect(onPublicKeyChange).not.toHaveBeenCalled();
+    expect(onPublicKeyChange).toHaveBeenCalledWith('ab'.repeat(32));
   });
 
   it('keeps trust inputs absent while disabled and emits the disable transition', async () => {

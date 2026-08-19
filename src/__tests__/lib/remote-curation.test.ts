@@ -479,7 +479,7 @@ describe('managed release resolver', () => {
     expect(resolved.lastError).not.toContain('secret-pat');
   });
 
-  it('stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement', async () => {
+  it('stores the PAT only as AES ciphertext and transactionally activates public-key replacement', async () => {
     const firstKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const firstFixture = await signedFixture(release({ runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH }), firstKeyPair);
     const sameTrustUpdateFixture = await signedFixture(release({
@@ -501,7 +501,18 @@ describe('managed release resolver', () => {
         compilerCommit: 'b'.repeat(40),
       },
     }), firstKeyPair);
-    const replacementPublicKey = firstFixture.publicKeyHex === 'ab'.repeat(32) ? 'cd'.repeat(32) : 'ab'.repeat(32);
+    const replacementKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    const replacementFixture = await signedFixture(release({
+      sequence: 9,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 123456,
+        commitSha: '3'.repeat(40),
+        releaseTag: 'release-9-new-key',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), replacementKeyPair);
+    const replacementPublicKey = replacementFixture.publicKeyHex;
     const releases = {
       first: {
         id: 77,
@@ -523,6 +534,13 @@ describe('managed release resolver', () => {
         fixture: sameTrustConflictFixture,
         bundleDigest: await sha256(sameTrustConflictFixture.compressed),
         signatureDigest: await sha256(sameTrustConflictFixture.signature),
+      },
+      replacement: {
+        id: 80,
+        tag: 'release-9-new-key',
+        fixture: replacementFixture,
+        bundleDigest: await sha256(replacementFixture.compressed),
+        signatureDigest: await sha256(replacementFixture.signature),
       },
     };
     let selected = releases.first;
@@ -661,9 +679,26 @@ describe('managed release resolver', () => {
         personalAccessToken: 'github_pat_replacement',
         publicKey: replacementPublicKey,
       },
-    })).rejects.toThrow(/public key cannot be changed/i);
+    })).rejects.toThrow(/signature/i);
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
     expect([...kv._store.keys()].filter((key) => key.startsWith('setup:managed_environment_pat:'))).toEqual([patKey]);
+
+    selected = releases.replacement;
+    const replaced = await configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'acme/curation',
+        personalAccessToken: 'github_pat_replacement',
+        publicKey: replacementPublicKey,
+      },
+    });
+    const replacementConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string };
+    const replacementPatKey = getManagedEnvironmentPatKey(replacementConfig.configFingerprint);
+    expect(replaced.active?.sequence).toBe(9);
+    expect(replacementConfig.configFingerprint).not.toBe(firstConfig.configFingerprint);
+    expect(kv._store.get(replacementPatKey)).toMatch(/^v1:/);
+    expect(kv._store.get(replacementPatKey)).not.toContain('github_pat_replacement');
 
     const cacheObjectCount = r2.size;
     const retainedPat = kv._store.get(patKey);
