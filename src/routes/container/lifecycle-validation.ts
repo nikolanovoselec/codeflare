@@ -89,8 +89,8 @@ export async function validateSessionAndCheckLimits(params: {
     for (const key of sessionKeys) {
       const rawMeta = key.metadata as (SessionListMetadata & { s?: string }) | null;
       if (rawMeta && rawMeta.s) {
-        // Fast path: read status from list metadata. `i` is retained for
-        // initializing records written by concurrent start paths.
+        // Fast path: read status from list metadata. `i` remains accepted for
+        // compatibility with legacy initializing metadata.
         const keySessionId = key.name.split(':').pop();
         if (countsTowardSessionLimit(rawMeta.s) && keySessionId !== sessionId) runningCount++;
       } else {
