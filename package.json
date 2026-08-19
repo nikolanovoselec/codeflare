@@ -43,7 +43,7 @@
     "@vitest/spy": "4.1.10"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.19.1",
+    "@cloudflare/vitest-pool-workers": "0.21.2",
     "@types/node": "^26.1.2",
     "@vitest/coverage-istanbul": "4.1.10",
     "esbuild": "0.28.1",
