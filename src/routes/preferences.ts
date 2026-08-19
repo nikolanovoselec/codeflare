@@ -138,7 +138,17 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     // The no-hot-mutation gate applies only while curation is active or while a prior
     // curated state must converge back to baked content. An unconfigured deployment
     // keeps byte-identical baked behavior (REQ-STOR-022) and never sees this error.
-    if (existing.managedEnvironmentApplied || await getActiveManagedRelease(c.env)) {
+    let managedGateApplies = Boolean(existing.managedEnvironmentApplied);
+    if (!managedGateApplies) {
+      try {
+        managedGateApplies = Boolean(await getActiveManagedRelease(c.env));
+      } catch {
+        // Enabled without a verified active release: fail closed with the same typed
+        // error as the session check below rather than a generic 500.
+        throw new ManagedEnvironmentUpdatePendingError();
+      }
+    }
+    if (managedGateApplies) {
       const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
       for (const sessionKey of sessionKeys) {
         const metadata = sessionKey.metadata as SessionListMetadata | null;
@@ -231,7 +241,13 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // Managed reconciliation is not best-effort: reporting success here would hide a
       // partially reconciled bucket and a skipped applied stamp, and the next container
       // start would then reject with MANAGED_ENVIRONMENT_UPDATE_PENDING and no cause.
-      if (managedInvolved) throw err;
+      // Restore the pre-request document before rethrowing: otherwise a retry compares
+      // its own half-applied sessionMode, skips this block entirely, and reports success
+      // over a bucket that was never reconciled.
+      if (managedInvolved) {
+        await c.env.KV.put(key, JSON.stringify(existing));
+        throw err;
+      }
       logger.warn('Auto-reconcile on preferences change failed (non-fatal)', { error: String(err) });
     }
   }

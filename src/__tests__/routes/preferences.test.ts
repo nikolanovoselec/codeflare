@@ -587,12 +587,12 @@ describe('Preferences Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const stored = await mockKV.get('preferences:codeflare-test-user', 'json') as { sessionMode?: string };
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string };
       expect(stored.sessionMode).toBe('advanced');
     });
 
     it('REQ-STOR-022: a running session still blocks a sessionMode change once a managed release is applied', async () => {
-      mockKV._set('preferences:codeflare-test-user', {
+      mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'default',
         managedEnvironmentApplied: { digest: 'a'.repeat(64), sequence: 1, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
       });
@@ -609,7 +609,7 @@ describe('Preferences Routes', () => {
     });
 
     it('REQ-STOR-024: a failed managed reconciliation is reported instead of returning success', async () => {
-      mockKV._set('preferences:codeflare-test-user', {
+      mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'default',
         managedEnvironmentApplied: { digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
       });
@@ -621,8 +621,11 @@ describe('Preferences Routes', () => {
         body: JSON.stringify({ sessionMode: 'advanced' }),
       });
 
-      expect(res.status).not.toBe(200);
-      const stored = await mockKV.get('preferences:codeflare-test-user', 'json') as { managedEnvironmentApplied?: unknown };
+      expect(res.status).toBe(500);
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string; managedEnvironmentApplied?: unknown };
+      // The pre-request document is restored, so a retry re-enters reconciliation instead
+      // of short-circuiting on its own half-applied mode.
+      expect(stored.sessionMode).toBe('default');
       expect(stored.managedEnvironmentApplied).toEqual({ digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' });
     });
   });

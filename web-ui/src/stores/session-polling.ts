@@ -145,8 +145,9 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       || (state.managedReleaseStatus !== null
         && (state.managedReleaseStatus !== 'current'
           || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
-    if (includePreseedCheck) lastManagedCheckAt = now;
     const batchResponse = await api.getBatchSessionStatus({ includePreseedCheck });
+    // Only a completed check consumes the window; a failed call must not suppress the next.
+    if (includePreseedCheck) lastManagedCheckAt = now;
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
