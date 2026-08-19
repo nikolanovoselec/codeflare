@@ -877,7 +877,7 @@ describe('Session Store', () => {
       } as never);
       await sessionStore.loadSessions();
       mockGetBatchSessionStatus.mockClear();
-      let rejectStart: ((error: string) => void) | undefined;
+      let rejectStart: ((error: string, code?: string) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
         rejectStart = onError;
         return () => {};
@@ -885,7 +885,7 @@ describe('Session Store', () => {
 
       const starting = sessionStore.startSession('session-1');
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
-      rejectStart?.('Container start failed: Managed environment update is pending');
+      rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
       await rejected;
       await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
     });

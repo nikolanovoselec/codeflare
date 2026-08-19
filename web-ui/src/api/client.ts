@@ -129,7 +129,7 @@ export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
   onComplete: () => void,
-  onError: (error: string) => void
+  onError: (error: string, code?: string) => void
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -162,7 +162,7 @@ export function startSession(
 
       if (isDefinitiveFailure) {
         logger.error('Container start failed (definitive):', (err as ApiError).status, err.message);
-        onError(`Container start failed: ${err.message}`);
+        onError(`Container start failed: ${err.message}`, (err as ApiError).code);
         return;
       }
       // Transient error (network failure, timeout, 5xx) - proceed to polling

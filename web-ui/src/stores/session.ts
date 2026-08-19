@@ -456,7 +456,7 @@ function startSession(id: string): Promise<void> {
         initializeTerminalsForSession(id);
         resolve();
       },
-      (error) => {
+      (error, code) => {
         startupCleanups.delete(id);
         setState(
           produce((s) => {
@@ -466,7 +466,7 @@ function startSession(id: string): Promise<void> {
         );
         updateSessionStatus(id, 'error');
         setState('error', error);
-        if (/managed environment update is pending/i.test(error)) {
+        if (code === 'MANAGED_ENVIRONMENT_UPDATE_PENDING') {
           void refreshSessionStatuses(true);
         }
         reject(new Error(error));
