@@ -46,7 +46,7 @@
     "@cloudflare/vitest-pool-workers": "0.19.1",
     "@types/node": "^26.1.2",
     "@vitest/coverage-istanbul": "4.1.10",
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "fast-check": "^4.9.0",
     "knip": "^6.31.0",
     "oxlint": "^1.77.0",
