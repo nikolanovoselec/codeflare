@@ -227,7 +227,7 @@ The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (
 | GET | `/api/github/status` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | Connection state (`enabled`, `configured`, `connected`, `login`, `source`); never the token |
 | GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
 | GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `?tier=minimal\|recommended\|advanced` maps to the OAuth-App scope; `503 GITHUB_NOT_CONFIGURED` when no provider configured (rate-limited 20/min) |
-| POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Revoke at GitHub (App/OAuth) and clear the stored token (rate-limited 20/min) |
+| POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Attempt GitHub revocation (App/OAuth), then clear the stored token even if revocation fails (rate-limited 20/min) |
 | POST | `/api/github/clone` | Session cookie | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) | Clone `{repo, ref?, sessionId}` into a **running** session's workspace; relays the container's outcome verbatim (`200` cloned / `409 CLONE_TARGET_EXISTS` / `502 CLONE_FAILED` / `504`); `503 NOT_RUNNING` when the container is asleep (rate-limited 20/min) |
 
 The OAuth callback is mounted separately under `/auth/github` (`src/routes/github-auth.ts`, registered via `app.route('/auth/github', githubAuthRoutes)` in `src/index.ts`) — it is **not** an `/api/github` route:
@@ -293,10 +293,10 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) | Run the setup wizard (streams NDJSON progress) |
+| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration) | Run the setup wizard (streams NDJSON progress) |
 | GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) | Whether setup is complete (always public) |
 | GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection), [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) | Prefill setup form from existing Access groups |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection), [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard) | Prefill setup form without returning managed repository PAT or public-key bytes |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see [AD10](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)). Once setup is marked complete, the same endpoints require an admin-role session.
 
@@ -319,7 +319,13 @@ Content-Type: application/json
   "customDomain":   "claude.example.com",
   "allowedUsers":   ["alice@example.com", "bob@example.com"],
   "adminUsers":     ["alice@example.com"],
-  "allowedOrigins": [".example.com"]          // optional
+  "allowedOrigins": [".example.com"],         // optional
+  "managedEnvironment": {                      // optional in every deployment mode
+    "enabled": true,
+    "repository": "owner/private-curation",
+    "personalAccessToken": "github_pat_...",
+    "publicKey": "<64 lowercase hex characters>"
+  }
 }
 ```
 
@@ -329,6 +335,9 @@ Validation rules (enforced by Zod before streaming starts):
 - `allowedUsers` -- non-empty array of valid email addresses.
 - `adminUsers` -- non-empty array of valid emails; every admin must also appear in `allowedUsers`.
 - `allowedOrigins` -- optional array of domain suffix patterns (each must start with `.`).
+- `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, a repository-scoped read PAT, and a raw lowercase 64-hex Ed25519 public key.
+
+The PAT and public key are required on first configuration. Blank values preserve the selected encrypted boundary during reconfiguration. A replacement public key is selected only after the latest immutable release verifies with it without rolling back the active sequence. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
 The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
 
@@ -359,9 +368,13 @@ Sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets via `PUT /a
 
 If the API returns error code `10215` (latest version not deployed -- common after `wrangler versions upload`), the handler deploys the latest Worker version at 100% traffic and retries the secret write.
 
-**Step 3a -- `cleanup_stale_users` (conditional)**
+Setup reconfiguration does not infer user offboarding from `allowedUsers`; destructive user cleanup is outside this endpoint.
 
-Runs only when reconfiguring and the new `allowedUsers` list has removed previously allowed users. Performs full cleanup of each stale user's KV entries and associated data.
+**Optional managed environment step -- `configure_managed_environment`**
+
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+Creates the deterministic deployment cache bucket with existing R2 credentials, resolves the numeric GitHub repository identity, verifies and caches the first immutable signed release, primes its configuration-fingerprint namespace, encrypts the PAT, and selects the configuration only after the trust boundary is usable. Replacement repository/key namespaces cannot move prior active state; same-trust PAT replacement does not advance an existing active pointer inside the Setup transaction. Disabling retains cache and credential history for recovery and schedules normal baked reconciliation without offboarding. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
 **Step 4 -- `configure_custom_domain`**
 

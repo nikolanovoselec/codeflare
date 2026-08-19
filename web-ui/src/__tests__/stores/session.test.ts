@@ -97,6 +97,7 @@ describe('Session Store', () => {
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
     sessionStore._resetMissCounters();
     sessionStore._resetAuthExpired();
+    sessionStore._resetManagedCheckState();
   });
 
   afterEach(() => {
@@ -211,6 +212,41 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       expect(mockGetBatchSessionStatus).toHaveBeenCalled();
+    });
+
+    it('REQ-STOR-022 AC2: maps update_pending without invoking reconciliation', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('REQ-STOR-020 AC3: reconciles upgrading and returns to current after success', async () => {
+      let resolveRecreate: (value: any) => void;
+      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
+        resolveRecreate = resolve;
+      }));
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+        managedReleaseStatus: 'upgrading',
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+
+      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.managedReleaseStatus).toBe('current');
     });
 
     it('should recognize running sessions on fresh page load', async () => {
@@ -447,6 +483,62 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
+    });
+
+    it('REQ-STOR-020 AC3: checks for a later managed release while status is current', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
+    });
+
+    it('REQ-STOR-020 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'current',
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true });
+    });
+
+    it('REQ-STOR-020 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
+      // A transient status is checked on every poll, so this isolates the in-flight guard
+      // from the freshness window and from any stamp an earlier test left behind.
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+
+      let release: (() => void) | undefined;
+      mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise((resolve) => {
+        release = () => resolve({ statuses: {}, maxSessions: 3, managedReleaseStatus: 'update_pending' } as never);
+      }));
+
+      const first = sessionStore.refreshSessionStatuses();
+      const second = sessionStore.refreshSessionStatuses();
+      release?.();
+      await Promise.all([first, second]);
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false });
     });
   });
 
@@ -770,6 +862,32 @@ describe('Session Store', () => {
       sessionStore.dismissInitProgressForSession('session-1');
 
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+    });
+
+    it('refreshes managed release status immediately after an update-pending start failure', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1',
+        name: 'Test Session',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'stopped', ptyActive: false } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockClear();
+      let rejectStart: ((error: string, code?: string) => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
+        rejectStart = onError;
+        return () => {};
+      });
+
+      const starting = sessionStore.startSession('session-1');
+      const rejected = expect(starting).rejects.toThrow(/update is pending/i);
+      rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      await rejected;
+      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
     });
   });
 

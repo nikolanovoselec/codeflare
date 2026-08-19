@@ -11,8 +11,8 @@ import { createLogger } from './logger';
  * Must fit within Cloudflare KV's 1024-byte metadata limit (~195 bytes worst case).
  */
 export interface SessionListMetadata {
-  /** status: 'r' = running, 's' = stopped */
-  s?: 'r' | 's';
+  /** status: 'r' = running, 'i' = initializing, 's' = stopped */
+  s?: 'r' | 'i' | 's';
   /** lastActiveAt ISO string */
   la?: string;
   /** lastStartedAt ISO string */
@@ -352,7 +352,23 @@ export const SETUP_KEYS = {
   // deploy flow (it uses BROWSER_RENDER_TOKEN), so these are never set there.
   CLOUDFLARE_OAUTH_CLIENT_ID: 'setup:cloudflare_oauth_client_id',
   CLOUDFLARE_OAUTH_CLIENT_SECRET: 'setup:cloudflare_oauth_client_secret',
+  // Deployment-level managed environment. The public trust selection is
+  // committed last; PAT and freshness records are configuration-fingerprint scoped
+  // so a failed repository/key replacement cannot overwrite the selected config.
+  MANAGED_ENVIRONMENT_CONFIG: 'setup:managed_environment_config',
+  MANAGED_ENVIRONMENT_PAT_PREFIX: 'setup:managed_environment_pat:',
+  MANAGED_ENVIRONMENT_STATE_PREFIX: 'setup:managed_environment_state:',
 } as const;
+
+export function getManagedEnvironmentPatKey(configFingerprint: string): string {
+  if (!/^[0-9a-f]{64}$/.test(configFingerprint)) throw new Error('Invalid managed environment configuration fingerprint');
+  return `${SETUP_KEYS.MANAGED_ENVIRONMENT_PAT_PREFIX}${configFingerprint}`;
+}
+
+export function getManagedEnvironmentStateKey(configFingerprint: string): string {
+  if (!/^[0-9a-f]{64}$/.test(configFingerprint)) throw new Error('Invalid managed environment configuration fingerprint');
+  return `${SETUP_KEYS.MANAGED_ENVIRONMENT_STATE_PREFIX}${configFingerprint}`;
+}
 
 /**
  * Strict hostname validation for the KV-stored custom domain (CF-018).

@@ -30,6 +30,8 @@ export const SetBucketNameBodySchema = z.object({
   encryptionKey: z.string().optional(),
   /** REQ-ENTERPRISE-018: Governed Mode — bucket's R2 SSE-C-disabled regime forwarded to the container. */
   r2SseDisabled: z.boolean().optional(),
+  remoteCurationActive: z.boolean().optional(),
+  remoteCurationReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
@@ -45,7 +47,14 @@ export const SetBucketNameBodySchema = z.object({
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */
   gitCloneRepo: z.string().optional(),
   gitCloneRef: z.string().optional(),
-}).passthrough();
+}).passthrough().superRefine((value, context) => {
+  if (value.remoteCurationActive === true && !value.remoteCurationReleaseDigest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'active remote curation requires its applied release digest' });
+  }
+  if (value.remoteCurationActive !== true && value.remoteCurationReleaseDigest != null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'inactive remote curation cannot transport a release digest' });
+  }
+});
 
 /**
  * TD5: Zod schema for the /_internal/setSessionId JSON payload.

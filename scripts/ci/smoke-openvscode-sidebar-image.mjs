@@ -378,13 +378,11 @@ function createInlineEditRpcChild() {
     queueMicrotask(() => {
       const events = [{ id: envelope.id, type: 'response', command: 'prompt', success: true }];
       if (String(envelope.message).startsWith('/codeflare-inline-edit ')) {
-        const encoded = String(envelope.message).split(/\s+/, 2)[1] ?? '';
-        const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
         events.push({
           type: 'tool_execution_start',
-          toolName: 'codeflare_submit_inline_edits',
+          toolName: 'codeflare_submit_inline_result',
           args: {
-            requestId: payload.requestId,
+            outcome: 'edit',
             summary: 'Replaced the packaged value because the previous value was stale.',
             edits: [{
               startLine: 0,

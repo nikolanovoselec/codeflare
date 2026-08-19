@@ -177,6 +177,7 @@ jobs:
               - 'preseed/**'
               - 'src/lib/agent-seed.generated.ts'
               - 'scripts/browser-ide-ui-state.py'
+              - 'scripts/browser-ide-extensions.py'
               - 'scripts/materialize-agent-seed.mjs'
               - 'scripts/patch-context-mode-bundles.mjs'
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
@@ -195,6 +196,18 @@ jobs:
               - 'host/**'
               - 'preseed/**'
               - 'scripts/browser-ide-ui-state.py'
+              # browser-ide-extensions.py is guarded by
+              # host/__tests__/browser-ide-extensions.test.js; without it here a PR
+              # editing only that script skips the lane that tests it.
+              - 'scripts/browser-ide-extensions.py'
+              # Shared seed compiler and release-contract behavior is exercised
+              # by host/__tests__/agent-seed-{core,release}.test.js.
+              - 'scripts/agent-seed-core.mjs'
+              - 'scripts/agent-seed-core.d.mts'
+              - 'scripts/agent-seed-release.mjs'
+              - 'scripts/agent-seed-release.d.mts'
+              - 'scripts/agent-seed-release-limits.mjs'
+              - 'scripts/agent-seed-release-limits.d.mts'
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'

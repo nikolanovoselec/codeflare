@@ -204,7 +204,6 @@ A full code-server browser editor for an advanced running session. The editor op
 4. Claude uses a dedicated temporary config tree and cannot attach to or resume terminal tab 1. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::SIDEBAR_LINK_ALLOWLIST --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC4: projection excludes terminal history, runtime state, and unknown entries) -->
 5. Claude preparation links approved credential and configuration sources without copying their values into generated files, settings, logs, or messages. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig --> <!-- @test: openvscode/claude/test/prepare-sidebar-config.test.mjs (REQ-IDE-006 AC1+AC2: projection links only allowlisted configuration and never copies secret bytes) -->
 6. Native Pi context that exceeds its budget is reduced by discarding whole units, keeping current editor state ahead of the replayed conversation, rather than by cutting the serialized context. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC6: an over-budget history replay keeps the newest turns and drops the oldest) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006 AC6: a context over the envelope drops whole sections and stays parseable) -->
-7. Pi history hydration follows one temperature-sensitive policy: cold or replacement processes receive bounded visible history, while warm turns omit replay. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: replacement Pi hydrates from the requesting Chat surface history) -->
 
 **Constraints:**
 
@@ -762,10 +761,10 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Participant requests invoke the local Pi RPC backend instead of either compatibility provider's generation path. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::NodePiProcessSpawner --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025 AC1 + REQ-IDE-034: panel requests run Pi without Inline diagnostics or provider generation) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
 2. The Browser IDE creates at most one lazy IDE-owned Pi process, separate from terminal Pi. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-025: panel-first then native inline edit reuses one unrestricted IDE Pi conversation) -->
 3. Panel and editor turns retain one in-memory Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: panel and native inline edit turns reuse one backend with surface-specific output) -->
-4. Panel turns retain their existing unrestricted tool set without editor permission prompts. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
-5. An editor turn activates only `codeflare_submit_inline_edits`. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
-6. That editor command dispatches exactly one prompt into the shared IDE Pi conversation. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
-7. Editor settlement restores the exact prior panel tool set before the external RPC settlement releases the next turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+4. Panel turns retain their existing unrestricted tool set and conversation context without editor permission prompts. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) --> <!-- @test: openvscode/agent-sidebar/test/vscode-approval-host.test.ts (REQ-IDE-007 AC2: Pi Edit Write and Bash need no confirmation and open no editor tabs) -->
+5. An editor turn exposes only `codeflare_submit_inline_result` in the active tool set and final OpenAI Chat Completions payload. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::constrainInlineOpenAiPayload --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+6. That editor command dispatches exactly one current prompt into the shared IDE Pi conversation. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+7. Editor settlement restores the exact prior panel tool set before the external RPC settlement releases the next turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
 
 **Constraints:**
 
@@ -777,7 +776,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, proposal-only activation, exact tool restoration, and complete-image behavior.
+**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, result-only provider payloads, exact tool restoration, and complete-image behavior.
 
 **Status:** Partial
 
@@ -791,10 +790,10 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. A proposal contains between one and 64 edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: empty inline edit proposals fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: more than 64 inline edits fail closed) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend) -->
-2. The combined replacement text is at most 256 KiB in UTF-8. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: inline edit payloads above 256 KiB fail closed) -->
-3. Every coordinate is a non-negative safe integer whose start does not follow its end. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: invalid inline edit coordinates fail closed) -->
-4. Accepted edits are deterministically ordered and contain neither a repeated start nor a crossing range. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: repeated edit starts fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: overlapping inline edits fail closed) -->
+1. An edit result contains between one and 64 edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: empty inline edit proposals fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: more than 64 inline edits fail closed) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-026: inline Pi rejects more than 64 proposed edits and retires the backend) -->
+2. The combined replacement text is at most 256 KiB in UTF-8. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: inline edit payloads above 256 KiB fail closed) -->
+3. Every coordinate is a non-negative safe integer whose start does not follow its end. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: invalid inline edit coordinates fail closed) -->
+4. Accepted edits are deterministically ordered and contain neither a repeated start nor a crossing range. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: adjacent non-overlapping inline edits are accepted and ordered) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: repeated edit starts fail closed) --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: overlapping inline edits fail closed) -->
 5. Every edit position lies within the captured invoking document. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: out-of-bounds inline edits fail closed) -->
 6. The invoking document version still equals its captured version when the host emits edits. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: stale document versions fail closed) -->
 
@@ -802,12 +801,12 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- Any validation failure prevents host edit emission; envelope validation belongs to [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope).
+- Any validation failure prevents host edit emission; envelope validation belongs to [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope).
 - Dispatch-error isolation belongs to [REQ-IDE-028](#req-ide-028-native-inline-chat-dispatch-error-isolation).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope)
+**Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope)
 
 **Verification:** PR-boundary review and GitHub Actions CI validate edit count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
 
@@ -844,7 +843,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-028: Native Inline Chat dispatch-error isolation
 
-**Intent:** An editor request fails closed when its nested Pi dispatch fails without allowing unrelated extension errors to discard a valid proposal.
+**Intent:** An editor request fails closed when its nested Pi dispatch fails without allowing unrelated extension errors to discard a valid result.
 
 **Applies To:** User
 
@@ -854,7 +853,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. A later panel or editor request is not blocked by that command-failed request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: inline command extension errors reject immediately and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) -->
 3. An asynchronous failure starting the editor turn after command acceptance rejects that editor request. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) -->
 4. A later panel or editor request is not blocked by that asynchronously failed request. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: asynchronous inline dispatch errors reject after command acceptance and retire the backend) --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-008: protocol or process failure retires the backend before replacement) -->
-5. An unrelated extension error does not prevent a valid editor request from returning its proposed edits. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline proposal) -->
+5. An unrelated extension error does not prevent a valid editor request from returning its result. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-028: unrelated extension errors do not discard a valid inline result) -->
 
 **Constraints:**
 
@@ -873,16 +872,18 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-029: Native Inline Chat feedback
 
-**Intent:** A user can follow an editor request while the host retains bounded context about the completed proposal.
+**Intent:** A user can follow an editor request while the host retains bounded context about the completed result.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. An accepted editor request immediately shows no more than two progress updates while native Inline Chat is active. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
-2. A completed proposal carries its bounded what-and-why explanation in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
-3. A completed proposal reports its edit count in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
-4. Unstructured final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown) -->
+2. Every completed Inline result carries one bounded what-and-why summary in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029 + REQ-IDE-030: an Inline no-change result explains itself without an editor transaction) --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+3. An edit result reports its edit count in result details. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inline edits stay bound to the invoking host document) -->
+4. A no-change result renders its bounded summary. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029 + REQ-IDE-030: an Inline no-change result explains itself without an editor transaction) -->
+5. A no-change result invokes no native text-edit method. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-029 + REQ-IDE-030: an Inline no-change result explains itself without an editor transaction) -->
+6. Unstructured final-answer markdown remains hidden from the transactional editor response. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one host-correlated edit result without markdown) -->
 
 **Constraints:**
 
@@ -893,39 +894,41 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Priority:** P2
 
-**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope), [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle)
+**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope), [REQ-IDE-033](#req-ide-033-controller-owned-inline-review-lifecycle)
 
-**Verification:** GitHub Actions validates immediate bounded progress, hidden final markdown, bounded result explanations, and edit-count details. Fresh integration verifies the controller-owned review journey under REQ-IDE-033.
+**Verification:** GitHub Actions validates immediate bounded progress, hidden final markdown, bounded result explanations, no-change rendering, and edit-count details. Fresh integration verifies both no-change feedback and the controller-owned review journey under REQ-IDE-033.
 
 **Status:** Partial
 
 ---
 
-### REQ-IDE-030: Native Inline Chat proposal envelope
+### REQ-IDE-030: Native Inline Chat result envelope
 
-**Intent:** Only one correlated proposal with a bounded explanation can cross from Pi into an editor transaction.
+**Intent:** Only one host-correlated edit or no-change result with a bounded explanation can cross from Pi into an editor response.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Exactly one proposal whose request ID matches the active editor turn is accepted. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one correlated host-owned edit proposal without markdown) -->
-2. A missing or uncorrelated proposal applies no editor changes. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-030: inline edit mode rejects stale or duplicate proposals before restoration) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi rejects an uncorrelated proposal and retires the backend) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi fails closed when settlement has no valid proposal) -->
-3. The correlated proposal includes one trimmed, single-line explanation of at most 500 characters. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline proposal summaries are bounded plain text and fail closed) -->
-4. After an invalid raw proposal, Pi may submit another attempt within the same turn, up to three total attempts; the first valid correlated proposal is accepted. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw proposal) -->
-5. Settlement without a valid proposal reports correlation, summary, edit-count, or geometry failure without proposal content. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditProposal --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: invalid-only settlement reports a bounded proposal category) -->
-6. A second valid proposal applies no additional editor changes. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi rejects a duplicate proposal and retires the backend) -->
+1. Exactly one result is bound to the host-owned active process generation and editor turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-030: inline results use host correlation and reject duplicates) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-029 + REQ-IDE-030: inline Pi returns one host-correlated edit result without markdown) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: a late result cannot settle a retired process generation) -->
+2. The model receives no host request ID during an Inline turn. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+3. The flat result outcome is either an edit with one to 64 edits or a no-change explanation with zero edits. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi returns a host-correlated no-change result) --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline result outcome and edit cardinality must agree) -->
+4. Every accepted result includes one trimmed, single-line explanation of at most 500 characters. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline result summaries are bounded plain text and fail closed) -->
+5. After an invalid raw result, Pi may submit another attempt within the same turn, up to three total attempts; the first valid result is accepted. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi accepts a valid retry after one invalid raw result) -->
+6. Settlement without a valid result reports outcome, summary, edit-count, or geometry failure without result content. <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::parseInlineEditResult --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: invalid-only settlement reports a bounded result category) -->
+7. A second valid result applies no additional editor changes. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/node-rpc-backend.ts::PiRpcBackend --> <!-- @test: openvscode/agent-sidebar/test/backend-generation.test.ts (REQ-IDE-030: inline Pi rejects a duplicate result and retires the backend) -->
 
 **Constraints:**
 
-- Proposal fields cannot name another URI or request direct filesystem mutation.
+- Result fields cannot name another URI, choose another tool, or request direct filesystem mutation.
+- Unknown provider payload shapes are not rewritten speculatively.
 - Any envelope failure prevents host edit emission.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate proposal cardinality, correlation, explanation bounds, bounded correction, categorized settlement, and duplicate rejection.
+**Verification:** PR-boundary review and GitHub Actions CI validate result cardinality, host-owned correlation, explanation bounds, bounded correction, categorized settlement, no-change behavior, and duplicate rejection.
 
 **Status:** Partial
 
@@ -955,7 +958,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-proposal-envelope)
+**Dependencies:** [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation), [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope)
 
 **Verification:** GitHub Actions validates exact host-document binding, start/edit/done ordering, the configuration-gated edited-file opener disabled in Pi, and absence of extension-owned review side effects. Fresh integration owns Keep, Close, immediate second-request, single-editor, and URI-lifecycle evidence.
 
@@ -1192,5 +1195,140 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Automated native panel and editor Inline Chat tests verify each coordinate basis; fresh integration verification confirms the selected-text edit transaction.
 
 **Status:** Partial
+
+---
+
+### REQ-IDE-042: Additive company extension reconciliation
+
+**Intent:** Company extension requirements coexist with personal extension installation and persistence.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Restored company requirements apply only when their release identity matches the Worker-applied release. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) -->
+2. Managed settings retain personal allowance while adding company identities. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC2: company extension identities extend the personal allowance map) -->
+3. Personal exact-version restoration remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes personal restore and capture) -->
+4. TypeScript capture remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent) -->
+5. Generation-reap capture remains active after company reconciliation. <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-042 AC5: generation-reap capture preserves prior intent but never creates it solely from company installs) -->
+6. Company-only installations never become personal saved intent. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent) -->
+7. Personal intent for an extension removed from the company manifest is restored only after its company uninstall succeeds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC7: removed company extensions are uninstalled before personal intent is restored) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC7: failed company removal blocks personal restoration until retry succeeds) -->
+
+**Constraints:**
+
+- Company extension bytes remain session-local and never enter R2.
+- The first release pins `cherryMarkdownPublisher.cherry-markdown@0.3.1081718`.
+- Existing fixed Pi and Claude inventories remain immutable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration), [REQ-IDE-040](#req-ide-040-user-extension-allowance-policy), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-020](storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](storage.md#req-stor-024-managed-release-application)
+
+**Verification:** Automated managed-settings, restore, capture, removal, and disable tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-043: Native Pi provider history isolation
+
+**Intent:** Each native Pi surface receives only the conversation history required for its current turn.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A cold or replacement panel turn receives bounded visible history from the requesting Chat surface. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: replacement Pi hydrates from the requesting Chat surface history) -->
+2. A warm panel turn omits visible history already retained by the shared Pi conversation. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::NativePiRuntime --> <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-006: warm turns omit visible history already held by the shared Pi conversation) -->
+3. An Inline provider request excludes stored panel history. <!-- @impl: openvscode/agent-sidebar/src/pi/native-chat.ts::buildNativePiPrompt --> <!-- @test: openvscode/agent-sidebar/test/native-chat.test.ts (REQ-IDE-025: a cold Inline turn omits panel history from its embedded editor context) -->
+4. An Inline provider request retains its complete current-turn suffix. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
+
+**Constraints:** Provider-history filtering does not mutate the stored shared Pi conversation or import terminal Pi history.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
+
+**Verification:** GitHub Actions validates cold replacement hydration, warm replay omission, and Inline current-turn isolation. Fresh integration verifies immediate Panel Chat recovery after an Inline result.
+
+**Status:** Partial
+
+---
+
+### REQ-IDE-044: Exact company VSIX verification
+
+**Intent:** Every required company extension installs only from the exact release-approved package bytes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The IDE accepts only the signed exact Open VSX download URL. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC1: unsigned company download URLs are rejected before download) -->
+2. Acquisition follows only the fixed release-approved redirect policy. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::validateCompanyRedirect --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC2+AC4+AC5 + REQ-IDE-046 AC3: invalid bytes install nothing and clean every temporary directory) -->
+3. Every company extension record carries an exact semantic version. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC3: non-semantic company versions are rejected before download) -->
+4. Downloaded bytes match the signed declared size. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::downloadCompanyExtension --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC2+AC4+AC5 + REQ-IDE-046 AC3: invalid bytes install nothing and clean every temporary directory) -->
+5. Downloaded bytes match the signed digest. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::downloadCompanyExtension --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC2+AC4+AC5 + REQ-IDE-046 AC3: invalid bytes install nothing and clean every temporary directory) -->
+6. Signed package identity and dependency closure come from the verified release record. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadManagedExtensions --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC6 + REQ-IDE-045 AC3: exact dependencies install without gallery fallback) -->
+7. A matching registry identity is reinstalled from verified bytes rather than trusted as sufficient evidence. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC7: a matching registry identity is reinstalled from exact signed bytes) -->
+
+**Constraints:** Invalid packages install nothing.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated exact-package acquisition and verification tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-045: Company extension reconciliation orchestration
+
+**Intent:** Company reconciliation remains lazy, bounded, and isolated from IDE readiness.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After workbench readiness, company reconciliation precedes personal restore. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes personal restore and capture) -->
+2. Company reconciliation does not delay initial IDE readiness. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-042 AC2 + REQ-IDE-045 AC2: company reconciliation stays lazy and cannot delay the ready workbench) -->
+3. Company reconciliation never falls back to a gallery identity or latest version. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC6 + REQ-IDE-045 AC3: exact dependencies install without gallery fallback) -->
+4. Company extension installation uses fixed bounded concurrency. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC4+AC5: company failures remain bounded and do not block the workbench) -->
+5. One company extension failure reports one bounded warning while the IDE and remaining installations continue. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC4+AC5: company failures remain bounded and do not block the workbench) -->
+
+**Constraints:** Reconciliation starts only after workbench readiness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
+
+**Verification:** Automated readiness, fallback, concurrency, and failure-isolation tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-046: Session-local company VSIX installation
+
+**Intent:** Verified company package bytes remain temporary installation inputs rather than durable user state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Company installation uses a temporary local VSIX with synchronization disabled. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::installCompanyExtension --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-046 AC1+AC2: exact company VSIX installs from a deleted temporary file) -->
+2. Successful installation removes the temporary package bytes. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::installCompanyExtension --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-046 AC1+AC2: exact company VSIX installs from a deleted temporary file) -->
+3. Failed installation removes the temporary package bytes. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::installCompanyExtension --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-046 AC3: failed company installation removes the temporary VSIX) -->
+
+**Constraints:** Package bytes never enter user R2 or persisted extension intent.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
+
+**Verification:** Automated temporary-package installation tests
+
+**Status:** Implemented
 
 ---

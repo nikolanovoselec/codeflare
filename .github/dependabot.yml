@@ -5,6 +5,15 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One PR per ecosystem per week instead of one per package. Ungrouped, this
+    # repo's eight entries opened seventeen concurrent PRs, each burning a full
+    # required-check matrix and a review round for a single version bump. Majors
+    # stay ungrouped deliberately: they carry the most change, get the least
+    # scrutiny in a batch, and already wait 30 days below.
+    groups:
+      npm-root:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Cooldown before a freshly published version is proposed. The npm
     # compromise pattern is publish-malicious-version then wait for automation
     # to pull it within hours; a waiting period lets the ecosystem revoke it
@@ -21,6 +30,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      npm-wrangler-tools:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     cooldown:
       default-days: 7
       semver-major-days: 30
@@ -30,6 +43,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      npm-web-ui:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Cooldown before a freshly published version is proposed. The npm
     # compromise pattern is publish-malicious-version then wait for automation
     # to pull it within hours; a waiting period lets the ecosystem revoke it
@@ -44,6 +61,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      npm-host:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Cooldown before a freshly published version is proposed. The npm
     # compromise pattern is publish-malicious-version then wait for automation
     # to pull it within hours; a waiting period lets the ecosystem revoke it
@@ -58,6 +79,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      npm-landing:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Cooldown before a freshly published version is proposed. The npm
     # compromise pattern is publish-malicious-version then wait for automation
     # to pull it within hours; a waiting period lets the ecosystem revoke it
@@ -72,6 +97,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      npm-agent-sidebar:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     cooldown:
       default-days: 7
       semver-major-days: 30
@@ -110,6 +139,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      docker-images:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Docker supports the default waiting period but not semver-specific
     # cooldown keys.
     cooldown:
@@ -128,6 +161,15 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Grouped for the same reason as npm, and it matters more here: every action
+    # bump rewrites a pinned SHA, and the release-signing workflow's pin is
+    # asserted by host/__tests__/release-signing-workflow.test.js, so each PR
+    # needs that literal updated too. One batched PR means one such edit per
+    # week rather than one per action.
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # GitHub Actions supports the default waiting period but not semver-specific
     # cooldown keys.
     cooldown:

@@ -20,6 +20,18 @@ afterEach(() => {
   for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true });
 });
 
+/**
+ * A `uses:` value must name the expected action and pin it to a full commit
+ * SHA. A tag or branch ref is repointable after review, so it is the real
+ * supply-chain hole; which SHA is current is a version fact, not a security
+ * one, and asserting it here only breaks the build on legitimate bumps.
+ */
+function assertPinnedAction(uses, expectedAction) {
+  const [action, ref] = String(uses).split('@');
+  assert.equal(action, expectedAction);
+  assert.match(ref ?? '', /^[0-9a-f]{40}$/);
+}
+
 function fixture() {
   const cwd = mkdtempSync(join(tmpdir(), 'release-signing-'));
   const bin = join(cwd, 'bin');
@@ -85,15 +97,18 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
     assert.equal(steps['Build deterministic release archive'].run, 'scripts/ci/sign-release.sh build');
     assert.equal(steps['Sign release assets'].run, 'scripts/ci/sign-release.sh sign');
     assert.equal(steps['Upload signed release assets'].run, 'scripts/ci/sign-release.sh upload');
-    assert.equal(
-      steps['Install Cosign'].uses,
-      'sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6',
-    );
+    // Assert the invariant, not the version. The threat is a swapped action or
+    // a floating tag that can be repointed after review; the exact SHA is not
+    // itself a security property, and pinning the literal here made every
+    // legitimate Dependabot bump a red build that only a manual edit could
+    // clear. zizmor separately audits unpinned actions across every workflow.
+    assertPinnedAction(steps['Install Cosign'].uses, 'sigstore/cosign-installer');
+    // This one stays an exact literal on purpose. Unlike a `uses:` pin it is a
+    // `with:` input with no immutable digest behind it, so the version string is
+    // the only thing identifying which Cosign gets installed. Dependabot does
+    // not touch `with:` inputs, so it neither rots nor red-builds on a bump.
     assert.equal(steps['Install Cosign'].with['cosign-release'], 'v3.1.2');
-    assert.equal(
-      steps['Attest release assets'].uses,
-      'actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373',
-    );
+    assertPinnedAction(steps['Attest release assets'].uses, 'actions/attest-build-provenance');
     assert.equal(
       steps['Attest release assets'].with['subject-path'],
       'release-assets/codeflare-v*.tar.gz\nrelease-assets/SHA256SUMS\n',

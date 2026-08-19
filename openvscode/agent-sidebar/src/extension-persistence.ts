@@ -2,12 +2,15 @@ import { watch } from 'node:fs';
 import {
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   rename,
+  rm,
   unlink,
 } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 
@@ -31,19 +34,27 @@ interface ExtensionManifest {
   settings: Record<string, JsonValue>;
 }
 
-interface RegistryEntry {
-  identifier: { id: string };
+interface ManagedExtensionRecord {
+  id: string;
+  publisher: string;
+  name: string;
   version: string;
-  metadata?: {
-    targetPlatform?: string;
-    installedTimestamp?: number;
-  };
+  targetPlatform: string;
+  engine: string;
+  entrypoint: string;
+  extensionPack: string[];
+  extensionDependencies: string[];
+  size: number;
+  sha256: string;
+  downloadUrl: string;
 }
 
 interface PersistenceOptions {
   extensionsDir?: string;
   manifestPath?: string;
   syncPidFile?: string;
+  managedExtensionsPath?: string;
+  managedReleaseDigest?: string | null;
   debounceMs?: number;
 }
 
@@ -51,6 +62,8 @@ interface ResolvedOptions {
   extensionsDir: string;
   manifestPath: string;
   syncPidFile: string;
+  managedExtensionsPath: string;
+  managedReleaseDigest: string | null;
   debounceMs: number;
 }
 
@@ -78,6 +91,7 @@ const policy = policyJson as {
 
 const extensionIdPattern = new RegExp(policy.extensionIdPattern);
 const extensionVersionPattern = new RegExp(policy.extensionVersionPattern);
+const exactSemanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const targetPlatformPattern = new RegExp(policy.targetPlatformPattern);
 const installedAtPattern = new RegExp(policy.installedAtPattern);
 const sha256Pattern = new RegExp(policy.sha256Pattern);
@@ -87,6 +101,29 @@ const manifestTopKeys = new Set(['version', 'securityWarningShown', 'extensions'
 const extensionRecordKeys = new Set(['version', 'targetPlatform', 'installedAt', 'sha256']);
 const ACKNOWLEDGEMENT = 'I understand';
 const INSTALL_COMMAND = 'workbench.extensions.installExtension';
+const UNINSTALL_COMMAND = 'workbench.extensions.uninstallExtension';
+const COMPANY_MANIFEST_MAX_BYTES = 256 * 1024;
+const COMPANY_EXTENSION_MAX_BYTES = 128 * 1024 * 1024;
+const COMPANY_EXTENSIONS_MAX_BYTES = 256 * 1024 * 1024;
+const COMPANY_EXTENSION_MAX_COUNT = 20;
+const COMPANY_RECONCILE_CONCURRENCY = 2;
+const COMPANY_REQUEST_TIMEOUT_MS = 30_000;
+const COMPANY_REDIRECT_HOST = 'openvsx.eclipsecontent.org';
+const COMPANY_MARKER = '.codeflare-company-extensions.json';
+const managedExtensionKeys = new Set([
+  'id',
+  'publisher',
+  'name',
+  'version',
+  'targetPlatform',
+  'engine',
+  'entrypoint',
+  'extensionPack',
+  'extensionDependencies',
+  'size',
+  'sha256',
+  'downloadUrl',
+]);
 
 function ownKeysAreAllowed(value: Record<string, unknown>, allowed: Set<string>): boolean {
   return Object.keys(value).every((key) => allowed.has(key));
@@ -151,6 +188,115 @@ export async function loadExtensionManifest(manifestPath: string): Promise<Manif
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'absent' };
     return { state: 'invalid' };
   }
+}
+
+function isManagedExtensionRecord(value: unknown): value is ManagedExtensionRecord {
+  if (!isRecord(value) || !ownKeysAreAllowed(value, managedExtensionKeys) || Object.keys(value).length !== managedExtensionKeys.size) return false;
+  if (typeof value.id !== 'string' || !extensionIdPattern.test(value.id)) return false;
+  if (typeof value.publisher !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value.publisher)) return false;
+  if (typeof value.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value.name)) return false;
+  if (value.id !== `${value.publisher}.${value.name}`.toLowerCase()) return false;
+  if (typeof value.version !== 'string' || value.version.length > 128 || !exactSemanticVersionPattern.test(value.version)) return false;
+  if (typeof value.targetPlatform !== 'string' || !targetPlatformPattern.test(value.targetPlatform)) return false;
+  if (typeof value.engine !== 'string' || value.engine.length === 0 || value.engine.length > 128) return false;
+  if (typeof value.entrypoint !== 'string' || value.entrypoint.length === 0 || value.entrypoint.length > 512) return false;
+  if (!Array.isArray(value.extensionPack) || !Array.isArray(value.extensionDependencies)) return false;
+  if (![...value.extensionPack, ...value.extensionDependencies].every((id) => typeof id === 'string' && extensionIdPattern.test(id))) return false;
+  if (typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size <= 0 || value.size > COMPANY_EXTENSION_MAX_BYTES) return false;
+  if (typeof value.sha256 !== 'string' || !sha256Pattern.test(value.sha256)) return false;
+  if (typeof value.downloadUrl !== 'string' || value.downloadUrl.length > 2_048) return false;
+  try {
+    const url = new URL(value.downloadUrl);
+    const prefix = `/api/${encodeURIComponent(value.publisher)}/${encodeURIComponent(value.name)}/${encodeURIComponent(value.version)}/file/`;
+    return url.protocol === 'https:'
+      && url.hostname === 'open-vsx.org'
+      && url.port === ''
+      && url.username === ''
+      && url.password === ''
+      && url.search === ''
+      && url.hash === ''
+      && url.pathname.startsWith(prefix)
+      && url.pathname.length > prefix.length;
+  } catch {
+    return false;
+  }
+}
+
+async function loadManagedExtensions(path: string, expectedDigest: string | null): Promise<ManagedExtensionRecord[]> {
+  if (!expectedDigest) return [];
+  try {
+    const bytes = await readBoundedRegularFile(path, COMPANY_MANIFEST_MAX_BYTES);
+    const parsed: unknown = JSON.parse(bytes.toString('utf8'));
+    if (
+      !isRecord(parsed)
+      || !ownKeysAreAllowed(parsed, new Set(['schemaVersion', 'release', 'extensions']))
+      || Object.keys(parsed).length !== 3
+      || parsed.schemaVersion !== 1
+      || !isRecord(parsed.release)
+      || !ownKeysAreAllowed(parsed.release, new Set(['digest', 'sequence']))
+      || Object.keys(parsed.release).length !== 2
+      || typeof parsed.release.digest !== 'string'
+      || parsed.release.digest !== expectedDigest
+      || !sha256Pattern.test(parsed.release.digest)
+      || typeof parsed.release.sequence !== 'number'
+      || !Number.isSafeInteger(parsed.release.sequence)
+      || parsed.release.sequence <= 0
+      || !Array.isArray(parsed.extensions)
+      || parsed.extensions.length > COMPANY_EXTENSION_MAX_COUNT
+      || !parsed.extensions.every(isManagedExtensionRecord)
+    ) {
+      throw new Error('invalid company extension manifest');
+    }
+    const extensions = parsed.extensions;
+    const ids = extensions.map(({ id }) => id);
+    if (new Set(ids).size !== ids.length) throw new Error('duplicate company extension identity');
+    const aggregate = extensions.reduce((total, extension) => total + extension.size, 0);
+    if (aggregate > COMPANY_EXTENSIONS_MAX_BYTES) throw new Error('company extensions exceed aggregate bound');
+    const required = new Set(ids);
+    for (const extension of extensions) {
+      if (![...extension.extensionPack, ...extension.extensionDependencies].every((id) => required.has(id))) {
+        throw new Error('company extension dependency closure is incomplete');
+      }
+    }
+    return [...extensions].sort((left, right) => left.id.localeCompare(right.id));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+function markerPath(extensionsDir: string): string {
+  return join(extensionsDir, COMPANY_MARKER);
+}
+
+async function loadCompanyMarker(extensionsDir: string): Promise<Set<string>> {
+  try {
+    const bytes = await readBoundedRegularFile(markerPath(extensionsDir), policy.manifestMaxBytes);
+    const parsed: unknown = JSON.parse(bytes.toString('utf8'));
+    if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === 'string' && extensionIdPattern.test(id))) return new Set();
+    return new Set(parsed);
+  } catch {
+    return new Set();
+  }
+}
+
+async function companyProvenanceIds(
+  extensionsDir: string,
+  managedExtensionsPath: string,
+  managedReleaseDigest: string | null,
+): Promise<Set<string>> {
+  const active = new Set((await loadManagedExtensions(managedExtensionsPath, managedReleaseDigest)).map(({ id }) => id));
+  const prior = await loadCompanyMarker(extensionsDir);
+  return new Set([...prior, ...active]);
+}
+
+async function preserveCompanyMarker(extensionsDir: string, activeIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(activeIds)].sort();
+  if (ids.length === 0) {
+    await rm(markerPath(extensionsDir), { force: true });
+    return;
+  }
+  await atomicWrite(markerPath(extensionsDir), `${JSON.stringify(ids)}\n`);
 }
 
 async function loadRegistry(extensionsDir: string): Promise<Record<string, ExtensionRecord>> {
@@ -339,14 +485,17 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
     : { version: 1, extensions: {}, settings: {} };
   let present: Record<string, ExtensionRecord>;
   let obsolete: Set<string>;
+  let companyIds: Set<string>;
   try {
     present = await loadRegistry(options.extensionsDir);
     obsolete = await loadObsolete(options.extensionsDir);
+    companyIds = await companyProvenanceIds(options.extensionsDir, options.managedExtensionsPath, options.managedReleaseDigest);
   } catch {
     return false;
   }
   const effectivePresent = Object.entries(present).filter(([id, observed]) => (
-    !obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])
+    !companyIds.has(id)
+    && !obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])
   ));
   if (effectivePresent.length === 0) return true;
   if (!(await acknowledgeExtensionSecurity())) return false;
@@ -358,7 +507,9 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
   return true;
 }
 
-export async function captureExtensionManifest(options: Required<Pick<PersistenceOptions, 'extensionsDir' | 'manifestPath' | 'syncPidFile'>>): Promise<boolean> {
+export async function captureExtensionManifest(
+  options: Required<Pick<PersistenceOptions, 'extensionsDir' | 'manifestPath' | 'syncPidFile'>> & Pick<PersistenceOptions, 'managedExtensionsPath' | 'managedReleaseDigest'>,
+): Promise<boolean> {
   const loaded = await loadExtensionManifest(options.manifestPath);
   if (loaded.state === 'invalid') return false;
   const current: ExtensionManifest = loaded.state === 'valid'
@@ -367,12 +518,18 @@ export async function captureExtensionManifest(options: Required<Pick<Persistenc
   try {
     const present = await loadRegistry(options.extensionsDir);
     const obsolete = await loadObsolete(options.extensionsDir);
+    const managedExtensionsPath = options.managedExtensionsPath ?? join(dirname(options.manifestPath), 'managed-extensions.json');
+    const companyIds = await companyProvenanceIds(options.extensionsDir, managedExtensionsPath, options.managedReleaseDigest ?? null);
     const extensions: Record<string, ExtensionRecord> = {};
     for (const [id, record] of Object.entries(current.extensions)) {
-      if (present[id] === undefined && !obsoleteProvesUninstall(id, record, obsolete)) extensions[id] = record;
+      if (companyIds.has(id)) {
+        extensions[id] = record;
+      } else if (present[id] === undefined && !obsoleteProvesUninstall(id, record, obsolete)) {
+        extensions[id] = record;
+      }
     }
     for (const [id, observed] of Object.entries(present)) {
-      if (obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])) continue;
+      if (companyIds.has(id) || obsoleteProvesUninstall(id, observed, obsolete, current.extensions[id])) continue;
       const digest = current.extensions[id]?.sha256;
       extensions[id] = digest === undefined ? observed : { ...observed, sha256: digest };
     }
@@ -381,7 +538,7 @@ export async function captureExtensionManifest(options: Required<Pick<Persistenc
     const next: ExtensionManifest = {
       version: 1,
       extensions: Object.fromEntries(Object.entries(extensions).sort(([left], [right]) => left.localeCompare(right))),
-      settings: collectSettings(current.settings, new Set(Object.keys(present))),
+      settings: collectSettings(current.settings, new Set(Object.keys(present).filter((id) => !companyIds.has(id)))),
       ...(current.securityWarningShown === undefined ? {} : { securityWarningShown: current.securityWarningShown }),
     };
     if (Object.keys(next.extensions).length > 0 && next.securityWarningShown !== true) {
@@ -398,6 +555,192 @@ export async function captureExtensionManifest(options: Required<Pick<Persistenc
   } catch {
     return false;
   }
+}
+
+function validateCompanyRedirect(record: ManagedExtensionRecord, location: string): URL {
+  const redirected = new URL(location);
+  const filename = new URL(record.downloadUrl).pathname.split('/').at(-1);
+  if (filename === undefined || filename.length === 0) throw new Error('company extension URL has no filename');
+  const expectedPath = `/${encodeURIComponent(record.publisher)}/${encodeURIComponent(record.name)}/${encodeURIComponent(record.version)}/${filename}`;
+  if (
+    redirected.protocol !== 'https:'
+    || redirected.hostname !== COMPANY_REDIRECT_HOST
+    || redirected.port !== ''
+    || redirected.username !== ''
+    || redirected.password !== ''
+    || redirected.search !== ''
+    || redirected.hash !== ''
+    || redirected.pathname !== expectedPath
+  ) {
+    throw new Error('company extension redirect is not allowed');
+  }
+  return redirected;
+}
+
+async function exactCompanyResponse(record: ManagedExtensionRecord): Promise<Response> {
+  const initial = await fetch(new Request(record.downloadUrl, {
+    headers: { Accept: 'application/octet-stream' },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(COMPANY_REQUEST_TIMEOUT_MS),
+  }));
+  if (initial.status >= 300 && initial.status < 400) {
+    const location = initial.headers.get('location');
+    if (location === null) throw new Error('company extension redirect has no location');
+    const redirected = validateCompanyRedirect(record, location);
+    const response = await fetch(new Request(redirected, {
+      headers: { Accept: 'application/octet-stream' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(COMPANY_REQUEST_TIMEOUT_MS),
+    }));
+    if (response.status >= 300 && response.status < 400) throw new Error('company extension exceeded redirect bound');
+    if (!response.ok) throw new Error(`company extension download failed with HTTP ${response.status}`);
+    return response;
+  }
+  if (!initial.ok) throw new Error(`company extension download failed with HTTP ${initial.status}`);
+  return initial;
+}
+
+async function downloadCompanyExtension(record: ManagedExtensionRecord, destination: string): Promise<void> {
+  const response = await exactCompanyResponse(record);
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > record.size) {
+      throw new Error('company extension content length exceeds its signed bound');
+    }
+  }
+  if (response.body === null) throw new Error('company extension response has no body');
+  const reader = response.body.getReader();
+  const digest = createHash('sha256');
+  const handle = await open(destination, 'wx', 0o600);
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > record.size) {
+        await reader.cancel();
+        throw new Error('company extension exceeds its signed size');
+      }
+      digest.update(value);
+      await handle.writeFile(value);
+    }
+    await handle.sync();
+  } finally {
+    reader.releaseLock();
+    await handle.close();
+  }
+  if (size !== record.size) throw new Error('company extension size does not match its signed manifest');
+  if (digest.digest('hex') !== record.sha256) throw new Error('company extension SHA-256 does not match its signed manifest');
+}
+
+async function installCompanyExtension(record: ManagedExtensionRecord): Promise<void> {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), 'codeflare-company-extension-'));
+  const vsixPath = join(temporaryRoot, `${record.id}.vsix`);
+  try {
+    await downloadCompanyExtension(record, vsixPath);
+    await vscode.commands.executeCommand(INSTALL_COMMAND, vscode.Uri.file(vsixPath), { donotSync: true });
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+}
+
+export async function reconcileCompanyExtensions(
+  options: Pick<ResolvedOptions, 'extensionsDir' | 'managedExtensionsPath'> & Partial<Pick<ResolvedOptions, 'managedReleaseDigest'>>,
+): Promise<{ failures: string[]; managedIds: string[] }> {
+  const suppliedDigest = options.managedReleaseDigest !== undefined
+    ? options.managedReleaseDigest
+    : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
+  const expectedDigest = suppliedDigest && sha256Pattern.test(suppliedDigest) ? suppliedDigest : null;
+  let managed: ManagedExtensionRecord[];
+  try {
+    managed = await loadManagedExtensions(options.managedExtensionsPath, expectedDigest);
+  } catch {
+    try {
+      await vscode.window.showWarningMessage('Company Browser IDE extensions could not be reconciled.');
+    } catch {
+      // Reconciliation remains isolated from notification delivery.
+    }
+    return { failures: ['managed-extension-manifest'], managedIds: [] };
+  }
+  const managedIds = managed.map(({ id }) => id);
+  const managedIdSet = new Set(managedIds);
+  const priorIds = await loadCompanyMarker(options.extensionsDir);
+  const failures: string[] = [];
+  const failedRemovals: string[] = [];
+  for (const id of [...priorIds].filter((priorId) => !managedIdSet.has(priorId)).sort()) {
+    try {
+      await vscode.commands.executeCommand(UNINSTALL_COMMAND, id, { donotSync: true });
+    } catch {
+      failures.push(id);
+      failedRemovals.push(id);
+    }
+  }
+  const protectedIds = [...new Set([...managedIds, ...failedRemovals])].sort();
+  try {
+    await preserveCompanyMarker(options.extensionsDir, protectedIds);
+  } catch {
+    try {
+      await vscode.window.showWarningMessage('Company Browser IDE extensions could not be reconciled.');
+    } catch {
+      // Reconciliation remains isolated from notification delivery.
+    }
+    return { failures: [...new Set([...failures, ...managedIds])].sort(), managedIds: protectedIds };
+  }
+  // Registry identity cannot prove the installed bytes match the signed company
+  // digest. Reinstall every active company requirement from its exact verified
+  // VSIX; matching ID/version/platform metadata is not a trust boundary.
+  const required = managed;
+  const failedIds = new Set<string>();
+  const pending = new Map(required.map((record) => [record.id, record]));
+  while (pending.size > 0) {
+    const ready = [...pending.values()].filter((record) => (
+      [...record.extensionPack, ...record.extensionDependencies].every((id) => !pending.has(id))
+    ));
+    if (ready.length === 0) {
+      for (const id of pending.keys()) {
+        failures.push(id);
+        failedIds.add(id);
+      }
+      break;
+    }
+    for (const record of ready) pending.delete(record.id);
+    let next = 0;
+    const worker = async () => {
+      while (next < ready.length) {
+        const record = ready[next];
+        next += 1;
+        if (record === undefined) continue;
+        if ([...record.extensionPack, ...record.extensionDependencies].some((id) => failedIds.has(id))) {
+          failures.push(record.id);
+          failedIds.add(record.id);
+          continue;
+        }
+        try {
+          await installCompanyExtension(record);
+        } catch {
+          failures.push(record.id);
+          failedIds.add(record.id);
+        }
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(COMPANY_RECONCILE_CONCURRENCY, ready.length) },
+      () => worker(),
+    ));
+  }
+  failures.sort();
+  if (failures.length > 0) {
+    const visible = failures.slice(0, 10).join(', ');
+    const omitted = failures.length > 10 ? ` and ${failures.length - 10} more` : '';
+    try {
+      await vscode.window.showWarningMessage(`Could not reconcile company Browser IDE extensions: ${visible}${omitted}.`);
+    } catch {
+      // Reconciliation remains isolated from notification delivery.
+    }
+  }
+  return { failures, managedIds: protectedIds };
 }
 
 function structuredNotFound(error: unknown): boolean {
@@ -432,6 +775,7 @@ async function restoreSettings(settings: Record<string, JsonValue>): Promise<voi
 
 export async function restoreExtensionManifest(
   options: Pick<ResolvedOptions, 'extensionsDir' | 'manifestPath'> & Partial<Pick<ResolvedOptions, 'syncPidFile'>>,
+  managedIds: ReadonlySet<string> = new Set(),
 ): Promise<{ failures: string[] }> {
   const loaded = await loadExtensionManifest(options.manifestPath);
   if (loaded.state !== 'valid') return { failures: [] };
@@ -451,7 +795,7 @@ export async function restoreExtensionManifest(
     return { failures: [] };
   }
   const missing = Object.entries(manifest.extensions)
-    .filter(([id]) => installed[id] === undefined)
+    .filter(([id, record]) => !managedIds.has(id) && installed[id]?.version !== record.version)
     .sort(([left], [right]) => left.localeCompare(right));
   const failures: string[] = [];
 
@@ -511,6 +855,13 @@ function resolveOptions(options: PersistenceOptions = {}): ResolvedOptions {
     extensionsDir: options.extensionsDir ?? process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR ?? '/tmp/openvscode-data/extensions',
     manifestPath: options.manifestPath ?? process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST ?? join(home, '.codeflare', 'ide-extensions.json'),
     syncPidFile: options.syncPidFile ?? process.env.CODEFLARE_SYNC_DAEMON_PIDFILE ?? '/tmp/sync-daemon.pid',
+    managedExtensionsPath: options.managedExtensionsPath ?? join(home, '.codeflare', 'managed-extensions.json'),
+    managedReleaseDigest: (() => {
+      const value = options.managedReleaseDigest !== undefined
+        ? options.managedReleaseDigest
+        : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
+      return value && sha256Pattern.test(value) ? value : null;
+    })(),
     debounceMs: options.debounceMs ?? 2_000,
   };
 }
@@ -530,7 +881,8 @@ export async function activateExtensionPersistence(
   options: PersistenceOptions = {},
 ): Promise<() => Promise<void>> {
   const resolved = resolveOptions(options);
-  await restoreExtensionManifest(resolved);
+  const company = await reconcileCompanyExtensions(resolved);
+  await restoreExtensionManifest(resolved, new Set(company.managedIds));
   let timer: NodeJS.Timeout | undefined;
   let capturePending = false;
   let captureChain = Promise.resolve();

@@ -220,7 +220,7 @@ async function runInlineDiagnosticRequest(): Promise<void> {
   const target = installActiveEditor();
   nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
     response: {
-      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
+      textEdit(edits: unknown[], proposal: { requestId: string; outcome: 'edit' | 'noChange'; summary: string }): void;
     };
   }) => {
     options.response.textEdit([{
@@ -231,6 +231,7 @@ async function runInlineDiagnosticRequest(): Promise<void> {
       newText: 'generated',
     }], {
       requestId: 'diagnostic-request',
+      outcome: 'edit',
       summary: 'Generated diagnostic test edit.',
     });
     return 'completed';
@@ -406,7 +407,7 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
     response: {
       progress(value: string): void;
       thinking?(value: string): void;
-      textEdit(edits: unknown[], proposal: { requestId: string; summary: string }): void;
+      textEdit(edits: unknown[], proposal: { requestId: string; outcome: 'edit' | 'noChange'; summary: string }): void;
     };
   }) => {
     assert.equal(options.mode, 'inline-edit');
@@ -442,6 +443,7 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
       newText: 'generated',
     }], {
       requestId: 'inline-request-1',
+      outcome: 'edit',
       summary: 'Replaced the selected target value.',
     });
     return 'completed';
@@ -518,6 +520,54 @@ test('REQ-IDE-020 + REQ-IDE-026 + REQ-IDE-029 + REQ-IDE-033 + REQ-IDE-034: inlin
   assert.match(tabEvent, /target\.ts/);
   assert.doesNotMatch(tabEvent, /operator|authority-secret|query-secret|fragment-secret|credential-bearing-label-secret/);
   assert.doesNotMatch(tabEvent, /home\/user\/workspace|private/);
+});
+
+test('REQ-IDE-029 + REQ-IDE-030: an Inline no-change result explains itself without an editor transaction', async () => {
+  const target = installActiveEditor();
+  const rendered: unknown[] = [];
+  const markdown: string[] = [];
+  nativeChat.runNativePiChat.mockImplementationOnce(async (options: {
+    response: {
+      textEdit(edits: unknown[], result: { requestId: string; outcome: 'edit' | 'noChange'; summary: string }): void;
+    };
+  }) => {
+    options.response.textEdit([], {
+      requestId: 'inline-request-no-change',
+      outcome: 'noChange',
+      summary: 'The selected code already satisfies the request.',
+    });
+    return 'completed';
+  });
+  await activate({ extensionUri: { fsPath: '/extension' }, subscriptions: [] } as never);
+
+  assert.ok(host.participantHandler);
+  const result = await host.participantHandler(
+    {
+      location: 4,
+      location2: {
+        document: target.document,
+        selection: target.selection,
+        wholeRange: target.selection,
+      },
+      prompt: 'Explain whether this needs a change',
+      references: [],
+    },
+    { history: [] },
+    {
+      markdown: (value: string) => markdown.push(value),
+      progress() {},
+      thinkingProgress() {},
+      textEdit: (...args: unknown[]) => rendered.push(args),
+    },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+  );
+
+  assert.deepEqual(markdown, ['The selected code already satisfies the request.']);
+  assert.deepEqual(rendered, []);
+  assert.deepEqual(result, {
+    details: 'The selected code already satisfies the request.',
+    metadata: {},
+  });
 });
 
 test('REQ-IDE-034 AC3: delayed Inline diagnostics record three-second and eight-second snapshots', async () => {
@@ -640,7 +690,7 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
     response: {
       markdown(value: string): void;
       thinking?(value: string): void;
-      textEdit?(edits: unknown[], proposal: { requestId: string; summary: string }): void;
+      textEdit?(edits: unknown[], proposal: { requestId: string; outcome: 'edit' | 'noChange'; summary: string }): void;
     };
     backend: unknown;
   }) => {
@@ -655,6 +705,7 @@ test('REQ-IDE-025: panel-first then native inline edit reuses one unrestricted I
         newText: 'return generated;',
       }], {
         requestId: 'inline-request-2',
+        outcome: 'edit',
         summary: 'Returned the generated value because the prior name was stale.',
       });
     } else {

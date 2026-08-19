@@ -159,6 +159,8 @@ An automated penetration test runs weekly against production (`pentest.yml`). If
 
 **Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, and token scopes do not belong in this repository — they live in the private [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) repo. Never commit them here (code, `sdd/`, or `documentation/`); read or change them in that repo. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
 
+**Managed Environment content.** Deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements do not belong in this repository either — their runtime master is the private [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) repo. `preseed/agents/**` here is only the image-baked fallback baseline. To add or change curated content, clone `codeflare-curation`, make the change there, and open a PR there; a signed release published from its protected workflow is what actually reaches deployments. Change this repository only when the task is explicitly about the image fallback, or about the shared compiler and runtime ABI, which stay Codeflare-owned and must land here before the curation repo advances its compiler pin. See [Managed curation ownership](documentation/lanes/preseed.md#managed-curation-ownership).
+
 ## Questions
 
 Open an issue for questions about the codebase, architecture, or contribution process.

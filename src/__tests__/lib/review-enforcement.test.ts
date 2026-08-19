@@ -37,7 +37,6 @@ type PlannedReviewEnforcement = {
       queryBranch?(repo: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
-      deferGoalPause?(task: () => void | Promise<void>): void;
     },
   ): void | Promise<void>;
   queryPr(
@@ -330,8 +329,6 @@ function makeHarness(repo: string, sessionFile: string): {
   setAppendEntryFails(fails: boolean): void;
   setAppendEntryFailureType(customType: string | undefined): void;
   setSentMessagePersistence(persist: boolean): void;
-  deferGoalPause(task: () => void | Promise<void>): void;
-  flushGoalPauses(): Promise<void>;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
@@ -340,7 +337,6 @@ function makeHarness(repo: string, sessionFile: string): {
   const notifications: string[] = [];
   const operations: string[] = [];
   const reviewPrompts: Array<{ title: string; options: string[] }> = [];
-  const deferredGoalPauses: Array<() => void | Promise<void>> = [];
   let reviewDecisions: Array<'launch' | 'acknowledge' | undefined> = ['launch'];
   let activeTools = ['read', 'bash'];
   let goalControlAvailable = true;
@@ -468,10 +464,6 @@ function makeHarness(repo: string, sessionFile: string): {
     setAppendEntryFails: (fails) => { appendEntryFails = fails; },
     setAppendEntryFailureType: (customType) => { appendEntryFailureType = customType; },
     setSentMessagePersistence: (persist) => { persistSentMessages = persist; },
-    deferGoalPause: (task) => { deferredGoalPauses.push(task); },
-    flushGoalPauses: async () => {
-      for (const task of deferredGoalPauses.splice(0)) await task();
-    },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -490,7 +482,6 @@ async function registerFixture(
       observeQuery?.(repo, target);
       return fixture.pr;
     },
-    deferGoalPause: harness.deferGoalPause,
   });
   return harness;
 }
@@ -910,12 +901,8 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
     await harness.emit('agent_end');
-    expect(harness.goalControlRequests).toEqual([]);
-    await harness.flushGoalPauses();
-    expect(harness.goalControlRequests).toEqual([{
-      action: 'pause',
-      goalId: 'goal-1',
-    }]);
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
+
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -1046,8 +1033,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-resume-race'));
     await harness.emit('agent_end');
-    expect(harness.goalControlRequests).toEqual([]);
-    await harness.flushGoalPauses();
+    expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-resume-race', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -1088,8 +1074,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(harness.goalControlRequests).toEqual([]);
     await harness.emit('agent_end');
-    expect(harness.goalControlRequests).toEqual([]);
-    await harness.flushGoalPauses();
     expect(harness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
     const entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -1124,7 +1108,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -1150,7 +1133,6 @@ describe('Pi review reminder and settled enforcement', () => {
       triageMessage(),
     );
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     expect(harness.goalControlRequests).toEqual([
@@ -1176,7 +1158,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     write(fixture.repo, 'src/review.ts', 'export const replacement = true;\n');
@@ -1199,7 +1180,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([
       { action: 'pause', goalId: 'goal-1' },
@@ -1219,7 +1199,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
     const originalHead = fixture.head;
 
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
@@ -1244,7 +1223,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-2'));
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     let entries = readFileSync(fixture.sessionFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(entries.filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1)?.data).toEqual({
@@ -1300,7 +1278,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)?.message.customType).toBe('pr-boundary-launch-plan');
@@ -1324,7 +1301,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
 
     expect(harness.goalControlRequests).toEqual([]);
     expect(harness.sent.at(-1)).toEqual({
@@ -1343,7 +1319,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
@@ -1376,7 +1351,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-2', 'active'),
@@ -1409,7 +1383,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
     appendSession(fixture.sessionFile,
       goalState('goal-1', 'paused'),
       goalState('goal-1', 'active'),
@@ -1604,7 +1577,6 @@ describe('Pi review reminder and settled enforcement', () => {
     let lookups = 0;
     await registerReviewEnforcement(transientHarness.pi, {
       queryPr: async () => (++lookups === 1 ? PR_LOOKUP_FAILED : fixture.pr),
-      deferGoalPause: transientHarness.deferGoalPause,
     });
     await transientHarness.emit('tool_result', ciResultEvent(fixture));
     expect(lookups).toBe(1);
@@ -2906,7 +2878,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(resumedHarness.sent).toEqual([]);
 
     await resumedHarness.emit('agent_end');
-    await resumedHarness.flushGoalPauses();
     expect(resumedHarness.goalControlRequests).toEqual([{ action: 'pause', goalId: 'goal-1' }]);
 
     appendSession(fixture.sessionFile,
@@ -3112,7 +3083,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_end');
-    await harness.flushGoalPauses();
     harness.sent.splice(0);
     appendSession(fixture.sessionFile, goalState('goal-1', 'paused'));
     fixture.pr.state = 'MERGED';

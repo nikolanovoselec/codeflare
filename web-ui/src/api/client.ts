@@ -110,10 +110,10 @@ export async function deleteSession(id: string): Promise<void> {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const path = options?.includePreseedCheck ? '/sessions/batch-status?includePreseedCheck=true' : '/sessions/batch-status';
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }
 
 // Get container startup status (polling endpoint)
@@ -129,7 +129,7 @@ export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
   onComplete: () => void,
-  onError: (error: string) => void
+  onError: (error: string, code?: string) => void
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -162,7 +162,7 @@ export function startSession(
 
       if (isDefinitiveFailure) {
         logger.error('Container start failed (definitive):', (err as ApiError).status, err.message);
-        onError(`Container start failed: ${err.message}`);
+        onError(`Container start failed: ${err.message}`, (err as ApiError).code);
         return;
       }
       // Transient error (network failure, timeout, 5xx) - proceed to polling

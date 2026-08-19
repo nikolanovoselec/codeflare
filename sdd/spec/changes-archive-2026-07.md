@@ -1117,7 +1117,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-03-08
 - Added [REQ-STOR-007](storage.md#req-stor-007-web-file-browser) (web file browser), [REQ-STOR-008](storage.md#req-stor-008-multipart-upload-for-large-files) (multipart upload)
-- Added [REQ-STOR-012](storage.md#req-stor-012-session-transcript-cleanup) (server-side prefix delete for R2 folders)
+- Added [REQ-STOR-012](storage.md#req-stor-012-main-session-transcript-cleanup) (server-side prefix delete for R2 folders)
 
 ## 2026-03-05
 - Added agents domain ([REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) through [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)): multi-agent support, agent selection, auto-start

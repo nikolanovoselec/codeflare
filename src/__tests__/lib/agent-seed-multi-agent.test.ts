@@ -195,18 +195,23 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       const modes = entries.flatMap((entry) => entry.modes).sort();
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
-        // The engineering constitution (source of the gate sections) ships
-        // advanced-only (manifest.json), so default-mode docs carry no gates;
-        // Pi's compact context merges them into one 'Review and CI gates'
-        // section present in both modes (REQ-AGENT-095/097).
+        const isAdvanced = entry.modes.includes('advanced');
+        // Pi owns a native Git workflow in both modes, while its engineering
+        // constitution is advanced-only. The compact AGENTS.md must preserve
+        // the workflow gates without leaking constitution sections to default.
         const requiredHeadings = key === '.pi/agent/AGENTS.md'
-          ? ['Work continuity', 'Review and CI gates']
-          : entry.modes.includes('advanced')
+          ? isAdvanced
+            ? ['Work continuity', 'Review and CI gates', 'Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
+            : ['Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
+          : isAdvanced
             ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
             : [];
-        if (requiredHeadings.length === 0) continue;
-        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
+        const headings = markdownHeadings(entry.content);
+        expect(headings, `${key} ${entry.modes.join(',')} includes gate sections`)
           .toEqual(expect.arrayContaining(requiredHeadings));
+        if (key === '.pi/agent/AGENTS.md' && !isAdvanced) {
+          expect(headings).not.toEqual(expect.arrayContaining(['Work continuity', 'Review and CI gates']));
+        }
       }
     }
   });

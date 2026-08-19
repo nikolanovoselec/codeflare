@@ -22,6 +22,17 @@ export function buildConfigurePayload(state: SetupState): Record<string, unknown
     githubOauthClientSecret: state.githubOauthClientSecret,
     cloudflareOauthClientId: state.cloudflareOauthClientId,
     cloudflareOauthClientSecret: state.cloudflareOauthClientSecret,
+    // Deployment-level managed environment uses the same request shape in
+    // every mode. Once loaded or touched, disabled is explicit; an unavailable
+    // best-effort prefill is omitted so it cannot accidentally disable curation.
+    ...((state.managedEnvironmentConfigured || state.managedEnvironmentTouched) ? {
+      managedEnvironment: state.managedEnvironmentEnabled ? {
+        enabled: true,
+        repository: state.managedEnvironmentRepository,
+        personalAccessToken: state.managedEnvironmentPersonalAccessToken,
+        publicKey: state.managedEnvironmentPublicKey,
+      } : { enabled: false },
+    } : {}),
     // Enterprise-only fields; omitted entirely for other modes so their
     // request body is byte-identical to today.
     ...(state.enterpriseMode ? {

@@ -96,6 +96,10 @@ Operators can follow parallel agents, current work, review outcomes, CI state, s
 
 Every session arrives with organizational rules, reusable skills, specialist agents, approved tools, and repository context. Context loads when needed instead of occupying every prompt. Persistent notes and knowledge graphs carry decisions across disposable runtimes.
 
+Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the operator publishes a signed, immutable release on its own schedule and each user's environment converges to it before the next session starts. Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; credentials never enter a session container. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
+
+Codeflare's own curated content lives in [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) (access required). Each operator points at their own repository instead.
+
 ![Codeflare session preload](assets/documentation/platform-preload.gif)
 
 The browser workspace provides up to six terminal tabs, multi-pane layouts, MultiView for following several sessions, GitHub repository and pull-request workflows, per-user R2 persistence, and a mobile-oriented terminal that works without a local agent toolchain.

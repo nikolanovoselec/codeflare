@@ -496,69 +496,70 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
   });
 
   // REQ-ENTERPRISE-016: strict gateway egress toggle — enterprise-only checkbox.
-  // It is the FIRST checkbox ConfigureStep renders (the Governed Mode toggle is the
-  // second), so it is asserted via querySelector('input[type="checkbox"]') — first
-  // match (no prose copy pinned).
   describe('Strict gateway egress toggle (REQ-ENTERPRISE-016)', () => {
+    const strictEgressCheckbox = () => screen.getByRole('checkbox', {
+      name: 'Route container HTTP/HTTPS egress through Cloudflare Gateway',
+    }) as HTMLInputElement;
+
     it('renders the toggle in enterprise mode', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      expect(document.querySelector('input[type="checkbox"]')).not.toBeNull();
+      expect(strictEgressCheckbox()).toBeInTheDocument();
     });
 
     it('does not render the toggle outside enterprise mode', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+      expect(screen.queryByRole('checkbox', {
+        name: 'Route container HTTP/HTTPS egress through Cloudflare Gateway',
+      })).not.toBeInTheDocument();
     });
 
     it('renders unchecked by default', () => {
       storeState.enterpriseMode = true;
       storeState.strictGatewayEgress = false;
       render(() => <ConfigureStep />);
-      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
-      expect(checkbox.checked).toBe(false);
+      expect(strictEgressCheckbox().checked).toBe(false);
     });
 
     it('reflects a checked toggle from store state', () => {
       storeState.enterpriseMode = true;
       storeState.strictGatewayEgress = true;
       render(() => <ConfigureStep />);
-      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
-      expect(checkbox.checked).toBe(true);
+      expect(strictEgressCheckbox().checked).toBe(true);
     });
 
     it('calls setStrictGatewayEgress when toggled on', () => {
       storeState.enterpriseMode = true;
       storeState.strictGatewayEgress = false;
       render(() => <ConfigureStep />);
-      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
-      fireEvent.click(checkbox);
+      fireEvent.click(strictEgressCheckbox());
       expect(storeMethods.setStrictGatewayEgress).toHaveBeenCalledWith(true);
     });
   });
 
-  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle — enterprise-only, and
-  // the SECOND checkbox ConfigureStep renders (after strict egress). Flipping it requires
-  // an explicit admin confirmation because it triggers a re-encrypt migration.
+  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle — enterprise-only.
+  // Flipping it requires an explicit admin confirmation because it triggers a
+  // re-encrypt migration.
   describe('Governed Mode toggle (REQ-ENTERPRISE-018)', () => {
-    // The Governed Mode toggle is the 2nd checkbox; strict egress is the 1st.
-    const governedCheckbox = () =>
-      document.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement;
+    const governedCheckbox = () => screen.getByRole('checkbox', {
+      name: 'Disable R2 SSE-C so company security tooling can scan bucket data',
+    }) as HTMLInputElement;
 
     afterEach(() => vi.restoreAllMocks());
 
-    it('renders a second toggle in enterprise mode', () => {
+    it('renders the toggle in enterprise mode', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      // Three enterprise checkboxes render: strict egress, Governed Mode, and View-only storage.
-      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+      expect(governedCheckbox()).toBeInTheDocument();
     });
 
     it('does not render the Governed Mode toggle outside enterprise mode', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+      expect(screen.queryByRole('checkbox', {
+        name: 'Disable R2 SSE-C so company security tooling can scan bucket data',
+      })).not.toBeInTheDocument();
     });
 
     it('reflects a checked toggle from store state', () => {
@@ -587,24 +588,25 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     });
   });
 
-  // View-only storage (downloads disabled) toggle — enterprise-only, the THIRD checkbox
-  // ConfigureStep renders (after strict egress and Governed Mode). A plain toggle: no
-  // window.confirm, so a click flips it straight through setDownloadsDisabled.
+  // View-only storage (downloads disabled) toggle — enterprise-only. A plain toggle:
+  // no window.confirm, so a click flips it straight through setDownloadsDisabled.
   describe('View-only storage toggle / REQ-ENTERPRISE-019', () => {
-    // The View-only toggle is the 3rd checkbox; strict egress is 1st, Governed Mode 2nd.
-    const downloadsCheckbox = () =>
-      document.querySelectorAll('input[type="checkbox"]')[2] as HTMLInputElement;
+    const downloadsCheckbox = () => screen.getByRole('checkbox', {
+      name: 'Disable file downloads (view-only storage)',
+    }) as HTMLInputElement;
 
-    it('renders a third toggle in enterprise mode', () => {
+    it('renders the toggle in enterprise mode', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+      expect(downloadsCheckbox()).toBeInTheDocument();
     });
 
     it('does not render the View-only toggle outside enterprise mode', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+      expect(screen.queryByRole('checkbox', {
+        name: 'Disable file downloads (view-only storage)',
+      })).not.toBeInTheDocument();
     });
 
     it('reflects a checked toggle from store state', () => {

@@ -98,6 +98,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.graphify/global-graph.json': 'ephemeral unified graph',
     '.codeflare/ide-ui-state.json': '{"version":1}',
     '.codeflare/ide-extensions.json': '{"version":1,"extensions":{},"settings":{}}',
+    '.codeflare/managed-extensions.json': '{"schemaVersion":1,"extensions":[]}',
     '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
@@ -267,6 +268,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       const v = verdictUnder({ sessionMode, defaultDeny: false });
       assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');
       assert.equal(v['.codeflare/ide-extensions.json'], 'INCLUDED');
+      assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
     }
   });

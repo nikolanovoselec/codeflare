@@ -129,6 +129,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   _strictEgress: boolean = false;
   /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C disabled; set per-start from the setBucketName body. */
   _r2SseDisabled: boolean = false;
+  _remoteCurationActive: boolean = false;
+  _remoteCurationReleaseDigest: string | null = null;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;

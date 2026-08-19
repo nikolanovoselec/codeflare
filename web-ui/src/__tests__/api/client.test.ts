@@ -596,6 +596,36 @@ describe('API Client', () => {
       cleanup();
     });
 
+    it('forwards the backend error code alongside the message on a definitive start failure', async () => {
+      const onProgress = vi.fn();
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+
+      // Container start rejects with the 409 the Worker emits while a managed
+      // release is still converging. The code, not the prose, is the contract
+      // the session store keys its status refresh off.
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: () => Promise.resolve(JSON.stringify({
+          error: 'Managed environment update is pending',
+          code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
+        })),
+      });
+
+      const cleanup = startSession('session00123', onProgress, onComplete, onError);
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(onError).toHaveBeenCalledWith(
+        'Container start failed: Managed environment update is pending',
+        'MANAGED_ENVIRONMENT_UPDATE_PENDING'
+      );
+      expect(onComplete).not.toHaveBeenCalled();
+
+      cleanup();
+    });
+
     it('should use default error message when error field is missing', async () => {
       const onProgress = vi.fn();
       const onComplete = vi.fn();

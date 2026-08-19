@@ -166,6 +166,7 @@ class RecordingBackend implements NativePiBackend {
     this.observers.push(observer);
     return {
       requestId: 'inline-request-1',
+      outcome: 'edit' as const,
       summary: 'Inserted generated code because the target was empty.',
       edits: [{
         startLine: 0,
@@ -220,11 +221,11 @@ function responseRecorder(): {
   response: NativePiResponse;
   markdown: string[];
   progress: string[];
-  textEdits: Array<{ edits: unknown[]; requestId: string; summary: string }>;
+  textEdits: Array<{ edits: unknown[]; requestId: string; outcome: string; summary: string }>;
 } {
   const markdown: string[] = [];
   const progress: string[] = [];
-  const textEdits: Array<{ edits: unknown[]; requestId: string; summary: string }> = [];
+  const textEdits: Array<{ edits: unknown[]; requestId: string; outcome: string; summary: string }> = [];
   return {
     response: {
       markdown: (value) => markdown.push(value),
@@ -232,6 +233,7 @@ function responseRecorder(): {
       textEdit: (edits, proposal) => textEdits.push({
         edits: [...edits],
         requestId: proposal.requestId,
+        outcome: proposal.outcome,
         summary: proposal.summary,
       }),
     },
@@ -303,6 +305,7 @@ test('REQ-IDE-025: panel and native inline edit turns reuse one backend with sur
   assert.deepEqual(inline.markdown, []);
   assert.deepEqual(inline.textEdits, [{
     requestId: 'inline-request-1',
+    outcome: 'edit',
     summary: 'Inserted generated code because the target was empty.',
     edits: [{
       startLine: 0,
@@ -312,6 +315,25 @@ test('REQ-IDE-025: panel and native inline edit turns reuse one backend with sur
       newText: 'generated inline code',
     }],
   }]);
+  await runtime.dispose();
+});
+
+test('REQ-IDE-025: a cold Inline turn omits panel history from its embedded editor context', async () => {
+  const backend = new RecordingBackend();
+  const runtime = new NativePiRuntime(() => backend, runNativePiChat);
+
+  await runtime.handle({
+    mode: 'inline-edit',
+    input: promptInput({
+      prompt: 'cold inline request',
+      history: [{ role: 'assistant', text: 'panel-history-canary' }],
+    }),
+    response: responseRecorder().response,
+    cancellation: activeCancellation,
+  });
+
+  assert.equal(editorContext(backend.inlinePrompts[0] ?? '').history, undefined);
+  assert.doesNotMatch(backend.inlinePrompts[0] ?? '', /panel-history-canary/);
   await runtime.dispose();
 });
 

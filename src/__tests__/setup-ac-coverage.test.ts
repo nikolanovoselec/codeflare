@@ -664,9 +664,12 @@ describe('Setup AC Coverage', () => {
       expect(secretNames).toContain('R2_SECRET_ACCESS_KEY');
     });
 
-    it('REQ-SETUP-012 AC4: step cleanup_stale_users runs only on reconfigure when users removed from allowlist', async () => {
-      // Seed an existing user who is NOT in the new allowedUsers list
-      mockKV._set('user:removed@example.com', { role: 'user', addedBy: 'setup' });
+    it('REQ-SETUP-012 AC4: reconfiguration never offboards a user absent from the submitted allowlist', async () => {
+      mockKV._set('user:preserved@example.com', { role: 'user', addedBy: 'enterprise-jit' });
+      mockKV._set('deploy-keys:codeflare-preserved-example-com', {
+        githubToken: 'gho_preserved',
+        githubTokenSource: 'oauth',
+      });
 
       const app = createTestApp();
       mockFullSuccessFlow();
@@ -676,16 +679,17 @@ describe('Setup AC Coverage', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // removed@example.com is not in allowedUsers -> should be cleaned up
           body: JSON.stringify(standardBody),
         }
       );
 
       const lines = await readNdjson(res);
-      // cleanup_stale_users step fires because stale users exist
-      expect(lines).toContainEqual(
-        expect.objectContaining({ step: 'cleanup_stale_users', status: 'success' })
+      expect(getNdjsonSummary(lines).success).toBe(true);
+      expect(lines).not.toContainEqual(
+        expect.objectContaining({ step: 'cleanup_stale_users' })
       );
+      expect(await mockKV.get('user:preserved@example.com')).not.toBeNull();
+      expect(await mockKV.get('deploy-keys:codeflare-preserved-example-com')).not.toBeNull();
     });
 
     it('REQ-SETUP-012 AC5: step configure_custom_domain creates CNAME DNS record and Worker route', async () => {

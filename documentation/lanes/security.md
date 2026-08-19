@@ -82,7 +82,7 @@ Boundary interceptors resolve credentials from the session-bound bucket/configur
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
-Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. Offboarding revocation state remains retryable rather than being cleared on an unconfirmed provider failure.
+Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. GitHub App/OAuth disconnect and offboarding attempt provider revocation, log failures, and clear the local GitHub credential even when revocation is unconfirmed so local cleanup can continue ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
@@ -185,7 +185,9 @@ Persistence stores only the validated 64 KiB intent manifest: lowercase IDs, exa
 <a id="browser-ide-native-agents"></a>
 ### Unsandboxed native agents
 
-Terminal Pi, panel Pi, and Claude IDE agents run with owner-approved broad container capability. A native Pi Inline Chat turn is narrower: the same serialized IDE process temporarily exposes only the owned proposal tool, and the host validates its text edits before controller-owned Keep/Close. Settlement restores the exact unrestricted panel tool set; malformed state fails closed. Credentials, IDE configuration projection, and public routing remain constrained, but a compromised trusted panel agent can still act with its legitimate session capabilities. [Browser IDE requirements](../../sdd/spec/browser-ide.md), [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits), and [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) own the split contract. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline edit mode exposes only one proposal tool and restores unrestricted panel tools) -->
+Terminal Pi, panel Pi, and Claude IDE agents run with owner-approved broad container capability. A native Pi Inline Chat turn is narrower: the same serialized IDE process temporarily exposes only the owned result tool and current Inline turn suffix. The OpenAI Chat Completions boundary forces that exact tool and disables parallel calls. The host binds the result to its active generation and validates edit outcomes before controller-owned Keep/Close; no-change outcomes invoke no text-edit method.
+
+Settlement restores the exact unrestricted panel tool set, and malformed or duplicate state fails closed. Credentials, IDE configuration projection, and public routing remain constrained, but a compromised trusted panel agent can still act with its legitimate session capabilities. [Browser IDE requirements](../../sdd/spec/browser-ide.md), [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits), [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller), and [AD135](../decisions/README.md#ad135-inline-chat-requires-one-host-correlated-result) own the split contract. <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::constrainInlineOpenAiPayload --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: host/__tests__/pi-inline-edit-mode.test.js (REQ-IDE-025: inline result mode isolates provider tools and context then restores panel tools) -->
 
 ## Abuse and Resource Controls
 
@@ -214,6 +216,16 @@ Per-user session admission is best effort: KV counting and the later running wri
 ### Artifact identity
 
 Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. Workflow procedure belongs to [CI/CD](ci-cd.md).
+
+### Managed curation signing and repository credentials
+
+The private curation build job is read-only. Only its publication job receives release-write permission, and only its signing step receives the Ed25519 private PEM, scoped to the dedicated `managed-seed-production` GitHub environment. Approval rules on that environment are deployment configuration, so the workflow does not assume they are present. Production workflow acceptance is defined by [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication).
+
+The matching raw 64-hex public key is non-secret verification material. Codeflare Setup stores only that public key and an AES-256-GCM-encrypted repository-scoped read PAT. A replacement key is selected only after its signed release verifies without rolling back or conflicting with the active sequence; failure preserves the prior trust boundary. Neither value enters a user bucket or container. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
+
+The Worker strips GitHub authorization before the single allowlisted asset redirect, verifies immutable GitHub asset digests before signature validation, and accepts company-extension metadata in the Browser IDE only when its release digest matches the Worker-applied digest transported to that container. Registry ID/version/platform metadata is not treated as byte identity: each active company requirement is reinstalled from its exact signed size- and SHA-256-verified VSIX, and temporary bytes are deleted. <!-- @impl: src/lib/remote-curation.ts::downloadManagedAsset --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions -->
+
+Under [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), removed company IDs are uninstalled before personal restoration; failures remain company-protected, are reported, and retry later. Fresh users fail closed when enabled curation has no verified cache; already-applied users may continue from their last verified state during a transient outage. <!-- @impl: src/routes/container/lifecycle.ts::default --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence -->
 
 <a id="container-image-scanning-req-sec-011"></a>
 ### Container image vulnerability gate

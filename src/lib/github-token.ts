@@ -193,22 +193,17 @@ async function revokeAtGithub(
   accessToken: string,
 ): Promise<void> {
   const basic = btoa(`${clientId}:${clientSecret}`);
-  try {
-    const response = await fetch(`https://${apiHost(env)}/applications/${clientId}/token`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Basic ${basic}`,
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'Codeflare',
-      },
-      body: JSON.stringify({ access_token: accessToken }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!response.ok) throw new Error(`GitHub token revocation failed with HTTP ${response.status}`);
-  } catch (err) {
-    logger.warn('GitHub token revoke failed; retaining local retry state', { err: String(err) });
-    throw err;
-  }
+  const response = await fetch(`https://${apiHost(env)}/applications/${clientId}/token`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Codeflare',
+    },
+    body: JSON.stringify({ access_token: accessToken }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error(`GitHub token revocation failed with HTTP ${response.status}`);
 }
 
 class GitHubAppUserProvider implements GithubOAuthProvider {
@@ -388,13 +383,17 @@ export async function connectGithub(
   return conn;
 }
 
-/** Disconnect: revoke at GitHub (app/oauth only) and clear the stored fields. */
+/** Disconnect: attempt GitHub revocation, then clear the local fields regardless. */
 export async function disconnectGithub(env: Env, bucketName: string): Promise<void> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source !== 'pat') {
-    const provider = await getGithubProvider(env);
-    if (!provider) throw new Error('GitHub provider unavailable; retaining local retry state');
-    await provider.revoke(conn.accessToken);
+    try {
+      const provider = await getGithubProvider(env);
+      if (!provider) throw new Error('GitHub provider unavailable');
+      await provider.revoke(conn.accessToken);
+    } catch (err) {
+      logger.warn('GitHub token revocation failed; clearing local credentials', { err: String(err) });
+    }
   }
   await clearGithubConnection(env, bucketName);
 }

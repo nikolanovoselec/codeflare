@@ -107,6 +107,7 @@ vi.mock('../../stores/session', async () => {
   let _preseedUpgrading = false;
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
+  let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
   return {
@@ -117,6 +118,7 @@ vi.mock('../../stores/session', async () => {
       get preseedUpgrading() { return _preseedUpgrading; },
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
+      get managedReleaseStatus() { return _managedReleaseStatus; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
@@ -130,6 +132,7 @@ vi.mock('../../stores/session', async () => {
       _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
+      _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
     isAtUsageQuota: () => false,
@@ -237,6 +240,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(false);
     (sessionStore as any)._setEnterpriseMode(false);
     (sessionStore as any)._setSessionMode('advanced');
+    (sessionStore as any)._setManagedReleaseStatus(null);
     mockMultiView = null;
   });
 
@@ -1032,6 +1036,23 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(btn.textContent).toBe('+ New Session');
 
     cleanup();
+  });
+
+  it('disables New Session while a managed release is update_pending', () => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    render(() => <Dashboard {...defaultProps} />);
+
+    const button = screen.getByTestId('dashboard-new-session');
+    expect(button).toBeDisabled();
+    expect(button.textContent).toContain('Update pending');
+  });
+
+  it('disables New Session while a managed release is upgrading', () => {
+    (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    render(() => <Dashboard {...defaultProps} />);
+
+    const button = screen.getByTestId('dashboard-new-session');
+    expect(button).toBeDisabled();
   });
 
   // REQ-ENTERPRISE-021 AC3: Governed Mode migrating-button label

@@ -1,4 +1,9 @@
 import type { Env, SessionMode } from '../types';
+import {
+  streamManagedReleaseDocuments,
+  type ManagedReleaseDocument,
+  type ManagedReleaseIndex,
+} from './remote-curation';
 import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
 import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
@@ -26,7 +31,7 @@ const sleep = (ms: number): Promise<void> =>
  */
 const PRESEED_MARKER_HEADER = 'x-amz-meta-codeflare-preseed';
 
-const markerHeaders = (): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: PRESEED_CONTENT_HASH });
+const markerHeaders = (marker = PRESEED_CONTENT_HASH): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: marker });
 
 /**
  * Ceiling and fan-out width for the stale-marker sweep.
@@ -74,12 +79,39 @@ type SeedDocsResult = {
   skipped: string[];
 };
 
+const R2_SEED_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  results.length = values.length;
+  let nextIndex = 0;
+  let firstError: unknown;
+  const workers = Array.from({ length: Math.min(R2_SEED_CONCURRENCY, values.length) }, async () => {
+    while (firstError === undefined) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= values.length) return;
+      try {
+        results[index] = await worker(values[index], index);
+      } catch (error) {
+        firstError = error;
+      }
+    }
+  });
+  await Promise.all(workers);
+  if (firstError !== undefined) throw firstError;
+  return results;
+}
+
 async function seedDocuments(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
   documents: SeedDocument[],
-  options: { overwrite?: boolean; r2SseDisabled?: boolean } = {}
+  options: { overwrite?: boolean; r2SseDisabled?: boolean; marker?: string } = {}
 ): Promise<SeedDocsResult> {
   const overwrite = options.overwrite === true;
   // REQ-ENTERPRISE-018: in Governed Mode the bucket stores plaintext objects, so the
@@ -91,19 +123,15 @@ async function seedDocuments(
   const skipped: string[] = [];
 
   if (!overwrite) {
-    // Phase 1: parallel HEAD checks to determine which docs need writing
-    const headResults = await Promise.allSettled(
-      documents.map(async (doc) => {
-        const url = getR2Url(endpoint, bucketName, doc.key);
-        const res = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-        return { doc, exists: res.ok, status: res.status };
-      })
-    );
+    // Phase 1: bounded HEAD checks determine which docs need writing.
+    const headResults = await mapWithConcurrency(documents, async (doc) => {
+      const url = getR2Url(endpoint, bucketName, doc.key);
+      const res = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      return { doc, exists: res.ok, status: res.status };
+    });
 
     const toWrite: SeedDocument[] = [];
-    for (const result of headResults) {
-      if (result.status === 'rejected') throw new Error(`HEAD check failed: ${result.reason}`);
-      const { doc, exists, status } = result.value;
+    for (const { doc, exists, status } of headResults) {
       if (exists) {
         skipped.push(doc.key);
       } else if (status === 404) {
@@ -113,44 +141,79 @@ async function seedDocuments(
       }
     }
 
-    // Phase 2: parallel PUTs for docs that need writing
-    const putResults = await Promise.allSettled(
-      toWrite.map(async (doc) => {
-        const url = getR2Url(endpoint, bucketName, doc.key);
-        const res = await r2Client.fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...markerHeaders(), ...sseHeaders },
-          body: doc.content,
-        });
-        if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
-        return doc.key;
-      })
-    );
-    for (const result of putResults) {
-      if (result.status === 'rejected') throw new Error(String(result.reason));
-      written.push(result.value);
-    }
+    // Phase 2: bounded PUTs write only missing docs.
+    written.push(...await mapWithConcurrency(toWrite, async (doc) => {
+      const url = getR2Url(endpoint, bucketName, doc.key);
+      const res = await r2Client.fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': doc.contentType, ...markerHeaders(options.marker), ...sseHeaders },
+        body: doc.content,
+      });
+      if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
+      return doc.key;
+    }));
   } else {
-    // overwrite=true: parallel PUTs for all documents
-    const putResults = await Promise.allSettled(
-      documents.map(async (doc) => {
-        const url = getR2Url(endpoint, bucketName, doc.key);
-        const res = await r2Client.fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...markerHeaders(), ...sseHeaders },
-          body: doc.content,
-        });
-        if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
-        return doc.key;
-      })
-    );
-    for (const result of putResults) {
-      if (result.status === 'rejected') throw new Error(String(result.reason));
-      written.push(result.value);
-    }
+    // overwrite=true: bounded PUTs for all documents.
+    written.push(...await mapWithConcurrency(documents, async (doc) => {
+      const url = getR2Url(endpoint, bucketName, doc.key);
+      const res = await r2Client.fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': doc.contentType, ...markerHeaders(options.marker), ...sseHeaders },
+        body: doc.content,
+      });
+      if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
+      return doc.key;
+    }));
   }
 
   return { written, skipped };
+}
+
+async function seedManagedDocuments(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  mode: SessionMode,
+  selection: ManagedReleaseSelection,
+  options: { overwrite: boolean; r2SseDisabled?: boolean },
+): Promise<SeedDocsResult> {
+  const eligibleKeys = selection.release.documents
+    .filter((document) => document.modes.includes(mode))
+    .map((document) => document.key);
+  const eligible = new Set(eligibleKeys);
+  const written = new Set<string>();
+  const skipped = new Set<string>();
+  const sseHeaders = getSseHeaders(env, options.r2SseDisabled);
+  const client = createR2Client(env);
+
+  await streamManagedReleaseDocuments(selection.compressed, async (document: ManagedReleaseDocument) => {
+    if (!eligible.has(document.key) || !document.modes.includes(mode)) return;
+    const url = getR2Url(endpoint, bucketName, document.key);
+    if (!options.overwrite) {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.ok) {
+        skipped.add(document.key);
+        return;
+      }
+      if (head.status !== 404) throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
+    }
+    const response = await client.fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': document.contentType,
+        ...markerHeaders(selection.digest),
+        ...sseHeaders,
+      },
+      body: document.content,
+    });
+    if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
+    written.add(document.key);
+  });
+
+  return {
+    written: eligibleKeys.filter((key) => written.has(key)),
+    skipped: eligibleKeys.filter((key) => skipped.has(key)),
+  };
 }
 
 export async function seedGettingStartedDocs(
@@ -467,14 +530,20 @@ export async function deleteNonModeConfigs(
   mode: SessionMode,
   contextModeEnabled = false,
   r2SseDisabled?: boolean,
+  protectedKeys: ReadonlySet<string> = new Set(),
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   // The generated set is the authority on what is live; nothing it seeds may be
-  // deleted right after being written.
-  const seededKeys = new Set(getConfigsForMode(mode, contextModeEnabled).map((doc) => doc.key));
+  // deleted right after being written. A managed-disable reconcile additionally
+  // protects its prior document set from baked by-name/stale cleanup; the exact
+  // prior-digest pass below is the only owner allowed to remove those keys.
+  const seededKeys = new Set([
+    ...getConfigsForMode(mode, contextModeEnabled).map((doc) => doc.key),
+    ...protectedKeys,
+  ]);
   const keysToDelete = [
     ...getPreseedKeysNotInMode(mode, contextModeEnabled),
     ...RETIRED_PRESEED_KEYS.filter((key) => !seededKeys.has(key)),
-  ];
+  ].filter((key) => !protectedKeys.has(key));
 
   const r2Client = createR2Client(env);
   const deleted: string[] = [];
@@ -514,37 +583,205 @@ export async function deleteNonModeConfigs(
  * - New bucket: { overwrite: false, cleanup: false }
  * - Recreate button: { overwrite: true, cleanup: true }
  */
+export interface ManagedReleaseSelection {
+  digest: string;
+  compressed: Uint8Array;
+  release: ManagedReleaseIndex;
+}
+
+export interface PriorManagedReleaseSelection extends ManagedReleaseSelection {
+  mode: SessionMode;
+}
+
+function getManagedDocumentKeysForMode(release: ManagedReleaseIndex, mode: SessionMode): string[] {
+  const keys = release.documents
+    .filter((document) => document.modes.includes(mode))
+    .map((document) => document.key);
+  if (new Set(keys).size !== keys.length) throw new Error(`Duplicate managed key in mode "${mode}"`);
+  return keys;
+}
+
+function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocument {
+  return {
+    key: '.codeflare/managed-extensions.json',
+    contentType: 'application/json; charset=utf-8',
+    content: JSON.stringify({
+      schemaVersion: 1,
+      release: { digest: selection.digest, sequence: selection.release.sequence },
+      extensions: selection.release.managedExtensions,
+    }),
+  };
+}
+
+async function deletePriorManagedConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  prior: PriorManagedReleaseSelection,
+  current: ManagedReleaseSelection | null,
+  mode: SessionMode,
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const priorKeys = new Set([
+    ...getManagedDocumentKeysForMode(prior.release, prior.mode),
+    '.codeflare/managed-extensions.json',
+  ]);
+  const currentKeys = new Set(current
+    ? [...getManagedDocumentKeysForMode(current.release, mode), '.codeflare/managed-extensions.json']
+    : []);
+  const candidates = [...priorKeys].filter((key) => !currentKeys.has(key));
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+
+  const outcomes = await mapWithConcurrency(candidates, async (key) => {
+    const url = getR2Url(endpoint, bucketName, key);
+    try {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+      if (head.headers.get(PRESEED_MARKER_HEADER) !== prior.digest) return {};
+      const response = await client.fetch(url, { method: 'DELETE' });
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+      return { deleted: key };
+    } catch (error) {
+      return { warning: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.deleted) deleted.push(outcome.deleted);
+    if (outcome.warning) warnings.push(outcome.warning);
+  }
+  return { deleted, warnings };
+}
+
+async function deleteRetiredManagedConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  release: ManagedReleaseIndex,
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+  const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
+    const url = getR2Url(endpoint, bucketName, key);
+    try {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+      // A signed retirement may remove only content still marked as Codeflare-owned.
+      // An absent marker preserves a user-created or subsequently replaced object.
+      if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      const response = await client.fetch(url, { method: 'DELETE' });
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+      return { deleted: key };
+    } catch (error) {
+      return { warning: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.deleted) deleted.push(outcome.deleted);
+    if (outcome.warning) warnings.push(outcome.warning);
+  }
+  return { deleted, warnings };
+}
+
 export async function reconcileAgentConfigs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
   mode: SessionMode,
-  options: { overwrite: boolean; cleanup: boolean; contextModeEnabled?: boolean; r2SseDisabled?: boolean }
+  options: {
+    overwrite: boolean;
+    cleanup: boolean;
+    contextModeEnabled?: boolean;
+    r2SseDisabled?: boolean;
+    /** undefined = ordinary baked behavior; null = disable curation and restore baked behavior. */
+    managedRelease?: ManagedReleaseSelection | null;
+    priorManagedRelease?: PriorManagedReleaseSelection;
+  }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
-  const docs = getConfigsForMode(mode, contextModeEnabled);
-  const seedResult = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled });
+  const managedRelease = options.managedRelease;
+  const seedResult = managedRelease
+    ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
+        overwrite: options.overwrite,
+        r2SseDisabled: options.r2SseDisabled,
+      })
+    : await seedDocuments(env, bucketName, endpoint, getConfigsForMode(mode, contextModeEnabled), {
+        overwrite: options.overwrite,
+        r2SseDisabled: options.r2SseDisabled,
+      });
+  if (managedRelease) {
+    const extensionResult = await seedDocuments(
+      env,
+      bucketName,
+      endpoint,
+      [managedExtensionsDocument(managedRelease)],
+      { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled, marker: managedRelease.digest },
+    );
+    seedResult.written.push(...extensionResult.written);
+    seedResult.skipped.push(...extensionResult.skipped);
+  }
 
   let deleted: string[] = [];
   let warnings: string[] = [];
 
   if (options.cleanup) {
-    const cleanupResult = await deleteNonModeConfigs(
-      env,
-      bucketName,
-      endpoint,
-      mode,
-      contextModeEnabled,
-      options.r2SseDisabled,
-    );
-    deleted = cleanupResult.deleted;
-    warnings = cleanupResult.warnings;
+    if (managedRelease === undefined || managedRelease === null) {
+      const protectedKeys = managedRelease === null && options.priorManagedRelease
+        ? new Set([
+            ...getManagedDocumentKeysForMode(options.priorManagedRelease.release, options.priorManagedRelease.mode),
+            '.codeflare/managed-extensions.json',
+          ])
+        : new Set<string>();
+      const cleanupResult = await deleteNonModeConfigs(
+        env,
+        bucketName,
+        endpoint,
+        mode,
+        contextModeEnabled,
+        options.r2SseDisabled,
+        protectedKeys,
+      );
+      deleted = cleanupResult.deleted;
+      warnings = cleanupResult.warnings;
+    }
+    if (options.priorManagedRelease) {
+      const cleanupResult = await deletePriorManagedConfigs(
+        env,
+        bucketName,
+        endpoint,
+        options.priorManagedRelease,
+        managedRelease ?? null,
+        mode,
+        options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    }
+    if (managedRelease) {
+      const cleanupResult = await deleteRetiredManagedConfigs(
+        env,
+        bucketName,
+        endpoint,
+        managedRelease.release,
+        options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    }
   }
 
   logger.info('Reconciled agent configs', {
     bucketName,
     mode,
     contextModeEnabled,
+    managedReleaseDigest: managedRelease?.digest,
     writtenCount: seedResult.written.length,
     skippedCount: seedResult.skipped.length,
     deletedCount: deleted.length,

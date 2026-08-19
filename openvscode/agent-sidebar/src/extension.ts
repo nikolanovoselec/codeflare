@@ -146,8 +146,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
         const baseVersion = document.version;
         const inlineResponse = response as typeof response & InlineEditResponseStream;
         const thinkingResponse = response as typeof response & ThinkingResponseStream;
+        let resultOutcome: 'edit' | 'noChange' | undefined;
         let proposedEditCount = 0;
-        let proposalSummary: string | undefined;
+        let resultSummary: string | undefined;
         response.progress('Codeflare is preparing editor changes…');
         const input = Promise.all([
           collectNativePiPromptInput(request, chatContext, undefined, {
@@ -171,15 +172,21 @@ export async function activate(context: ExtensionContext): Promise<void> {
               id: 'codeflare-pi-inline-reasoning',
               text: value,
             }),
-            textEdit: (edits, proposal) => {
-              if (document.isClosed) throw new Error('Native Inline Chat target closed before proposal completion');
+            textEdit: (edits, result) => {
+              if (document.isClosed) throw new Error('Native Inline Chat target closed before result completion');
+              resultOutcome = result.outcome;
+              resultSummary = result.summary;
+              if (result.outcome === 'noChange') {
+                if (edits.length !== 0) throw new Error('Native Inline Chat no-change result contained edits');
+                response.markdown(result.summary);
+                return;
+              }
               const validated = validateInlineTextEdits({
                 version: document.version,
                 lineCount: document.lineCount,
                 lineLength: (line) => document.lineAt(line).text.length,
               }, baseVersion, edits);
               proposedEditCount = validated.length;
-              proposalSummary = proposal.summary;
               inlineResponse.textEdit(document.uri, []);
               inlineResponse.textEdit(document.uri, validated.map((edit) => TextEdit.replace(
                 new Range(edit.startLine, edit.startCharacter, edit.endLine, edit.endCharacter),
@@ -192,10 +199,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
           cancellation,
         });
         if (cancellation.isCancellationRequested) return;
-        if (!proposalSummary) throw new Error('Native Inline Chat completed without a validated proposal');
+        if (!resultOutcome || !resultSummary) throw new Error('Native Inline Chat completed without a validated result');
+        if (resultOutcome === 'noChange') return { details: resultSummary, metadata: {} };
         const plural = proposedEditCount === 1 ? '' : 's';
         return {
-          details: `${proposalSummary} ${proposedEditCount} proposed edit${plural}.`,
+          details: `${resultSummary} ${proposedEditCount} proposed edit${plural}.`,
           metadata: {},
         };
       }

@@ -372,6 +372,22 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`deploy-keys:${bucketName}`);
   });
 
+  it('REQ-GITHUB-005: a failed GitHub revocation does not block local offboarding', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    mockKV._set(`user:${email}`, { role: 'user', addedBy: 'enterprise-jit' });
+    mockKV._set(`deploy-keys:${bucketName}`, { githubToken: 'gho_secret', githubTokenSource: 'oauth' });
+    mockFetch.mockImplementation((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return Promise.resolve(new Response('{}', { status: url.includes('/applications/') ? 404 : 200 }));
+    });
+
+    await cleanupUserData(email, createEnv({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec' } as Partial<Env>));
+
+    expect(mockFetch.mock.calls.some((call) => String(call[0]).includes('/applications/oauth-cid/token'))).toBe(true);
+    expect(await mockKV.get(`deploy-keys:${bucketName}`)).toBeNull();
+    expect(await mockKV.get(`user:${email}`)).toBeNull();
+  });
+
   it('REQ-GITHUB-005: makes no GitHub revoke call when the user never connected GitHub', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     const env = createEnv({ GITHUB_APP_CLIENT_ID: 'app-cid', GITHUB_APP_CLIENT_SECRET: 'app-sec' } as Partial<Env>);

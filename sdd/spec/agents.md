@@ -303,13 +303,13 @@ Multi-agent support, preseed system, and session modes.
 
 1. A reviewer-bearing boundary emits its launch plan before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
 2. The successful boundary operation completes before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
-3. Exactly one owned Goal pause follows the completed boundary launch turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::defaultDeferGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
+3. Exactly one owned Goal pause settles before the queued launch-plan turn begins. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/REQ-AGENT-113/REQ-AGENT-114/REQ-AGENT-117: queues the review plan before pausing the Goal after the boundary turn ends) -->
 4. Missing Goal control does not block review launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: fails open when the Goal extension is unavailable) -->
 5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: keeps FIX delivery fail-open when Goal is removed during review) -->
 6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: clears stale review ownership when a manual resume wins the release race) -->
 7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-112/REQ-AGENT-121/REQ-AGENT-141: resumed sessions keep a visible plan inert through FIX and restore Goal pause) -->
 
-**Constraints:** A failure in detached Goal pause control cannot block review or CI work.
+**Constraints:** A failure in review-owned Goal pause control cannot block review or CI work.
 
 **Priority:** P1
 
@@ -751,12 +751,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Every manifest-declared Pi target key has exactly one generated owner per applicable mode, and its emitted bytes equal that owner source. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
-2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @impl: scripts/generate-agent-seed.mjs::validateModes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-4. The generator ignores files absent from the manifest. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-5. The generator produces output for all supported agents (Claude Code plus generated lanes for Codex, Copilot, OpenCode, Antigravity, and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. Runtime-appropriate shared operational gate sections are present in every generated non-Claude instruction surface. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (preseeds runtime-appropriate continuity, push, and result handoff gates) -->
+1. Every manifest-declared Pi target key has exactly one generated owner per applicable mode, and its emitted bytes equal that owner source. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
+2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @impl: scripts/agent-seed-core.mjs::validateModes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+4. The generator ignores files absent from the manifest. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+5. The generator produces output for all supported agents (Claude Code plus generated lanes for Codex, Copilot, OpenCode, Antigravity, and Pi). <!-- @impl: scripts/agent-seed-core.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+6. Runtime-appropriate shared operational gate sections are present in every generated non-Claude instruction surface. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (preseeds runtime-appropriate continuity, push, and result handoff gates) -->
 
 **Constraints:**
 
@@ -781,10 +781,10 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Every supported non-Claude agent receives an instruction document in both default and advanced modes. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (instructions files appear twice (one per mode, different content)) -->
-2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::remapTools --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Codex, Copilot, OpenCode, and Antigravity receive monolithic transformed instructions, while Pi receives one compact `AGENTS.md` plus grouped native skills for canonical path-scoped rules. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
-4. Every Pi manifest entry is emitted once in each declared mode with bytes equal to its canonical Pi source. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
+1. Every supported non-Claude agent receives an instruction document in both default and advanced modes. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (instructions files appear twice (one per mode, different content)) -->
+2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi). <!-- @impl: scripts/agent-seed-core.mjs::remapTools --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. Codex, Copilot, OpenCode, and Antigravity receive monolithic transformed instructions, while Pi receives one compact `AGENTS.md` plus grouped native skills for canonical path-scoped rules. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+4. Every Pi manifest entry is emitted once in each declared mode with bytes equal to its canonical Pi source. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
 
 **Constraints:**
 
@@ -1049,8 +1049,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Every key in a Pi rule-transform collection resolves to a rule present in the Claude source set. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-rule-transform-membership.test.js (every Pi rule-transform key resolves to a Claude rule in the shipped tree) -->
-2. A key that resolves to nothing fails generation and names both the missing rule and the collection holding it. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-rule-transform-membership.test.js (fails generation when a compacted rule no longer exists) -->
+1. Every key in a Pi rule-transform collection resolves to a rule present in the Claude source set. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-rule-transform-membership.test.js (every Pi rule-transform key resolves to a Claude rule in the shipped tree) -->
+2. A key that resolves to nothing fails generation and names both the missing rule and the collection holding it. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-rule-transform-membership.test.js (fails generation when a compacted rule no longer exists) -->
 
 **Constraints:**
 
@@ -1212,10 +1212,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pro mode preseeds the `spec-driven-development`, `sdd-init`, `sdd-clean`, `vault-operations`, and `ci-monitoring` skills; `/sdd`; and the `spec-reviewer` and `doc-updater` agents. Claude receives the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules ambiently; Pi receives the same policy through grouped skills without duplicate ambient copies. <!-- @impl: scripts/generate-agent-seed.mjs::PI_COVERED_RULES --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (uses one existing canonical skill instead of generating duplicate covered rules) --> <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) --> <!-- @manual: Invoke `/sdd init` in a clean fixture without `sdd/`, then `/sdd clean --auto` after introducing spec drift; confirm both remain in the root session, launch no PR reviewer, and execute specification enforcement before documentation enforcement. -->
+1. Pro mode preseeds the `spec-driven-development`, `sdd-init`, `sdd-clean`, `vault-operations`, and `ci-monitoring` skills; `/sdd`; and the `spec-reviewer` and `doc-updater` agents. Claude receives the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules ambiently; Pi receives the same policy through grouped skills without duplicate ambient copies. <!-- @impl: scripts/agent-seed-core.mjs::PI_COVERED_RULES --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (uses one existing canonical skill instead of generating duplicate covered rules) --> <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) --> <!-- @manual: Invoke `/sdd init` in a clean fixture without `sdd/`, then `/sdd clean --auto` after introducing spec drift; confirm both remain in the root session, launch no PR reviewer, and execute specification enforcement before documentation enforcement. -->
 2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required. <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
-4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
+3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/agent-seed-core.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
+4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/agent-seed-core.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
 5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)) -->
 6. `/sdd init` and `/sdd clean` are root-session mutation workflows and do not dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 7. `/sdd init` and `/sdd clean` run required specification and documentation enforcement inline in that order. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
@@ -1551,11 +1551,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema). <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents). <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- @manual -->
-5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults. <!-- @impl: scripts/agent-seed-core.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 
 **Constraints:**
 
@@ -2550,7 +2550,7 @@ None.
 **Acceptance Criteria:**
 
 1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) --> <!-- @manual -->
-2. Pi receives one compact native constitution rule in both session modes, with the shared four mandates aligned to the Claude canon and Pi-only review/CI mechanics owned by that native adaptation rather than a duplicate per-turn injection. <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Four mandates --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+2. Pi receives one compact native constitution rule in both session modes, with the shared four mandates aligned to the Claude canon and Pi-only review/CI mechanics owned by that native adaptation rather than a duplicate per-turn injection. <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Four mandates --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
 
 **Constraints:**
 
@@ -2835,13 +2835,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
+1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
 2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
 3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 license texts. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/LICENSE::MIT License --> <!-- @impl: preseed/agents/claude/skills/canvas-design/LICENSE.txt::Apache License --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 4. The vendored UI UX Pro Max and Canvas Design sources retain their pinned upstream provenance. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md::Upstream provenance --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md::Upstream provenance --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves pinned provenance values and omits a Copilot skill lane) -->
 5. Modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/canvas-design/SKILL.md::Modification notice --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 6. Frontend Design is independently authored and Codeflare-owned rather than copied or transformed from Anthropic's all-rights-reserved Claude Code repository. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @manual: Compare the committed skill and its creation history against the referenced Anthropic source before release; verify independent wording and no transformed proprietary text. -->
-7. UI UX Pro Max invokes its auxiliary search implementation from each generated runtime's own skills directory. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime) -->
+7. UI UX Pro Max invokes its auxiliary search implementation from each generated runtime's own skills directory. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime) -->
 
 **Constraints:**
 
@@ -3177,9 +3177,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every reviewer begins holding the canonical policy that applies to almost every run; a policy gated on a diff condition may instead arrive in the evidence wave the lane was already making. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+1. Every reviewer begins holding the canonical policy that applies to almost every run; a policy gated on a diff condition may instead arrive in the evidence wave the lane was already making. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
@@ -3318,12 +3318,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi packages canonical path-scoped Claude rules into grouped native skills while keeping Claude and other agent outputs unchanged. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
-2. Proactive workflows remain visible in Pi's model-facing skill catalog. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
-3. Codeflare-owned model-visible skill descriptions contain at most 80 characters. <!-- @impl: scripts/generate-agent-seed.mjs::compactPiSkillDescription --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
-4. Compact descriptions preserve the routing triggers needed for Pi to select each proactive workflow. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual: Ask Pi for representative proactive workflows and confirm it selects the matching visible skills from their compact descriptions. -->
-5. Pi hides only internals loaded by a named command, deterministic event, or reviewer embedding. <!-- @impl: scripts/generate-agent-seed.mjs::setPiModelVisibility --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
-6. Upstream-owned Pi skill metadata remains unchanged. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
+1. Pi packages canonical path-scoped Claude rules into grouped native skills while keeping Claude and other agent outputs unchanged. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+2. Proactive workflows remain visible in Pi's model-facing skill catalog. <!-- @impl: scripts/agent-seed-core.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+3. Codeflare-owned model-visible skill descriptions contain at most 80 characters. <!-- @impl: scripts/agent-seed-core.mjs::compactPiSkillDescription --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+4. Compact descriptions preserve the routing triggers needed for Pi to select each proactive workflow. <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual: Ask Pi for representative proactive workflows and confirm it selects the matching visible skills from their compact descriptions. -->
+5. Pi hides only internals loaded by a named command, deterministic event, or reviewer embedding. <!-- @impl: scripts/agent-seed-core.mjs::setPiModelVisibility --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Claude canon) -->
+6. Upstream-owned Pi skill metadata remains unchanged. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (emits every manifest-declared Pi asset exactly once per mode with canonical bytes) -->
 
 **Constraints:**
 
@@ -3497,7 +3497,7 @@ None.
 3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Operating Mode: Research + Report --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) --> <!-- @manual: Trigger a Claude SDD PR-boundary review; confirm each reviewer returns structured findings without writing files, confirm the root alone persists triage, then confirm the root evaluates and applies each legitimate finding. -->
 4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
-6. Every Claude PR-boundary reviewer runs pinned `medium` reasoning effort; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
+6. Every Claude PR-boundary reviewer runs pinned `medium` reasoning effort; transformed runtimes never inherit the Claude-only effort key. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::effort = medium --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::effort = medium --> <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms) -->
 7. Each Claude PR-boundary reviewer reasons from one `review-scope` evidence packet instead of repository-wide scans, building it through the seeded CLI only when the runner did not hand it one. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Your lane packet --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Your lane packet --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC1/AC7: Claude PR reviewers carry the packet transport and no repository-wide scan tools) -->
 
 **Constraints:**
@@ -3901,6 +3901,144 @@ None.
 **Dependencies:** [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
 **Verification:** Automated test ([documentation shape tests](../../host/__tests__/doc-enforce-shape.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-147: Signed managed agent-configuration releases
+
+**Intent:** A deployment can curate agent configuration independently of the container image without introducing a second transformation pipeline or weakening release integrity.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+2. Given an explicit source root and mode, compilation emits deterministic documents, retirements, seed identity, and the complete runtime dependency identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
+4. Compilation rejects traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity) -->
+5. Extension records derive exact package identity, version, platform, size, digest, entrypoint, and closed dependencies from reviewed bytes. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure) -->
+6. Compilation enforces the shared seed-v1 byte, path, document, retirement, extension, and redirect limits. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces the expanded bundle resource limit) -->
+
+**Constraints:**
+
+- The tier-gated context-mode subtree remains image-owned.
+- Releases carry no secrets, user-stored VSIX bytes, or new runtime dependency.
+- The shared compiler remains the only transformation source of truth.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-149](#req-agent-149-shared-compiler-cli-compatibility), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
+
+**Verification:** Automated compiler and release-contract tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-148: Protected managed-release publication
+
+**Intent:** Production publication signs only reproducible managed-release bytes and preserves immutable history.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
+2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
+3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
+4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
+
+**Constraints:**
+
+- The private signing key remains outside Codeflare and user storage.
+- Rollback publishes a higher immutable sequence rather than mutating history.
+- Production signing runs only in the protected `managed-seed-production` deployment environment, under whatever approval policy that environment is configured to enforce.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated deterministic-byte test and protected-environment acceptance
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-149: Shared compiler CLI compatibility
+
+**Intent:** Compiler extraction does not change the existing image-generation contract.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The existing CLI wrapper generates byte-identical image output through the shared compiler. <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+
+**Constraints:** The wrapper remains import-safe and side-effect free.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+
+**Verification:** Automated shared-compiler compatibility test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-150: Independent managed-release activation validation
+
+**Intent:** The Worker independently rejects a signed managed release that violates the compiler-owned release contract.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Activation rejects unsupported document and retirement paths. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+2. Activation rejects image-owned content. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+3. Activation rejects duplicate document ownership. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+4. Activation rejects undeclared runtime requirements. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+5. Activation rejects invalid extension records. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+6. Activation rejects non-semantic exact extension versions. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
+
+**Constraints:** Signature validity never bypasses release-contract validation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated Worker release-verification tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-151: Bounded managed-release streaming
+
+**Intent:** Managed-release validation and application remain memory-bounded without changing signed document bytes.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Validation returns a bounded release index without document content. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
+2. Validation aborts release expansion beyond the shared byte limit. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC2: aborts gzip expansion at the shared expanded-byte limit) -->
+3. Successful validation streams byte-identical document payloads. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
+4. Streaming admits at most six pending document callbacks. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC4+AC5: caps pending callbacks and resumes after one settles) -->
+5. Streaming admits the next document after one pending callback settles. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC4+AC5: caps pending callbacks and resumes after one settles) -->
+
+**Constraints:**
+
+- Validation completes before user-bucket mutation begins.
+- The parser never constructs a complete document-body array.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
+
+**Verification:** Automated Worker streaming tests
 
 **Status:** Implemented
 

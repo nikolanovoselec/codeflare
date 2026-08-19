@@ -58,6 +58,13 @@ export const UserPreferencesSchema = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h']).optional(),
+  userTimezone: z.string().optional(),
+  managedEnvironmentApplied: z.object({
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    sequence: z.number().int().positive(),
+    mode: SessionModeSchema,
+    appliedAt: z.string(),
+  }).optional(),
 });
 
 // Shared base schema for session objects (used by response schemas below)
@@ -159,6 +166,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     tier: z.string(),
   }).optional(),
   preseedNeedsUpgrade: z.boolean().optional(),
+  managedReleaseStatus: z.enum(['current', 'upgrading', 'update_pending']).optional(),
   // REQ-ENTERPRISE-020: Governed Mode regime migration flags.
   bucketMigrating: z.boolean().optional(),
   bucketMigrationPending: z.boolean().optional(),
@@ -220,6 +228,30 @@ export const SetupPrefillResponseSchema = z.object({
   // the non-secret client id. Surfaced in any mode (the Setup wizard is admin-gated).
   cloudflareOauthClientId: z.string().default(''),
   cloudflareOauthClientSecretSet: z.boolean().default(false),
+  // Deployment-level managed environment. The PAT itself is write-only;
+  // prefill carries only the masked configured flag and bounded release status.
+  managedEnvironment: z.object({
+    enabled: z.boolean(),
+    configured: z.boolean(),
+    repository: z.string(),
+    personalAccessTokenSet: z.boolean(),
+    publicKeyFingerprint: z.string(),
+    activeReleaseTag: z.string().optional(),
+    activeSequence: z.number().int().positive().optional(),
+    activeDigestPrefix: z.string().optional(),
+    freshness: z.enum(['unconfigured', 'disabled', 'fresh', 'stale', 'degraded']),
+    lastCheckedAt: z.string().optional(),
+    patExpiryState: z.enum(['unknown', 'valid', 'expiring', 'expired']),
+    lastError: z.string().optional(),
+  }).default({
+    enabled: false,
+    configured: false,
+    repository: '',
+    personalAccessTokenSet: false,
+    publicKeyFingerprint: '',
+    freshness: 'unconfigured',
+    patExpiryState: 'unknown',
+  }),
   // REQ-ENTERPRISE-013: per-group routing map (route names only, no secrets).
   groupRouting: z
     .record(z.string(), z.object({

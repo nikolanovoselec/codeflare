@@ -24,6 +24,13 @@ export interface UserPreferences {
   sleepAfter?: SleepAfterOption;
   /** REQ-MEM-001 AC4: user's IANA timezone captured from the browser. */
   userTimezone?: string;
+  /** Server-owned stamp for the last fully applied verified managed release. */
+  managedEnvironmentApplied?: {
+    digest: string;
+    sequence: number;
+    mode: SessionMode;
+    appliedAt: string;
+  };
 }
 
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */

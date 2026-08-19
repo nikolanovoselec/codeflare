@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
+    "@streamparser/json": "0.0.25",
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.0",
     "zod": "^4.4.3"

@@ -31,6 +31,7 @@ interface PollingStateView {
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
   sessionMetrics: Record<string, SessionMetrics>;
+  managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
 }
 
 type StateGetter = () => PollingStateView;
@@ -53,6 +54,7 @@ let updateSessionStatusFn: StatusUpdater;
 let isSessionInitializingFn: InitChecker;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
+let applyManagedReleaseBatchFn: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
 
 export function registerPollingDeps(deps: {
   getState: StateGetter;
@@ -62,6 +64,7 @@ export function registerPollingDeps(deps: {
   isSessionInitializing: InitChecker;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
+  applyManagedReleaseBatch: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
 }): void {
   getState = deps.getState;
   setStateProduce = deps.setStateProduce;
@@ -70,6 +73,7 @@ export function registerPollingDeps(deps: {
   isSessionInitializingFn = deps.isSessionInitializing;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
+  applyManagedReleaseBatchFn = deps.applyManagedReleaseBatch;
 }
 
 // ============================================================================
@@ -121,21 +125,59 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 // refreshSessionStatuses
 // ============================================================================
 
+const MANAGED_RELEASE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+let lastManagedCheckAt = 0;
+// The poll runs on setInterval without awaiting, and a forced check can start while one
+// is outstanding, so this counts probes rather than flagging one: clearing on the first
+// settle would let the next poll re-probe while another is still in flight.
+let managedChecksInFlight = 0;
+
+/** Test-only: clear the module-level probe window and in-flight count between cases. */
+export function resetManagedCheckState(): void {
+  lastManagedCheckAt = 0;
+  managedChecksInFlight = 0;
+}
+
+/** Issue the batch-status call, counting an outstanding managed-release probe. */
+async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
+  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck });
+  managedChecksInFlight += 1;
+  try {
+    return await api.getBatchSessionStatus({ includePreseedCheck });
+  } finally {
+    managedChecksInFlight -= 1;
+  }
+}
+
 /**
  * Lightweight status refresh - only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
  * array or set loading state, so the dashboard doesn't flicker.
  * Also updates storage stats when storageStats is present in the batch response.
  */
-export async function refreshSessionStatuses(): Promise<void> {
+export async function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   try {
     const state = getState();
-    const batchResponse = await api.getBatchSessionStatus();
+    // Each managed check costs a KV read plus an R2 GET and two HEADs server-side, so a
+    // settled release is re-probed on the freshness window rather than every poll.
+    // Transient states keep the full poll cadence so convergence stays visible.
+    const now = Date.now();
+    const includePreseedCheck = forceManagedReleaseCheck
+      || (state.managedReleaseStatus !== null
+        && managedChecksInFlight === 0
+        && (state.managedReleaseStatus !== 'current'
+          || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
+    const batchResponse = await fetchBatchSessionStatus(includePreseedCheck);
+    // Only a completed check consumes the window; a failed call must not suppress the next.
+    if (includePreseedCheck) lastManagedCheckAt = now;
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
     if (batchResponse.usage) {
       setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
+    if (batchResponse.managedReleaseStatus !== undefined) {
+      applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade);
     }
 
     // REQ-ENTERPRISE-020: mirror the Governed Mode migration flags on EVERY background poll (not just the

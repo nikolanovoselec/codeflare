@@ -691,3 +691,26 @@ Tiers, billing, usage tracking, and quotas.
 **Status:** Implemented
 
 ---
+
+### REQ-SUB-024: Usage Page Product Context
+
+**Intent:** The Usage page may address engineers in its own voice instead of repeating subscription positioning.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Usage page renders a non-empty page-specific subtitle. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-024 AC1+AC2: Usage and Subscribe render distinct non-empty positioning) -->
+2. The Subscribe page renders a non-empty subtitle distinct from Usage. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-024 AC1+AC2: Usage and Subscribe render distinct non-empty positioning) -->
+
+**Constraints:** Exact marketing prose is not a behavioral contract and is not pinned in tests.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
+
+**Verification:** Automated distinct-positioning component test
+
+**Status:** Implemented
+
+---

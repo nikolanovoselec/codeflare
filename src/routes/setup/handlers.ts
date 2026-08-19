@@ -10,6 +10,7 @@ import { getAccessGroupNames } from './access';
 import { parseAccessGroups } from '../../lib/access';
 import { isEnterpriseMode } from '../../lib/subscription';
 import { readActiveAgents, installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
+import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
 const detectTokenRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10, keyPrefix: 'setup-detect-token' });
@@ -130,6 +131,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
   const githubOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET));
   const cloudflareOauthClientId = (await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)) ?? '';
   const cloudflareOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET));
+  const managedEnvironment = await getManagedEnvironmentPrefill(c.env);
 
   // Enterprise: additionally surface the stored Access groups / route catalog /
   // default route / per-group routing / browser-render token so the wizard round-
@@ -137,7 +139,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
   // the chip array the UI expects. These fields are enterprise-only.
   let enterpriseExtras: Record<string, unknown> = {
     githubProviderType, githubAppClientId, githubAppClientSecretSet, githubOauthClientId, githubOauthClientSecretSet,
-    cloudflareOauthClientId, cloudflareOauthClientSecretSet,
+    cloudflareOauthClientId, cloudflareOauthClientSecretSet, managedEnvironment,
   };
   if (isEnterpriseMode(c.env)) {
     const enterpriseAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
