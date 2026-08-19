@@ -13,7 +13,7 @@ import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMet
 import { resolveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
-import { getActiveVerifiedManagedRelease, getVerifiedManagedReleaseByDigest } from '../../lib/managed-release-active';
+import { getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../../lib/managed-release-active';
 
 const logger = createLogger('storage-seed');
 
@@ -87,7 +87,7 @@ app.post('/agent-configs', async (c) => {
     if (applied) {
       const priorRelease = activeManagedRelease?.digest === applied.digest
         ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
-        : await getVerifiedManagedReleaseByDigest(c.env, applied.digest);
+        : await getCachedManagedReleaseByDigest(c.env, applied.digest);
       if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
       priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
     }

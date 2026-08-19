@@ -125,6 +125,9 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 // refreshSessionStatuses
 // ============================================================================
 
+const MANAGED_RELEASE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+let lastManagedCheckAt = 0;
+
 /**
  * Lightweight status refresh - only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
@@ -134,9 +137,16 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 export async function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
   try {
     const state = getState();
-    const batchResponse = await api.getBatchSessionStatus({
-      includePreseedCheck: forceManagedReleaseCheck || state.managedReleaseStatus !== null,
-    });
+    // Each managed check costs a KV read plus an R2 GET and two HEADs server-side, so a
+    // settled release is re-probed on the freshness window rather than every poll.
+    // Transient states keep the full poll cadence so convergence stays visible.
+    const now = Date.now();
+    const includePreseedCheck = forceManagedReleaseCheck
+      || (state.managedReleaseStatus !== null
+        && (state.managedReleaseStatus !== 'current'
+          || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
+    if (includePreseedCheck) lastManagedCheckAt = now;
+    const batchResponse = await api.getBatchSessionStatus({ includePreseedCheck });
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setStateRaw('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);

@@ -19,7 +19,7 @@ import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 import { countsTowardSessionLimit } from './container/lifecycle-validation';
-import { getActiveVerifiedManagedRelease, getVerifiedManagedReleaseByDigest } from '../lib/managed-release-active';
+import { getActiveManagedRelease, getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../lib/managed-release-active';
 import { PRESEED_CONTENT_HASH } from '../lib/agent-seed.generated';
 
 const logger = createLogger('preferences');
@@ -135,13 +135,18 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // refuse it while the bucket's encryption regime is migrating so configs are never written
   // in the wrong (pre-flip) regime. Non-R2 preference changes are unaffected.
   if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
-    const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
-    for (const sessionKey of sessionKeys) {
-      const metadata = sessionKey.metadata as SessionListMetadata | null;
-      if (metadata?.s && countsTowardSessionLimit(metadata.s)) throw new ManagedEnvironmentUpdatePendingError();
-      if (!metadata?.s) {
-        const session = await c.env.KV.get<{ status?: string }>(sessionKey.name, 'json');
-        if (countsTowardSessionLimit(session?.status)) throw new ManagedEnvironmentUpdatePendingError();
+    // The no-hot-mutation gate applies only while curation is active or while a prior
+    // curated state must converge back to baked content. An unconfigured deployment
+    // keeps byte-identical baked behavior (REQ-STOR-022) and never sees this error.
+    if (existing.managedEnvironmentApplied || await getActiveManagedRelease(c.env)) {
+      const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
+      for (const sessionKey of sessionKeys) {
+        const metadata = sessionKey.metadata as SessionListMetadata | null;
+        if (metadata?.s && countsTowardSessionLimit(metadata.s)) throw new ManagedEnvironmentUpdatePendingError();
+        if (!metadata?.s) {
+          const session = await c.env.KV.get<{ status?: string }>(sessionKey.name, 'json');
+          if (countsTowardSessionLimit(session?.status)) throw new ManagedEnvironmentUpdatePendingError();
+        }
       }
     }
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
@@ -154,6 +159,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // Auto-reconcile preseed when sessionMode changes so the next session
   // picks up the correct skills/agents/rules without manual Recreate click.
   if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
+    let managedInvolved = Boolean(existing.managedEnvironmentApplied);
     try {
       const user = c.get('user');
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
@@ -163,11 +169,12 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // (plain) bucket gets plaintext configs, not unreadable SSE-C ones.
       const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
       const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
+      if (activeManagedRelease) managedInvolved = true;
       let priorManagedRelease: PriorManagedReleaseSelection | undefined;
       if (existing.managedEnvironmentApplied) {
         const priorRelease = activeManagedRelease?.digest === existing.managedEnvironmentApplied.digest
           ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
-          : await getVerifiedManagedReleaseByDigest(c.env, existing.managedEnvironmentApplied.digest);
+          : await getCachedManagedReleaseByDigest(c.env, existing.managedEnvironmentApplied.digest);
         if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
         priorManagedRelease = {
           digest: existing.managedEnvironmentApplied.digest,
@@ -221,6 +228,10 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         deleted: result.deleted.length,
       });
     } catch (err) {
+      // Managed reconciliation is not best-effort: reporting success here would hide a
+      // partially reconciled bucket and a skipped applied stamp, and the next container
+      // start would then reject with MANAGED_ENVIRONMENT_UPDATE_PENDING and no cause.
+      if (managedInvolved) throw err;
       logger.warn('Auto-reconcile on preferences change failed (non-fatal)', { error: String(err) });
     }
   }

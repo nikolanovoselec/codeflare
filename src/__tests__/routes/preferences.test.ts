@@ -572,5 +572,59 @@ describe('Preferences Routes', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  // REQ-STOR-022: the no-hot-mutation gate applies only while curation is active or a
+  // prior curated state must converge; unconfigured baked behavior stays byte-identical.
+  describe('PATCH /preferences managed-environment gating / REQ-STOR-022', () => {
+    it('REQ-STOR-022: a running session does not block a sessionMode change on an unconfigured deployment', async () => {
+      mockKV._set('session:codeflare-test-user:abc', { status: 'running' }, { s: 'r' });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const stored = await mockKV.get('preferences:codeflare-test-user', 'json') as { sessionMode?: string };
+      expect(stored.sessionMode).toBe('advanced');
+    });
+
+    it('REQ-STOR-022: a running session still blocks a sessionMode change once a managed release is applied', async () => {
+      mockKV._set('preferences:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64), sequence: 1, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
+      });
+      mockKV._set('session:codeflare-test-user:abc', { status: 'running' }, { s: 'r' });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(409);
+    });
+
+    it('REQ-STOR-024: a failed managed reconciliation is reported instead of returning success', async () => {
+      mockKV._set('preferences:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).not.toBe(200);
+      const stored = await mockKV.get('preferences:codeflare-test-user', 'json') as { managedEnvironmentApplied?: unknown };
+      expect(stored.managedEnvironmentApplied).toEqual({ digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' });
+    });
+  });
 });
 

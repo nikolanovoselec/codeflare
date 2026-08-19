@@ -109,8 +109,15 @@ export async function getActiveVerifiedManagedRelease(env: Env): Promise<ActiveV
   return { digest: context.active.digest, pointer: context.active, ...release };
 }
 
-/** Load a prior verified release from retained content-addressed cache history. */
-export async function getVerifiedManagedReleaseByDigest(env: Env, digest: string): Promise<VerifiedManagedReleaseContent | null> {
+/**
+ * Load a prior release from retained content-addressed cache history.
+ *
+ * Trust here is the content address alone, not a fresh signature check. The digest
+ * originates from a `managedEnvironmentApplied` stamp that is written only after full
+ * verification, and re-verifying those bytes against the *current* public key would
+ * break convergence after a signing-key or repository rotation.
+ */
+export async function getCachedManagedReleaseByDigest(env: Env, digest: string): Promise<VerifiedManagedReleaseContent | null> {
   const context = await resolveCacheContext(env);
   if (!context) return null;
   return readReleaseByDigest(env, context.endpoint, context.config.cacheBucketName, digest);

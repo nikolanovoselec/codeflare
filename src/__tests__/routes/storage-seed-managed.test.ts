@@ -24,7 +24,7 @@ vi.mock('../../lib/managed-release-active', () => ({
     if (state.activeError) throw state.activeError;
     return state.active;
   }),
-  getVerifiedManagedReleaseByDigest: vi.fn(async () => state.cached),
+  getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
 }));
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: vi.fn(),

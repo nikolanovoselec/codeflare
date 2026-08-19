@@ -1165,10 +1165,13 @@ export async function resolveManagedEnvironment(input: {
 
   const stateKey = getManagedEnvironmentStateKey(config.configFingerprint);
   const state = await readFreshnessState(input.env.KV, stateKey);
+  // Declared outside the try so the catch below can redact it: this error message is
+  // persisted to KV and surfaced in the admin prefill.
+  let storedPat = '';
   try {
     const cryptoKey = await getOrImportKey(input.env);
     if (!cryptoKey) throw new Error('Managed coding environment encryption key is unavailable');
-    const storedPat = await readEncryptedManagedPat(input.env.KV, config.configFingerprint, cryptoKey);
+    storedPat = await readEncryptedManagedPat(input.env.KV, config.configFingerprint, cryptoKey) ?? '';
     if (!storedPat) throw new Error('Managed coding environment repository PAT is unavailable');
     const endpoint = await input.env.KV.get(SETUP_KEYS.R2_ENDPOINT);
     if (!endpoint) throw new Error('Managed coding environment R2 endpoint is unavailable');
@@ -1202,7 +1205,7 @@ export async function resolveManagedEnvironment(input: {
       ...(resolved.lastError ? { lastError: resolved.lastError } : {}),
     };
   } catch (error) {
-    const message = safeError(error, '');
+    const message = safeError(error, storedPat);
     await writeFreshnessState(input.env.KV, stateKey, {
       ...state,
       schemaVersion: 1,
