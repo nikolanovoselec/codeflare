@@ -103,6 +103,10 @@ describe('REQ-OPS-034/REQ-OPS-035: keyless GitHub release signing', () => {
     // legitimate Dependabot bump a red build that only a manual edit could
     // clear. zizmor separately audits unpinned actions across every workflow.
     assertPinnedAction(steps['Install Cosign'].uses, 'sigstore/cosign-installer');
+    // This one stays an exact literal on purpose. Unlike a `uses:` pin it is a
+    // `with:` input with no immutable digest behind it, so the version string is
+    // the only thing identifying which Cosign gets installed. Dependabot does
+    // not touch `with:` inputs, so it neither rots nor red-builds on a bump.
     assert.equal(steps['Install Cosign'].with['cosign-release'], 'v3.1.2');
     assertPinnedAction(steps['Attest release assets'].uses, 'actions/attest-build-provenance');
     assert.equal(
