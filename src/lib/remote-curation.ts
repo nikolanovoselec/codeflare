@@ -767,6 +767,22 @@ export async function configureManagedEnvironment(input: {
     configFingerprint,
     fetcher,
   });
+  const priorCache = existing
+    && existing.repositoryId === repositoryId
+    && existing.configFingerprint !== configFingerprint
+    ? createR2ManagedReleaseCache({
+      env: input.r2Credentials,
+      endpoint: input.endpoint,
+      bucketName: existing.cacheBucketName,
+      configFingerprint: existing.configFingerprint,
+      fetcher,
+    })
+    : undefined;
+  const priorActiveState = priorCache ? await priorCache.readActive() : undefined;
+  if (priorCache && !priorActiveState) {
+    throw new Error('Managed coding environment prior active release is unavailable');
+  }
+  const priorActive = priorActiveState?.pointer;
   const stateKey = getManagedEnvironmentStateKey(configFingerprint);
   const resolved = await resolveManagedEnvironmentRelease({
     kv: input.env.KV,
@@ -784,6 +800,12 @@ export async function configureManagedEnvironment(input: {
   });
   const prepared = resolved.deferred?.pointer ?? resolved.active;
   if (!prepared) throw new Error('Managed coding environment has no verified active release');
+  if (priorActive && prepared.sequence < priorActive.sequence) {
+    throw new Error('Managed release sequence is older than active state');
+  }
+  if (priorActive && prepared.sequence === priorActive.sequence && prepared.digest !== priorActive.digest) {
+    throw new Error('Managed release has the same sequence with conflicting identity or content');
+  }
 
   // Equality is allowed only for the exact immutable release already selected.
   // Validate a same-sequence candidate against the authoritative cache pointer

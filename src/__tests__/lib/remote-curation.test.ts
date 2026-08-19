@@ -512,6 +512,36 @@ describe('managed release resolver', () => {
         compilerCommit: 'b'.repeat(40),
       },
     }), replacementKeyPair);
+    const replacementLowerFixture = await signedFixture(release({
+      sequence: 6,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 123456,
+        commitSha: '4'.repeat(40),
+        releaseTag: 'release-6-new-key',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), replacementKeyPair);
+    const replacementConflictFixture = await signedFixture(release({
+      sequence: 7,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 123456,
+        commitSha: '5'.repeat(40),
+        releaseTag: 'release-7-new-key-conflict',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), replacementKeyPair);
+    const otherRepositoryFixture = await signedFixture(release({
+      sequence: 1,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 654321,
+        commitSha: '6'.repeat(40),
+        releaseTag: 'release-1-other-repository',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), replacementKeyPair);
     const replacementPublicKey = replacementFixture.publicKeyHex;
     const releases = {
       first: {
@@ -542,6 +572,27 @@ describe('managed release resolver', () => {
         bundleDigest: await sha256(replacementFixture.compressed),
         signatureDigest: await sha256(replacementFixture.signature),
       },
+      replacementLower: {
+        id: 81,
+        tag: 'release-6-new-key',
+        fixture: replacementLowerFixture,
+        bundleDigest: await sha256(replacementLowerFixture.compressed),
+        signatureDigest: await sha256(replacementLowerFixture.signature),
+      },
+      replacementConflict: {
+        id: 82,
+        tag: 'release-7-new-key-conflict',
+        fixture: replacementConflictFixture,
+        bundleDigest: await sha256(replacementConflictFixture.compressed),
+        signatureDigest: await sha256(replacementConflictFixture.signature),
+      },
+      otherRepository: {
+        id: 83,
+        tag: 'release-1-other-repository',
+        fixture: otherRepositoryFixture,
+        bundleDigest: await sha256(otherRepositoryFixture.compressed),
+        signatureDigest: await sha256(otherRepositoryFixture.signature),
+      },
     };
     let selected = releases.first;
     const immutable = true;
@@ -554,6 +605,9 @@ describe('managed release resolver', () => {
         githubRequests.push(request);
         if (url.pathname === '/repos/acme/curation') {
           return new Response(JSON.stringify({ id: 123456 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/repos/other/curation') {
+          return new Response(JSON.stringify({ id: 654321 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (url.pathname.endsWith('/releases/latest')) {
           return new Response(JSON.stringify({
@@ -683,6 +737,30 @@ describe('managed release resolver', () => {
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
     expect([...kv._store.keys()].filter((key) => key.startsWith('setup:managed_environment_pat:'))).toEqual([patKey]);
 
+    selected = releases.replacementLower;
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'acme/curation',
+        personalAccessToken: 'github_pat_replacement',
+        publicKey: replacementPublicKey,
+      },
+    })).rejects.toThrow(/older than active state/i);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
+
+    selected = releases.replacementConflict;
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'acme/curation',
+        personalAccessToken: 'github_pat_replacement',
+        publicKey: replacementPublicKey,
+      },
+    })).rejects.toThrow(/same sequence.*conflicting identity|conflicting identity.*same sequence/i);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
+
     selected = releases.replacement;
     const replaced = await configureManagedEnvironment({
       ...base,
@@ -699,6 +777,33 @@ describe('managed release resolver', () => {
     expect(replacementConfig.configFingerprint).not.toBe(firstConfig.configFingerprint);
     expect(kv._store.get(replacementPatKey)).toMatch(/^v1:/);
     expect(kv._store.get(replacementPatKey)).not.toContain('github_pat_replacement');
+
+    selected = releases.replacement;
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'other/curation',
+        personalAccessToken: 'github_pat_other',
+        publicKey: '',
+      },
+    })).rejects.toThrow(/repository identity/i);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(replacementConfig.configFingerprint);
+
+    selected = releases.otherRepository;
+    const repositoryReplaced = await configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'other/curation',
+        personalAccessToken: 'github_pat_other',
+        publicKey: '',
+      },
+    });
+    const otherConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; repository: string };
+    expect(repositoryReplaced.active?.sequence).toBe(1);
+    expect(otherConfig.repository).toBe('other/curation');
+    expect(otherConfig.configFingerprint).not.toBe(replacementConfig.configFingerprint);
 
     const cacheObjectCount = r2.size;
     const retainedPat = kv._store.get(patKey);
