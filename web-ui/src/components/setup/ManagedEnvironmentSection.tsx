@@ -70,12 +70,13 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
           <label class="setup-field-label">Ed25519 verification key</label>
           <p class="setup-field-description">
             Raw 32-byte public key as 64 lowercase hexadecimal characters.
-            <Show when={props.publicKeyFingerprint}> Current fingerprint: {props.publicKeyFingerprint}.</Show>
+            <Show when={props.publicKeyFingerprint}> Current fingerprint: {props.publicKeyFingerprint}. The saved key cannot be changed.</Show>
           </p>
           <Input
             value={props.publicKey}
             onInput={props.onPublicKeyChange}
-            placeholder={props.publicKeyFingerprint ? 'Saved — enter a new key to rotate' : '64 lowercase hex characters'}
+            placeholder={props.publicKeyFingerprint ? 'Saved verification key' : '64 lowercase hex characters'}
+            disabled={Boolean(props.publicKeyFingerprint)}
           />
         </div>
 

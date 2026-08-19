@@ -3947,7 +3947,7 @@ None.
 **Acceptance Criteria:**
 
 1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
-2. Production signing requires reviewer approval, a trusted active public key, exact draft asset identities and digests, and immutable publication. <!-- @manual: Inspect the protected production environment and first immutable release before enabling Setup. -->
+2. Production signing requires reviewer approval, the configured active public key, exact draft asset identities and digests, and immutable publication. <!-- @manual: Inspect the protected production environment and first immutable release before enabling Setup. -->
 
 **Constraints:**
 

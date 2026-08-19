@@ -5,7 +5,7 @@ import ManagedEnvironmentSection from '../../components/setup/ManagedEnvironment
 afterEach(cleanup);
 
 describe('Managed coding environment Setup section', () => {
-  it('reveals the trust inputs when enabled and routes edits without exposing the saved PAT', async () => {
+  it('routes mutable trust inputs without exposing the PAT or allowing public-key replacement', async () => {
     const onEnabledChange = vi.fn();
     const onRepositoryChange = vi.fn();
     const onPersonalAccessTokenChange = vi.fn();
@@ -16,7 +16,7 @@ describe('Managed coding environment Setup section', () => {
         repository="acme/curation"
         personalAccessToken=""
         personalAccessTokenSet
-        publicKey="ab"
+        publicKey=""
         publicKeyFingerprint="0123456789abcdef"
         activeReleaseTag="release-7"
         activeSequence={7}
@@ -39,6 +39,8 @@ describe('Managed coding environment Setup section', () => {
     expect(inputs[2].type).toBe('password');
     expect(inputs[2].value).toBe('');
     expect(inputs[2].placeholder).toMatch(/saved/i);
+    expect(inputs[3].disabled).toBe(true);
+    expect(inputs[3].placeholder).toMatch(/saved/i);
     expect(section).not.toHaveTextContent('github_pat');
     expect(section).toHaveTextContent('Active release-7 · sequence 7 · digest 123456789abc');
     expect(section).toHaveTextContent('checked 2026-08-18T00:00:00.000Z');
@@ -46,10 +48,9 @@ describe('Managed coding environment Setup section', () => {
 
     await fireEvent.input(inputs[1], { target: { value: 'other/repository' } });
     await fireEvent.input(inputs[2], { target: { value: 'replacement-pat' } });
-    await fireEvent.input(inputs[3], { target: { value: 'cd'.repeat(32) } });
     expect(onRepositoryChange).toHaveBeenCalledWith('other/repository');
     expect(onPersonalAccessTokenChange).toHaveBeenCalledWith('replacement-pat');
-    expect(onPublicKeyChange).toHaveBeenCalledWith('cd'.repeat(32));
+    expect(onPublicKeyChange).not.toHaveBeenCalled();
   });
 
   it('keeps trust inputs absent while disabled and emits the disable transition', async () => {

@@ -335,7 +335,7 @@ Validation rules (enforced by Zod before streaming starts):
 - `allowedUsers` -- non-empty array of valid email addresses.
 - `adminUsers` -- non-empty array of valid emails; every admin must also appear in `allowedUsers`.
 - `allowedOrigins` -- optional array of domain suffix patterns (each must start with `.`).
-- `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, repository-scoped read PAT, and raw lowercase 64-hex Ed25519 public key on first configuration; blank credential/key values preserve the selected encrypted trust boundary during reconfiguration.
+- `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, repository-scoped read PAT, and raw lowercase 64-hex Ed25519 public key on first configuration. Blank credential/key values preserve the selected encrypted trust boundary during reconfiguration; the configured public key cannot be replaced.
 
 The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
 

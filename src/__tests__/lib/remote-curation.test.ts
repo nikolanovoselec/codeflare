@@ -467,7 +467,7 @@ describe('managed release resolver', () => {
     expect(resolved.lastError).not.toContain('secret-pat');
   });
 
-  it('stores the PAT only as AES ciphertext, preserves blanks, and commits replacement trust last', async () => {
+  it('stores the PAT only as AES ciphertext, preserves blanks, and rejects public-key replacement', async () => {
     const firstKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const firstFixture = await signedFixture(release({ runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH }), firstKeyPair);
     const sameTrustUpdateFixture = await signedFixture(release({
@@ -489,25 +489,7 @@ describe('managed release resolver', () => {
         compilerCommit: 'b'.repeat(40),
       },
     }), firstKeyPair);
-    const sameSequenceKeyFixture = await signedFixture(release({
-      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
-      source: {
-        repositoryId: 123456,
-        commitSha: 'f'.repeat(40),
-        releaseTag: 'release-7-rotated',
-        compilerCommit: 'b'.repeat(40),
-      },
-    }));
-    const replacementFixture = await signedFixture(release({
-      sequence: 8,
-      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
-      source: {
-        repositoryId: 123456,
-        commitSha: 'e'.repeat(40),
-        releaseTag: 'release-8',
-        compilerCommit: 'b'.repeat(40),
-      },
-    }));
+    const replacementPublicKey = firstFixture.publicKeyHex === 'ab'.repeat(32) ? 'cd'.repeat(32) : 'ab'.repeat(32);
     const releases = {
       first: {
         id: 77,
@@ -530,23 +512,9 @@ describe('managed release resolver', () => {
         bundleDigest: await sha256(sameTrustConflictFixture.compressed),
         signatureDigest: await sha256(sameTrustConflictFixture.signature),
       },
-      sameSequenceKey: {
-        id: 78,
-        tag: 'release-7-rotated',
-        fixture: sameSequenceKeyFixture,
-        bundleDigest: await sha256(sameSequenceKeyFixture.compressed),
-        signatureDigest: await sha256(sameSequenceKeyFixture.signature),
-      },
-      replacement: {
-        id: 88,
-        tag: 'release-8',
-        fixture: replacementFixture,
-        bundleDigest: await sha256(replacementFixture.compressed),
-        signatureDigest: await sha256(replacementFixture.signature),
-      },
     };
     let selected = releases.first;
-    let immutable = true;
+    const immutable = true;
     const r2 = new Map<string, { bytes: Uint8Array; etag: string }>();
     let etagCounter = 0;
     const githubRequests: Request[] = [];
@@ -673,74 +641,24 @@ describe('managed release resolver', () => {
     expect(activeObject).toBeDefined();
     expect(JSON.parse(new TextDecoder().decode(activeObject![1].bytes)).sequence).toBe(7);
 
-    selected = releases.sameSequenceKey;
     await expect(configureManagedEnvironment({
       ...base,
       request: {
         enabled: true,
         repository: 'acme/curation',
-        personalAccessToken: 'github_pat_rotated',
-        publicKey: sameSequenceKeyFixture.publicKeyHex,
+        personalAccessToken: 'github_pat_replacement',
+        publicKey: replacementPublicKey,
       },
-    })).rejects.toThrow(/higher verified release sequence/i);
-    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
-
-    selected = releases.replacement;
-    immutable = false;
-    await expect(configureManagedEnvironment({
-      ...base,
-      request: {
-        enabled: true,
-        repository: 'acme/curation',
-        personalAccessToken: 'github_pat_rotated',
-        publicKey: replacementFixture.publicKeyHex,
-      },
-    })).rejects.toThrow(/immutable/i);
-    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
-
-    immutable = true;
-    rejectedConfigWrite = false;
-    kv.put.mockImplementation(async (key, value, options) => {
-      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG && !rejectedConfigWrite) {
-        rejectedConfigWrite = true;
-        throw new Error('injected replacement-config write failure');
-      }
-      await originalPut(key, value, options);
-    });
-    await expect(configureManagedEnvironment({
-      ...base,
-      request: {
-        enabled: true,
-        repository: 'acme/curation',
-        personalAccessToken: 'github_pat_rotated',
-        publicKey: replacementFixture.publicKeyHex,
-      },
-    })).rejects.toThrow(/injected replacement-config write failure/i);
-    kv.put.mockImplementation(originalPut);
+    })).rejects.toThrow(/public key cannot be changed/i);
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').configFingerprint).toBe(firstConfig.configFingerprint);
     expect([...kv._store.keys()].filter((key) => key.startsWith('setup:managed_environment_pat:'))).toEqual([patKey]);
 
-    await configureManagedEnvironment({
-      ...base,
-      request: {
-        enabled: true,
-        repository: 'acme/curation',
-        personalAccessToken: 'github_pat_rotated',
-        publicKey: replacementFixture.publicKeyHex,
-      },
-    });
-    const rotatedConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string };
-    expect(rotatedConfig.configFingerprint).not.toBe(firstConfig.configFingerprint);
-    const rotatedPatKey = getManagedEnvironmentPatKey(rotatedConfig.configFingerprint);
-    expect(kv._store.get(rotatedPatKey)).toMatch(/^v1:/);
-    expect(kv._store.get(getManagedEnvironmentPatKey(firstConfig.configFingerprint))).toBeDefined();
-
     const cacheObjectCount = r2.size;
-    const rotatedPat = kv._store.get(rotatedPatKey);
+    const retainedPat = kv._store.get(patKey);
     await configureManagedEnvironment({ ...base, request: { enabled: false } });
     expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}').enabled).toBe(false);
     expect(r2.size).toBe(cacheObjectCount);
-    expect(kv._store.get(rotatedPatKey)).toBe(rotatedPat);
+    expect(kv._store.get(patKey)).toBe(retainedPat);
   });
 
   it('allows explicit disable to recover from a malformed selected configuration without deleting retained history', async () => {

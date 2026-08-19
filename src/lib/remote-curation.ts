@@ -742,6 +742,9 @@ export async function configureManagedEnvironment(input: {
   const publicKeyHex = input.request.publicKey?.trim() || existing?.publicKeyHex;
   if (!repository) throw new ValidationError('Managed coding environment repository is required when enabled');
   if (!publicKeyHex) throw new ValidationError('Managed coding environment Ed25519 public key is required when enabled');
+  if (existing && existing.publicKeyHex !== publicKeyHex) {
+    throw new ValidationError('Managed coding environment public key cannot be changed after initial configuration');
+  }
   bytesFromHex(publicKeyHex, 32, 'Ed25519 public key');
 
   const existingPat = existing
@@ -790,24 +793,6 @@ export async function configureManagedEnvironment(input: {
   // before any replacement PAT or selected configuration is committed.
   if (resolved.active && prepared.sequence === resolved.active.sequence) {
     await activateCachedManagedRelease(cache, prepared);
-  }
-
-  if (existing && existing.publicKeyHex !== publicKeyHex) {
-    const priorState = await readFreshnessState(input.env.KV, getManagedEnvironmentStateKey(existing.configFingerprint));
-    let priorActive = priorState.active;
-    if (!priorActive) {
-      const priorCache = createR2ManagedReleaseCache({
-        env: input.r2Credentials,
-        endpoint: input.endpoint,
-        bucketName: existing.cacheBucketName,
-        configFingerprint: existing.configFingerprint,
-        fetcher,
-      });
-      priorActive = (await priorCache.readActive())?.pointer;
-    }
-    if (!priorActive || prepared.sequence <= priorActive.sequence) {
-      throw new ValidationError('Managed coding environment signing-key rotation requires a higher verified release sequence');
-    }
   }
 
   const candidate: ManagedEnvironmentConfig = {
