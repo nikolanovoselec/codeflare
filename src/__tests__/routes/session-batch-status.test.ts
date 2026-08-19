@@ -405,7 +405,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBeUndefined();
     });
 
-    it('REQ-STOR-020 AC3: initial status compares managed release and resolved mode', async () => {
+    it('REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -459,7 +459,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-020 AC6: an outage rejects last-known-good state for another mode', async () => {
+    it('REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },

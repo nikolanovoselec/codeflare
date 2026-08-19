@@ -302,7 +302,7 @@ The bound is on the poll rather than on the tick deliberately — four exits sto
 
 ### Managed curation startup boundary
 
-**Requirements:** [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-045](../../sdd/spec/browser-ide.md#req-ide-045-company-extension-reconciliation-orchestration)
+**Requirements:** [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-coding-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application), [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-045](../../sdd/spec/browser-ide.md#req-ide-045-company-extension-reconciliation-orchestration)
 
 The Worker permits startup only when the bucket's applied digest, sequence, and resolved mode match the active verified release. If the deployment cache is transiently unavailable, a bucket with a prior verified applied stamp may continue from that last-known-good state only when its applied mode still matches the currently resolved mode; a fresh or mode-mismatched bucket receives `MANAGED_ENVIRONMENT_UPDATE_PENDING` and cannot start with baked substitutes. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer -->
 

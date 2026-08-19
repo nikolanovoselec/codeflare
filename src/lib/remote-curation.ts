@@ -1050,8 +1050,11 @@ export async function configureManagedEnvironment(input: {
     // KV has no compare-and-swap, so capture the immediately preceding selection,
     // commit tentatively, then reread the pointer and repair only our own stale write.
     const active = await activatePrepared();
-    const sequenceWinner = await activateCachedManagedRelease(sequenceCache, active);
-    if (sequenceWinner.digest !== active.digest) {
+    const sequenceWinner = await activateCachedManagedRelease(sequenceCache, {
+      ...active,
+      selection: { ...candidate, enabled: true },
+    });
+    if (sequenceWinner.selection?.configFingerprint !== candidate.configFingerprint) {
       throw new Error('Managed coding environment newer release won the concurrent selection');
     }
     const selectedCandidateRaw = JSON.stringify(candidate);
@@ -1060,6 +1063,15 @@ export async function configureManagedEnvironment(input: {
     const restoreTentativeSelection = async (): Promise<void> => {
       if (commitPriorPatRaw === null) await input.env.KV.delete(patKey);
       else await input.env.KV.put(patKey, commitPriorPatRaw);
+      const settled = await sequenceCache.readActive();
+      if (settled?.pointer.selection
+        && settled.pointer.selection.configFingerprint !== candidate.configFingerprint) {
+        await input.env.KV.put(
+          SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG,
+          JSON.stringify(settled.pointer.selection),
+        );
+        return;
+      }
       const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
       if (selectedRaw !== selectedCandidateRaw) return;
       if (commitPriorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
@@ -1069,7 +1081,8 @@ export async function configureManagedEnvironment(input: {
       await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
       await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, selectedCandidateRaw);
       const settledWinner = await sequenceCache.readActive();
-      if (!settledWinner || settledWinner.pointer.digest !== active.digest) {
+      if (!settledWinner
+        || settledWinner.pointer.selection?.configFingerprint !== candidate.configFingerprint) {
         throw new Error('Managed coding environment newer release won the concurrent selection');
       }
       return { enabled: true, active };

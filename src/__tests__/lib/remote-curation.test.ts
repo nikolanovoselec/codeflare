@@ -101,7 +101,7 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/commitSha/i);
   });
 
-  it('REQ-AGENT-150 AC3: validates a signed release without retaining document bodies and streams the identical documents', async () => {
+  it('REQ-AGENT-150 AC2+AC5: retains bounded metadata and streams identical documents', async () => {
     const documents = [
       { key: '.claude/common.md', contentType: 'text/markdown; charset=utf-8', content: '# Common\n', modes: ['advanced', 'default'] as const },
       { key: '.pi/agent/skills/company/SKILL.md', contentType: 'text/markdown; charset=utf-8', content: '# Advanced\n', modes: ['advanced'] as const },
@@ -125,7 +125,7 @@ describe('managed coding-environment release verification', () => {
     expect(streamed).toEqual(documents.map((document) => ({ ...document, modes: [...document.modes] })));
   });
 
-  it('REQ-AGENT-150 AC3: aborts gzip expansion at the shared expanded-byte limit', async () => {
+  it('REQ-AGENT-150 AC4: aborts gzip expansion at the shared expanded-byte limit', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const compressed = await gzipBytes(encoder.encode(' '.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));
     const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', keyPair.privateKey, compressed));
@@ -152,7 +152,7 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/64 bytes/i);
   });
 
-  it('REQ-AGENT-150 AC1+AC2: independently rejects invalid release records before activation', async () => {
+  it('REQ-AGENT-150 AC1+AC3: independently rejects invalid release records before activation', async () => {
     const fixture = await signedFixture();
     const changedSignature = new Uint8Array(fixture.signature);
     changedSignature[0] ^= 0xff;
@@ -664,9 +664,9 @@ describe('managed release resolver', () => {
     let releaseConcurrentLatest: (() => void) | undefined;
     const concurrentLatest = new Promise<void>((resolve) => { releaseConcurrentLatest = resolve; });
     let concurrentLatestCount = 0;
-    let releaseEightSequenceGuard: (() => void) | undefined;
-    const eightSequenceGuard = new Promise<void>((resolve) => { releaseEightSequenceGuard = resolve; });
-    let blockEightConfigRead = false;
+    let releaseEightConfigSnapshot: (() => void) | undefined;
+    const eightConfigSnapshot = new Promise<void>((resolve) => { releaseEightConfigSnapshot = resolve; });
+    let captureEightConfigSnapshot = false;
     let releaseTenConfigCommit: (() => void) | undefined;
     const tenConfigCommitted = new Promise<void>((resolve) => { releaseTenConfigCommit = resolve; });
     let selected = releases.first;
@@ -703,7 +703,7 @@ describe('managed release resolver', () => {
           }), { status: 200, headers: { 'Content-Type': 'application/json', etag: `"release-${requestRelease.id}"` } });
         }
         if (url.pathname.endsWith('/bundle')) {
-          if (token === 'github_pat_ten') await eightSequenceGuard;
+          if (token === 'github_pat_ten') await eightConfigSnapshot;
           return new Response(requestRelease.fixture.compressed, { status: 200 });
         }
         if (url.pathname.endsWith('/signature')) return new Response(requestRelease.fixture.signature, { status: 200 });
@@ -728,8 +728,7 @@ describe('managed release resolver', () => {
             && !key.includes(`/configs/${rotationEightConfigFingerprint}/`)) {
             try {
               if (JSON.parse(new TextDecoder().decode(bytes)).sequence === 8) {
-                blockEightConfigRead = true;
-                releaseEightSequenceGuard?.();
+                captureEightConfigSnapshot = true;
               }
             } catch {
               // Non-pointer cache bytes are irrelevant to the concurrency barrier.
@@ -902,22 +901,29 @@ describe('managed release resolver', () => {
     expect(otherConfig.repository).toBe('other/curation');
     expect(otherConfig.configFingerprint).not.toBe(replacementConfig.configFingerprint);
 
-    // Force the reverse race: sequence 8 wins the repository pointer first and
-    // pauses before observing selected KV; sequence 10 then replaces the pointer
-    // and commits, after which sequence 8 resumes and must not remain selected.
+    // Force the stale-snapshot race: sequence 8 wins the repository pointer and
+    // captures prior KV first, sequence 10 then replaces the pointer and commits,
+    // and only afterward may sequence 8 overwrite KV and begin rollback.
     const originalConcurrentGet = kv.get.getMockImplementation()!;
     const originalConcurrentPut = kv.put.getMockImplementation()!;
     kv.get.mockImplementation(async (key: string, type?: string) => {
-      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG && blockEightConfigRead) {
-        blockEightConfigRead = false;
-        await tenConfigCommitted;
+      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG && captureEightConfigSnapshot) {
+        captureEightConfigSnapshot = false;
+        const snapshot = await originalConcurrentGet(key, type);
+        releaseEightConfigSnapshot?.();
+        return snapshot;
       }
       return originalConcurrentGet(key, type);
     });
     kv.put.mockImplementation(async (key, value, options) => {
+      const selection = key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG
+        ? JSON.parse(value) as { configFingerprint?: string }
+        : undefined;
+      if (selection?.configFingerprint === rotationEightConfigFingerprint) {
+        await tenConfigCommitted;
+      }
       await originalConcurrentPut(key, value, options);
-      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG
-        && JSON.parse(value).configFingerprint === rotationTenConfigFingerprint) {
+      if (selection?.configFingerprint === rotationTenConfigFingerprint) {
         releaseTenConfigCommit?.();
       }
     });

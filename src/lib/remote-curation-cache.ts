@@ -4,6 +4,17 @@ import { createR2Client, getR2Url } from './r2-client';
 
 const MAX_ACTIVE_POINTER_BYTES = 16 * 1024;
 
+export interface ManagedReleaseSelection {
+  schemaVersion: 1;
+  enabled: true;
+  repository: string;
+  repositoryId: number;
+  publicKeyHex: string;
+  publicKeyFingerprint: string;
+  configFingerprint: string;
+  cacheBucketName: string;
+}
+
 export interface ActiveManagedRelease {
   schemaVersion: 1;
   seedAbi: 1;
@@ -15,6 +26,7 @@ export interface ActiveManagedRelease {
   sourceCommit: string;
   runtimeDependencyHash: string;
   activatedAt: string;
+  selection?: ManagedReleaseSelection;
 }
 
 export interface ManagedReleaseCache {
@@ -25,6 +37,21 @@ export interface ManagedReleaseCache {
   replaceActive(pointer: ActiveManagedRelease, etag: string): Promise<boolean>;
 }
 
+function sameSelection(
+  left: ManagedReleaseSelection | undefined,
+  right: ManagedReleaseSelection | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  return left.schemaVersion === right.schemaVersion
+    && left.enabled === right.enabled
+    && left.repository === right.repository
+    && left.repositoryId === right.repositoryId
+    && left.publicKeyHex === right.publicKeyHex
+    && left.publicKeyFingerprint === right.publicKeyFingerprint
+    && left.configFingerprint === right.configFingerprint
+    && left.cacheBucketName === right.cacheBucketName;
+}
+
 function sameRelease(left: ActiveManagedRelease, right: ActiveManagedRelease): boolean {
   return left.sequence === right.sequence
     && left.digest === right.digest
@@ -32,7 +59,8 @@ function sameRelease(left: ActiveManagedRelease, right: ActiveManagedRelease): b
     && left.releaseId === right.releaseId
     && left.releaseTag === right.releaseTag
     && left.sourceCommit === right.sourceCommit
-    && left.runtimeDependencyHash === right.runtimeDependencyHash;
+    && left.runtimeDependencyHash === right.runtimeDependencyHash
+    && sameSelection(left.selection, right.selection);
 }
 
 function resolveAgainstCurrent(
@@ -52,8 +80,30 @@ function resolveAgainstCurrent(
 function parseActivePointer(value: unknown): ActiveManagedRelease {
   if (!value || typeof value !== 'object') throw new Error('Managed release active pointer is invalid');
   const pointer = value as Record<string, unknown>;
+  const selection = pointer.selection as Record<string, unknown> | undefined;
+  const selectionIsInvalid = selection !== undefined && (
+    !selection
+    || typeof selection !== 'object'
+    || selection.schemaVersion !== 1
+    || selection.enabled !== true
+    || typeof selection.repository !== 'string'
+    || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(selection.repository)
+    || typeof selection.repositoryId !== 'number'
+    || !Number.isSafeInteger(selection.repositoryId)
+    || selection.repositoryId <= 0
+    || typeof selection.publicKeyHex !== 'string'
+    || !/^[0-9a-f]{64}$/.test(selection.publicKeyHex)
+    || typeof selection.publicKeyFingerprint !== 'string'
+    || !/^[0-9a-f]{16}$/.test(selection.publicKeyFingerprint)
+    || typeof selection.configFingerprint !== 'string'
+    || !/^[0-9a-f]{64}$/.test(selection.configFingerprint)
+    || typeof selection.cacheBucketName !== 'string'
+    || selection.cacheBucketName.length === 0
+    || selection.cacheBucketName.length > 63
+  );
   if (
-    pointer.schemaVersion !== 1
+    selectionIsInvalid
+    || pointer.schemaVersion !== 1
     || pointer.seedAbi !== 1
     || typeof pointer.sequence !== 'number'
     || !Number.isSafeInteger(pointer.sequence)

@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 describe('managed release user-bucket reconciliation', () => {
-  it('REQ-STOR-021 AC1: Default and Advanced stream identical mode payloads with active release provenance', async () => {
+  it('REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance', async () => {
     const digest = 'd'.repeat(64);
     const managedRelease = await selection(
       digest,
@@ -156,7 +156,7 @@ describe('managed release user-bucket reconciliation', () => {
     ]);
   });
 
-  it('bounds R2 concurrency for a maximum-size managed document set', async () => {
+  it('REQ-STOR-024 AC4: bounds R2 concurrency for a maximum-size managed document set', async () => {
     let inFlight = 0;
     let peak = 0;
     fetchR2.mockImplementation(async () => {

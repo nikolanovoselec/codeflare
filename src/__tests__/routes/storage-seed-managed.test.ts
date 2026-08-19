@@ -120,7 +120,7 @@ describe('managed storage reconcile', () => {
     expect(serializedWrites).not.toContain(credential);
   });
 
-  it('REQ-STOR-020 AC4+AC5: successful managed reconcile stamps applied state last', async () => {
+  it('REQ-STOR-024 AC1+AC5: successful managed reconcile loads cached content and stamps applied state last', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced', workspaceSyncEnabled: true });
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
