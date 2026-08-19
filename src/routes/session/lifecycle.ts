@@ -20,7 +20,7 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
-import { getActiveVerifiedManagedRelease } from '../../lib/managed-release-active';
+import { getActiveManagedRelease } from '../../lib/managed-release-active';
 import { resolveSessionMode } from '../../lib/session-mode';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 
@@ -183,10 +183,10 @@ app.get('/batch-status', async (c) => {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     const mode = resolveSessionMode(prefs ?? null, c.env);
     try {
-      const active = await getActiveVerifiedManagedRelease(c.env);
+      const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
       const managedMismatch = active
-        ? applied?.digest !== active.digest || applied.mode !== mode || applied.sequence !== active.release.sequence
+        ? applied?.digest !== active.digest || applied.mode !== mode || applied.sequence !== active.pointer.sequence
         : applied !== undefined;
 
       if (active || applied) {

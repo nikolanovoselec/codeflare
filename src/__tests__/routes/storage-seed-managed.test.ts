@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ManagedRelease } from '../../lib/remote-curation';
+import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
+import type { ActiveVerifiedManagedRelease, VerifiedManagedReleaseContent } from '../../lib/managed-release-active';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
 
 const state = vi.hoisted(() => ({
-  active: null as null | { digest: string; release: ManagedRelease },
+  active: null as ActiveVerifiedManagedRelease | null,
   activeError: null as Error | null,
-  cached: null as null | ManagedRelease,
+  cached: null as VerifiedManagedReleaseContent | null,
 }));
 const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [] })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
@@ -67,9 +68,26 @@ function appFor(mockKV: ReturnType<typeof createMockKV>) {
 }
 
 describe('managed storage reconcile', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
-    state.active = { digest: 'd'.repeat(64), release };
+    const compressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(release)));
+    state.active = {
+      digest: 'd'.repeat(64),
+      compressed,
+      pointer: {
+        schemaVersion: 1,
+        seedAbi: 1,
+        sequence: release.sequence,
+        digest: 'd'.repeat(64),
+        repositoryId: release.source.repositoryId,
+        releaseId: 9,
+        releaseTag: release.source.releaseTag,
+        sourceCommit: release.source.commitSha,
+        runtimeDependencyHash: release.runtimeDependencyHash,
+        activatedAt: '2026-08-19T00:00:00.000Z',
+      },
+      release: await parseManagedReleaseStream(compressed),
+    };
     state.activeError = null;
     state.cached = null;
     fetchR2.mockClear();
@@ -109,7 +127,11 @@ describe('managed storage reconcile', () => {
 
     expect(response.status).toBe(200);
     expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
-      managedRelease: { digest: 'd'.repeat(64), release },
+      managedRelease: expect.objectContaining({
+        digest: 'd'.repeat(64),
+        compressed: expect.any(Uint8Array),
+        release: expect.objectContaining({ sequence: 9 }),
+      }),
     }));
     expect(reseedContext).toHaveBeenCalled();
     const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
@@ -165,7 +187,9 @@ describe('managed storage reconcile', () => {
 
   it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {
     state.active = null;
-    state.cached = { ...release, sequence: 8 };
+    const prior = { ...release, sequence: 8 };
+    const compressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(prior)));
+    state.cached = { compressed, release: await parseManagedReleaseStream(compressed) };
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',

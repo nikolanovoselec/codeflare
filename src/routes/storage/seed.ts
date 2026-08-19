@@ -85,9 +85,11 @@ app.post('/agent-configs', async (c) => {
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
     const applied = preferences?.managedEnvironmentApplied;
     if (applied) {
-      const priorRelease = await getVerifiedManagedReleaseByDigest(c.env, applied.digest);
+      const priorRelease = activeManagedRelease?.digest === applied.digest
+        ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
+        : await getVerifiedManagedReleaseByDigest(c.env, applied.digest);
       if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
-      priorManagedRelease = { digest: applied.digest, mode: applied.mode, release: priorRelease };
+      priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
     }
 
     // Preserve ordinary baked reseed behavior. The no-hot-mutation gate applies
@@ -120,7 +122,7 @@ app.post('/agent-configs', async (c) => {
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
     const managedOptions = activeManagedRelease
-      ? { managedRelease: { digest: activeManagedRelease.digest, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+      ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
       : priorManagedRelease
         ? { managedRelease: null, priorManagedRelease }
         : {};

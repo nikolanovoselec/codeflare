@@ -26,7 +26,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
-import { getActiveVerifiedManagedRelease } from '../../lib/managed-release-active';
+import { getActiveManagedRelease } from '../../lib/managed-release-active';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -185,12 +185,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
     try {
-      const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
+      const activeManagedRelease = await getActiveManagedRelease(c.env);
       const applied = preferences.managedEnvironmentApplied;
       const mismatch = activeManagedRelease
         ? applied?.digest !== activeManagedRelease.digest
           || applied.mode !== expectedMode
-          || applied.sequence !== activeManagedRelease.release.sequence
+          || applied.sequence !== activeManagedRelease.pointer.sequence
         : applied !== undefined;
       if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = activeManagedRelease !== null;

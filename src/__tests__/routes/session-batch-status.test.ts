@@ -56,11 +56,11 @@ vi.mock('../../lib/migration-containers', () => ({
   drainContainers: vi.fn(async () => {}),
 }));
 const managedReleaseState = vi.hoisted(() => ({
-  active: null as null | { digest: string; release: { sequence: number } },
+  active: null as null | { digest: string; pointer: { sequence: number } },
   error: null as Error | null,
 }));
 vi.mock('../../lib/managed-release-active', () => ({
-  getActiveVerifiedManagedRelease: vi.fn(async () => {
+  getActiveManagedRelease: vi.fn(async () => {
     if (managedReleaseState.error) throw managedReleaseState.error;
     return managedReleaseState.active;
   }),
@@ -406,7 +406,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-020 AC3: initial status compares managed release and resolved mode', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
@@ -415,7 +415,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       const running = makeSession('aabbccdd11223344', 'running');
       mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -425,7 +425,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       const session = makeSession('aabbccdd11223344', 'stopped');
       mockKV._set('session:test-bucket:aabbccdd11223344', session, {
         ...buildSessionMetadata(session),
@@ -471,7 +471,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('reports current only when both the active digest and resolved mode match applied state', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },

@@ -7,7 +7,8 @@ import {
   getManagedEnvironmentPrefill,
   gzipBytes,
   resolveManagedEnvironmentRelease,
-  verifyManagedRelease,
+  streamManagedReleaseDocuments,
+  verifyManagedReleaseStream as verifyManagedRelease,
   type ManagedEnvironmentFreshnessState,
   type ManagedRelease,
 } from '../../lib/remote-curation';
@@ -100,9 +101,33 @@ describe('managed coding-environment release verification', () => {
     })).rejects.toThrow(/commitSha/i);
   });
 
+  it('REQ-AGENT-150 AC3: validates a signed release without retaining document bodies and streams the identical documents', async () => {
+    const documents = [
+      { key: '.claude/common.md', contentType: 'text/markdown; charset=utf-8', content: '# Common\n', modes: ['advanced', 'default'] as const },
+      { key: '.pi/agent/skills/company/SKILL.md', contentType: 'text/markdown; charset=utf-8', content: '# Advanced\n', modes: ['advanced'] as const },
+    ];
+    const fixture = await signedFixture(release({ documents: documents.map((document) => ({ ...document, modes: [...document.modes] })) }));
+
+    const verified = await verifyManagedRelease({
+      ...fixture,
+      expectedRepositoryId: 123456,
+      minimumSequence: 6,
+      expectedRuntimeHash: 'c'.repeat(64),
+    });
+
+    expect(verified.release.documents).toEqual(documents.map(({ key, modes }) => ({ key, modes: [...modes] })));
+    expect(JSON.stringify(verified.release.documents)).not.toContain('# Common');
+
+    const streamed: ManagedRelease['documents'] = [];
+    await streamManagedReleaseDocuments(verified.compressed, async (document) => {
+      streamed.push(document);
+    });
+    expect(streamed).toEqual(documents.map((document) => ({ ...document, modes: [...document.modes] })));
+  });
+
   it('REQ-AGENT-150 AC3: aborts gzip expansion at the shared expanded-byte limit', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
-    const compressed = await gzipBytes(encoder.encode('x'.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));
+    const compressed = await gzipBytes(encoder.encode(' '.repeat(MANAGED_RELEASE_LIMITS.expandedBytes + 1)));
     const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', keyPair.privateKey, compressed));
     const publicKeyHex = hex(await crypto.subtle.exportKey('raw', keyPair.publicKey) as ArrayBuffer);
 
@@ -479,7 +504,7 @@ describe('managed release resolver', () => {
     expect(resolved.lastError).not.toContain('secret-pat');
   });
 
-  it('stores the PAT only as AES ciphertext and transactionally activates public-key replacement', async () => {
+  it('stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement', async () => {
     const firstKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const firstFixture = await signedFixture(release({ runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH }), firstKeyPair);
     const sameTrustUpdateFixture = await signedFixture(release({
@@ -542,6 +567,28 @@ describe('managed release resolver', () => {
         compilerCommit: 'b'.repeat(40),
       },
     }), replacementKeyPair);
+    const rotationTenKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    const rotationTenFixture = await signedFixture(release({
+      sequence: 10,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 654321,
+        commitSha: '7'.repeat(40),
+        releaseTag: 'release-10-concurrent',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), rotationTenKeyPair);
+    const rotationEightKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    const rotationEightFixture = await signedFixture(release({
+      sequence: 8,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 654321,
+        commitSha: '8'.repeat(40),
+        releaseTag: 'release-8-concurrent',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), rotationEightKeyPair);
     const replacementPublicKey = replacementFixture.publicKeyHex;
     const releases = {
       first: {
@@ -593,7 +640,35 @@ describe('managed release resolver', () => {
         bundleDigest: await sha256(otherRepositoryFixture.compressed),
         signatureDigest: await sha256(otherRepositoryFixture.signature),
       },
+      rotationTen: {
+        id: 84,
+        tag: 'release-10-concurrent',
+        fixture: rotationTenFixture,
+        bundleDigest: await sha256(rotationTenFixture.compressed),
+        signatureDigest: await sha256(rotationTenFixture.signature),
+      },
+      rotationEight: {
+        id: 85,
+        tag: 'release-8-concurrent',
+        fixture: rotationEightFixture,
+        bundleDigest: await sha256(rotationEightFixture.compressed),
+        signatureDigest: await sha256(rotationEightFixture.signature),
+      },
     };
+    const concurrentReleases = new Map([
+      ['github_pat_ten', releases.rotationTen],
+      ['github_pat_eight', releases.rotationEight],
+    ]);
+    const rotationTenConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationTenFixture.publicKeyHex);
+    const rotationEightConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationEightFixture.publicKeyHex);
+    let releaseConcurrentLatest: (() => void) | undefined;
+    const concurrentLatest = new Promise<void>((resolve) => { releaseConcurrentLatest = resolve; });
+    let concurrentLatestCount = 0;
+    let releaseEightSequenceGuard: (() => void) | undefined;
+    const eightSequenceGuard = new Promise<void>((resolve) => { releaseEightSequenceGuard = resolve; });
+    let blockEightConfigRead = false;
+    let releaseTenConfigCommit: (() => void) | undefined;
+    const tenConfigCommitted = new Promise<void>((resolve) => { releaseTenConfigCommit = resolve; });
     let selected = releases.first;
     const immutable = true;
     const r2 = new Map<string, { bytes: Uint8Array; etag: string }>();
@@ -601,6 +676,8 @@ describe('managed release resolver', () => {
     const githubRequests: Request[] = [];
     const fetcher = vi.fn(async (request: Request) => {
       const url = new URL(request.url);
+      const token = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
+      const requestRelease = concurrentReleases.get(token) ?? selected;
       if (url.hostname === 'api.github.com') {
         githubRequests.push(request);
         if (url.pathname === '/repos/acme/curation') {
@@ -610,18 +687,26 @@ describe('managed release resolver', () => {
           return new Response(JSON.stringify({ id: 654321 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (url.pathname.endsWith('/releases/latest')) {
+          if (concurrentReleases.has(token)) {
+            concurrentLatestCount += 1;
+            if (concurrentLatestCount === 2) releaseConcurrentLatest?.();
+            await concurrentLatest;
+          }
           return new Response(JSON.stringify({
-            id: selected.id,
-            tag_name: selected.tag,
+            id: requestRelease.id,
+            tag_name: requestRelease.tag,
             immutable,
             assets: [
-              { id: selected.id * 10 + 1, name: 'seed-v1.json.gz', url: `https://api.github.com/assets/${selected.id}/bundle`, digest: `sha256:${selected.bundleDigest}` },
-              { id: selected.id * 10 + 2, name: 'seed-v1.sig', url: `https://api.github.com/assets/${selected.id}/signature`, digest: `sha256:${selected.signatureDigest}` },
+              { id: requestRelease.id * 10 + 1, name: 'seed-v1.json.gz', url: `https://api.github.com/assets/${requestRelease.id}/bundle`, digest: `sha256:${requestRelease.bundleDigest}` },
+              { id: requestRelease.id * 10 + 2, name: 'seed-v1.sig', url: `https://api.github.com/assets/${requestRelease.id}/signature`, digest: `sha256:${requestRelease.signatureDigest}` },
             ],
-          }), { status: 200, headers: { 'Content-Type': 'application/json', etag: `"release-${selected.id}"` } });
+          }), { status: 200, headers: { 'Content-Type': 'application/json', etag: `"release-${requestRelease.id}"` } });
         }
-        if (url.pathname.endsWith('/bundle')) return new Response(selected.fixture.compressed, { status: 200 });
-        if (url.pathname.endsWith('/signature')) return new Response(selected.fixture.signature, { status: 200 });
+        if (url.pathname.endsWith('/bundle')) {
+          if (token === 'github_pat_ten') await eightSequenceGuard;
+          return new Response(requestRelease.fixture.compressed, { status: 200 });
+        }
+        if (url.pathname.endsWith('/signature')) return new Response(requestRelease.fixture.signature, { status: 200 });
       }
       if (url.hostname.endsWith('.r2.cloudflarestorage.com')) {
         const key = url.pathname;
@@ -638,6 +723,18 @@ describe('managed release resolver', () => {
           const bytes = new Uint8Array(await request.arrayBuffer());
           const etag = `"r2-${++etagCounter}"`;
           r2.set(key, { bytes, etag });
+          if (key.endsWith('/active.json')
+            && !key.includes(`/configs/${rotationTenConfigFingerprint}/`)
+            && !key.includes(`/configs/${rotationEightConfigFingerprint}/`)) {
+            try {
+              if (JSON.parse(new TextDecoder().decode(bytes)).sequence === 8) {
+                blockEightConfigRead = true;
+                releaseEightSequenceGuard?.();
+              }
+            } catch {
+              // Non-pointer cache bytes are irrelevant to the concurrency barrier.
+            }
+          }
           return new Response('', { status: 200, headers: { etag } });
         }
       }
@@ -804,6 +901,55 @@ describe('managed release resolver', () => {
     expect(repositoryReplaced.active?.sequence).toBe(1);
     expect(otherConfig.repository).toBe('other/curation');
     expect(otherConfig.configFingerprint).not.toBe(replacementConfig.configFingerprint);
+
+    // Force the reverse race: sequence 8 wins the repository pointer first and
+    // pauses before observing selected KV; sequence 10 then replaces the pointer
+    // and commits, after which sequence 8 resumes and must not remain selected.
+    const originalConcurrentGet = kv.get.getMockImplementation()!;
+    const originalConcurrentPut = kv.put.getMockImplementation()!;
+    kv.get.mockImplementation(async (key: string, type?: string) => {
+      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG && blockEightConfigRead) {
+        blockEightConfigRead = false;
+        await tenConfigCommitted;
+      }
+      return originalConcurrentGet(key, type);
+    });
+    kv.put.mockImplementation(async (key, value, options) => {
+      await originalConcurrentPut(key, value, options);
+      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG
+        && JSON.parse(value).configFingerprint === rotationTenConfigFingerprint) {
+        releaseTenConfigCommit?.();
+      }
+    });
+
+    const rotations = await Promise.allSettled([
+      configureManagedEnvironment({
+        ...base,
+        request: {
+          enabled: true,
+          repository: 'other/curation',
+          personalAccessToken: 'github_pat_ten',
+          publicKey: rotationTenFixture.publicKeyHex,
+        },
+      }),
+      configureManagedEnvironment({
+        ...base,
+        request: {
+          enabled: true,
+          repository: 'other/curation',
+          personalAccessToken: 'github_pat_eight',
+          publicKey: rotationEightFixture.publicKeyHex,
+        },
+      }),
+    ]);
+    expect(rotations[0]).toMatchObject({ status: 'fulfilled', value: { active: { sequence: 10 } } });
+    expect(rotations[1]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: expect.stringMatching(/newer release won/i) }) });
+    kv.get.mockImplementation(originalConcurrentGet);
+    kv.put.mockImplementation(originalConcurrentPut);
+    const concurrentConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string };
+    expect(concurrentConfig.configFingerprint).toBe(rotationTenConfigFingerprint);
+    expect(kv._store.get(getManagedEnvironmentPatKey(rotationTenConfigFingerprint))).toMatch(/^v1:/);
+    expect(kv._store.get(getManagedEnvironmentPatKey(rotationEightConfigFingerprint))).toBeUndefined();
 
     const cacheObjectCount = r2.size;
     const retainedPat = kv._store.get(patKey);

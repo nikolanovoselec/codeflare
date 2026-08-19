@@ -432,6 +432,8 @@ sudo apt-get install -yqq --no-install-recommends \
 
 For update pending, stop every session for that user; reconciliation starts only after the bucket is idle. Do not bypass the typed 409 or seed baked content while curation is enabled. For a missing private change, confirm the protected workflow published an immutable non-draft release with a higher sequence and that Setup points to the same repository and signer. Discovery uses dashboard refresh, not image deployment or container restart.
 
+If the dashboard continuously returns to `Upgrading` and Workers Observability reports `Worker exceeded memory limit` for `POST /api/storage/seed/agent-configs`, the deployed Worker is expanding a large managed release into one in-memory object before writing it. Deploy a Worker containing the bounded managed-release stream reader; do not remove release files, change modes, rotate the signer, or republish the same release. The corrected route reads the existing cached gzip once and writes the identical user-bucket payload document by document. A successful final applied stamp ends the ordinary `Upgrading` cycle on the next status poll. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+
 ### Pi Todo Tasks Disappear After Subagent Activity
 
 **Symptom:** The foreground `/todos` list resets to `No tasks` after a background reviewer or other child session starts, compacts, changes tree, or shuts down, even though an earlier valid todo snapshot remains in the foreground transcript.

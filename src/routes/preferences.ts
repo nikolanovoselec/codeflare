@@ -165,16 +165,18 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
       let priorManagedRelease: PriorManagedReleaseSelection | undefined;
       if (existing.managedEnvironmentApplied) {
-        const priorRelease = await getVerifiedManagedReleaseByDigest(c.env, existing.managedEnvironmentApplied.digest);
+        const priorRelease = activeManagedRelease?.digest === existing.managedEnvironmentApplied.digest
+          ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
+          : await getVerifiedManagedReleaseByDigest(c.env, existing.managedEnvironmentApplied.digest);
         if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
         priorManagedRelease = {
           digest: existing.managedEnvironmentApplied.digest,
           mode: existing.managedEnvironmentApplied.mode,
-          release: priorRelease,
+          ...priorRelease,
         };
       }
       const managedOptions = activeManagedRelease
-        ? { managedRelease: { digest: activeManagedRelease.digest, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+        ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
         : priorManagedRelease
           ? { managedRelease: null, priorManagedRelease }
           : {};

@@ -1,3 +1,4 @@
+import { TokenParser, TokenType, Tokenizer } from '@streamparser/json';
 import { z } from 'zod';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
@@ -83,6 +84,16 @@ const ManagedReleaseSchema = z.object({
 }).strict();
 
 export type ManagedRelease = z.infer<typeof ManagedReleaseSchema>;
+export type ManagedReleaseDocument = ManagedRelease['documents'][number];
+export type ManagedReleaseIndex = Omit<ManagedRelease, 'documents'> & {
+  documents: Array<Pick<ManagedReleaseDocument, 'key' | 'modes'>>;
+};
+
+export interface VerifiedManagedReleaseStream {
+  compressed: Uint8Array;
+  digest: string;
+  release: ManagedReleaseIndex;
+}
 
 const ActivePointerSchema = z.object({
   schemaVersion: z.literal(1),
@@ -191,6 +202,13 @@ export async function getManagedEnvironmentConfigFingerprint(
   return sha256Hex(new TextEncoder().encode(`managed-environment-v1\0${repositoryId}\0${publicKeyHex}`));
 }
 
+async function getManagedEnvironmentSequenceFingerprint(repositoryId: number): Promise<string> {
+  if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
+    throw new Error('Managed environment repository ID must be a positive safe integer');
+  }
+  return sha256Hex(new TextEncoder().encode(`managed-environment-sequence-v1\0${repositoryId}`));
+}
+
 function validateBoundedString(value: string, label: string, maximum: number): void {
   if (value.length === 0 || value.length > maximum || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error(`${label} is outside the allowed string bounds`);
@@ -212,48 +230,14 @@ function assertSorted(values: string[], label: string): void {
   }
 }
 
-function assertReleaseSemantics(release: ManagedRelease): void {
-  const pairs = new Set<string>();
-  let priorDocumentIdentity = '';
-  let totalDocumentBytes = 0;
-  const livePaths = new Set<string>();
-  for (const document of release.documents) {
-    assertManagedPath(document.key);
-    validateBoundedString(document.contentType, 'Managed document content type', 256);
-    assertSorted(document.modes, `Modes for ${document.key}`);
-    const uniqueModes = new Set(document.modes);
-    if (uniqueModes.size !== document.modes.length) throw new Error(`Duplicate mode for managed path: ${document.key}`);
-    const identity = `${document.key}\0${document.modes.join(',')}`;
-    if (priorDocumentIdentity && compareStrings(priorDocumentIdentity, identity) > 0) {
-      throw new Error('Managed release documents must be deterministically sorted');
-    }
-    priorDocumentIdentity = identity;
-    livePaths.add(document.key);
-    for (const mode of document.modes) {
-      const pair = `${document.key}\0${mode}`;
-      if (pairs.has(pair)) throw new Error(`Duplicate managed key and mode: ${document.key} (${mode})`);
-      pairs.add(pair);
-    }
-    const bytes = new TextEncoder().encode(document.content).byteLength;
-    if (bytes > MANAGED_RELEASE_LIMITS.documentBytes) throw new Error(`Managed document exceeds byte limit: ${document.key}`);
-    totalDocumentBytes += bytes;
-  }
-  if (totalDocumentBytes > MANAGED_RELEASE_LIMITS.totalDocumentBytes) throw new Error('Managed release total document bytes exceed limit');
-
-  assertSorted(release.retiredPaths, 'Managed retired paths');
-  for (const key of release.retiredPaths) {
-    validateManagedRetiredPath(key, 'Managed retired path');
-    if (livePaths.has(key)) throw new Error(`Managed path is both live and retired: ${key}`);
-  }
-  if (new Set(release.retiredPaths).size !== release.retiredPaths.length) throw new Error('Managed release contains duplicate retired paths');
-
-  const extensionIdentities = release.managedExtensions.map((extension) => `${extension.id}\0${extension.version}\0${extension.targetPlatform}`);
+function assertManagedExtensions(extensions: ManagedRelease['managedExtensions']): void {
+  const extensionIdentities = extensions.map((extension) => `${extension.id}\0${extension.version}\0${extension.targetPlatform}`);
   assertSorted(extensionIdentities, 'Managed extensions');
-  const platformIdentities = release.managedExtensions.map((extension) => `${extension.id}\0${extension.targetPlatform}`);
+  const platformIdentities = extensions.map((extension) => `${extension.id}\0${extension.targetPlatform}`);
   if (new Set(platformIdentities).size !== platformIdentities.length) throw new Error('Managed release contains duplicate extension identities');
-  const extensionSet = new Set(release.managedExtensions.map((extension) => extension.id));
+  const extensionSet = new Set(extensions.map((extension) => extension.id));
   let aggregateExtensionBytes = 0;
-  for (const extension of release.managedExtensions) {
+  for (const extension of extensions) {
     validateBoundedString(extension.engine, 'Managed extension engine', 128);
     validateBoundedString(extension.entrypoint, 'Managed extension entrypoint', 512);
     if (extension.id !== `${extension.publisher}.${extension.name}`.toLowerCase()) {
@@ -278,51 +262,252 @@ function assertReleaseSemantics(release: ManagedRelease): void {
   if (aggregateExtensionBytes > MANAGED_RELEASE_LIMITS.aggregateExtensionBytes) throw new Error('Managed release aggregate extension bytes exceed limit');
 }
 
-async function decompressGzip(bytes: Uint8Array): Promise<Uint8Array> {
-  let input: ReadableStream<Uint8Array>;
-  try {
-    input = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-  } catch {
-    throw new Error('Managed release gzip is invalid');
-  }
-  try {
-    return await readBoundedStream(input, MANAGED_RELEASE_LIMITS.expandedBytes, 'Managed release');
-  } catch (error) {
-    if (error instanceof Error && /exceeds/.test(error.message)) throw error;
-    throw new Error('Managed release gzip is invalid');
-  }
-}
+const RELEASE_STREAM_PATHS = [
+  '$.seedAbi',
+  '$.sequence',
+  '$.source',
+  '$.runtimeDependencyHash',
+  '$.documents.*',
+  '$.retiredPaths.*',
+  '$.managedExtensions.*',
+];
+const RELEASE_STREAM_INPUT_SLICE_BYTES = 16 * 1024;
+const RELEASE_STREAM_WRITE_CONCURRENCY = 6;
+const RELEASE_ROOT_TOKEN_TYPES = new Map<string, TokenType>([
+  ['seedAbi', TokenType.NUMBER],
+  ['sequence', TokenType.NUMBER],
+  ['source', TokenType.LEFT_BRACE],
+  ['runtimeDependencyHash', TokenType.STRING],
+  ['documents', TokenType.LEFT_BRACKET],
+  ['retiredPaths', TokenType.LEFT_BRACKET],
+  ['managedExtensions', TokenType.LEFT_BRACKET],
+]);
 
-export async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
-  const output = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
-  return readBoundedStream(output, MANAGED_RELEASE_LIMITS.compressedBytes, 'Compressed managed release');
-}
-
-export async function parseManagedRelease(compressed: Uint8Array): Promise<ManagedRelease> {
+export async function parseManagedReleaseStream(
+  compressed: Uint8Array,
+  onDocument?: (document: ManagedReleaseDocument) => Promise<void>,
+): Promise<ManagedReleaseIndex> {
   if (compressed.byteLength > MANAGED_RELEASE_LIMITS.compressedBytes) {
     throw new Error(`Compressed managed release exceeds ${MANAGED_RELEASE_LIMITS.compressedBytes} bytes`);
   }
-  const uncompressed = await decompressGzip(compressed);
-  let parsed: unknown;
+
+  let decompressed: ReadableStream<Uint8Array>;
   try {
-    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(uncompressed));
+    decompressed = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
   } catch {
-    throw new Error('Managed release JSON is invalid');
+    throw new Error('Managed release gzip is invalid');
   }
-  const result = ManagedReleaseSchema.safeParse(parsed);
-  if (!result.success) throw new Error(`Managed release schema is invalid: ${result.error.issues[0]?.path.join('.') || 'root'}`);
-  assertReleaseSemantics(result.data);
-  return result.data;
+
+  const tokenizer = new Tokenizer();
+  const tokenParser = new TokenParser({ paths: RELEASE_STREAM_PATHS, keepStack: false });
+  const rootKeys = new Set<string>();
+  let rootStarted = false;
+  let depth = 0;
+  let expectingRootKey = false;
+  let pendingRootValue: string | undefined;
+  let expandedBytes = 0;
+  let seedAbi: 1 | undefined;
+  let sequence: number | undefined;
+  let source: ManagedRelease['source'] | undefined;
+  let runtimeDependencyHash: string | undefined;
+  const documents: ManagedReleaseIndex['documents'] = [];
+  const documentQueue: ManagedReleaseDocument[] = [];
+  const inFlightDocuments = new Set<Promise<void>>();
+  let documentFailure: unknown;
+  const retiredPaths: string[] = [];
+  const managedExtensions: ManagedRelease['managedExtensions'] = [];
+  const ownershipPairs = new Set<string>();
+  const livePaths = new Set<string>();
+  let priorDocumentIdentity = '';
+  let totalDocumentBytes = 0;
+
+  tokenizer.onError = (error) => { throw error; };
+  tokenParser.onError = (error) => { throw error; };
+  tokenizer.onToken = (parsedToken) => {
+    const { token, value } = parsedToken;
+    if (!rootStarted) {
+      if (token !== TokenType.LEFT_BRACE) throw new Error('Managed release root must be an object');
+      rootStarted = true;
+      depth = 1;
+      expectingRootKey = true;
+      tokenParser.write(parsedToken);
+      return;
+    }
+
+    if (depth === 1 && expectingRootKey) {
+      if (token === TokenType.RIGHT_BRACE) {
+        expectingRootKey = false;
+      } else {
+        if (token !== TokenType.STRING || typeof value !== 'string') throw new Error('Managed release root key is invalid');
+        if (!RELEASE_ROOT_TOKEN_TYPES.has(value)) throw new Error(`Managed release schema is invalid: unknown root key ${value}`);
+        if (rootKeys.has(value)) throw new Error(`Managed release schema is invalid: duplicate root key ${value}`);
+        rootKeys.add(value);
+        pendingRootValue = value;
+        expectingRootKey = false;
+      }
+    } else if (depth === 1 && pendingRootValue && token !== TokenType.COLON) {
+      if (token !== RELEASE_ROOT_TOKEN_TYPES.get(pendingRootValue)) {
+        throw new Error(`Managed release schema is invalid: ${pendingRootValue}`);
+      }
+      pendingRootValue = undefined;
+    } else if (depth === 1 && token === TokenType.COMMA) {
+      expectingRootKey = true;
+    }
+
+    if (token === TokenType.LEFT_BRACE || token === TokenType.LEFT_BRACKET) depth += 1;
+    if (token === TokenType.RIGHT_BRACE || token === TokenType.RIGHT_BRACKET) depth -= 1;
+    tokenParser.write(parsedToken);
+  };
+
+  tokenParser.onValue = ({ value, key, stack }) => {
+    const parentKey = stack.at(-1)?.key;
+    if (parentKey === 'documents') {
+      if (documents.length >= MANAGED_RELEASE_LIMITS.documentCount) throw new Error('Managed release document count exceeds limit');
+      const parsed = DocumentSchema.safeParse(value);
+      if (!parsed.success) throw new Error(`Managed release schema is invalid: documents.${String(key)}.${parsed.error.issues[0]?.path.join('.') || 'record'}`);
+      const document = parsed.data;
+      assertManagedPath(document.key);
+      validateBoundedString(document.contentType, 'Managed document content type', 256);
+      assertSorted(document.modes, `Modes for ${document.key}`);
+      if (new Set(document.modes).size !== document.modes.length) throw new Error(`Duplicate mode for managed path: ${document.key}`);
+      const identity = `${document.key}\0${document.modes.join(',')}`;
+      if (priorDocumentIdentity && compareStrings(priorDocumentIdentity, identity) > 0) {
+        throw new Error('Managed release documents must be deterministically sorted');
+      }
+      priorDocumentIdentity = identity;
+      livePaths.add(document.key);
+      for (const mode of document.modes) {
+        const pair = `${document.key}\0${mode}`;
+        if (ownershipPairs.has(pair)) throw new Error(`Duplicate managed key and mode: ${document.key} (${mode})`);
+        ownershipPairs.add(pair);
+      }
+      const contentBytes = new TextEncoder().encode(document.content).byteLength;
+      if (contentBytes > MANAGED_RELEASE_LIMITS.documentBytes) throw new Error(`Managed document exceeds byte limit: ${document.key}`);
+      totalDocumentBytes += contentBytes;
+      if (totalDocumentBytes > MANAGED_RELEASE_LIMITS.totalDocumentBytes) throw new Error('Managed release total document bytes exceed limit');
+      documents.push({ key: document.key, modes: document.modes });
+      if (onDocument) documentQueue.push(document);
+      return;
+    }
+    if (parentKey === 'retiredPaths') {
+      if (retiredPaths.length >= MANAGED_RELEASE_LIMITS.retiredPathCount) throw new Error('Managed retired path count exceeds limit');
+      const parsed = z.string().min(1).max(MANAGED_RELEASE_LIMITS.pathBytes).safeParse(value);
+      if (!parsed.success) throw new Error(`Managed release schema is invalid: retiredPaths.${String(key)}`);
+      const retiredPath = validateManagedRetiredPath(parsed.data, 'Managed retired path');
+      if (retiredPaths.length > 0 && compareStrings(retiredPaths.at(-1)!, retiredPath) > 0) {
+        throw new Error('Managed retired paths must be deterministically sorted');
+      }
+      if (retiredPaths.at(-1) === retiredPath) throw new Error('Managed release contains duplicate retired paths');
+      retiredPaths.push(retiredPath);
+      return;
+    }
+    if (parentKey === 'managedExtensions') {
+      if (managedExtensions.length >= MANAGED_RELEASE_LIMITS.extensionCount) throw new Error('Managed extension count exceeds limit');
+      const parsed = ExtensionSchema.safeParse(value);
+      if (!parsed.success) throw new Error(`Managed release schema is invalid: managedExtensions.${String(key)}.${parsed.error.issues[0]?.path.join('.') || 'record'}`);
+      managedExtensions.push(parsed.data);
+      return;
+    }
+    if (stack.length !== 1 || typeof key !== 'string') return;
+    if (key === 'seedAbi') {
+      const parsed = ManagedReleaseSchema.shape.seedAbi.safeParse(value);
+      if (!parsed.success) throw new Error('Managed release schema is invalid: seedAbi');
+      seedAbi = parsed.data;
+    } else if (key === 'sequence') {
+      const parsed = ManagedReleaseSchema.shape.sequence.safeParse(value);
+      if (!parsed.success) throw new Error('Managed release schema is invalid: sequence');
+      sequence = parsed.data;
+    } else if (key === 'source') {
+      const parsed = ManagedReleaseSchema.shape.source.safeParse(value);
+      if (!parsed.success) throw new Error(`Managed release schema is invalid: source.${parsed.error.issues[0]?.path.join('.') || 'record'}`);
+      source = parsed.data;
+    } else if (key === 'runtimeDependencyHash') {
+      const parsed = ManagedReleaseSchema.shape.runtimeDependencyHash.safeParse(value);
+      if (!parsed.success) throw new Error('Managed release schema is invalid: runtimeDependencyHash');
+      runtimeDependencyHash = parsed.data;
+    }
+  };
+
+  const waitForDocumentSlot = async (): Promise<void> => {
+    if (documentFailure !== undefined) throw documentFailure;
+    if (inFlightDocuments.size < RELEASE_STREAM_WRITE_CONCURRENCY) return;
+    await Promise.race(inFlightDocuments);
+    if (documentFailure !== undefined) throw documentFailure;
+  };
+  const scheduleDocument = (document: ManagedReleaseDocument): void => {
+    if (!onDocument) return;
+    let task: Promise<void>;
+    task = onDocument(document)
+      .catch((error) => {
+        if (documentFailure === undefined) documentFailure = error;
+      })
+      .finally(() => inFlightDocuments.delete(task));
+    inFlightDocuments.add(task);
+  };
+  const flushDocuments = async (): Promise<void> => {
+    if (!onDocument) return;
+    while (documentQueue.length > 0) {
+      await waitForDocumentSlot();
+      scheduleDocument(documentQueue.shift()!);
+    }
+  };
+  const settleDocuments = async (): Promise<void> => {
+    await Promise.all(inFlightDocuments);
+    if (documentFailure !== undefined) throw documentFailure;
+  };
+
+  const reader = decompressed.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      expandedBytes += value.byteLength;
+      if (expandedBytes > MANAGED_RELEASE_LIMITS.expandedBytes) {
+        await reader.cancel();
+        throw new Error(`Managed release exceeds ${MANAGED_RELEASE_LIMITS.expandedBytes} bytes`);
+      }
+      for (let offset = 0; offset < value.byteLength; offset += RELEASE_STREAM_INPUT_SLICE_BYTES) {
+        tokenizer.write(value.subarray(offset, Math.min(value.byteLength, offset + RELEASE_STREAM_INPUT_SLICE_BYTES)));
+        await flushDocuments();
+      }
+    }
+    if (!tokenizer.isEnded) tokenizer.end();
+    await flushDocuments();
+    await settleDocuments();
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    await Promise.all(inFlightDocuments);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (rootKeys.size !== RELEASE_ROOT_TOKEN_TYPES.size) throw new Error('Managed release schema is invalid: missing root field');
+  if (seedAbi === undefined || sequence === undefined || !source || !runtimeDependencyHash) {
+    throw new Error('Managed release schema is invalid: incomplete release metadata');
+  }
+  for (const retiredPath of retiredPaths) {
+    if (livePaths.has(retiredPath)) throw new Error(`Managed path is both live and retired: ${retiredPath}`);
+  }
+  assertManagedExtensions(managedExtensions);
+  return { seedAbi, sequence, source, runtimeDependencyHash, documents, retiredPaths, managedExtensions };
 }
 
-export async function verifyManagedRelease(input: {
+export async function streamManagedReleaseDocuments(
+  compressed: Uint8Array,
+  onDocument: (document: ManagedReleaseDocument) => Promise<void>,
+): Promise<ManagedReleaseIndex> {
+  return parseManagedReleaseStream(compressed, onDocument);
+}
+
+export async function verifyManagedReleaseStream(input: {
   compressed: Uint8Array;
   signature: Uint8Array;
   publicKeyHex: string;
   expectedRepositoryId: number;
   minimumSequence: number;
   expectedRuntimeHash: string;
-}): Promise<{ release: ManagedRelease; digest: string }> {
+}): Promise<VerifiedManagedReleaseStream> {
   if (input.compressed.byteLength > MANAGED_RELEASE_LIMITS.compressedBytes) {
     throw new Error(`Compressed managed release exceeds ${MANAGED_RELEASE_LIMITS.compressedBytes} bytes`);
   }
@@ -334,14 +519,19 @@ export async function verifyManagedRelease(input: {
     false,
     ['verify'],
   );
-  const signatureValid = await crypto.subtle.verify('Ed25519', publicKey, input.signature, input.compressed);
-  if (!signatureValid) throw new Error('Managed release signature is invalid');
-
-  const release = await parseManagedRelease(input.compressed);
-  if (release.source.repositoryId !== input.expectedRepositoryId) throw new Error('Managed release repository identity does not match');
+  if (!await crypto.subtle.verify('Ed25519', publicKey, input.signature, input.compressed)) {
+    throw new Error('Managed release signature is invalid');
+  }
+  const release = await parseManagedReleaseStream(input.compressed);
+  if (release.source.repositoryId !== input.expectedRepositoryId) throw new Error('Managed release repository identity does not match configuration');
   if (release.sequence < input.minimumSequence) throw new Error('Managed release sequence is older than active state');
-  if (release.runtimeDependencyHash !== input.expectedRuntimeHash) throw new Error('Managed release runtime dependency hash does not match');
-  return { release, digest: await sha256Hex(input.compressed) };
+  if (release.runtimeDependencyHash !== input.expectedRuntimeHash) throw new Error('Managed release requires a different runtime dependency set');
+  return { compressed: input.compressed, release, digest: await sha256Hex(input.compressed) };
+}
+
+export async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  const output = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  return readBoundedStream(output, MANAGED_RELEASE_LIMITS.compressedBytes, 'Compressed managed release');
 }
 
 export async function downloadManagedAsset(input: {
@@ -581,7 +771,7 @@ export async function resolveManagedEnvironmentRelease(input: {
     if (`sha256:${bundleDigest}` !== assets.bundle.digest) throw new Error('Managed release bundle immutable asset digest does not match');
     if (`sha256:${signatureDigest}` !== assets.signature.digest) throw new Error('Managed release signature immutable asset digest does not match');
 
-    const verified = await verifyManagedRelease({
+    const verified = await verifyManagedReleaseStream({
       compressed,
       signature,
       publicKeyHex: input.publicKeyHex,
@@ -752,9 +942,10 @@ export async function configureManagedEnvironment(input: {
 
   const fetcher = input.fetcher ?? fetch;
   const repositoryId = await resolveRepositoryId(repository, token, fetcher);
-  const [publicKeyFingerprint, configFingerprint, cacheBucketName] = await Promise.all([
+  const [publicKeyFingerprint, configFingerprint, sequenceFingerprint, cacheBucketName] = await Promise.all([
     getManagedEnvironmentKeyFingerprint(publicKeyHex),
     getManagedEnvironmentConfigFingerprint(repositoryId, publicKeyHex),
+    getManagedEnvironmentSequenceFingerprint(repositoryId),
     getManagedReleaseCacheBucketName(input.accountId, input.workerName),
   ]);
   const bucket = await createBucketIfNotExists(input.accountId, input.env.CLOUDFLARE_API_TOKEN, cacheBucketName);
@@ -765,6 +956,13 @@ export async function configureManagedEnvironment(input: {
     endpoint: input.endpoint,
     bucketName: cacheBucketName,
     configFingerprint,
+    fetcher,
+  });
+  const sequenceCache = createR2ManagedReleaseCache({
+    env: input.r2Credentials,
+    endpoint: input.endpoint,
+    bucketName: cacheBucketName,
+    configFingerprint: sequenceFingerprint,
     fetcher,
   });
   const priorCache = existing
@@ -845,20 +1043,37 @@ export async function configureManagedEnvironment(input: {
   };
 
   if (!sameNamespace) {
-    // A replacement trust boundary is isolated in its fingerprinted namespace,
-    // so activation cannot alter the selected prior configuration. Select it last,
-    // and remove any candidate credential if that final selection fails.
+    // A replacement trust boundary is isolated in its fingerprinted namespace.
+    // The repository-stable pointer serializes competing key/repository selections.
+    // KV has no compare-and-swap, so capture the immediately preceding selection,
+    // commit tentatively, then reread the pointer and repair only our own stale write.
+    const active = await activatePrepared();
+    const sequenceWinner = await activateCachedManagedRelease(sequenceCache, active);
+    if (sequenceWinner.digest !== active.digest) {
+      throw new Error('Managed coding environment newer release won the concurrent selection');
+    }
+    const selectedCandidateRaw = JSON.stringify(candidate);
+    const commitPriorConfigRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+    const commitPriorPatRaw = await input.env.KV.get(patKey);
+    const restoreTentativeSelection = async (): Promise<void> => {
+      if (commitPriorPatRaw === null) await input.env.KV.delete(patKey);
+      else await input.env.KV.put(patKey, commitPriorPatRaw);
+      const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+      if (selectedRaw !== selectedCandidateRaw) return;
+      if (commitPriorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+      else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, commitPriorConfigRaw);
+    };
     try {
-      const active = await activatePrepared();
       await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
-      await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(candidate));
+      await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, selectedCandidateRaw);
+      const settledWinner = await sequenceCache.readActive();
+      if (!settledWinner || settledWinner.pointer.digest !== active.digest) {
+        throw new Error('Managed coding environment newer release won the concurrent selection');
+      }
       return { enabled: true, active };
     } catch (error) {
       try {
-        if (priorPatRaw === null) await input.env.KV.delete(patKey);
-        else await input.env.KV.put(patKey, priorPatRaw);
-        if (priorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
-        else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, priorConfigRaw);
+        await restoreTentativeSelection();
       } catch {
         throw new Error('Managed coding environment reconfiguration failed and prior KV state could not be restored');
       }

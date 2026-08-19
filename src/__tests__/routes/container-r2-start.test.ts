@@ -25,7 +25,7 @@ const testState = vi.hoisted(() => ({
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
-  activeManagedRelease: null as null | { digest: string; release: { sequence: number } },
+  activeManagedRelease: null as null | { digest: string; pointer: { sequence: number } },
   managedReleaseError: null as Error | null,
 }));
 
@@ -61,7 +61,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
 vi.mock('../../lib/managed-release-active', () => ({
-  getActiveVerifiedManagedRelease: vi.fn(async () => {
+  getActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
     return testState.activeManagedRelease;
   }),
@@ -173,7 +173,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
 
     it('returns a typed 409 before user-bucket or container work when the active release is not applied', async () => {
-      testState.activeManagedRelease = { digest: 'd'.repeat(64), release: { sequence: 4 } };
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       const fetch = createApp();
 
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });

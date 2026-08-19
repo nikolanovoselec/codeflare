@@ -1,5 +1,9 @@
 import type { Env, SessionMode } from '../types';
-import type { ManagedRelease } from './remote-curation';
+import {
+  streamManagedReleaseDocuments,
+  type ManagedReleaseDocument,
+  type ManagedReleaseIndex,
+} from './remote-curation';
 import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
 import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
@@ -75,7 +79,7 @@ type SeedDocsResult = {
   skipped: string[];
 };
 
-const R2_SEED_CONCURRENCY = 16;
+const R2_SEED_CONCURRENCY = 6;
 
 async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -163,6 +167,53 @@ async function seedDocuments(
   }
 
   return { written, skipped };
+}
+
+async function seedManagedDocuments(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  mode: SessionMode,
+  selection: ManagedReleaseSelection,
+  options: { overwrite: boolean; r2SseDisabled?: boolean },
+): Promise<SeedDocsResult> {
+  const eligibleKeys = selection.release.documents
+    .filter((document) => document.modes.includes(mode))
+    .map((document) => document.key);
+  const eligible = new Set(eligibleKeys);
+  const written = new Set<string>();
+  const skipped = new Set<string>();
+  const sseHeaders = getSseHeaders(env, options.r2SseDisabled);
+  const client = createR2Client(env);
+
+  await streamManagedReleaseDocuments(selection.compressed, async (document: ManagedReleaseDocument) => {
+    if (!eligible.has(document.key) || !document.modes.includes(mode)) return;
+    const url = getR2Url(endpoint, bucketName, document.key);
+    if (!options.overwrite) {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.ok) {
+        skipped.add(document.key);
+        return;
+      }
+      if (head.status !== 404) throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
+    }
+    const response = await client.fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': document.contentType,
+        ...markerHeaders(selection.digest),
+        ...sseHeaders,
+      },
+      body: document.content,
+    });
+    if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
+    written.add(document.key);
+  });
+
+  return {
+    written: eligibleKeys.filter((key) => written.has(key)),
+    skipped: eligibleKeys.filter((key) => skipped.has(key)),
+  };
 }
 
 export async function seedGettingStartedDocs(
@@ -534,23 +585,20 @@ export async function deleteNonModeConfigs(
  */
 export interface ManagedReleaseSelection {
   digest: string;
-  release: ManagedRelease;
+  compressed: Uint8Array;
+  release: ManagedReleaseIndex;
 }
 
 export interface PriorManagedReleaseSelection extends ManagedReleaseSelection {
   mode: SessionMode;
 }
 
-function getManagedDocumentsForMode(release: ManagedRelease, mode: SessionMode): SeedDocument[] {
-  const documents = release.documents
+function getManagedDocumentKeysForMode(release: ManagedReleaseIndex, mode: SessionMode): string[] {
+  const keys = release.documents
     .filter((document) => document.modes.includes(mode))
-    .map(({ key, contentType, content, modes }) => ({ key, contentType, content, modes }));
-  const keys = new Set<string>();
-  for (const document of documents) {
-    if (keys.has(document.key)) throw new Error(`Duplicate managed key "${document.key}" in mode "${mode}"`);
-    keys.add(document.key);
-  }
-  return documents;
+    .map((document) => document.key);
+  if (new Set(keys).size !== keys.length) throw new Error(`Duplicate managed key in mode "${mode}"`);
+  return keys;
 }
 
 function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocument {
@@ -575,11 +623,11 @@ async function deletePriorManagedConfigs(
   r2SseDisabled?: boolean,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const priorKeys = new Set([
-    ...getManagedDocumentsForMode(prior.release, prior.mode).map((document) => document.key),
+    ...getManagedDocumentKeysForMode(prior.release, prior.mode),
     '.codeflare/managed-extensions.json',
   ]);
   const currentKeys = new Set(current
-    ? [...getManagedDocumentsForMode(current.release, mode).map((document) => document.key), '.codeflare/managed-extensions.json']
+    ? [...getManagedDocumentKeysForMode(current.release, mode), '.codeflare/managed-extensions.json']
     : []);
   const candidates = [...priorKeys].filter((key) => !currentKeys.has(key));
   const client = createR2Client(env);
@@ -612,7 +660,7 @@ async function deleteRetiredManagedConfigs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  release: ManagedRelease,
+  release: ManagedReleaseIndex,
   r2SseDisabled?: boolean,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const client = createR2Client(env);
@@ -659,14 +707,26 @@ export async function reconcileAgentConfigs(
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
-  const docs = managedRelease
-    ? [...getManagedDocumentsForMode(managedRelease.release, mode), managedExtensionsDocument(managedRelease)]
-    : getConfigsForMode(mode, contextModeEnabled);
-  const seedResult = await seedDocuments(env, bucketName, endpoint, docs, {
-    overwrite: options.overwrite,
-    r2SseDisabled: options.r2SseDisabled,
-    ...(managedRelease ? { marker: managedRelease.digest } : {}),
-  });
+  const seedResult = managedRelease
+    ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
+        overwrite: options.overwrite,
+        r2SseDisabled: options.r2SseDisabled,
+      })
+    : await seedDocuments(env, bucketName, endpoint, getConfigsForMode(mode, contextModeEnabled), {
+        overwrite: options.overwrite,
+        r2SseDisabled: options.r2SseDisabled,
+      });
+  if (managedRelease) {
+    const extensionResult = await seedDocuments(
+      env,
+      bucketName,
+      endpoint,
+      [managedExtensionsDocument(managedRelease)],
+      { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled, marker: managedRelease.digest },
+    );
+    seedResult.written.push(...extensionResult.written);
+    seedResult.skipped.push(...extensionResult.skipped);
+  }
 
   let deleted: string[] = [];
   let warnings: string[] = [];
@@ -675,8 +735,7 @@ export async function reconcileAgentConfigs(
     if (managedRelease === undefined || managedRelease === null) {
       const protectedKeys = managedRelease === null && options.priorManagedRelease
         ? new Set([
-            ...getManagedDocumentsForMode(options.priorManagedRelease.release, options.priorManagedRelease.mode)
-              .map((document) => document.key),
+            ...getManagedDocumentKeysForMode(options.priorManagedRelease.release, options.priorManagedRelease.mode),
             '.codeflare/managed-extensions.json',
           ])
         : new Set<string>();
