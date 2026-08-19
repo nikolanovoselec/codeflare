@@ -494,6 +494,44 @@ test('REQ-IDE-042 AC7: removed company extensions are uninstalled before persona
   ]);
 });
 
+test('REQ-IDE-042 AC7: failed company removal blocks personal restoration until retry succeeds', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath } = fixture();
+  const company = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [company]);
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({ [company.id]: { version: '0.2.0' } }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
+  vi.stubGlobal('fetch', async () => new Response(Buffer.from('verified company extension'), {
+    status: 200,
+    headers: { 'content-length': String(company.size) },
+  }));
+  await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  writeManagedExtensions(managedExtensionsPath, []);
+  host.commands = [];
+  host.execute = async (command) => {
+    if (command === 'workbench.extensions.uninstallExtension') throw new Error('uninstall failed');
+  };
+
+  const failed = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  await restoreExtensionManifest({ extensionsDir, manifestPath }, new Set(failed.managedIds));
+
+  assert.deepEqual(failed, { failures: [company.id], managedIds: [company.id] });
+  assert.deepEqual(host.commands.map(({ command }) => command), ['workbench.extensions.uninstallExtension']);
+
+  host.commands = [];
+  host.execute = async () => undefined;
+  const retried = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+  await restoreExtensionManifest({ extensionsDir, manifestPath }, new Set(retried.managedIds));
+
+  assert.deepEqual(retried, { failures: [], managedIds: [] });
+  assert.deepEqual(host.commands.map(({ command, arguments: args }) => [command, args[0]]), [
+    ['workbench.extensions.uninstallExtension', company.id],
+    ['workbench.extensions.installExtension', `${company.id}@0.2.0`],
+  ]);
+});
+
 test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
   const company = managedExtension();

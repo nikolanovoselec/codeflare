@@ -43,7 +43,7 @@ export interface SessionListMetadata {
 /** Build compressed list metadata from a Session object. */
 export function buildSessionMetadata(session: Session): SessionListMetadata {
   const meta: SessionListMetadata = {
-    s: session.status === 'running' ? 'r' : session.status === 'initializing' ? 'i' : 's',
+    s: session.status === 'running' ? 'r' : 's',
     la: session.lastActiveAt,
     sa: session.lastStartedAt,
   };

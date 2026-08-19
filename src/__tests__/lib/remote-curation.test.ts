@@ -158,6 +158,18 @@ describe('managed coding-environment release verification', () => {
     const forbiddenRetirement = await signedFixture(release({ retiredPaths: ['.claude/plugins/context-mode/hooks.json'] }));
     await expect(verifyManagedRelease({ ...forbiddenRetirement, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/context-mode/i);
 
+    const duplicateDocument = release().documents[0];
+    const duplicateOwnership = await signedFixture(release({ documents: [duplicateDocument, duplicateDocument] }));
+    await expect(verifyManagedRelease({ ...duplicateOwnership, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/duplicate/i);
+
+    const invalidExtensionRelease = release();
+    invalidExtensionRelease.managedExtensions[0] = {
+      ...invalidExtensionRelease.managedExtensions[0],
+      id: 'different.extension',
+    };
+    const invalidExtension = await signedFixture(invalidExtensionRelease);
+    await expect(verifyManagedRelease({ ...invalidExtension, expectedRepositoryId: 123456, minimumSequence: 6, expectedRuntimeHash: 'c'.repeat(64) })).rejects.toThrow(/identity|publisher|name|id/i);
+
     const invalidVersionRelease = release();
     invalidVersionRelease.managedExtensions[0] = {
       ...invalidVersionRelease.managedExtensions[0],

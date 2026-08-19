@@ -677,15 +677,16 @@ export async function reconcileCompanyExtensions(
       failedRemovals.push(id);
     }
   }
+  const protectedIds = [...new Set([...managedIds, ...failedRemovals])].sort();
   try {
-    await preserveCompanyMarker(options.extensionsDir, [...managedIds, ...failedRemovals]);
+    await preserveCompanyMarker(options.extensionsDir, protectedIds);
   } catch {
     try {
       await vscode.window.showWarningMessage('Company Browser IDE extensions could not be reconciled.');
     } catch {
       // Reconciliation remains isolated from notification delivery.
     }
-    return { failures: [...new Set([...failures, ...managedIds])].sort(), managedIds };
+    return { failures: [...new Set([...failures, ...managedIds])].sort(), managedIds: protectedIds };
   }
   // Registry identity cannot prove the installed bytes match the signed company
   // digest. Reinstall every active company requirement from its exact verified
@@ -739,7 +740,7 @@ export async function reconcileCompanyExtensions(
       // Reconciliation remains isolated from notification delivery.
     }
   }
-  return { failures, managedIds };
+  return { failures, managedIds: protectedIds };
 }
 
 function structuredNotFound(error: unknown): boolean {

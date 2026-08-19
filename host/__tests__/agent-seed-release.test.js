@@ -164,7 +164,7 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     }
   });
 
-  it('rejects invalid modes, duplicate path-mode pairs, and live paths listed as retired', async () => {
+  it('REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
@@ -187,6 +187,14 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
         retiredKeys: ['.claude/a'],
       }))),
       /both live and retired/i,
+    );
+  });
+
+  it('REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity', async () => {
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    await assert.rejects(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({ runtimeHash: '' }))),
+      /runtime/i,
     );
   });
 });

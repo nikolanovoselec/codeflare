@@ -424,10 +424,13 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-022 AC1+AC2: an initializing session also defers reconciliation', async () => {
+    it('REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), release: { sequence: 4 } };
-      const initializing = makeSession('aabbccdd11223344', 'initializing');
-      mockKV._set('session:test-bucket:aabbccdd11223344', initializing, buildSessionMetadata(initializing));
+      const session = makeSession('aabbccdd11223344', 'stopped');
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, {
+        ...buildSessionMetadata(session),
+        s: 'i',
+      });
 
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
