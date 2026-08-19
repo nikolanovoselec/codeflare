@@ -156,7 +156,7 @@ describe('managed release user-bucket reconciliation', () => {
     ]);
   });
 
-  it('REQ-STOR-024 AC4: bounds R2 concurrency for a maximum-size managed document set', async () => {
+  it('REQ-STOR-024 AC3: bounds R2 concurrency for a maximum-size managed document set', async () => {
     let inFlight = 0;
     let peak = 0;
     fetchR2.mockImplementation(async () => {

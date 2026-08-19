@@ -125,7 +125,7 @@ describe('managed coding-environment release verification', () => {
     expect(streamed).toEqual(documents.map((document) => ({ ...document, modes: [...document.modes] })));
   });
 
-  it('REQ-AGENT-151 AC4: applies backpressure after six pending document callbacks', async () => {
+  it('REQ-AGENT-151 AC4+AC5: caps pending callbacks and resumes after one settles', async () => {
     const documentCount = 20;
     const fixture = await signedFixture(release({
       documents: Array.from({ length: documentCount }, (_, index) => ({
@@ -135,10 +135,12 @@ describe('managed coding-environment release verification', () => {
         modes: ['advanced'],
       })),
     }));
-    let releaseCallbacks: (() => void) | undefined;
-    const callbacksReleased = new Promise<void>((resolve) => { releaseCallbacks = resolve; });
+    const pendingCallbacks: Array<() => void> = [];
+    let holdCallbacks = true;
     let reachedConcurrencyLimit: (() => void) | undefined;
     const concurrencyLimitReached = new Promise<void>((resolve) => { reachedConcurrencyLimit = resolve; });
+    let releaseSeventhCallback: (() => void) | undefined;
+    const seventhCallbackStarted = new Promise<void>((resolve) => { releaseSeventhCallback = resolve; });
     let started = 0;
     let active = 0;
     let peak = 0;
@@ -148,7 +150,10 @@ describe('managed coding-environment release verification', () => {
       active += 1;
       peak = Math.max(peak, active);
       if (started === 6) reachedConcurrencyLimit?.();
-      await callbacksReleased;
+      if (started === 7) releaseSeventhCallback?.();
+      if (holdCallbacks) {
+        await new Promise<void>((resolve) => pendingCallbacks.push(resolve));
+      }
       active -= 1;
     });
 
@@ -157,7 +162,13 @@ describe('managed coding-environment release verification', () => {
     expect(started).toBe(6);
     expect(peak).toBe(6);
 
-    releaseCallbacks?.();
+    pendingCallbacks.shift()?.();
+    await seventhCallbackStarted;
+    expect(started).toBe(7);
+    expect(peak).toBe(6);
+
+    holdCallbacks = false;
+    pendingCallbacks.splice(0).forEach((releaseCallback) => releaseCallback());
     await streaming;
     expect(started).toBe(documentCount);
     expect(active).toBe(0);
@@ -638,6 +649,17 @@ describe('managed release resolver', () => {
         compilerCommit: 'b'.repeat(40),
       },
     }), rotationTwelveKeyPair);
+    const rotationTwentyKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    const rotationTwentyFixture = await signedFixture(release({
+      sequence: 20,
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      source: {
+        repositoryId: 654321,
+        commitSha: '0'.repeat(40),
+        releaseTag: 'release-20-exhaustion',
+        compilerCommit: 'b'.repeat(40),
+      },
+    }), rotationTwentyKeyPair);
     const replacementPublicKey = replacementFixture.publicKeyHex;
     const releases = {
       first: {
@@ -710,15 +732,24 @@ describe('managed release resolver', () => {
         bundleDigest: await sha256(rotationTwelveFixture.compressed),
         signatureDigest: await sha256(rotationTwelveFixture.signature),
       },
+      rotationTwenty: {
+        id: 87,
+        tag: 'release-20-exhaustion',
+        fixture: rotationTwentyFixture,
+        bundleDigest: await sha256(rotationTwentyFixture.compressed),
+        signatureDigest: await sha256(rotationTwentyFixture.signature),
+      },
     };
     const concurrentReleases = new Map([
       ['github_pat_ten', releases.rotationTen],
       ['github_pat_eight', releases.rotationEight],
       ['github_pat_twelve', releases.rotationTwelve],
+      ['github_pat_twenty', releases.rotationTwenty],
     ]);
     const rotationTenConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationTenFixture.publicKeyHex);
     const rotationEightConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationEightFixture.publicKeyHex);
     const rotationTwelveConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationTwelveFixture.publicKeyHex);
+    const rotationTwentyConfigFingerprint = await getManagedEnvironmentConfigFingerprint(654321, rotationTwentyFixture.publicKeyHex);
     let releaseConcurrentLatest: (() => void) | undefined;
     const concurrentLatest = new Promise<void>((resolve) => { releaseConcurrentLatest = resolve; });
     let concurrentLatestCount = 0;
@@ -734,6 +765,10 @@ describe('managed release resolver', () => {
     let selected = releases.first;
     const immutable = true;
     const r2 = new Map<string, { bytes: Uint8Array; etag: string }>();
+    const coordinatorSelections = new Map<string, NonNullable<ActiveManagedRelease['selection']>>();
+    let repositorySequencePointerKey: string | undefined;
+    let forceRepairExhaustion = false;
+    let repairChurnReads = 0;
     let etagCounter = 0;
     const githubRequests: Request[] = [];
     const fetcher = vi.fn(async (request: Request) => {
@@ -775,6 +810,22 @@ describe('managed release resolver', () => {
         const key = url.pathname;
         if (request.method === 'GET') {
           const object = r2.get(key);
+          if (object && forceRepairExhaustion && key === repositorySequencePointerKey) {
+            const pointer = JSON.parse(new TextDecoder().decode(object.bytes)) as ActiveManagedRelease;
+            const selectionFingerprint = repairChurnReads % 2 === 0
+              ? rotationTenConfigFingerprint
+              : rotationTwelveConfigFingerprint;
+            repairChurnReads += 1;
+            const churned: ActiveManagedRelease = {
+              ...pointer,
+              sequence: pointer.sequence + 1,
+              selection: coordinatorSelections.get(selectionFingerprint)!,
+            };
+            const bytes = new TextEncoder().encode(JSON.stringify(churned));
+            const etag = `"r2-${++etagCounter}"`;
+            r2.set(key, { bytes, etag });
+            return new Response(bytes, { status: 200, headers: { etag } });
+          }
           return object
             ? new Response(object.bytes, { status: 200, headers: { etag: object.etag } })
             : new Response('', { status: 404 });
@@ -789,9 +840,15 @@ describe('managed release resolver', () => {
           if (key.endsWith('/active.json')
             && !key.includes(`/configs/${rotationTenConfigFingerprint}/`)
             && !key.includes(`/configs/${rotationEightConfigFingerprint}/`)
-            && !key.includes(`/configs/${rotationTwelveConfigFingerprint}/`)) {
+            && !key.includes(`/configs/${rotationTwelveConfigFingerprint}/`)
+            && !key.includes(`/configs/${rotationTwentyConfigFingerprint}/`)) {
             try {
-              if (JSON.parse(new TextDecoder().decode(bytes)).sequence === 8) {
+              repositorySequencePointerKey = key;
+              const pointer = JSON.parse(new TextDecoder().decode(bytes)) as ActiveManagedRelease;
+              if (pointer.selection) {
+                coordinatorSelections.set(pointer.selection.configFingerprint, pointer.selection);
+              }
+              if (pointer.sequence === 8) {
                 captureEightConfigSnapshot = true;
               }
             } catch {
@@ -1043,6 +1100,31 @@ describe('managed release resolver', () => {
     expect(kv._store.get(getManagedEnvironmentPatKey(rotationTenConfigFingerprint))).toMatch(/^v1:/);
     expect(kv._store.get(getManagedEnvironmentPatKey(rotationEightConfigFingerprint))).toBeUndefined();
     expect(kv._store.get(getManagedEnvironmentPatKey(rotationTwelveConfigFingerprint))).toMatch(/^v1:/);
+
+    const originalExhaustionPut = kv.put.getMockImplementation()!;
+    kv.put.mockImplementation(async (key, value, options) => {
+      await originalExhaustionPut(key, value, options);
+      if (key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG
+        && JSON.parse(value).configFingerprint === rotationTwentyConfigFingerprint) {
+        forceRepairExhaustion = true;
+      }
+    });
+    await expect(configureManagedEnvironment({
+      ...base,
+      request: {
+        enabled: true,
+        repository: 'other/curation',
+        personalAccessToken: 'github_pat_twenty',
+        publicKey: rotationTwentyFixture.publicKeyHex,
+      },
+    })).rejects.toThrow(/selection repair did not converge/i);
+    forceRepairExhaustion = false;
+    kv.put.mockImplementation(originalExhaustionPut);
+
+    expect(repairChurnReads).toBe(9);
+    const exhaustedConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string };
+    expect(exhaustedConfig.configFingerprint).toBe(rotationTenConfigFingerprint);
+    expect(kv._store.get(getManagedEnvironmentPatKey(rotationTwentyConfigFingerprint))).toBeUndefined();
 
     const cacheObjectCount = r2.size;
     const retainedPat = kv._store.get(patKey);

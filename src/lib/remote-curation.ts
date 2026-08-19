@@ -1074,6 +1074,7 @@ export async function configureManagedEnvironment(input: {
         : commitPriorConfigRaw;
 
       let expectedRaw: string | null = selectedCandidateRaw;
+      let lastConfirmedRaw: string | null | undefined;
       for (let attempt = 0; attempt < MAX_SELECTION_REPAIR_ATTEMPTS; attempt += 1) {
         const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
         if (selectedRaw !== expectedRaw) return;
@@ -1084,8 +1085,14 @@ export async function configureManagedEnvironment(input: {
         else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, replacementRaw);
 
         const confirmed = await sequenceCache.readActive();
-        if (authoritativeRaw(confirmed?.pointer) === replacementRaw) return;
+        lastConfirmedRaw = authoritativeRaw(confirmed?.pointer);
+        if (lastConfirmedRaw === replacementRaw) return;
         expectedRaw = replacementRaw;
+      }
+      const selectedRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+      if (selectedRaw === expectedRaw && lastConfirmedRaw !== undefined) {
+        if (lastConfirmedRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
+        else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, lastConfirmedRaw);
       }
       throw new Error('Managed coding environment selection repair did not converge');
     };

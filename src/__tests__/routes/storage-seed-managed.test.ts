@@ -124,7 +124,7 @@ describe('managed storage reconcile', () => {
     expect(serializedWrites).not.toContain(credential);
   });
 
-  it('REQ-STOR-024 AC1+AC5: successful managed reconcile loads cached content and stamps applied state last', async () => {
+  it('REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced', workspaceSyncEnabled: true });
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
@@ -146,7 +146,7 @@ describe('managed storage reconcile', () => {
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
   });
 
-  it('REQ-STOR-024 AC5: does not stamp applied state when context-mode reconciliation fails', async () => {
+  it('REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails', async () => {
     reseedContext.mockRejectedValueOnce(new Error('context failed'));
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });

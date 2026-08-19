@@ -4023,9 +4023,13 @@ None.
 1. Validation returns a bounded release index without document content. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
 2. Validation aborts release expansion beyond the shared byte limit. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC2: aborts gzip expansion at the shared expanded-byte limit) -->
 3. Successful validation streams byte-identical document payloads. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents) -->
-4. Streaming admits at most six pending document callbacks and resumes as callbacks settle. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC4: applies backpressure after six pending document callbacks) -->
+4. Streaming admits at most six pending document callbacks. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC4+AC5: caps pending callbacks and resumes after one settles) -->
+5. Streaming admits the next document after one pending callback settles. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-151 AC4+AC5: caps pending callbacks and resumes after one settles) -->
 
-**Constraints:** Validation completes before user-bucket mutation begins. The parser never constructs a complete document-body array.
+**Constraints:**
+
+- Validation completes before user-bucket mutation begins.
+- The parser never constructs a complete document-body array.
 
 **Priority:** P1
 
