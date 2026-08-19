@@ -57,7 +57,7 @@ async function terminal(response: Response): Promise<Record<string, unknown>> {
   return lines.find((line) => line.done === true) ?? {};
 }
 
-describe('REQ-SETUP-013 managed coding environment Setup boundary', () => {
+describe('REQ-SETUP-013 managed environment Setup boundary', () => {
   let kv: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

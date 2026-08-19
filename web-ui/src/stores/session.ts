@@ -466,7 +466,7 @@ function startSession(id: string): Promise<void> {
         );
         updateSessionStatus(id, 'error');
         setState('error', error);
-        if (/managed coding environment update is pending/i.test(error)) {
+        if (/managed environment update is pending/i.test(error)) {
           void refreshSessionStatuses(true);
         }
         reject(new Error(error));

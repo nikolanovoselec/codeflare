@@ -135,8 +135,8 @@ export class ManagedEnvironmentUpdatePendingError extends AppError {
     super(
       'MANAGED_ENVIRONMENT_UPDATE_PENDING',
       409,
-      'Managed coding environment update is pending',
-      'Your managed coding environment must finish updating before another session can start.',
+      'Managed environment update is pending',
+      'Your managed environment must finish updating before another session can start.',
     );
   }
 }

@@ -228,7 +228,7 @@ export const SetupPrefillResponseSchema = z.object({
   // the non-secret client id. Surfaced in any mode (the Setup wizard is admin-gated).
   cloudflareOauthClientId: z.string().default(''),
   cloudflareOauthClientSecretSet: z.boolean().default(false),
-  // Deployment-level managed coding environment. The PAT itself is write-only;
+  // Deployment-level managed environment. The PAT itself is write-only;
   // prefill carries only the masked configured flag and bounded release status.
   managedEnvironment: z.object({
     enabled: z.boolean(),

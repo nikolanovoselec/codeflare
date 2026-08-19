@@ -372,9 +372,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
-### REQ-SETUP-013: Managed coding-environment configuration
+### REQ-SETUP-013: Managed environment configuration
 
-**Intent:** An administrator can configure one verified managed coding environment for every deployment mode without disturbing user data.
+**Intent:** An administrator can configure one verified managed environment for every deployment mode without disturbing user data.
 
 **Applies To:** Admin
 
@@ -391,7 +391,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 - Setup cannot infer offboarding from omitted users.
 - Production signing keys remain outside Codeflare.
-- The user-facing label is “Managed coding environment.”
+- The user-facing label is “Managed Environment.”
 
 **Priority:** P1
 

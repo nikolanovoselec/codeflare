@@ -95,9 +95,9 @@ Configured tier modes, paid `subscribedMode`, stored next-session preference, do
 
 ## Offboarding Handoff
 
-**Requirement:** [REQ-SETUP-013 AC6](../../sdd/spec/setup.md#req-setup-013-managed-coding-environment-configuration)
+**Requirement:** [REQ-SETUP-013 AC6](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration)
 
-Managed coding-environment Setup is deployment configuration, not an entitlement source. Enabling, replacing, disabling, or omitting its fields does not infer offboarding or invoke the user-cleanup path. Destructive offboarding requires the explicit authoritative workflow tracked separately in issue #905. <!-- @impl: src/routes/setup/index.ts::default -->
+Managed environment Setup is deployment configuration, not an entitlement source. Enabling, replacing, disabling, or omitting its fields does not infer offboarding or invoke the user-cleanup path. Destructive offboarding requires the explicit authoritative workflow tracked separately in issue #905. <!-- @impl: src/routes/setup/index.ts::default -->
 
 Provisioning owns orchestration; specialist owners perform each operation:
 

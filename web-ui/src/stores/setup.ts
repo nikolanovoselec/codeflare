@@ -209,7 +209,7 @@ function setGithubOauthClientSecret(v: string): void { setState('githubOauthClie
 function setCloudflareOauthClientId(v: string): void { setState('cloudflareOauthClientId', v); }
 function setCloudflareOauthClientSecret(v: string): void { setState('cloudflareOauthClientSecret', v); }
 
-// ─── Managed coding environment (all deployment modes) ──────────────────────
+// ─── Managed environment (all deployment modes) ──────────────────────
 function setManagedEnvironmentEnabled(v: boolean): void {
   setState({ managedEnvironmentEnabled: v, managedEnvironmentTouched: true });
 }

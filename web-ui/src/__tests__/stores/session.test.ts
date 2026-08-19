@@ -885,7 +885,7 @@ describe('Session Store', () => {
 
       const starting = sessionStore.startSession('session-1');
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
-      rejectStart?.('Container start failed: Managed coding environment update is pending');
+      rejectStart?.('Container start failed: Managed environment update is pending');
       await rejected;
       await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
     });

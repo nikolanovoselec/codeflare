@@ -580,7 +580,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-020: Managed coding-environment reconciliation
+### REQ-STOR-020: Managed environment reconciliation
 
 **Intent:** Verified managed releases and concurrent trust selections advance monotonically in the deployment cache.
 
@@ -679,7 +679,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-coding-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated resolver and session-status tests
 

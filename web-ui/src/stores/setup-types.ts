@@ -94,7 +94,7 @@ export interface SetupState {
   cloudflareOauthClientId: string;
   cloudflareOauthClientSecret: string;
   cloudflareOauthClientSecretSet: boolean;
-  // Deployment-level managed coding environment (all modes). Secrets are write-only:
+  // Deployment-level managed environment (all modes). Secrets are write-only:
   // the PAT field holds only a freshly typed replacement and is blank after prefill.
   managedEnvironmentEnabled: boolean;
   managedEnvironmentConfigured: boolean;

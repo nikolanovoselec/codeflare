@@ -79,7 +79,7 @@ export async function getActiveManagedRelease(
 ): Promise<{ digest: string; pointer: ActiveManagedRelease } | null> {
   const resolved = await resolveManagedEnvironment({ env, requireFresh: false });
   if (!resolved.config || !resolved.config.enabled) return null;
-  if (!resolved.active) throw new Error('Managed coding environment is enabled without a verified active release');
+  if (!resolved.active) throw new Error('Managed environment is enabled without a verified active release');
   return { digest: resolved.active.digest, pointer: resolved.active };
 }
 
@@ -87,7 +87,7 @@ export async function getActiveManagedRelease(
 export async function getActiveVerifiedManagedRelease(env: Env): Promise<ActiveVerifiedManagedRelease | null> {
   const context = await resolveCacheContext(env);
   if (!context || !context.config.enabled) return null;
-  if (!context.active) throw new Error('Managed coding environment is enabled without a verified active release');
+  if (!context.active) throw new Error('Managed environment is enabled without a verified active release');
   const release = await readReleaseByDigest(
     env,
     context.endpoint,

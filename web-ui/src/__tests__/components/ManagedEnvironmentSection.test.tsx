@@ -4,7 +4,7 @@ import ManagedEnvironmentSection from '../../components/setup/ManagedEnvironment
 
 afterEach(cleanup);
 
-describe('Managed coding environment Setup section', () => {
+describe('Managed environment Setup section', () => {
   it('routes repository, PAT, and public-key replacements without exposing saved values', async () => {
     const onEnabledChange = vi.fn();
     const onRepositoryChange = vi.fn();

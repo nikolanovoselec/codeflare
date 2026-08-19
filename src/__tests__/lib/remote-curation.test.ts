@@ -77,7 +77,7 @@ async function signedFixture(value = release(), suppliedKeyPair?: CryptoKeyPair)
 
 // REQ-AGENT-150 and REQ-SETUP-013: the Worker is the trust boundary. These
 // tests assert activation inputs, not validation copy or implementation text.
-describe('managed coding-environment release verification', () => {
+describe('managed environment release verification', () => {
   it('REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract', async () => {
     const fixture = await signedFixture();
 

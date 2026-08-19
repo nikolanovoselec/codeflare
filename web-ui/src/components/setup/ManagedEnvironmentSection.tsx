@@ -30,12 +30,12 @@ interface ManagedEnvironmentSectionProps {
 const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (props) => (
   <div data-testid="managed-environment-section">
     <SetupSection
-      title="Managed coding environment"
+      title="Managed Environment"
       description="Verify and apply signed company agent configuration releases from one private GitHub repository."
     >
       <div class="setup-field">
         <Checkbox
-          label="Enable managed coding environment"
+          label="Enable Managed Environment"
           checked={props.enabled}
           onChange={props.onEnabledChange}
         />

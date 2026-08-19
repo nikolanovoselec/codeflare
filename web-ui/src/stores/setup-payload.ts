@@ -22,7 +22,7 @@ export function buildConfigurePayload(state: SetupState): Record<string, unknown
     githubOauthClientSecret: state.githubOauthClientSecret,
     cloudflareOauthClientId: state.cloudflareOauthClientId,
     cloudflareOauthClientSecret: state.cloudflareOauthClientSecret,
-    // Deployment-level managed coding environment uses the same request shape in
+    // Deployment-level managed environment uses the same request shape in
     // every mode. Once loaded or touched, disabled is explicit; an unavailable
     // best-effort prefill is omitted so it cannot accidentally disable curation.
     ...((state.managedEnvironmentConfigured || state.managedEnvironmentTouched) ? {

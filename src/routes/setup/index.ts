@@ -109,12 +109,12 @@ const ConfigureBodySchema = z.object({
       enabled: z.literal(true),
       repository: z.string().max(256).refine(
         (value) => value.trim() === '' || /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(value.trim()),
-        'Managed coding environment repository must use owner/name format',
+        'Managed environment repository must use owner/name format',
       ),
       personalAccessToken: z.string().max(2_048),
       publicKey: z.string().refine(
         (value) => value.trim() === '' || /^[0-9a-f]{64}$/.test(value.trim()),
-        'Managed coding environment public key must be 64 lowercase hex characters',
+        'Managed environment public key must be 64 lowercase hex characters',
       ),
     }).strict(),
   ]).optional(),

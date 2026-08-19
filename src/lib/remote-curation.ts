@@ -846,7 +846,7 @@ export async function resolveManagedEnvironmentRelease(input: {
 function normalizeRepository(value: string): string {
   const repository = value.trim();
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(repository)) {
-    throw new ValidationError('Managed coding environment repository must use owner/name format');
+    throw new ValidationError('Managed environment repository must use owner/name format');
   }
   return repository;
 }
@@ -878,7 +878,7 @@ async function loadManagedEnvironmentConfig(
     if (value === null) return undefined;
     const parsed = ManagedEnvironmentConfigSchema.safeParse(value);
     if (parsed.success) return parsed.data;
-    if (failClosed) throw new Error('Managed coding environment configuration is invalid');
+    if (failClosed) throw new Error('Managed environment configuration is invalid');
     return undefined;
   } catch (error) {
     if (failClosed) throw error;
@@ -894,15 +894,15 @@ async function readEncryptedManagedPat(
   const key = getManagedEnvironmentPatKey(configFingerprint);
   const stored = await kv.get(key, 'text');
   if (!stored) return undefined;
-  if (!stored.startsWith('v1:')) throw new Error('Managed coding environment PAT is not encrypted');
+  if (!stored.startsWith('v1:')) throw new Error('Managed environment PAT is not encrypted');
   let value: unknown;
   try {
     value = JSON.parse(await decryptFromKV(stored.slice(3), cryptoKey, key));
   } catch {
-    throw new Error('Managed coding environment PAT cannot be decrypted');
+    throw new Error('Managed environment PAT cannot be decrypted');
   }
   const parsed = z.object({ token: z.string().min(1).max(2_048) }).strict().safeParse(value);
-  if (!parsed.success) throw new Error('Managed coding environment PAT payload is invalid');
+  if (!parsed.success) throw new Error('Managed environment PAT payload is invalid');
   return parsed.data.token;
 }
 
@@ -934,15 +934,15 @@ export async function configureManagedEnvironment(input: {
     ? normalizeRepository(input.request.repository)
     : existing?.repository;
   const publicKeyHex = input.request.publicKey?.trim() || existing?.publicKeyHex;
-  if (!repository) throw new ValidationError('Managed coding environment repository is required when enabled');
-  if (!publicKeyHex) throw new ValidationError('Managed coding environment Ed25519 public key is required when enabled');
+  if (!repository) throw new ValidationError('Managed environment repository is required when enabled');
+  if (!publicKeyHex) throw new ValidationError('Managed environment Ed25519 public key is required when enabled');
   bytesFromHex(publicKeyHex, 32, 'Ed25519 public key');
 
   const existingPat = existing
     ? await readEncryptedManagedPat(input.env.KV, existing.configFingerprint, cryptoKey)
     : undefined;
   const token = input.request.personalAccessToken?.trim() || existingPat;
-  if (!token) throw new ValidationError('Managed coding environment repository PAT is required when enabled');
+  if (!token) throw new ValidationError('Managed environment repository PAT is required when enabled');
 
   const fetcher = input.fetcher ?? fetch;
   const repositoryId = await resolveRepositoryId(repository, token, fetcher);
@@ -982,7 +982,7 @@ export async function configureManagedEnvironment(input: {
     : undefined;
   const priorActiveState = priorCache ? await priorCache.readActive() : undefined;
   if (priorCache && !priorActiveState) {
-    throw new Error('Managed coding environment prior active release is unavailable');
+    throw new Error('Managed environment prior active release is unavailable');
   }
   const priorActive = priorActiveState?.pointer;
   const stateKey = getManagedEnvironmentStateKey(configFingerprint);
@@ -1001,7 +1001,7 @@ export async function configureManagedEnvironment(input: {
     deferActivation: true,
   });
   const prepared = resolved.deferred?.pointer ?? resolved.active;
-  if (!prepared) throw new Error('Managed coding environment has no verified active release');
+  if (!prepared) throw new Error('Managed environment has no verified active release');
   if (priorActive && prepared.sequence < priorActive.sequence) {
     throw new Error('Managed release sequence is older than active state');
   }
@@ -1057,7 +1057,7 @@ export async function configureManagedEnvironment(input: {
       selection: { ...candidate, enabled: true },
     });
     if (sequenceWinner.selection?.configFingerprint !== candidate.configFingerprint) {
-      throw new Error('Managed coding environment newer release won the concurrent selection');
+      throw new Error('Managed environment newer release won the concurrent selection');
     }
     const selectedCandidateRaw = JSON.stringify(candidate);
     const commitPriorConfigRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
@@ -1094,7 +1094,7 @@ export async function configureManagedEnvironment(input: {
         if (lastConfirmedRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
         else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, lastConfirmedRaw);
       }
-      throw new Error('Managed coding environment selection repair did not converge');
+      throw new Error('Managed environment selection repair did not converge');
     };
     try {
       await encryptAndStore(input.env.KV, patKey, { token }, cryptoKey);
@@ -1102,7 +1102,7 @@ export async function configureManagedEnvironment(input: {
       const settledWinner = await sequenceCache.readActive();
       if (!settledWinner
         || settledWinner.pointer.selection?.configFingerprint !== candidate.configFingerprint) {
-        throw new Error('Managed coding environment newer release won the concurrent selection');
+        throw new Error('Managed environment newer release won the concurrent selection');
       }
       return { enabled: true, active };
     } catch (error) {
@@ -1112,7 +1112,7 @@ export async function configureManagedEnvironment(input: {
         if (restoreError instanceof Error && restoreError.message.includes('selection repair did not converge')) {
           throw restoreError;
         }
-        throw new Error('Managed coding environment reconfiguration failed and prior KV state could not be restored');
+        throw new Error('Managed environment reconfiguration failed and prior KV state could not be restored');
       }
       throw error;
     }
@@ -1139,7 +1139,7 @@ export async function configureManagedEnvironment(input: {
       if (priorConfigRaw === null) await input.env.KV.delete(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
       else await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, priorConfigRaw);
     } catch {
-      throw new Error('Managed coding environment reconfiguration failed and prior KV state could not be restored');
+      throw new Error('Managed environment reconfiguration failed and prior KV state could not be restored');
     }
     throw error;
   }
@@ -1170,11 +1170,11 @@ export async function resolveManagedEnvironment(input: {
   let storedPat = '';
   try {
     const cryptoKey = await getOrImportKey(input.env);
-    if (!cryptoKey) throw new Error('Managed coding environment encryption key is unavailable');
+    if (!cryptoKey) throw new Error('Managed environment encryption key is unavailable');
     storedPat = await readEncryptedManagedPat(input.env.KV, config.configFingerprint, cryptoKey) ?? '';
-    if (!storedPat) throw new Error('Managed coding environment repository PAT is unavailable');
+    if (!storedPat) throw new Error('Managed environment repository PAT is unavailable');
     const endpoint = await input.env.KV.get(SETUP_KEYS.R2_ENDPOINT);
-    if (!endpoint) throw new Error('Managed coding environment R2 endpoint is unavailable');
+    if (!endpoint) throw new Error('Managed environment R2 endpoint is unavailable');
     const cache = createR2ManagedReleaseCache({
       env: input.env,
       endpoint,

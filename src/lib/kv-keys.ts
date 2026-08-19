@@ -352,7 +352,7 @@ export const SETUP_KEYS = {
   // deploy flow (it uses BROWSER_RENDER_TOKEN), so these are never set there.
   CLOUDFLARE_OAUTH_CLIENT_ID: 'setup:cloudflare_oauth_client_id',
   CLOUDFLARE_OAUTH_CLIENT_SECRET: 'setup:cloudflare_oauth_client_secret',
-  // Deployment-level managed coding environment. The public trust selection is
+  // Deployment-level managed environment. The public trust selection is
   // committed last; PAT and freshness records are configuration-fingerprint scoped
   // so a failed repository/key replacement cannot overwrite the selected config.
   MANAGED_ENVIRONMENT_CONFIG: 'setup:managed_environment_config',
