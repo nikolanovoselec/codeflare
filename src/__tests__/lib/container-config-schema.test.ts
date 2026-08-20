@@ -85,25 +85,34 @@ describe('CF-046: SetBucketNameBodySchema', () => {
   });
 
   describe('REQ-IDE-042: managed release identity transport', () => {
-    it('accepts active curation only with its exact applied release digest', () => {
+    it('accepts active curation only with its exact release and synthesized-manifest digests', () => {
       const result = SetBucketNameBodySchema.safeParse({
         ...validBucketNameBody(),
         remoteCurationActive: true,
         remoteCurationReleaseDigest: 'd'.repeat(64),
+        remoteCurationManifestDigest: 'e'.repeat(64),
       });
       expect(result.success).toBe(true);
     });
 
-    it('rejects active curation without a digest and inactive curation with one', () => {
+    it('rejects active curation without either digest and inactive curation with either digest', () => {
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+        remoteCurationManifestDigest: null,
+      }).success).toBe(false);
       expect(SetBucketNameBodySchema.safeParse({
         ...validBucketNameBody(),
         remoteCurationActive: true,
         remoteCurationReleaseDigest: null,
+        remoteCurationManifestDigest: 'e'.repeat(64),
       }).success).toBe(false);
       expect(SetBucketNameBodySchema.safeParse({
         ...validBucketNameBody(),
         remoteCurationActive: false,
         remoteCurationReleaseDigest: 'd'.repeat(64),
+        remoteCurationManifestDigest: 'e'.repeat(64),
       }).success).toBe(false);
     });
   });

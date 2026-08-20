@@ -143,7 +143,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     it('retains a previously applied verified release during a transient cache outage', async () => {
       testState.managedReleaseError = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp();
 
@@ -156,13 +156,14 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(await setBucketRequest?.clone().json()).toEqual(expect.objectContaining({
         remoteCurationActive: true,
         remoteCurationReleaseDigest: 'd'.repeat(64),
+        remoteCurationManifestDigest: 'e'.repeat(64),
       }));
     });
 
     it('blocks an old applied mode during a cache outage when Enterprise resolves advanced mode', async () => {
       testState.managedReleaseError = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp({ ENTERPRISE_MODE: 'active' });
 
@@ -180,7 +181,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp({ SAAS_MODE: 'active' }, {
         email: 'test@example.com',

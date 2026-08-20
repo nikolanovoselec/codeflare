@@ -145,7 +145,12 @@ describe('managed storage reconcile', () => {
     }));
     expect(reseedContext).toHaveBeenCalled();
     const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
-    expect(applied.managedEnvironmentApplied).toMatchObject({ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' });
+    expect(applied.managedEnvironmentApplied).toMatchObject({
+      digest: 'd'.repeat(64),
+      managedExtensionsDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      sequence: 9,
+      mode: 'advanced',
+    });
     expect(Date.parse(applied.managedEnvironmentApplied.appliedAt)).not.toBeNaN();
     const finalPut = kv.put.mock.calls.at(-1)!;
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
