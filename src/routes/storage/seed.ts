@@ -10,7 +10,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../../lib/kv-keys';
-import { resolveSessionMode } from '../../lib/session-mode';
+import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 import { getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../../lib/managed-release-active';
@@ -78,7 +78,8 @@ app.post('/agent-configs', async (c) => {
   const bucketName = c.get('bucketName');
   const preferencesKey = getPreferencesKey(bucketName);
   const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
-  const mode = resolveSessionMode(preferences ?? null, c.env);
+  const user = c.get('user');
+  const mode = await resolveEffectiveSessionMode(preferences ?? null, user, c.env);
 
   try {
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
@@ -118,7 +119,6 @@ app.post('/agent-configs', async (c) => {
 
     // REQ-ENTERPRISE-020: reconcile in the bucket's current regime (see getting-started above).
     const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
-    const user = c.get('user');
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
     const managedOptions = activeManagedRelease

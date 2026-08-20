@@ -319,8 +319,8 @@ Content-Type: application/json
   "customDomain":   "claude.example.com",
   "allowedUsers":   ["alice@example.com", "bob@example.com"],
   "adminUsers":     ["alice@example.com"],
-  "allowedOrigins": [".example.com"],         // optional
-  "managedEnvironment": {                      // optional in every deployment mode
+  "allowedOrigins": [".example.com"],
+  "managedEnvironment": {
     "enabled": true,
     "repository": "owner/private-curation",
     "personalAccessToken": "github_pat_...",

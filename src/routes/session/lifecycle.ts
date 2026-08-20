@@ -21,7 +21,7 @@ import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 import { getActiveManagedRelease } from '../../lib/managed-release-active';
-import { resolveSessionMode } from '../../lib/session-mode';
+import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 
 /**
@@ -181,7 +181,7 @@ app.get('/batch-status', async (c) => {
   let managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | undefined;
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
-    const mode = resolveSessionMode(prefs ?? null, c.env);
+    const mode = await resolveEffectiveSessionMode(prefs ?? null, user, c.env);
     try {
       const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;

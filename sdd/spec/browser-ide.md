@@ -1342,11 +1342,11 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Every Browser IDE inventory sets the Linux integrated-terminal default profile to `Bash`. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
-2. The `Bash` profile launches `/bin/bash` as a login shell with `MANUAL_TAB=1`, so the existing shell initialization bypasses tab-1 agent autostart. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
-3. A separate `Session Agent` profile launches the same login shell without `MANUAL_TAB`, preserving the existing tab-1 agent command as an explicit choice. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+2. Opening the `Bash` profile starts a login shell without automatically starting the configured agent. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+3. Opening the separate `Session Agent` profile starts a login shell and retains configured-agent autostart. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
 4. Both terminal settings are managed for Pi, Claude, and unsupported IDE inventories so restored user settings cannot silently retain the former default. <!-- @impl: openvscode/claude/managed-settings.mjs::MANAGED_OPENVSCODE_SETTING_KEYS --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
 
-**Constraints:** The terminal profiles reuse the existing login-shell and `MANUAL_TAB` contract; they do not add another launcher, shell script, or agent process.
+**Constraints:** The terminal profiles reuse existing shell initialization; they do not add another launcher, shell script, or agent process.
 
 **Priority:** P1
 
