@@ -2876,6 +2876,43 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 
+  it('REQ-AGENT-074/REQ-AGENT-141: same-cycle visible-plan recovery acknowledges completed review on the first settlement', async () => {
+    const fixture = makeReviewFixture();
+    const initialHarness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-visible-complete', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-visible-complete', 'bash'),
+    );
+    await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-visible-complete'));
+    appendSession(fixture.sessionFile,
+      assistantTool('code-visible-complete', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-visible-complete', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-visible-complete', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      ...ciLaunch('ci-visible-complete', fixture),
+      notification('code-visible-complete'),
+      notification('spec-visible-complete'),
+      notification('doc-visible-complete'),
+      triageMessage(),
+    );
+
+    const recoveredHarness = await registerFixture(fixture);
+    await recoveredHarness.emit('session_start', { reason: 'resume' });
+    await recoveredHarness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(recoveredHarness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-fix-follow-up',
+        details: {
+          head: fixture.head,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          boundaryToolUseId: 'push-visible-complete',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-110/REQ-AGENT-141: startup and resume recover one evaluated plan whose queued follow-up was lost', async () => {
     for (const reason of ['startup', 'resume'] as const) {
       const fixture = makeReviewFixture();

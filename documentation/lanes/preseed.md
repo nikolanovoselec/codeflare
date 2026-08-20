@@ -633,7 +633,7 @@ the idempotent fallback, and only that separate turn applies accepted findings. 
 terminal evidence may acknowledge its reviewed head after reload or newer unpublished work
 only while that head remains authoritative. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-If the live result handler never evaluated a persisted successful boundary, the first settled pass after reload emits its missing initial plan once; a live-evaluated ineligible boundary remains inert. Already-launched unfinished or replaced work is requested again only by a later supported boundary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+If the live result handler never evaluated a persisted successful boundary, the first settled pass after reload emits its missing initial plan once only when that boundary remains the initiating cycle. A newer raw boundary is evaluated independently and cannot inherit the older cycle's launch authorization; a live-evaluated ineligible boundary remains inert. Already-launched unfinished or replaced work is requested again only by a later supported boundary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 This implements
 [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),

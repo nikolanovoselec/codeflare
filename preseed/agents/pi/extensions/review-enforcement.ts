@@ -1284,6 +1284,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
           resumedWithoutBoundary = false;
           if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
           if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
+          if (launch && !launch.queuedPlan
+            && await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps)) {
+            pendingGoalPauseHead = undefined;
+            return;
+          }
           if (launch) return;
         }
       }
