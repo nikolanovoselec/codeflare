@@ -134,7 +134,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deletes).toEqual([`${endpoint}/bucket/.claude/obsolete.md`]);
   });
 
-  it('REQ-STOR-024 AC5: cacheless application cleans only current-release paths outside the effective mode', async () => {
+  it('REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode', async () => {
     const priorDigest = '1'.repeat(64);
     const advancedOnlyKey = '.claude/skills/advanced/SKILL.md';
     const userOwnedKey = '.claude/skills/personal/SKILL.md';
@@ -150,8 +150,8 @@ describe('managed release user-bucket reconciliation', () => {
       overwrite: true,
       cleanup: true,
       managedRelease: await selection('2'.repeat(64), release(2, [
-        document('.claude/skills/current/SKILL.md'),
         document(advancedOnlyKey, ['advanced']),
+        document('.claude/skills/current/SKILL.md'),
         document(userOwnedKey, ['advanced']),
       ])),
       priorManagedDigest: priorDigest,

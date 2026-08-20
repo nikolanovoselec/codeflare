@@ -266,7 +266,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied.digest).toBe('d'.repeat(64));
   });
 
-  it('REQ-STOR-022 AC7 + REQ-STOR-024 AC6: cacheless disable fails closed with applied state intact', async () => {
+  it('REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact', async () => {
     state.active = null;
     state.cached = null;
     const kv = createMockKV();
