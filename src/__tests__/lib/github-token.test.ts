@@ -364,6 +364,19 @@ describe('disconnectGithub', () => {
     expect(await mockKV.get(KEY)).toBeNull();
   });
 
+  it('REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys', async () => {
+    mockKV._set(KEY, {
+      githubToken: 'gho_x',
+      githubTokenSource: 'oauth',
+      githubLogin: 'octo',
+      cloudflareApiToken: 'cf_token',
+    } satisfies DeployKeys);
+
+    await disconnectGithub(env(), BUCKET);
+
+    expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'cf_token' });
+  });
+
   it('fails open and clears an OAuth token when provider configuration is unavailable', async () => {
     mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'oauth' } satisfies DeployKeys);
 

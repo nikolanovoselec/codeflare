@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import {
@@ -30,14 +31,24 @@ function fixture() {
   return { root, extensionsDir, manifest };
 }
 
-function capture(extensionsDir, manifest) {
+function capture(extensionsDir, manifest, expectedManagedManifestDigest) {
+  const managedPath = join(manifest, '..', 'managed-extensions.json');
+  const managedManifestDigest = expectedManagedManifestDigest ?? (existsSync(managedPath)
+    ? createHash('sha256').update(readFileSync(managedPath)).digest('hex')
+    : undefined);
   execFileSync('python3', [
     SCRIPT,
     'capture',
     '--extensions-dir', extensionsDir,
     '--manifest', manifest,
     '--policy', POLICY,
-  ], { env: { ...process.env, REMOTE_CURATION_RELEASE_DIGEST: 'a'.repeat(64) } });
+  ], {
+    env: {
+      ...process.env,
+      REMOTE_CURATION_RELEASE_DIGEST: 'a'.repeat(64),
+      ...(managedManifestDigest && { REMOTE_CURATION_MANIFEST_DIGEST: managedManifestDigest }),
+    },
+  });
 }
 
 function manifest(extensionEntries = {}, settings = {}) {
@@ -207,6 +218,24 @@ test('REQ-IDE-042 AC5: generation-reap capture preserves prior intent but never 
   assert.deepEqual(captured.extensions, {
     [companyId]: { version: '0.2.0', targetPlatform: 'universal' },
   });
+});
+
+test('REQ-IDE-042 AC1: generation-reap capture rejects changed managed manifest bytes', () => {
+  const { extensionsDir, manifest: manifestPath } = fixture();
+  const managedPath = join(manifestPath, '..', 'managed-extensions.json');
+  const trusted = JSON.stringify(managedManifest([managedExtension('acme.company', '1.0.0')]));
+  const trustedDigest = createHash('sha256').update(trusted).digest('hex');
+  writeFileSync(managedPath, trusted);
+  const personal = JSON.stringify(manifest({ 'publisher.personal': { version: '1.0.0' } }));
+  writeFileSync(manifestPath, personal);
+  writeFileSync(join(extensionsDir, 'extensions.json'), JSON.stringify([
+    registryEntry('publisher.personal', '2.0.0'),
+  ]));
+  writeFileSync(managedPath, JSON.stringify(managedManifest([managedExtension('acme.substituted', '1.0.0')])));
+
+  capture(extensionsDir, manifestPath, trustedDigest);
+
+  assert.equal(readFileSync(manifestPath, 'utf8'), personal);
 });
 
 test('REQ-IDE-038 AC1: an absent manifest awaits security acknowledgement', () => {

@@ -19,7 +19,10 @@ vi.mock('../../middleware/auth', () => ({
 const { mockReconcileAgentConfigs } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
 }));
-vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
+vi.mock('../../lib/r2-seed', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+  return { ...actual, reconcileAgentConfigs: mockReconcileAgentConfigs };
+});
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
 
 // REQ-AGENT-012: Fast CLI Start (Configurable)
@@ -594,7 +597,7 @@ describe('Preferences Routes', () => {
     it('REQ-STOR-022: a running session still blocks a sessionMode change once a managed release is applied', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'default',
-        managedEnvironmentApplied: { digest: 'a'.repeat(64), sequence: 1, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 1, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
       });
       mockKV._set('session:codeflare-test-user:abc', { status: 'running' }, { s: 'r' });
       const app = createTestApp();
@@ -611,7 +614,7 @@ describe('Preferences Routes', () => {
     it('REQ-STOR-024: a failed managed reconciliation is reported instead of returning success', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'default',
-        managedEnvironmentApplied: { digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'b'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
       });
       const app = createTestApp();
 
@@ -626,7 +629,7 @@ describe('Preferences Routes', () => {
       // The pre-request document is restored, so a retry re-enters reconciliation instead
       // of short-circuiting on its own half-applied mode.
       expect(stored.sessionMode).toBe('default');
-      expect(stored.managedEnvironmentApplied).toEqual({ digest: 'b'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' });
+      expect(stored.managedEnvironmentApplied).toEqual({ digest: 'b'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 2, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' });
     });
   });
 });

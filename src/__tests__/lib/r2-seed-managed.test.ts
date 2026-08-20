@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import {
@@ -20,7 +21,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
   RETIRED_PRESEED_KEYS: [],
 }));
 
-import { reconcileAgentConfigs } from '../../lib/r2-seed';
+import { managedExtensionsDocumentDigest, reconcileAgentConfigs } from '../../lib/r2-seed';
 
 const document = (key: string, modes: Array<'default' | 'advanced'> = ['default']) => ({
   key,
@@ -133,6 +134,36 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deletes).toEqual([`${endpoint}/bucket/.claude/obsolete.md`]);
   });
 
+  it('REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode', async () => {
+    const priorDigest = '1'.repeat(64);
+    const advancedOnlyKey = '.claude/skills/advanced/SKILL.md';
+    const userOwnedKey = '.claude/skills/personal/SKILL.md';
+    fetchR2.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith(`/${advancedOnlyKey}`) ? priorDigest : 'user-owned';
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection('2'.repeat(64), release(2, [
+        document(advancedOnlyKey, ['advanced']),
+        document('.claude/skills/current/SKILL.md'),
+        document(userOwnedKey, ['advanced']),
+      ])),
+      priorManagedDigest: priorDigest,
+    });
+
+    expect(result.deleted).toEqual([advancedOnlyKey]);
+    expect(fetchR2.mock.calls.some(([url]) => String(url).includes('list-type=2'))).toBe(false);
+    expect(fetchR2.mock.calls.filter(([, init]) => init?.method === 'DELETE').map(([url]) => url)).toEqual([
+      `${endpoint}/bucket/${advancedOnlyKey}`,
+    ]);
+  });
+
   it('REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths', async () => {
     const current = release(2, [document('.claude/current.md')]);
     current.retiredPaths = ['.pi/agent/extensions/legacy-owned.ts', '.pi/agent/extensions/user-owned.ts'];
@@ -188,20 +219,41 @@ describe('managed release user-bucket reconciliation', () => {
       extensionPack: [], extensionDependencies: [], size: 1234, sha256: 'e'.repeat(64),
       downloadUrl: 'https://open-vsx.org/api/company/markdown/1.2.3/file/company.markdown.vsix',
     };
+    const managedRelease = await selection(
+      'f'.repeat(64),
+      release(3, [document('.pi/agent/skills/company/SKILL.md', ['advanced'])], [extension]),
+    );
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'advanced', {
       overwrite: true,
       cleanup: true,
-      managedRelease: await selection(
-        'f'.repeat(64),
-        release(3, [document('.pi/agent/skills/company/SKILL.md', ['advanced'])], [extension]),
-      ),
+      managedRelease,
     });
 
     const writes = fetchR2.mock.calls.filter(([, init]) => init?.method === 'PUT');
     expect(writes.map(([url]) => url)).not.toEqual(expect.arrayContaining([expect.stringContaining('Vault/'), expect.stringContaining('/sessions/') ]));
     const manifest = writes.find(([url]) => String(url).endsWith('/.codeflare/managed-extensions.json'));
     expect(manifest).toBeDefined();
-    expect(JSON.parse(manifest![1].body)).toEqual(expect.objectContaining({ extensions: [extension] }));
-    expect(manifest![1].body).not.toContain('PK');
+    const manifestBody = manifest![1].body as string;
+    expect(JSON.parse(manifestBody)).toEqual(expect.objectContaining({ extensions: [extension] }));
+    expect(manifestBody).not.toContain('PK');
+  });
+
+  it('REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes', async () => {
+    const managedRelease = await selection('f'.repeat(64), release(3, []));
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease,
+    });
+
+    const manifest = fetchR2.mock.calls.find(([url, init]) => (
+      init?.method === 'PUT' && String(url).endsWith('/.codeflare/managed-extensions.json')
+    ));
+    expect(manifest).toBeDefined();
+    const manifestBody = manifest![1].body as string;
+    expect(JSON.parse(manifestBody).extensions).toEqual([]);
+    expect(await managedExtensionsDocumentDigest(managedRelease)).toBe(
+      createHash('sha256').update(manifestBody).digest('hex'),
+    );
   });
 });

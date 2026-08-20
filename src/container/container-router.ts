@@ -61,6 +61,7 @@ interface SetBucketNameBody {
   r2SseDisabled?: boolean;
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
+  remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
   // REQ-MEM-001 AC4: user's IANA timezone forwarded by the Worker from
   // preferences.userTimezone. applyBucketName persists it and buildEnvVars
@@ -159,7 +160,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -172,7 +173,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
-        encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, sessionMode, userTimezone,
+        encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, userTimezone,
       });
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -272,6 +273,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       r2SseDisabled,
       remoteCurationActive,
       remoteCurationReleaseDigest,
+      remoteCurationManifestDigest,
       sessionMode,
       userTimezone,
       // REQ-GITHUB-004: one-shot clone directive. Only on the first (create→start)

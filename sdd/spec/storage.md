@@ -127,7 +127,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A one-way sync from R2 to local runs as the first initialization step after the in-container terminal server is ready to accept connections, blocking further startup until it completes. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual -->
 2. The initial sync completes or times out within a bounded duration so the session is never blocked indefinitely on a slow R2 fetch. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual: Start a session against a deliberately stalled R2 endpoint and confirm startup leaves the blocking sync phase within its configured bound. -->
-3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md). <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md). <!-- @impl: entrypoint.sh::run_managed_curation_startup --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (preserves restored managed content while remote curation is active) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (executes the reachable baked restore, relay, cleanup, and baseline in order when curation is disabled) --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. A bisync baseline is established after the post-sync file modifications complete. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings merge runs before bisync baseline) -->
 5. If the initial baseline fails because a file vanished mid-sync, the recovery path adds the vanished non-workspace file to the session recovery filter and retries, while a vanished workspace file (user code) triggers a plain retry without exclusion so user code is never dropped. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vanished-file-recovery.test.js (adds a vanished NON-workspace file to the session recovery filter and signals retry (REQ-STOR-004 AC5)) -->
 6. Known per-session ephemeral agent-state files are statically excluded from all sync operations, including Codex plugin/general caches and log databases, Copilot SQLite temporary files, and Claude workflow artifacts. The full per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)) -->
@@ -590,12 +590,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Verified assets are content-addressed in one deployment cache. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
 2. Each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
-3. Concurrent key selections for one repository serialize through a repository-stable conditional pointer. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+3. Concurrent key selections for one repository settle on one authoritative winner. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 4. A losing concurrent selection makes at most four repair attempts. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
-5. Reconfiguration fails explicitly when the authoritative pointer does not settle within the repair bound. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+5. Reconfiguration fails explicitly when selection does not settle within the repair bound. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 6. Exhausted repair preserves the last observed authoritative selection. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 
-**Constraints:** A losing selection cannot overwrite or roll back the repository pointer's winner.
+**Constraints:** A losing selection cannot overwrite or roll back the winner.
 
 **Priority:** P1
 
@@ -649,6 +649,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
+7. Disabling curation with no available prior release fails without bucket mutation or applied-state clearing. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact) -->
 
 **Constraints:** Unconfigured baked behavior remains byte-identical.
 
@@ -670,10 +671,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Initial status compares the verified active descriptor and resolved mode with applied user state. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
+1. Initial status compares the verified active descriptor and resolved mode with applied user state. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation) -->
 2. An unchanged release status check does not load payload bytes. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
 3. After the five-minute freshness window, the resolver may fetch and activate a newly discovered release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) -->
-4. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode) -->
+4. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode) -->
 
 **Constraints:** Polling does not parse or decompress a managed payload.
 
@@ -696,9 +697,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. A release mismatch with no owning session reads one verified cached gzip for reconciliation. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) -->
-2. Reconciliation writes byte-identical content selected for the resolved mode. <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
+2. Reconciliation writes byte-identical content selected for the resolved mode. <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) -->
 3. Reconciliation uses at most six concurrent R2 operations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC3: bounds R2 concurrency for a maximum-size managed document set) -->
-4. Applied identity is stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails) -->
+4. Applied release and synthesized-manifest digests are stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::managedExtensionsDocumentDigest --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes) -->
+5. Applying a current release after deployment-cache replacement does not require a historical cached bundle. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5: reconciles from current release when disposable cache history is absent) -->
+6. Cacheless application removes prior-digest paths that the current release excludes from the resolved mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode) -->
+7. Disabling curation without the prior release fails without mutation or applied-state clearing. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact) -->
 
 **Constraints:** Applied state is written last.
 
@@ -707,6 +711,55 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-151](agents.md#req-agent-151-bounded-managed-release-streaming)
 
 **Verification:** Automated streaming, reconciliation, and storage-route tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-025: Managed deployment cache migration
+
+**Intent:** Each deployment safely retires its exact opaque managed cache predecessor.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Automatic migration records the recognizable cache only after it contains a verified active release. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+2. Automatic migration never rewrites the selected repository or trust configuration. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+3. Cleanup empties and deletes only the exact authenticated legacy bucket. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @impl: src/lib/r2-admin.ts::deleteR2BucketIfExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (REQ-STOR-025 AC3: empties and deletes only an existing named bucket) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+4. Failed cleanup remains pending for a later resolver retry. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+
+**Constraints:** Cleanup never scans by prefix or deletes an unauthenticated bucket identity.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-026](#req-stor-026-managed-deployment-cache-identity), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated migration ordering, concurrency, retry, and deletion tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-026: Managed deployment cache identity
+
+**Intent:** Each deployment exposes one recognizable collision-resistant managed cache identity.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The cache bucket name includes the sanitized Worker name. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+2. The cache bucket name includes a collision-resistant account-and-Worker suffix. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+3. The cache bucket name is at most 63 characters. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+
+**Constraints:** The suffix remains stable for one account-and-Worker identity.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation)
+
+**Verification:** Automated cache identity tests
 
 **Status:** Implemented
 

@@ -1206,7 +1206,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Restored company requirements apply only when their release identity matches the Worker-applied release. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) -->
+1. Restored company requirements apply only when their release identity and exact manifest digest match Worker-applied state. <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::loadManagedExtensions --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadManagedExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1: a company manifest from another release is rejected before download) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1 + REQ-IDE-045 AC7: changed company manifest bytes are rejected with the exact remediation warning) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-042 AC1: generation-reap capture rejects changed managed manifest bytes) -->
 2. Managed settings retain personal allowance while adding company identities. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-042 AC2: company extension identities extend the personal allowance map) -->
 3. Personal exact-version restoration remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC1 + REQ-IDE-042 AC3+AC4: company reconciliation precedes personal restore and capture) -->
 4. TypeScript capture remains active after company reconciliation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent) -->
@@ -1296,6 +1296,8 @@ A full code-server browser editor for an advanced running session. The editor op
 3. Company reconciliation never falls back to a gallery identity or latest version. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-044 AC6 + REQ-IDE-045 AC3: exact dependencies install without gallery fallback) -->
 4. Company extension installation uses fixed bounded concurrency. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC4+AC5: company failures remain bounded and do not block the workbench) -->
 5. One company extension failure reports one bounded warning while the IDE and remaining installations continue. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC4+AC5: company failures remain bounded and do not block the workbench) -->
+6. An absent or unverifiable active manifest performs no company-extension mutation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC6: a missing active-release manifest preserves prior company extensions) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-045 AC6: manifest failure preserves company ownership while unrelated personal restore continues) -->
+7. Manifest verification failure shows the Settings remediation warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::reconcileCompanyExtensions --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-042 AC1 + REQ-IDE-045 AC7: changed company manifest bytes are rejected with the exact remediation warning) -->
 
 **Constraints:** Reconciliation starts only after workbench readiness.
 
@@ -1328,6 +1330,31 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
 
 **Verification:** Automated temporary-package installation tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-047: Bash-first Browser IDE terminals
+
+**Intent:** A newly opened Browser IDE terminal starts as a plain Bash shell while the session's configured agent remains available as an explicit terminal profile.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every Browser IDE inventory sets the Linux integrated-terminal default profile to `Bash`. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+2. Opening the `Bash` profile starts a login shell without automatically starting the configured agent. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+3. Opening the separate `Codeflare Session Agent` profile starts a login shell and retains configured-agent autostart. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+4. Both terminal settings are managed for Pi, Claude, and unsupported IDE inventories so restored user settings cannot silently retain the former default. <!-- @impl: openvscode/claude/managed-settings.mjs::MANAGED_OPENVSCODE_SETTING_KEYS --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable) -->
+
+**Constraints:** The terminal profiles reuse existing shell initialization; they do not add another launcher, shell script, or agent process.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-005](terminal.md#req-term-005-tab-1-auto-starts-the-configured-agent)
+
+**Verification:** Automated managed-settings contract test
 
 **Status:** Implemented
 

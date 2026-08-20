@@ -131,6 +131,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _r2SseDisabled: boolean = false;
   _remoteCurationActive: boolean = false;
   _remoteCurationReleaseDigest: string | null = null;
+  _remoteCurationManifestDigest: string | null = null;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;

@@ -17,11 +17,12 @@ import {
   getManagedEnvironmentStateKey,
   SETUP_KEYS,
 } from './kv-keys';
-import { createBucketIfNotExists } from './r2-admin';
+import { createBucketIfNotExists, deleteR2BucketIfExists } from './r2-admin';
 import {
   activateCachedManagedRelease,
   activateManagedRelease,
   createR2ManagedReleaseCache,
+  getLegacyManagedReleaseCacheBucketName,
   getManagedReleaseCacheBucketName,
   type ActiveManagedRelease,
   type ManagedReleaseCache,
@@ -138,6 +139,15 @@ const ManagedEnvironmentConfigSchema = z.object({
 }).strict();
 
 export type ManagedEnvironmentConfig = z.infer<typeof ManagedEnvironmentConfigSchema>;
+
+const ManagedCacheMigrationSchema = z.object({
+  schemaVersion: z.literal(1),
+  legacyCacheBucketName: z.string().min(1).max(63),
+  cacheBucketName: z.string().min(1).max(63),
+  cleanupPending: z.boolean(),
+}).strict();
+type ManagedCacheMigration = z.infer<typeof ManagedCacheMigrationSchema>;
+
 export type ManagedEnvironmentFreshness = 'unconfigured' | 'disabled' | 'fresh' | 'stale' | 'degraded';
 type ManagedEnvironmentPatExpiryState = 'unknown' | 'valid' | 'expiring' | 'expired';
 
@@ -906,6 +916,105 @@ async function readEncryptedManagedPat(
   return parsed.data.token;
 }
 
+async function readManagedCacheMigration(kv: KVNamespace): Promise<ManagedCacheMigration | undefined> {
+  const value = await kv.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION, 'json');
+  if (value === null) return undefined;
+  const parsed = ManagedCacheMigrationSchema.safeParse(value);
+  if (!parsed.success) throw new Error('Managed release cache migration state is invalid');
+  return parsed.data;
+}
+
+async function prepareManagedCacheMigration(input: {
+  config: ManagedEnvironmentConfig;
+  env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>;
+  accountId: string;
+  endpoint: string;
+  token: string;
+  fetcher?: typeof fetch;
+  now?: Date;
+}): Promise<{ config: ManagedEnvironmentConfig; migration?: ManagedCacheMigration }> {
+  const workerName = input.env.CLOUDFLARE_WORKER_NAME?.trim() || 'codeflare';
+  const [legacyBucketName, cacheBucketName, storedMigration] = await Promise.all([
+    getLegacyManagedReleaseCacheBucketName(input.accountId, workerName),
+    getManagedReleaseCacheBucketName(input.accountId, workerName),
+    readManagedCacheMigration(input.env.KV),
+  ]);
+  if (storedMigration && (storedMigration.legacyCacheBucketName !== legacyBucketName
+    || storedMigration.cacheBucketName !== cacheBucketName)) {
+    throw new Error('Managed release cache migration identity is invalid');
+  }
+  if (input.config.cacheBucketName === cacheBucketName) {
+    return { config: input.config, ...(storedMigration ? { migration: storedMigration } : {}) };
+  }
+  if (input.config.cacheBucketName !== legacyBucketName) return { config: input.config };
+  if (storedMigration) {
+    return { config: { ...input.config, cacheBucketName }, migration: storedMigration };
+  }
+
+  const bucket = await createBucketIfNotExists(input.accountId, input.env.CLOUDFLARE_API_TOKEN, cacheBucketName);
+  if (!bucket.success) {
+    throw new Error(`Failed to create recognizable managed release cache bucket: ${bucket.error ?? 'unknown error'}`);
+  }
+  const cache = createR2ManagedReleaseCache({
+    env: input.env,
+    endpoint: input.endpoint,
+    bucketName: cacheBucketName,
+    configFingerprint: input.config.configFingerprint,
+    fetcher: input.fetcher,
+  });
+  const resolved = await resolveManagedEnvironmentRelease({
+    kv: input.env.KV,
+    stateKey: getManagedEnvironmentStateKey(input.config.configFingerprint),
+    cache,
+    repository: input.config.repository,
+    repositoryId: input.config.repositoryId,
+    token: input.token,
+    publicKeyHex: input.config.publicKeyHex,
+    expectedRuntimeHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+    fetcher: input.fetcher,
+    now: input.now,
+    requireFresh: true,
+  });
+  if (!resolved.active) throw new Error('Recognizable managed release cache has no verified active release');
+
+  const migration: ManagedCacheMigration = {
+    schemaVersion: 1,
+    legacyCacheBucketName: legacyBucketName,
+    cacheBucketName,
+    cleanupPending: true,
+  };
+  await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION, JSON.stringify(migration));
+  return { config: { ...input.config, cacheBucketName }, migration };
+}
+
+async function cleanupLegacyManagedCache(input: {
+  config: ManagedEnvironmentConfig;
+  migration: ManagedCacheMigration;
+  env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>;
+  accountId: string;
+  endpoint: string;
+  fetcher?: typeof fetch;
+}): Promise<void> {
+  if (!input.migration.cleanupPending) return;
+  const selected = await loadManagedEnvironmentConfig(input.env.KV, true);
+  if (!selected || !selected.enabled || selected.configFingerprint !== input.config.configFingerprint) return;
+  if (selected.cacheBucketName !== input.migration.legacyCacheBucketName
+    && selected.cacheBucketName !== input.migration.cacheBucketName) return;
+
+  await deleteR2BucketIfExists({
+    accountId: input.accountId,
+    apiToken: input.env.CLOUDFLARE_API_TOKEN,
+    bucketName: input.migration.legacyCacheBucketName,
+    endpoint: input.endpoint,
+    r2Credentials: input.env,
+    fetcher: input.fetcher,
+  });
+  await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION, JSON.stringify({
+    ...input.migration,
+    cleanupPending: false,
+  }));
+}
+
 export async function configureManagedEnvironment(input: {
   env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'ENCRYPTION_KEY'>;
   accountId: string;
@@ -916,7 +1025,7 @@ export async function configureManagedEnvironment(input: {
   fetcher?: typeof fetch;
   now?: Date;
 }): Promise<{ enabled: boolean; active?: ActiveManagedRelease }> {
-  const existing = await loadManagedEnvironmentConfig(input.env.KV, input.request.enabled);
+  let existing = await loadManagedEnvironmentConfig(input.env.KV, input.request.enabled);
   if (!input.request.enabled) {
     if (existing?.enabled) {
       await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify({ ...existing, enabled: false }));
@@ -946,12 +1055,22 @@ export async function configureManagedEnvironment(input: {
 
   const fetcher = input.fetcher ?? fetch;
   const repositoryId = await resolveRepositoryId(repository, token, fetcher);
-  const [publicKeyFingerprint, configFingerprint, sequenceFingerprint, cacheBucketName] = await Promise.all([
+  const [publicKeyFingerprint, configFingerprint, sequenceFingerprint, cacheBucketName, legacyBucketName, storedMigration] = await Promise.all([
     getManagedEnvironmentKeyFingerprint(publicKeyHex),
     getManagedEnvironmentConfigFingerprint(repositoryId, publicKeyHex),
     getManagedEnvironmentSequenceFingerprint(repositoryId),
     getManagedReleaseCacheBucketName(input.accountId, input.workerName),
+    getLegacyManagedReleaseCacheBucketName(input.accountId, input.workerName),
+    readManagedCacheMigration(input.env.KV),
   ]);
+  if (storedMigration && (storedMigration.legacyCacheBucketName !== legacyBucketName
+    || storedMigration.cacheBucketName !== cacheBucketName)) {
+    throw new Error('Managed release cache migration identity is invalid');
+  }
+  const selectedLegacyBucket = existing?.cacheBucketName === legacyBucketName;
+  if (selectedLegacyBucket && storedMigration && existing) {
+    existing = { ...existing, cacheBucketName };
+  }
   const bucket = await createBucketIfNotExists(input.accountId, input.env.CLOUDFLARE_API_TOKEN, cacheBucketName);
   if (!bucket.success) throw new Error(`Failed to create managed release cache bucket: ${bucket.error ?? 'unknown error'}`);
 
@@ -971,7 +1090,7 @@ export async function configureManagedEnvironment(input: {
   });
   const priorCache = existing
     && existing.repositoryId === repositoryId
-    && existing.configFingerprint !== configFingerprint
+    && (existing.configFingerprint !== configFingerprint || existing.cacheBucketName !== cacheBucketName)
     ? createR2ManagedReleaseCache({
       env: input.r2Credentials,
       endpoint: input.endpoint,
@@ -1026,6 +1145,14 @@ export async function configureManagedEnvironment(input: {
     configFingerprint,
     cacheBucketName,
   };
+  if (selectedLegacyBucket && !storedMigration) {
+    await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION, JSON.stringify({
+      schemaVersion: 1,
+      legacyCacheBucketName: legacyBucketName,
+      cacheBucketName,
+      cleanupPending: true,
+    } satisfies ManagedCacheMigration));
+  }
   const patKey = getManagedEnvironmentPatKey(configFingerprint);
   const sameNamespace = existing?.configFingerprint === configFingerprint;
   const priorConfigRaw = await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG);
@@ -1054,7 +1181,16 @@ export async function configureManagedEnvironment(input: {
     const active = await activatePrepared();
     const sequenceWinner = await activateCachedManagedRelease(sequenceCache, {
       ...active,
-      selection: { ...candidate, enabled: true },
+      selection: {
+        schemaVersion: candidate.schemaVersion,
+        enabled: true,
+        repository: candidate.repository,
+        repositoryId: candidate.repositoryId,
+        publicKeyHex: candidate.publicKeyHex,
+        publicKeyFingerprint: candidate.publicKeyFingerprint,
+        configFingerprint: candidate.configFingerprint,
+        cacheBucketName: candidate.cacheBucketName,
+      },
     });
     if (sequenceWinner.selection?.configFingerprint !== candidate.configFingerprint) {
       throw new Error('Managed environment newer release won the concurrent selection');
@@ -1146,7 +1282,7 @@ export async function configureManagedEnvironment(input: {
 }
 
 export async function resolveManagedEnvironment(input: {
-  env: Pick<Env, 'KV' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY'>;
+  env: Pick<Env, 'KV' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME'>;
   fetcher?: typeof fetch;
   now?: Date;
   requireFresh?: boolean;
@@ -1159,7 +1295,7 @@ export async function resolveManagedEnvironment(input: {
   lastCheckedAt?: string;
   lastError?: string;
 }> {
-  const config = await loadManagedEnvironmentConfig(input.env.KV, true);
+  let config = await loadManagedEnvironmentConfig(input.env.KV, true);
   if (!config) return { configured: false, enabled: false, freshness: 'unconfigured' };
   if (!config.enabled) return { configured: true, enabled: false, config, freshness: 'disabled' };
 
@@ -1173,8 +1309,22 @@ export async function resolveManagedEnvironment(input: {
     if (!cryptoKey) throw new Error('Managed environment encryption key is unavailable');
     storedPat = await readEncryptedManagedPat(input.env.KV, config.configFingerprint, cryptoKey) ?? '';
     if (!storedPat) throw new Error('Managed environment repository PAT is unavailable');
-    const endpoint = await input.env.KV.get(SETUP_KEYS.R2_ENDPOINT);
+    const [accountId, endpoint] = await Promise.all([
+      input.env.KV.get(SETUP_KEYS.ACCOUNT_ID),
+      input.env.KV.get(SETUP_KEYS.R2_ENDPOINT),
+    ]);
+    if (!accountId) throw new Error('Managed environment R2 account ID is unavailable');
     if (!endpoint) throw new Error('Managed environment R2 endpoint is unavailable');
+    const preparedMigration = await prepareManagedCacheMigration({
+      config,
+      env: input.env,
+      accountId,
+      endpoint,
+      token: storedPat,
+      fetcher: input.fetcher,
+      now: input.now,
+    });
+    config = preparedMigration.config;
     const cache = createR2ManagedReleaseCache({
       env: input.env,
       endpoint,
@@ -1195,6 +1345,16 @@ export async function resolveManagedEnvironment(input: {
       now: input.now,
       requireFresh: input.requireFresh,
     });
+    if (resolved.active && preparedMigration.migration) {
+      await cleanupLegacyManagedCache({
+        config,
+        migration: preparedMigration.migration,
+        env: input.env,
+        accountId,
+        endpoint,
+        fetcher: input.fetcher,
+      });
+    }
     return {
       configured: true,
       enabled: true,

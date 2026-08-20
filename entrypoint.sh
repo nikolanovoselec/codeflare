@@ -2289,50 +2289,53 @@ fi
 # ============================================================================
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
-if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
-    # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
-    # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
-    # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
-    # the system bundle at handshake) trusts the intercepted connection. Without this the
-    # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
-    # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
-    if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
-        _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
-        if [ -f "$_CF_CA_SRC" ]; then
-            cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
-                && update-ca-certificates >/dev/null 2>&1 \
-                && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
-                || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
+run_initial_r2_restore() {
+    if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
+        # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
+        # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
+        # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
+        # the system bundle at handshake) trusts the intercepted connection. Without this the
+        # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
+        # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
+        if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+            _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+            if [ -f "$_CF_CA_SRC" ]; then
+                cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+                    && update-ca-certificates >/dev/null 2>&1 \
+                    && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
+                    || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
+            fi
         fi
-    fi
 
-    # REQ-STOR-017 / AD90: in Governed Mode, lay down the image-baked agent seed locally
-    # BEFORE the initial sync so --checksum can skip the unchanged seed files. Synchronous
-    # (must finish before the sync starts). No-op outside Governed Mode.
-    lay_down_agent_seed_preseed
+        # REQ-STOR-017 / AD90: in Governed Mode, lay down the image-baked agent seed locally
+        # BEFORE the initial sync so --checksum can skip the unchanged seed files. Synchronous
+        # (must finish before the sync starts). No-op outside Governed Mode.
+        lay_down_agent_seed_preseed
 
-    # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
-    update_sync_status "syncing" "null"
-    initial_sync_from_r2 &
-    SYNC_PID=$!
-    echo "[entrypoint] R2 sync started in background (PID $SYNC_PID)"
+        # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
+        update_sync_status "syncing" "null"
+        initial_sync_from_r2 &
+        SYNC_PID=$!
+        echo "[entrypoint] R2 sync started in background (PID $SYNC_PID)"
 
-    # Wait for R2 sync to complete (needed before bisync baseline)
-    # Use && / || to prevent set -e from killing the script on non-zero exit
-    wait $SYNC_PID && STEP1_RESULT=0 || STEP1_RESULT=$?
+        # Wait for R2 sync to complete (needed before bisync baseline)
+        # Use && / || to prevent set -e from killing the script on non-zero exit
+        wait $SYNC_PID && STEP1_RESULT=0 || STEP1_RESULT=$?
 
-    if [ $STEP1_RESULT -eq 0 ]; then
-        # Ensure workspace directory exists after sync
-        mkdir -p "$USER_WORKSPACE"
-        update_sync_status "success" "null"
+        if [ $STEP1_RESULT -eq 0 ]; then
+            # Ensure workspace directory exists after sync
+            mkdir -p "$USER_WORKSPACE"
+            update_sync_status "success" "null"
+        else
+            update_sync_status "failed" "$SYNC_ERROR"
+            # Continue anyway - servers should still start
+        fi
     else
-        update_sync_status "failed" "$SYNC_ERROR"
-        # Continue anyway - servers should still start
+        update_sync_status "skipped" "$SYNC_ERROR"
     fi
-else
-    update_sync_status "skipped" "$SYNC_ERROR"
-fi
+}
 
+run_post_restore_startup() {
 configure_pi_goal_defaults() {
     local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
     PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
@@ -3674,63 +3677,73 @@ fi
 
 # Configure tab auto-start
 configure_tab_autostart
+}
 
-# REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
-# bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
-# on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
-# are skipped or fail, the local managed extensions must equal the build. Placed before --resync
-# so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
-# rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
-# cold transpile, never abort PID 1 (matches the renice/ionice convention below).
-relay_managed_pi_extensions || true
+complete_managed_curation_startup() {
+    # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
+    # bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
+    # on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
+    # are skipped or fail, the local managed extensions must equal the build. Placed before --resync
+    # so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
+    # rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
+    # cold transpile, never abort PID 1 (matches the renice/ionice convention below).
+    relay_managed_pi_extensions || true
 
-# The terminal server has been polling this flag before spawning tab 1. Prune
-# restored transcripts first, then release the agent PTY as one testable step.
-release_agent_pty_after_cleanup
+    # The terminal server has been polling this flag before spawning tab 1. Prune
+    # restored transcripts first, then release the agent PTY as one testable step.
+    release_agent_pty_after_cleanup
 
-# Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
-# Runs AFTER all file modifications (.claude.json, .claude/settings.json,
-# .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
-if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
-    (
-        # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
-        # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
-        # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
-        # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
-        # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it
-        # finishes) instead of racing it. Children (rclone, daemons) inherit. Best-effort:
-        # a missing renice/ionice (or a kernel that refuses) never aborts startup.
-        renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
-        ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
-        echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
-        if establish_bisync_baseline; then
-            echo "[entrypoint] Bisync baseline established, starting daemon..."
-        else
-            echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /tmp/sync.log
-        fi
-        # ----------------------------------------------------------------------
-        # Vault skeleton + global graph seed (REQ-MEMORY-100, REQ-MEMORY-105)
-        # Runs AFTER baseline so we never overwrite R2-restored vault content
-        # with an empty skeleton on returning sessions.
-        # Idempotent: skip if vault directory already present.
-        # ----------------------------------------------------------------------
-        (init_user_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
-        # Always start daemons — even if baseline failed.
-        # Each daemon has its own retry + recovery; a dead daemon means
-        # zero sync (or zero vault ingestion) for the entire session.
-        start_sync_daemon
-        # Vault monitor, SilverBullet, and Browser IDE supervisors are
-        # advanced-mode-only (REQ-MEM-006 AC1, REQ-AGENT-005 AC2, REQ-IDE-003).
-        # The workspace sync daemon above always runs; only these are gated.
-        if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-            start_vault_monitor_daemon
-            start_silverbullet_supervisor
-            start_openvscode_supervisor
-        fi
-    ) &
-    BISYNC_INIT_PID=$!
-    echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
-fi
+    # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
+    # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
+    # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
+    if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
+        (
+            # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
+            # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+            # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
+            # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
+            # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it
+            # finishes) instead of racing it. Children (rclone, daemons) inherit. Best-effort:
+            # a missing renice/ionice (or a kernel that refuses) never aborts startup.
+            renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
+            ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
+            echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
+            if establish_bisync_baseline; then
+                echo "[entrypoint] Bisync baseline established, starting daemon..."
+            else
+                echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /tmp/sync.log
+            fi
+            # ----------------------------------------------------------------------
+            # Vault skeleton + global graph seed (REQ-MEMORY-100, REQ-MEMORY-105)
+            # Runs AFTER baseline so we never overwrite R2-restored vault content
+            # with an empty skeleton on returning sessions.
+            # Idempotent: skip if vault directory already present.
+            # ----------------------------------------------------------------------
+            (init_user_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
+            # Always start daemons — even if baseline failed.
+            # Each daemon has its own retry + recovery; a dead daemon means
+            # zero sync (or zero vault ingestion) for the entire session.
+            start_sync_daemon
+            # Vault monitor, SilverBullet, and Browser IDE supervisors are
+            # advanced-mode-only (REQ-MEM-006 AC1, REQ-AGENT-005 AC2, REQ-IDE-003).
+            # The workspace sync daemon above always runs; only these are gated.
+            if [ "${SESSION_MODE:-default}" = "advanced" ]; then
+                start_vault_monitor_daemon
+                start_silverbullet_supervisor
+                start_openvscode_supervisor
+            fi
+        ) &
+        BISYNC_INIT_PID=$!
+        echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
+    fi
+}
+
+run_managed_curation_startup() {
+    run_initial_r2_restore
+    run_post_restore_startup
+    complete_managed_curation_startup
+}
+run_managed_curation_startup
 
 echo "[entrypoint] Startup complete. Servers running:"
 echo "[entrypoint]   - Terminal server (port 8080): PID $TERMINAL_PID"

@@ -10,6 +10,23 @@ import {
   buildUnsupportedOpenVscodeSettings,
 } from "../managed-settings.mjs";
 
+const EXPECTED_TERMINAL_PROFILES = {
+  Bash: {
+    path: "/bin/bash",
+    args: ["-l"],
+    env: { MANUAL_TAB: "1" },
+  },
+  "Codeflare Session Agent": {
+    path: "/bin/bash",
+    args: ["-l"],
+  },
+};
+
+const EXPECTED_TERMINAL_SETTINGS = {
+  "terminal.integrated.defaultProfile.linux": "Bash",
+  "terminal.integrated.profiles.linux": EXPECTED_TERMINAL_PROFILES,
+};
+
 test("REQ-IDE-007 AC3: Claude uses unrestricted mode without permission hooks", () => {
   const settings = buildManagedSettings();
 
@@ -29,6 +46,7 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
+    ...EXPECTED_TERMINAL_SETTINGS,
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
@@ -68,8 +86,25 @@ test("REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
+    ...EXPECTED_TERMINAL_SETTINGS,
     "chat.titleBar.signIn.enabled": false,
   });
+});
+
+test("REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable", () => {
+
+  for (const settings of [
+    buildBaseOpenVscodeSettings(),
+    buildPiOpenVscodeSettings(),
+    buildUnsupportedOpenVscodeSettings(),
+    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"),
+  ]) {
+    assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Bash");
+    assert.deepEqual(settings["terminal.integrated.profiles.linux"], EXPECTED_TERMINAL_PROFILES);
+  }
+
+  assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.defaultProfile.linux"), true);
+  assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.profiles.linux"), true);
 });
 
 test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor", () => {
@@ -79,6 +114,7 @@ test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
+    ...EXPECTED_TERMINAL_SETTINGS,
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "accessibility.openChatEditedFiles": false,
@@ -97,6 +133,7 @@ test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setu
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
+    ...EXPECTED_TERMINAL_SETTINGS,
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
   });

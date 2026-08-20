@@ -5,14 +5,13 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys } from '../../types';
-import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
+import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
 import { isBucketMigrating } from '../../lib/r2-migration';
-import { getTierConfig, getEffectiveTier } from '../../lib/subscription';
-import { isSaasModeActive } from '../../lib/onboarding';
+import { getEffectiveTier } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
@@ -181,30 +180,38 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const user = c.get('user');
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
-    const expectedMode = resolveSessionMode(preferences, c.env);
+    const sessionMode = await resolveEffectiveSessionMode(preferences, user, c.env);
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
+    let remoteCurationManifestDigest: string | undefined;
     try {
       const activeManagedRelease = await getActiveManagedRelease(c.env);
       const applied = preferences.managedEnvironmentApplied;
       const mismatch = activeManagedRelease
         ? applied?.digest !== activeManagedRelease.digest
-          || applied.mode !== expectedMode
+          || applied.mode !== sessionMode
           || applied.sequence !== activeManagedRelease.pointer.sequence
+          || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
         : applied !== undefined;
       if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = activeManagedRelease !== null;
       remoteCurationReleaseDigest = activeManagedRelease?.digest;
+      remoteCurationManifestDigest = applied?.managedExtensionsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
       // A transient deployment-cache read failure may continue only from a
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
-      if (!preferences.managedEnvironmentApplied || preferences.managedEnvironmentApplied.mode !== expectedMode) {
+      if (
+        !preferences.managedEnvironmentApplied
+        || preferences.managedEnvironmentApplied.mode !== sessionMode
+        || !/^[0-9a-f]{64}$/.test(preferences.managedEnvironmentApplied.managedExtensionsDigest ?? '')
+      ) {
         throw new ManagedEnvironmentUpdatePendingError();
       }
       remoteCurationActive = true;
       remoteCurationReleaseDigest = preferences.managedEnvironmentApplied.digest;
+      remoteCurationManifestDigest = preferences.managedEnvironmentApplied.managedExtensionsDigest;
     }
 
     // REQ-ENTERPRISE-020: refuse to start a container while the bucket is migrating its
@@ -237,17 +244,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
-    let sessionMode = resolveSessionMode(preferences, c.env);
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
-    // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier -
-    // canceled users can't use advanced (SaaS only)
-    if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
-      try {
-        const tiers = await getTierConfig(c.env.KV);
-        sessionMode = clampSessionModeToTier(sessionMode, effectiveTier, tiers, c.env);
-      } catch { /* non-SaaS or KV unavailable - allow the stored mode */ }
-    }
     const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter, c.env);
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
     // in Pro session mode. Any other combination strips the context-mode
@@ -336,6 +334,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       r2SseDisabled,
       remoteCurationActive,
       remoteCurationReleaseDigest,
+      remoteCurationManifestDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured

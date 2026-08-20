@@ -107,12 +107,21 @@ function managedExtension(
   };
 }
 
-function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
-  writeFileSync(path, JSON.stringify({
+function managedExtensionsBytes(records: Array<ReturnType<typeof managedExtension>>) {
+  return JSON.stringify({
     schemaVersion: 1,
     release: { digest: 'a'.repeat(64), sequence: 7 },
     extensions: records,
-  }));
+  });
+}
+
+function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
+  const bytes = managedExtensionsBytes(records);
+  writeFileSync(path, bytes);
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = digest;
+  return digest;
 }
 
 function writeRegistry(
@@ -159,7 +168,8 @@ beforeEach(() => {
   host.settingsUpdates = [];
   host.updateSetting = async () => undefined;
   host.acknowledgeSecurity = true;
-  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   host.warnings = [];
   host.progressTitles = [];
 });
@@ -172,6 +182,7 @@ afterEach(() => {
   delete process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST;
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
   delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -248,6 +259,71 @@ test('REQ-IDE-042 AC1: a company manifest from another release is rejected befor
   assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
   assert.equal(fetcher.mock.calls.length, 0);
   assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-042 AC1 + REQ-IDE-045 AC7: changed company manifest bytes are rejected with the exact remediation warning', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const trusted = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [trusted]);
+  const substituted = managedExtension('acme.substituted', '1.0.0');
+  writeFileSync(managedExtensionsPath, managedExtensionsBytes([substituted]));
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(fetcher.mock.calls.length, 0);
+  assert.equal(host.commands.length, 0);
+  assert.deepEqual(host.warnings, [
+    'Managed Browser IDE extensions could not be verified. Stop this session, then run “Recreate Agent Skills & Rules” in Codeflare Settings.',
+  ]);
+});
+
+test('REQ-IDE-045 AC6: a missing active-release manifest preserves prior company extensions', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const priorId = 'acme.company';
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([priorId]));
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = 'b'.repeat(64);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [priorId] });
+  assert.equal(host.commands.length, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
+});
+
+test('REQ-IDE-045 AC6: manifest failure preserves company ownership while unrelated personal restore continues', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const priorId = 'acme.company';
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([priorId]));
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({
+      [priorId]: { version: '1.0.0' },
+      'publisher.personal': { version: '2.0.0' },
+    }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir);
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = 'b'.repeat(64);
+  const installed: string[] = [];
+  host.execute = async (_command, source) => {
+    if (typeof source === 'string') installed.push(source);
+  };
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  const deactivate = await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile, debounceMs: 2_000 },
+  );
+
+  assert.deepEqual(installed, ['publisher.personal@2.0.0']);
+  assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
+  assert.equal(host.warnings.length, 1);
+  await deactivate();
+  for (const subscription of subscriptions) subscription.dispose();
 });
 
 test('REQ-IDE-044 AC1: unsigned company download URLs are rejected before download', async () => {
@@ -535,7 +611,7 @@ test('REQ-IDE-042 AC7: failed company removal blocks personal restoration until 
 test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
   const company = managedExtension();
-  writeManagedExtensions(managedExtensionsPath, [company]);
+  const managedManifestDigest = writeManagedExtensions(managedExtensionsPath, [company]);
   writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
 
   assert.equal(await captureExtensionManifest({
@@ -544,6 +620,7 @@ test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from pers
     syncPidFile,
     managedExtensionsPath,
     managedReleaseDigest: 'a'.repeat(64),
+    managedManifestDigest,
   }), true);
   assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
   assert.deepEqual(host.warnings, []);

@@ -149,6 +149,7 @@ function boundaryEvaluation(
   repo: string,
   prNumber: number,
   head: string,
+  toolUseId: string,
 ): BoundaryEvaluation | undefined {
   const data = sessionEntries(ctx)
     .filter((entry) => entry?.type === "custom"
@@ -156,6 +157,7 @@ function boundaryEvaluation(
       && entry.data?.repo === repo
       && entry.data?.prNumber === prNumber
       && entry.data?.head === head
+      && entry.data?.toolUseId === toolUseId
       && (entry.data?.disposition === "launch" || entry.data?.disposition === "acknowledge"))
     .at(-1)?.data;
   if (!data || typeof data.toolUseId !== "string" || !fullSha(data.head)) return undefined;
@@ -484,14 +486,21 @@ function appendBoundaryEvaluation(
   }
 }
 
-function followUpKey(kind: "plan" | "ci" | "fix" | "follow-up", repo: string, prNumber: number, head: string): string {
-  return `${kind}:${repo}:${prNumber}:${head}`;
+function followUpKey(
+  kind: "plan" | "ci" | "fix" | "follow-up",
+  repo: string,
+  prNumber: number,
+  head: string,
+  boundaryToolUseId?: string,
+): string {
+  return [kind, repo, prNumber, head, boundaryToolUseId].filter((value) => value !== undefined).join(":");
 }
 
-function visibleLaunchFollowUpCount(ctx: ReviewContext, head: string): number {
+function visibleLaunchFollowUpCount(ctx: ReviewContext, head: string, boundaryToolUseId: string): number {
   return sessionEntries(ctx).filter((entry) => entry?.type === "custom_message"
     && entry.customType === "pr-boundary-launch-follow-up"
-    && entry.details?.head === head).length;
+    && entry.details?.head === head
+    && entry.details?.boundaryToolUseId === boundaryToolUseId).length;
 }
 
 function resultText(value: unknown): string {
@@ -719,8 +728,15 @@ async function launchBoundaryPlan(
     && existing.reviewRepo === review.repo
     && existing.reviewBranch === review.pr.headRefName
     && existing.reviewPrNumber === review.pr.number
-    && existing.reviewBase === review.pr.baseRefName;
-  const persistedDecision = boundaryEvaluation(ctx, review.repo, review.pr.number, review.pr.headRefOid);
+    && existing.reviewBase === review.pr.baseRefName
+    && existing.reviewBoundaryToolUseId === boundary.toolUseId;
+  const persistedDecision = boundaryEvaluation(
+    ctx,
+    review.repo,
+    review.pr.number,
+    review.pr.headRefOid,
+    boundary.toolUseId,
+  );
 
   if (persistedDecision?.disposition === "acknowledge") {
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
@@ -782,7 +798,7 @@ async function launchBoundaryPlan(
     };
   }
 
-  const key = followUpKey("plan", review.repo, review.pr.number, review.pr.headRefOid);
+  const key = followUpKey("plan", review.repo, review.pr.number, review.pr.headRefOid, planBoundaryToolUseId);
   if (queuedFollowUps.has(key)) {
     appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
     return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: false };
@@ -981,6 +997,7 @@ async function sendFixFollowUp(
   ctx: ReviewContext,
   pr: PrState,
   range: string | undefined,
+  boundaryToolUseId: string,
 ): Promise<void> {
   await releaseReviewGoalPause(pi, ctx, pr.headRefOid);
   pi.sendMessage({
@@ -997,7 +1014,7 @@ async function sendFixFollowUp(
       "Apply only the accepted minimal decisions from the preceding triage. The reviewed head is now acknowledged, so fixes may begin without relaunching review or CI for that head.",
     ].join("\n"),
     display: true,
-    details: { head: pr.headRefOid, reviewRange: range },
+    details: { head: pr.headRefOid, reviewRange: range, boundaryToolUseId },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
@@ -1107,6 +1124,7 @@ async function acknowledgeCompletedReview(
     || reviewedFacts.reviewRange !== reviewedRange
     || reviewedFacts.reviewRepo !== context.repo
     || reviewedFacts.reviewBranch !== reviewedPr.headRefName
+    || reviewedFacts.reviewBoundaryToolUseId !== preview.boundary.toolUseId
     || !allReviewedLanesTerminal
     || !reviewedFacts.triageComplete) return false;
 
@@ -1134,10 +1152,16 @@ async function acknowledgeCompletedReview(
       ciEvent,
     });
   }
-  const fixKey = followUpKey("fix", context.repo, reviewedPr.number, reviewedHead);
+  const fixKey = followUpKey(
+    "fix",
+    context.repo,
+    reviewedPr.number,
+    reviewedHead,
+    preview.boundary.toolUseId,
+  );
   if (reviewedFacts.fixDelivered || queuedFollowUps.has(fixKey)) return false;
   queuedFollowUps.add(fixKey);
-  await sendFixFollowUp(pi, ctx, reviewedPr, reviewedRange);
+  await sendFixFollowUp(pi, ctx, reviewedPr, reviewedRange, preview.boundary.toolUseId);
   return true;
 }
 
@@ -1233,12 +1257,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   pi.on("agent_settled", async (_event, ctx) => {
     await retryPendingBoundary(ctx);
+    if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
+      pendingBoundary = undefined;
+      resumedWithoutBoundary = false;
+    }
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
       const latest = recoveryFacts.latestBoundary ?? recoveryFacts.boundary;
       if (latest
-        && recoveryFacts.reviewBoundaryToolUseId !== latest.toolUseId
         && (!boundaryWasEvaluated(ctx, latest.toolUseId)
           || boundaryLaunchWasAccepted(ctx, latest.toolUseId))) {
         const boundary = persistedBoundary(ctx, recoveryFile);
@@ -1374,8 +1401,18 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.number, review.pr.headRefOid) === "giveup") return;
-    const missingFollowUpKey = followUpKey("follow-up", review.repo, review.pr.number, review.pr.headRefOid);
-    const visibleFollowUps = visibleLaunchFollowUpCount(ctx, review.pr.headRefOid);
+    const missingFollowUpKey = followUpKey(
+      "follow-up",
+      review.repo,
+      review.pr.number,
+      review.pr.headRefOid,
+      preview.boundary.toolUseId,
+    );
+    const visibleFollowUps = visibleLaunchFollowUpCount(
+      ctx,
+      review.pr.headRefOid,
+      preview.boundary.toolUseId,
+    );
     const queuedAtCount = queuedMissingFollowUps.get(missingFollowUpKey);
     if (queuedAtCount !== undefined) {
       if (visibleFollowUps <= queuedAtCount) return;

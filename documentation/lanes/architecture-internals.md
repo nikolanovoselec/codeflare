@@ -54,7 +54,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
-**Reconfiguration boundary:** `POST /configure` updates deployment configuration and Access policy but never invokes `cleanupUserData()` or infers user offboarding from the submitted `allowedUsers` list. Destructive cleanup belongs to an explicit user-removal workflow. **Self-removal prevention:** the backend rejects the request if the current authenticated user is not in the submitted admin list. The Zod schema enforces at least one admin user.
+**Reconfiguration boundary:** `POST /configure` updates deployment configuration and Access policy but never invokes `cleanupUserData()` or infers user offboarding from the submitted `allowedUsers` list. Destructive cleanup belongs to an explicit user-removal workflow. **Self-removal prevention:** the backend rejects the request if the current authenticated user is not in the submitted admin list. The Zod schema enforces at least one admin user. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: src/routes/setup/index.ts::app -->
 
 ---
 

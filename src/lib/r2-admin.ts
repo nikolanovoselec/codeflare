@@ -10,6 +10,8 @@ import { parseCfResponse } from './cf-api';
 import { getAndDecrypt, encryptAndStore } from './kv-crypto';
 import { toError, AppError } from './error-types';
 import { firstZodError } from './request-helpers';
+import { createR2Client, emptyR2Bucket } from './r2-client';
+import type { Env } from '../types';
 
 const logger = createLogger('r2-admin');
 
@@ -105,6 +107,56 @@ export async function createBucketIfNotExists(
 
   logger.info('Bucket created successfully', { bucketName });
   return { success: true, created: true };
+}
+
+/**
+ * Empty and delete one exact R2 bucket. A missing bucket is already converged.
+ * Callers must authenticate the bucket identity before invoking this boundary.
+ */
+export async function deleteR2BucketIfExists(input: {
+  accountId: string;
+  apiToken: string;
+  bucketName: string;
+  endpoint: string;
+  r2Credentials: Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>;
+  fetcher?: typeof fetch;
+}): Promise<boolean> {
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/.test(input.bucketName)) {
+    throw new Error('Managed release cache bucket name is invalid');
+  }
+  const fetcher = input.fetcher ?? fetch;
+  const bucketUrl = `${CF_API_BASE}/accounts/${encodeURIComponent(input.accountId)}/r2/buckets/${input.bucketName}`;
+  const headers = { Authorization: `Bearer ${input.apiToken}` };
+  const exists = await r2AdminCB.execute(() => fetcher(bucketUrl, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  }));
+  if (exists.status === 404) return false;
+  if (!exists.ok) {
+    throw new Error(`Failed to inspect managed release cache bucket: HTTP ${exists.status}`);
+  }
+
+  await emptyR2Bucket(
+    createR2Client(input.r2Credentials),
+    input.endpoint,
+    input.bucketName,
+    undefined,
+    fetcher,
+  );
+
+  const deleted = await r2AdminCB.execute(() => fetcher(bucketUrl, {
+    method: 'DELETE',
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  }));
+  if (deleted.status === 404) return false;
+  if (!deleted.ok) {
+    const body = await deleted.text().catch(() => '');
+    throw new Error(`Failed to delete managed release cache bucket: HTTP ${deleted.status}${body ? `: ${body}` : ''}`);
+  }
+  logger.info('Deleted managed release cache bucket', { bucketName: input.bucketName });
+  return true;
 }
 
 // =========================================================================

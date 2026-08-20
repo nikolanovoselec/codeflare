@@ -1,5 +1,6 @@
-import type { Env, UserPreferences, SessionMode, SubscriptionTierConfig } from '../types';
-import { getAllowedSessionModes, isEnterpriseMode } from './subscription';
+import type { AccessUser, Env, UserPreferences, SessionMode, SubscriptionTierConfig } from '../types';
+import { isSaasModeActive } from './onboarding';
+import { getAllowedSessionModes, getEffectiveTier, getTierConfig, isEnterpriseMode } from './subscription';
 
 export function resolveSessionMode(prefs: UserPreferences | null, env?: Pick<Env, 'ENTERPRISE_MODE'>): SessionMode {
   // REQ-ENTERPRISE-001 AC2: enterprise deploys run Pro (advanced) for every
@@ -35,4 +36,23 @@ export function clampSessionModeToTier(
     return 'default';
   }
   return sessionMode;
+}
+
+/** Resolve the one mode used for managed-release gates, reconciliation, and startup. */
+export async function resolveEffectiveSessionMode(
+  prefs: UserPreferences | null,
+  user: AccessUser,
+  env: Env,
+): Promise<SessionMode> {
+  const mode = resolveSessionMode(prefs, env);
+  if (!isSaasModeActive(env.SAAS_MODE)) return mode;
+
+  const effectiveTier = getEffectiveTier(
+    user.subscriptionTier,
+    user.accessTier,
+    user.billingStatus,
+    user.billingPeriodEnd,
+    env,
+  );
+  return clampSessionModeToTier(mode, effectiveTier, await getTierConfig(env.KV), env);
 }

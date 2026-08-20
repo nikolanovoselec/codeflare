@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, lstat, readFile, readlink, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -180,6 +181,10 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
     "keyboard.layout": "de",
     "extensions.allowed": { "*": false },
     "workbench.startupEditor": "welcomePage",
+    "terminal.integrated.defaultProfile.linux": "Legacy Agent",
+    "terminal.integrated.profiles.linux": {
+      "Legacy Agent": { path: "/bin/bash", args: ["-l"] },
+    },
     "chat.disableAIFeatures": false,
     "accessibility.openChatEditedFiles": true,
     "chat.titleBar.signIn.enabled": true,
@@ -199,6 +204,18 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
     "workbench.startupEditor": "none",
+    "terminal.integrated.defaultProfile.linux": "Bash",
+    "terminal.integrated.profiles.linux": {
+      Bash: {
+        path: "/bin/bash",
+        args: ["-l"],
+        env: { MANUAL_TAB: "1" },
+      },
+      "Codeflare Session Agent": {
+        path: "/bin/bash",
+        args: ["-l"],
+      },
+    },
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "accessibility.openChatEditedFiles": false,
@@ -215,13 +232,18 @@ test("REQ-IDE-042 AC1: settings preparation reads the restored company extension
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({
+  const manifest = JSON.stringify({
     schemaVersion: 1,
     release: { digest: "a".repeat(64), sequence: 7 },
     extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
-  }));
+  });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {
@@ -231,18 +253,53 @@ test("REQ-IDE-042 AC1: settings preparation reads the restored company extension
   });
 });
 
+test("REQ-IDE-042 AC1: company allowance rejects valid substituted bytes with a different trusted digest", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
+  await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
+  const trustedManifest = JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
+  });
+  const substitutedManifest = JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "acme.substituted" }],
+  });
+  await writeFile(managedExtensionsPath, substitutedManifest);
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(trustedManifest).digest("hex"),
+  });
+
+  const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+  assert.deepEqual(written["extensions.allowed"], {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+  });
+});
+
 test("REQ-IDE-042 AC1: company allowance ignores a restored manifest from another applied release", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({
+  const manifest = JSON.stringify({
     schemaVersion: 1,
     release: { digest: "a".repeat(64), sequence: 7 },
     extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
-  }));
+  });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "b".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "b".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {
@@ -256,9 +313,14 @@ test("REQ-IDE-042 AC1: invalid company manifest falls back to the baseline allow
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({ schemaVersion: 1, extensions: [{ id: "invalid" }] }));
+  const manifest = JSON.stringify({ schemaVersion: 1, extensions: [{ id: "invalid" }] });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {

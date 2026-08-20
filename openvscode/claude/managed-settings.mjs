@@ -34,6 +34,18 @@ export function buildBaseOpenVscodeSettings(managedExtensions = []) {
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": extensionAllowance(managedExtensions),
     "workbench.startupEditor": "none",
+    "terminal.integrated.defaultProfile.linux": "Bash",
+    "terminal.integrated.profiles.linux": {
+      Bash: {
+        path: "/bin/bash",
+        args: ["-l"],
+        env: { MANUAL_TAB: "1" },
+      },
+      "Codeflare Session Agent": {
+        path: "/bin/bash",
+        args: ["-l"],
+      },
+    },
     "chat.titleBar.signIn.enabled": false,
   };
 }
@@ -63,6 +75,8 @@ export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "extensions.ignoreRecommendations",
   "extensions.allowed",
   "workbench.startupEditor",
+  "terminal.integrated.defaultProfile.linux",
+  "terminal.integrated.profiles.linux",
   "chat.titleBar.signIn.enabled",
   "chat.disableAIFeatures",
   "accessibility.openChatEditedFiles",

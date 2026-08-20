@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AccessUser, Env } from '../../types';
 import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
 import {
   getActiveVerifiedManagedRelease,
@@ -8,6 +10,7 @@ import {
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { managedExtensionsDocumentContent } from '../../lib/r2-seed';
 
 const state = vi.hoisted(() => ({
   active: null as ActiveVerifiedManagedRelease | null,
@@ -26,11 +29,15 @@ vi.mock('../../lib/managed-release-active', () => ({
   }),
   getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
 }));
-vi.mock('../../lib/r2-seed', () => ({
-  seedGettingStartedDocs: vi.fn(),
-  reconcileAgentConfigs: reconcile,
-  reseedContextModePlugin: reseedContext,
-}));
+vi.mock('../../lib/r2-seed', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+  return {
+    ...actual,
+    seedGettingStartedDocs: vi.fn(),
+    reconcileAgentConfigs: reconcile,
+    reseedContextModePlugin: reseedContext,
+  };
+});
 vi.mock('../../lib/r2-admin', () => ({ createBucketIfNotExists: createBucket }));
 vi.mock('../../lib/r2-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/r2-client')>()),
@@ -61,13 +68,17 @@ const release: ManagedRelease = {
   managedExtensions: [],
 };
 
-function appFor(mockKV: ReturnType<typeof createMockKV>) {
+function appFor(
+  mockKV: ReturnType<typeof createMockKV>,
+  user: AccessUser = { email: 'user@example.com', authenticated: true, accessTier: 'unlimited' as never },
+  envOverrides: Partial<Env> = {},
+) {
   return createTestApp({
     routes: [{ path: '/seed', handler: routes }],
     mockKV,
     bucketName: 'user-bucket',
-    user: { email: 'user@example.com', authenticated: true, accessTier: 'unlimited' as never },
-    envOverrides: { R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret', CLOUDFLARE_API_TOKEN: 'token' },
+    user,
+    envOverrides: { R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret', CLOUDFLARE_API_TOKEN: 'token', ...envOverrides },
   });
 }
 
@@ -140,10 +151,43 @@ describe('managed storage reconcile', () => {
     }));
     expect(reseedContext).toHaveBeenCalled();
     const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
-    expect(applied.managedEnvironmentApplied).toMatchObject({ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' });
+    const expectedManifestBytes = managedExtensionsDocumentContent({
+      digest: state.active!.digest,
+      compressed: state.active!.compressed,
+      release: state.active!.release,
+    });
+    expect(applied.managedEnvironmentApplied).toMatchObject({
+      digest: 'd'.repeat(64),
+      managedExtensionsDigest: createHash('sha256').update(expectedManifestBytes).digest('hex'),
+      sequence: 9,
+      mode: 'advanced',
+    });
     expect(Date.parse(applied.managedEnvironmentApplied.appliedAt)).not.toBeNaN();
     const finalPut = kv.put.mock.calls.at(-1)!;
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
+  });
+
+  it('reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+
+    const response = await appFor(kv, {
+      email: 'user@example.com',
+      authenticated: true,
+      subscriptionTier: 'advanced',
+      billingStatus: 'canceled',
+    }, { SAAS_MODE: 'active' }).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-bucket',
+      'https://r2.example.com',
+      'default',
+      expect.anything(),
+    );
+    const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(applied.managedEnvironmentApplied.mode).toBe('default');
   });
 
   it('REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails', async () => {
@@ -178,7 +222,7 @@ describe('managed storage reconcile', () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
-      managedEnvironmentApplied: { digest: '1'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      managedEnvironmentApplied: { digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
     });
 
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
@@ -190,6 +234,61 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBeUndefined();
   });
 
+  it('REQ-STOR-024 AC5: reconciles from current release when disposable cache history is absent', async () => {
+    state.cached = null;
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64),
+        managedExtensionsDigest: '2'.repeat(64),
+        sequence: 8,
+        mode: 'advanced',
+        appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
+      managedRelease: expect.objectContaining({ digest: 'd'.repeat(64) }),
+      priorManagedDigest: '1'.repeat(64),
+    }));
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-bucket',
+      'https://r2.example.com',
+      'advanced',
+      expect.not.objectContaining({ priorManagedRelease: expect.anything() }),
+    );
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied.digest).toBe('d'.repeat(64));
+  });
+
+  it('REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact', async () => {
+    state.active = null;
+    state.cached = null;
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64),
+        managedExtensionsDigest: '2'.repeat(64),
+        sequence: 8,
+        mode: 'advanced',
+        appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    expect(reconcile).not.toHaveBeenCalled();
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied?.digest).toBe('1'.repeat(64));
+  });
+
   it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {
     state.active = null;
     const prior = { ...release, sequence: 8 };
@@ -199,7 +298,7 @@ describe('managed storage reconcile', () => {
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
       workspaceSyncEnabled: true,
-      managedEnvironmentApplied: { digest: '1'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      managedEnvironmentApplied: { digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
     });
 
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });

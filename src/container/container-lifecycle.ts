@@ -254,6 +254,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     host._encryptionKey = null;
     host._remoteCurationActive = false;
     host._remoteCurationReleaseDigest = null;
+    host._remoteCurationManifestDigest = null;
     host._sessionMode = 'default';
     host.logger.info('Operational storage cleared');
   } catch (err) {

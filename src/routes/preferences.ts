@@ -11,7 +11,7 @@ import { ValidationError, BucketMigratingError, ManagedEnvironmentUpdatePendingE
 import { parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
-import { reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../lib/r2-seed';
+import { managedExtensionsDocumentDigest, reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../lib/r2-seed';
 import { isR2SseDisabledForBucket, isBucketMigrating } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
@@ -222,6 +222,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
             ...latest,
             managedEnvironmentApplied: {
               digest: activeManagedRelease.digest,
+              managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
               sequence: activeManagedRelease.release.sequence,
               mode: body.sessionMode,
               appliedAt: new Date().toISOString(),

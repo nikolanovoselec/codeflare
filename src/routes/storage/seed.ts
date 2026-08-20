@@ -3,14 +3,14 @@ import type { Env, UserPreferences } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
-import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../../lib/r2-seed';
+import { managedExtensionsDocumentDigest, seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../../lib/r2-seed';
 import { resolveBucketSseOnEnsure, isBucketMigrating } from '../../lib/r2-migration';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../../lib/kv-keys';
-import { resolveSessionMode } from '../../lib/session-mode';
+import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 import { getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../../lib/managed-release-active';
@@ -78,18 +78,26 @@ app.post('/agent-configs', async (c) => {
   const bucketName = c.get('bucketName');
   const preferencesKey = getPreferencesKey(bucketName);
   const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
-  const mode = resolveSessionMode(preferences ?? null, c.env);
+  const user = c.get('user');
+  const mode = await resolveEffectiveSessionMode(preferences ?? null, user, c.env);
 
   try {
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
+    let priorManagedDigest: string | undefined;
     const applied = preferences?.managedEnvironmentApplied;
     if (applied) {
       const priorRelease = activeManagedRelease?.digest === applied.digest
         ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
         : await getCachedManagedReleaseByDigest(c.env, applied.digest);
-      if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
-      priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
+      if (priorRelease) {
+        priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
+      } else if (!activeManagedRelease) {
+        throw new Error('Previously applied managed release is unavailable while disabling Managed Environment');
+      } else {
+        if (!/^[0-9a-f]{64}$/.test(applied.digest)) throw new Error('Previously applied managed release digest is invalid');
+        priorManagedDigest = applied.digest;
+      }
     }
 
     // Preserve ordinary baked reseed behavior. The no-hot-mutation gate applies
@@ -118,11 +126,13 @@ app.post('/agent-configs', async (c) => {
 
     // REQ-ENTERPRISE-020: reconcile in the bucket's current regime (see getting-started above).
     const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
-    const user = c.get('user');
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
     const managedOptions = activeManagedRelease
-      ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+      ? {
+          managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
+          ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
+        }
       : priorManagedRelease
         ? { managedRelease: null, priorManagedRelease }
         : {};
@@ -134,7 +144,7 @@ app.post('/agent-configs', async (c) => {
       r2SseDisabled,
       ...managedOptions,
     });
-    if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
+    if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
       throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
     }
 
@@ -170,6 +180,7 @@ app.post('/agent-configs', async (c) => {
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
           managedEnvironmentApplied: {
             digest: activeManagedRelease.digest,
+            managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
             sequence: activeManagedRelease.release.sequence,
             mode,
             appliedAt: new Date().toISOString(),

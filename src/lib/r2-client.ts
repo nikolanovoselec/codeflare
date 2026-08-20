@@ -97,7 +97,8 @@ export async function emptyR2Bucket(
   client: AwsClient,
   endpoint: string,
   bucketName: string,
-  prefix?: string
+  prefix?: string,
+  fetcher: typeof fetch = fetch,
 ): Promise<number> {
   let totalDeleted = 0;
   let continuationToken: string | undefined;
@@ -115,7 +116,7 @@ export async function emptyR2Bucket(
     }
 
     const signed = await client.sign(listUrl.toString());
-    const listRes = await fetch(signed);
+    const listRes = await fetcher(signed);
     if (!listRes.ok) {
       throw new Error(`ListObjectsV2 failed: HTTP ${listRes.status}`);
     }
@@ -138,7 +139,7 @@ export async function emptyR2Bucket(
         headers: { 'Content-Type': 'application/xml' },
         body: deleteXml,
       });
-      const deleteRes = await fetch(deleteSigned);
+      const deleteRes = await fetcher(deleteSigned);
       if (!deleteRes.ok) {
         throw new Error(`DeleteObjects failed: HTTP ${deleteRes.status}`);
       }
