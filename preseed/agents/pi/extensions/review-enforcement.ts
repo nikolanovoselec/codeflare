@@ -1257,6 +1257,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   pi.on("agent_settled", async (_event, ctx) => {
     await retryPendingBoundary(ctx);
+    if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
+      pendingBoundary = undefined;
+      resumedWithoutBoundary = false;
+    }
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
@@ -1284,11 +1288,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
           resumedWithoutBoundary = false;
           if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
           if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
-          if (launch && !launch.queuedPlan
-            && await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps)) {
-            pendingGoalPauseHead = undefined;
-            return;
-          }
           if (launch) return;
         }
       }
