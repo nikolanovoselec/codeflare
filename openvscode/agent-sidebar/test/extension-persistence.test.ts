@@ -119,7 +119,9 @@ function writeManagedExtensions(path: string, records: Array<ReturnType<typeof m
   const bytes = managedExtensionsBytes(records);
   writeFileSync(path, bytes);
   process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
-  process.env.REMOTE_CURATION_MANIFEST_DIGEST = createHash('sha256').update(bytes).digest('hex');
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = digest;
+  return digest;
 }
 
 function writeRegistry(
@@ -609,7 +611,7 @@ test('REQ-IDE-042 AC7: failed company removal blocks personal restoration until 
 test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from personal intent', async () => {
   const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
   const company = managedExtension();
-  writeManagedExtensions(managedExtensionsPath, [company]);
+  const managedManifestDigest = writeManagedExtensions(managedExtensionsPath, [company]);
   writeRegistry(extensionsDir, [{ id: company.id, version: company.version }]);
 
   assert.equal(await captureExtensionManifest({
@@ -618,6 +620,7 @@ test('REQ-IDE-042 AC4+AC6: live capture excludes company-only installs from pers
     syncPidFile,
     managedExtensionsPath,
     managedReleaseDigest: 'a'.repeat(64),
+    managedManifestDigest,
   }), true);
   assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
   assert.deepEqual(host.warnings, []);

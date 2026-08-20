@@ -74,39 +74,6 @@ function extractFunctionBody(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
-// Extract the boot block that establishes the bisync baseline and then
-// initializes the vault (the `if [ $RCLONE_CONFIG_RESULT ... ] ... fi`
-// guard near the end of MAIN EXECUTION). Anchored on the unique step
-// comment so the slice tracks the real ordering logic, not a copy.
-function extractBootOrderingBlock() {
-  const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
-  const anchor = lines.findIndex((l) =>
-    /^# Step 2: Establish bisync baseline IN BACKGROUND/.test(l),
-  );
-  if (anchor === -1) {
-    throw new Error('Could not locate the "Step 2" baseline boot anchor in entrypoint.sh');
-  }
-  // The `if [ $RCLONE_CONFIG_RESULT ... ]; then` opens a few lines after
-  // the anchor; find it, then walk to its matching `^fi`.
-  let ifIdx = -1;
-  for (let i = anchor; i < lines.length; i++) {
-    if (/^if \[ \$RCLONE_CONFIG_RESULT/.test(lines[i])) {
-      ifIdx = i;
-      break;
-    }
-  }
-  if (ifIdx === -1) throw new Error('Could not locate the RCLONE_CONFIG_RESULT boot guard');
-  let fiIdx = -1;
-  for (let i = ifIdx + 1; i < lines.length; i++) {
-    if (/^fi$/.test(lines[i])) {
-      fiIdx = i;
-      break;
-    }
-  }
-  if (fiIdx === -1) throw new Error('Could not locate the closing fi of the boot guard');
-  return lines.slice(ifIdx, fiIdx + 1).join('\n');
-}
-
 function mkTmp(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
 }
@@ -125,15 +92,11 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
   it('runs establish_bisync_baseline BEFORE init_user_vault at boot (REQ-MEM-004 AC2)', () => {
     const dir = mkTmp('vault-boot-order-');
     const logFile = join(dir, 'order.log');
-    const bootBlock = extractBootOrderingBlock();
+    const startupFunction = extractFunctionBody('complete_managed_curation_startup');
 
-    // Stub every dependency the boot block calls. The two we care about
-    // (baseline, vault init) append a timestamped marker so we can assert
-    // ordering from the log. The daemon starters are stubbed to no-ops so
-    // the block runs to completion without launching real background work.
-    // We strip the trailing `&` so the `( ... )` subshell runs
-    // synchronously (its body still preserves the in-shell call order),
-    // and `wait` afterward catches any backgrounded child.
+    // Execute the production orchestration function with observable stubs. The two
+    // calls under test append markers; unrelated startup dependencies are no-ops.
+    // Strip the trailing `&` so the background subshell runs synchronously here.
     const script = `
       set +e
       establish_bisync_baseline() {
@@ -144,15 +107,19 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
         echo "VAULT_INIT $(date +%s%N)" >> "${logFile}"
         return 0
       }
+      relay_managed_pi_extensions() { :; }
+      release_agent_pty_after_cleanup() { :; }
+      renice() { :; }
+      ionice() { :; }
       start_sync_daemon() { echo "SYNC_DAEMON" >> "${logFile}"; }
       start_vault_monitor_daemon() { echo "VAULT_MONITOR" >> "${logFile}"; }
       start_silverbullet_supervisor() { echo "SB_SUPERVISOR" >> "${logFile}"; }
-      # Make the boot guard pass.
       RCLONE_CONFIG_RESULT=0
       STEP1_RESULT=0
       SESSION_MODE=default
 
-      ${bootBlock.replace(/\) &$/m, ')')}
+      ${startupFunction.replace(/\) &$/m, ')')}
+      complete_managed_curation_startup
 
       wait 2>/dev/null
     `;
