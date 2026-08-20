@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-20
+
+- **Browser IDE terminals now open in Bash by default** ([REQ-IDE-047](browser-ide.md#req-ide-047-bash-first-browser-ide-terminals) added as Implemented). Every IDE inventory manages one Bash login-shell profile carrying the existing `MANUAL_TAB=1` bypass and one explicit `Session Agent` login-shell profile without that bypass. New integrated terminals therefore start as plain Bash while users can still select the session's configured agent from the terminal profile menu. The change reuses existing shell initialization and does not add a launcher or agent process.
+
 ## 2026-08-19
 
 - **Managed-environment preference changes fail closed and preserve retry state** ([REQ-MEM-011](memory.md#req-mem-011-session-mode-storage-resolution-and-propagation) and [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission) remain Implemented; [AD136](../../documentation/decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start) context extended). A `sessionMode` change applies the no-hot-mutation session gate only while a managed release is active or was previously applied, so an unconfigured deployment keeps byte-identical baked behavior, and a failed managed-release lookup now fails closed with the typed update-pending error instead of being read as "no active release". A failed managed auto-reconcile propagates instead of being logged as non-fatal, and restores the pre-request preference document first so a retry reconciles rather than comparing against its own half-applied mode. Session-list polling reuses the resolver's freshness window for a settled release, consumes that window only on a completed check, and skips an overlapping probe while one is already in flight.

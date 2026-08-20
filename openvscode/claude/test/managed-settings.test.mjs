@@ -72,6 +72,33 @@ test("REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy
   });
 });
 
+test("REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable", () => {
+  const expectedProfiles = {
+    Bash: {
+      path: "/bin/bash",
+      args: ["-l"],
+      env: { MANUAL_TAB: "1" },
+    },
+    "Session Agent": {
+      path: "/bin/bash",
+      args: ["-l"],
+    },
+  };
+
+  for (const settings of [
+    buildBaseOpenVscodeSettings(),
+    buildPiOpenVscodeSettings(),
+    buildUnsupportedOpenVscodeSettings(),
+    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"),
+  ]) {
+    assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Bash");
+    assert.deepEqual(settings["terminal.integrated.profiles.linux"], expectedProfiles);
+  }
+
+  assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.defaultProfile.linux"), true);
+  assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.profiles.linux"), true);
+});
+
 test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor", () => {
   const settings = buildPiOpenVscodeSettings();
   assert.deepEqual(settings, {
