@@ -153,7 +153,7 @@ describe('r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / RE
   });
 
   describe('deleteR2BucketIfExists', () => {
-    it('REQ-STOR-020 AC8: empties and deletes only an existing named bucket', async () => {
+    it('REQ-STOR-025 AC6: empties and deletes only an existing named bucket', async () => {
       mockFetch
         .mockResolvedValueOnce(new Response('{}', { status: 200 }))
         .mockResolvedValueOnce(new Response(null, { status: 204 }));

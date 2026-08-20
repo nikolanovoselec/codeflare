@@ -906,11 +906,11 @@ describe('managed release resolver', () => {
     expect(JSON.stringify(prefill)).not.toContain('github_pat_first');
 
     // Simulate a deployment created before recognizable managed-cache names.
-    // Normal release resolution must rebuild the verified cache before switching
-    // configuration, then remove the exact authenticated legacy bucket.
+    // Normal release resolution must rebuild the verified cache before selecting
+    // it operationally, without rewriting the concurrent administrator selection.
     const legacyBucketName = await getLegacyManagedReleaseCacheBucketName('account-1', 'worker-1');
     const selectedConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG)!) as Record<string, unknown>;
-    for (const [key, value] of [...r2.entries()]) {
+    for (const [key, value] of r2) {
       const currentPrefix = `/${firstConfig.cacheBucketName}/`;
       if (!key.startsWith(currentPrefix)) continue;
       r2.set(`/${legacyBucketName}/${key.slice(currentPrefix.length)}`, value);
@@ -922,16 +922,21 @@ describe('managed release resolver', () => {
     }));
     kv._store.set(SETUP_KEYS.ACCOUNT_ID, 'account-1');
     kv._store.set(SETUP_KEYS.R2_ENDPOINT, base.endpoint);
+    const selectedConfigWrites = () => kv.put.mock.calls
+      .filter(([key]) => key === SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG).length;
+    const configWritesBeforeMigration = selectedConfigWrites();
     bucketMocks.remove.mockImplementationOnce(async (input?: { bucketName: string }) => {
-      const migrating = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG)!) as {
+      const migration = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION)!) as {
         cacheBucketName: string;
-        legacyCacheBucketName?: string;
+        legacyCacheBucketName: string;
+        cleanupPending: boolean;
       };
-      expect(migrating).toEqual(expect.objectContaining({
+      expect(migration).toEqual(expect.objectContaining({
         cacheBucketName: firstConfig.cacheBucketName,
         legacyCacheBucketName,
+        cleanupPending: true,
       }));
-      expect([...r2.keys()]).toContain(`/${firstConfig.cacheBucketName}/configs/${firstConfig.configFingerprint}/active.json`);
+      expect(r2.has(`/${firstConfig.cacheBucketName}/configs/${firstConfig.configFingerprint}/active.json`)).toBe(true);
       expect(input?.bucketName).toBe(legacyBucketName);
       throw new Error('injected legacy cleanup failure');
     });
@@ -946,15 +951,15 @@ describe('managed release resolver', () => {
       fetcher: fetcher as typeof fetch,
     };
     const pendingCleanup = await resolveManagedEnvironment(resolverInput);
-    expect(pendingCleanup.config).toEqual(expect.objectContaining({
-      cacheBucketName: firstConfig.cacheBucketName,
-      legacyCacheBucketName,
-    }));
-    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG)!).legacyCacheBucketName).toBe(legacyBucketName);
+    expect(pendingCleanup.config?.cacheBucketName).toBe(firstConfig.cacheBucketName);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG)!).cacheBucketName).toBe(legacyBucketName);
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION)!).cleanupPending).toBe(true);
+    expect(selectedConfigWrites()).toBe(configWritesBeforeMigration);
 
     const migrated = await resolveManagedEnvironment(resolverInput);
     expect(migrated.config?.cacheBucketName).toBe(firstConfig.cacheBucketName);
-    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG)!).legacyCacheBucketName).toBeUndefined();
+    expect(JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION)!).cleanupPending).toBe(false);
+    expect(selectedConfigWrites()).toBe(configWritesBeforeMigration);
     expect(bucketMocks.remove).toHaveBeenCalledTimes(2);
 
     const encryptedPat = kv._store.get(patKey)!;

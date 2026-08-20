@@ -358,6 +358,10 @@ export const SETUP_KEYS = {
   MANAGED_ENVIRONMENT_CONFIG: 'setup:managed_environment_config',
   MANAGED_ENVIRONMENT_PAT_PREFIX: 'setup:managed_environment_pat:',
   MANAGED_ENVIRONMENT_STATE_PREFIX: 'setup:managed_environment_state:',
+  // Deployment-cache relocation is operational state, not part of the public
+  // repository/key trust selection. Keeping it separate prevents an automatic
+  // cache migration from overwriting a concurrent administrator selection.
+  MANAGED_ENVIRONMENT_CACHE_MIGRATION: 'setup:managed_environment_cache_migration',
 } as const;
 
 export function getManagedEnvironmentPatKey(configFingerprint: string): string {

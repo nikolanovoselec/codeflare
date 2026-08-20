@@ -115,7 +115,7 @@ describe('managed release deployment cache', () => {
 });
 
 describe('R2 managed release cache boundary', () => {
-  it('REQ-STOR-020 AC7: derives a recognizable bounded bucket from account and worker identity', async () => {
+  it('REQ-STOR-025 AC1-AC3: derives a recognizable bounded bucket from account and worker identity', async () => {
     const first = await getManagedReleaseCacheBucketName(' account-1 ', 'Worker_A');
     expect(first).toMatch(/^worker-a-managed-[0-9a-f]{24}$/);
     expect(first.length).toBeLessThanOrEqual(63);
