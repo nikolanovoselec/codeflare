@@ -554,7 +554,7 @@ export function reviewTranscriptFacts(input: {
     && boundaries.has(candidate.boundaryToolUseId));
   const reviewHead = input.reviewHead ?? windows.at(-1)?.head;
   const selectedWindow = reviewHead
-    ? windows.find((candidate) => candidate?.head === reviewHead)
+    ? windows.filter((candidate) => candidate?.head === reviewHead).at(-1)
     : undefined;
   const selectedBoundary = selectedWindow?.boundaryToolUseId
     ? boundaries.get(selectedWindow.boundaryToolUseId)
@@ -683,7 +683,8 @@ export function reviewTranscriptFacts(input: {
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const fixDelivered = later.some((entry) => entry.type === "custom_message"
     && entry.customType === "pr-boundary-fix-follow-up"
-    && entry.details?.head === window?.head);
+    && entry.details?.head === window?.head
+    && entry.details?.boundaryToolUseId === window?.boundaryToolUseId);
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );

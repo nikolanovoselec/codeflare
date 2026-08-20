@@ -154,7 +154,7 @@ function toolResult(
   });
 }
 
-function reviewReminder(head: string, reviewRange: string, base = 'main'): Record<string, unknown> {
+function reviewReminder(head: string, reviewRange: string, base = 'main', boundaryToolUseId = 'push-1'): Record<string, unknown> {
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
@@ -165,7 +165,7 @@ function reviewReminder(head: string, reviewRange: string, base = 'main'): Recor
       branch: 'pi',
       prNumber: 42,
       base,
-      boundaryToolUseId: 'push-1',
+      boundaryToolUseId,
     },
     display: true,
   });
@@ -668,6 +668,27 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
+  });
+
+  it('REQ-AGENT-098/REQ-AGENT-126: selects the latest boundary cycle when one head has multiple review windows', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const firstRange = `${'a'.repeat(40)}..${head}`;
+    const secondRange = `${'c'.repeat(40)}..${head}`;
+    const sessionFile = writeSession([
+      assistantTool('push-old-cycle', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-old-cycle', 'bash'),
+      reviewReminder(head, firstRange, 'main', 'push-old-cycle'),
+      assistantTool('status-new-cycle', 'bash', { command: 'git status --short' }),
+      toolResult('status-new-cycle', 'bash'),
+      reviewReminder(head, secondRange, 'main', 'status-new-cycle'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.reviewHead).toBe(head);
+    expect(facts.reviewRange).toBe(secondRange);
+    expect(facts.reviewBoundaryToolUseId).toBe('status-new-cycle');
+    expect(facts.boundary?.toolUseId).toBe('status-new-cycle');
   });
 
   it('REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion', async () => {
