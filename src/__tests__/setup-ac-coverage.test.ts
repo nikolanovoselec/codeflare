@@ -3,7 +3,7 @@
  *
  * Covered here (REQ-ID appears in each it() name per tdd-discipline):
  *   REQ-SETUP-001 ACs 1, 2, 3, 4, 5
- *   REQ-SETUP-002 ACs 1, 2, 3, 4, 5
+ *   REQ-SETUP-002 ACs 1, 2, 3, 4, 5, 6, 7
  *   REQ-SETUP-012 ACs 1, 2, 3, 4, 5, 6, 7
  *   REQ-SETUP-004 ACs 1, 2, 3, 4, 5
  *
@@ -18,6 +18,7 @@ import type { Env } from '../types';
 import { ValidationError, SetupError, ForbiddenError } from '../lib/error-types';
 import { resetAuthConfigCache } from '../lib/access';
 import { createMockKV } from './helpers/mock-kv';
+import { SETUP_KEYS } from '../lib/kv-keys';
 vi.mock('../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/access')>();
   return {
@@ -563,6 +564,26 @@ describe('Setup AC Coverage', () => {
       // Exactly one completion object
       expect(doneLines).toHaveLength(1);
       expect(doneLines[0].done).toBe(true);
+    });
+
+    it('REQ-SETUP-002 AC6: successful finalization persists setup completion and its timestamp', async () => {
+      const app = createTestApp();
+      mockFullSuccessFlow();
+
+      const res = await app.request(
+        'https://codeflare.test.workers.dev/api/setup/configure',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        }
+      );
+
+      await readNdjson(res);
+      expect(await mockKV.get(SETUP_KEYS.COMPLETE)).toBe('true');
+      const completedAt = await mockKV.get(SETUP_KEYS.COMPLETED_AT);
+      expect(typeof completedAt).toBe('string');
+      expect(Number.isNaN(Date.parse(completedAt!))).toBe(false);
     });
   });
 

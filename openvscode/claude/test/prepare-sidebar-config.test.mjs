@@ -253,6 +253,36 @@ test("REQ-IDE-042 AC1: settings preparation reads the restored company extension
   });
 });
 
+test("REQ-IDE-042 AC1: company allowance rejects valid substituted bytes with a different trusted digest", async () => {
+  const { sourceRoot } = await fixture();
+  const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
+  const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
+  await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
+  const trustedManifest = JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
+  });
+  const substitutedManifest = JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: "a".repeat(64), sequence: 7 },
+    extensions: [{ id: "acme.substituted" }],
+  });
+  await writeFile(managedExtensionsPath, substitutedManifest);
+
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(trustedManifest).digest("hex"),
+  });
+
+  const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+  assert.deepEqual(written["extensions.allowed"], {
+    "*": true,
+    "codeflare.codeflare-agent-sidebar": true,
+  });
+});
+
 test("REQ-IDE-042 AC1: company allowance ignores a restored manifest from another applied release", async () => {
   const { sourceRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");

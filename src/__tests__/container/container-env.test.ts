@@ -395,6 +395,56 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
       expect('REMOTE_CURATION_RELEASE_DIGEST' in buildEnvVars(inactive, baseEnv)).toBe(false);
       expect('REMOTE_CURATION_MANIFEST_DIGEST' in buildEnvVars(inactive, baseEnv)).toBe(false);
     });
+
+    it('assigns exact release and manifest digests on first bucket configuration', async () => {
+      const state = baseState();
+      const { storage } = makeStorage();
+      const releaseDigest = 'd'.repeat(64);
+      const manifestDigest = 'e'.repeat(64);
+
+      await applyBucketName(state, 'codeflare-test', baseEnv, storage, {
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: releaseDigest,
+        remoteCurationManifestDigest: manifestDigest,
+      });
+
+      expect(buildEnvVars(state, baseEnv)).toEqual(expect.objectContaining({
+        REMOTE_CURATION_ACTIVE: 'true',
+        REMOTE_CURATION_RELEASE_DIGEST: releaseDigest,
+        REMOTE_CURATION_MANIFEST_DIGEST: manifestDigest,
+      }));
+    });
+
+    it('updates exact digests on warm restart and clears them when curation becomes inactive', async () => {
+      const state = {
+        ...baseState(),
+        _remoteCurationActive: true,
+        _remoteCurationReleaseDigest: 'a'.repeat(64),
+        _remoteCurationManifestDigest: 'b'.repeat(64),
+      };
+      const { storage } = makeStorage();
+      const nextReleaseDigest = 'd'.repeat(64);
+      const nextManifestDigest = 'e'.repeat(64);
+
+      expect(await applyPrefsOnRestart(state, storage, {
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: nextReleaseDigest,
+        remoteCurationManifestDigest: nextManifestDigest,
+      })).toBe(true);
+      expect(buildEnvVars(state, baseEnv)).toEqual(expect.objectContaining({
+        REMOTE_CURATION_RELEASE_DIGEST: nextReleaseDigest,
+        REMOTE_CURATION_MANIFEST_DIGEST: nextManifestDigest,
+      }));
+
+      expect(await applyPrefsOnRestart(state, storage, {
+        remoteCurationActive: false,
+        remoteCurationReleaseDigest: null,
+        remoteCurationManifestDigest: null,
+      })).toBe(true);
+      expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('REMOTE_CURATION_ACTIVE');
+      expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('REMOTE_CURATION_RELEASE_DIGEST');
+      expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('REMOTE_CURATION_MANIFEST_DIGEST');
+    });
   });
 
   describe('R2_SSE_DISABLED (REQ-ENTERPRISE-018)', () => {

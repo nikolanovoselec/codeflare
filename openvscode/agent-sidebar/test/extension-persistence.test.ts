@@ -261,7 +261,7 @@ test('REQ-IDE-042 AC1: a company manifest from another release is rejected befor
   assert.equal(host.warnings.length, 1);
 });
 
-test('REQ-IDE-042 AC1: changed company manifest bytes are rejected despite a matching release digest', async () => {
+test('REQ-IDE-042 AC1 + REQ-IDE-045 AC7: changed company manifest bytes are rejected with the exact remediation warning', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const trusted = managedExtension();
   writeManagedExtensions(managedExtensionsPath, [trusted]);
