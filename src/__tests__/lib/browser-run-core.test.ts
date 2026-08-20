@@ -34,7 +34,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
     it('leaves a short string untouched', () => {
       expect(mod.truncate('hello')).toBe('hello');
     });
-    it('caps an over-cap string at the limit and reports the dropped count', () => {
+    it('REQ-BROWSER-003 AC4: caps an over-cap string at the limit and reports the dropped count', () => {
       const overage = 50_000;
       const big = 'a'.repeat(mod.MAX_OUTPUT_CHARS + overage);
       const out = mod.truncate(big);
@@ -179,7 +179,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       expect(out.text).toContain('networkidle0');
       expect(out.details).toEqual({ url: 'https://x.test/', empty: true });
     });
-    it('an error surfaces as isError, not a throw', async () => {
+    it('REQ-BROWSER-003 AC5: an error surfaces as isError, not a throw', async () => {
       const fetchImpl = makeFetch(() => ({ ok: false, status: 500, body: null }));
       const out = await mod.executeBrowserAction({
         ...base,

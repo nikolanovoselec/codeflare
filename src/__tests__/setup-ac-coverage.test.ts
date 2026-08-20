@@ -3,7 +3,7 @@
  *
  * Covered here (REQ-ID appears in each it() name per tdd-discipline):
  *   REQ-SETUP-001 ACs 1, 2, 3, 4, 5
- *   REQ-SETUP-002 ACs 1, 2, 3, 4, 5, 6, 7
+ *   REQ-SETUP-002 ACs 1, 2, 3, 4, 5, 6
  *   REQ-SETUP-012 ACs 1, 2, 3, 4, 5, 6, 7
  *   REQ-SETUP-004 ACs 1, 2, 3, 4, 5
  *
@@ -581,7 +581,7 @@ describe('Setup AC Coverage', () => {
 
       await readNdjson(res);
       expect(await mockKV.get(SETUP_KEYS.COMPLETE)).toBe('true');
-      const completedAt = await mockKV.get(SETUP_KEYS.COMPLETED_AT);
+      const completedAt = await mockKV.get(SETUP_KEYS.COMPLETED_AT) as string | null;
       expect(typeof completedAt).toBe('string');
       expect(Number.isNaN(Date.parse(completedAt!))).toBe(false);
     });
