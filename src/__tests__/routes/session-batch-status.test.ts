@@ -9,7 +9,7 @@
  *              AC7 (frontend disposal on stopped transition - structural)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Env, Session, UsageRecord } from '../../types';
+import type { AccessUser, Env, Session, UsageRecord } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import {
@@ -80,13 +80,15 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
     managedReleaseState.active = null;
     managedReleaseState.error = null;
+    vi.mocked(isSaasModeActive).mockReturnValue(false);
   });
 
-  function createApp(envOverrides: Partial<Env> = {}) {
+  function createApp(envOverrides: Partial<Env> = {}, user?: AccessUser) {
     return createTestApp({
       routes: [{ path: '/sessions', handler: lifecycleRoutes }],
       mockKV,
       envOverrides,
+      ...(user && { user }),
     });
   }
 
@@ -468,6 +470,25 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
       expect(body.managedReleaseStatus).toBe('update_pending');
       expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('reports upgrading when a downgraded SaaS user has advanced managed content applied', async () => {
+      vi.mocked(isSaasModeActive).mockReturnValue(true);
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      const res = await createApp({ SAAS_MODE: 'active' }, {
+        email: 'test@example.com',
+        authenticated: true,
+        subscriptionTier: 'advanced',
+        billingStatus: 'canceled',
+      }).request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
     it('reports current only when both the active digest and resolved mode match applied state', async () => {

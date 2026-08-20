@@ -11,7 +11,7 @@
  * harness; same code path as REQ-STOR-003 / REQ-STOR-004).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Env } from '../../types';
+import type { AccessUser, Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -27,6 +27,7 @@ const testState = vi.hoisted(() => ({
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
   activeManagedRelease: null as null | { digest: string; pointer: { sequence: number } },
   managedReleaseError: null as Error | null,
+  saasMode: false,
 }));
 
 vi.mock('@cloudflare/containers', () => ({
@@ -59,7 +60,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
   getContainerSessionsCB: () => passThroughCB,
 }));
 
-vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
+vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => testState.saasMode) }));
 vi.mock('../../lib/managed-release-active', () => ({
   getActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
@@ -101,6 +102,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     testState.seedResult = { written: [], skipped: [] };
     testState.activeManagedRelease = null;
     testState.managedReleaseError = null;
+    testState.saasMode = false;
     mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
       id: 'abcdef1234567890abcdef12',
       name: 'Test Session',
@@ -111,11 +113,12 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
   });
 
-  function createApp(extraEnv: Partial<Env> = {}) {
+  function createApp(extraEnv: Partial<Env> = {}, user?: AccessUser) {
     const app = createTestApp({
       routes: [{ path: '/container', handler: lifecycleRoutes }],
       mockKV,
       envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ...extraEnv } as Partial<Env>,
+      ...(user && { user }),
     });
     return (path: string, init?: RequestInit) => {
       const req = new Request(`http://localhost${path}`, init);
@@ -162,6 +165,29 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp({ ENTERPRISE_MODE: 'active' });
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+
+    it('blocks a downgraded SaaS user whose applied managed release still uses advanced mode', async () => {
+      testState.saasMode = true;
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-08-18T00:00:00.000Z' },
+      });
+      const fetch = createApp({ SAAS_MODE: 'active' }, {
+        email: 'test@example.com',
+        authenticated: true,
+        subscriptionTier: 'advanced',
+        billingStatus: 'canceled',
+      });
 
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
       const body = await response.json() as { code: string };

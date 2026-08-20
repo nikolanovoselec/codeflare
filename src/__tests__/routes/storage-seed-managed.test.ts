@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AccessUser, Env } from '../../types';
 import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
 import {
   getActiveVerifiedManagedRelease,
@@ -61,13 +62,17 @@ const release: ManagedRelease = {
   managedExtensions: [],
 };
 
-function appFor(mockKV: ReturnType<typeof createMockKV>) {
+function appFor(
+  mockKV: ReturnType<typeof createMockKV>,
+  user: AccessUser = { email: 'user@example.com', authenticated: true, accessTier: 'unlimited' as never },
+  envOverrides: Partial<Env> = {},
+) {
   return createTestApp({
     routes: [{ path: '/seed', handler: routes }],
     mockKV,
     bucketName: 'user-bucket',
-    user: { email: 'user@example.com', authenticated: true, accessTier: 'unlimited' as never },
-    envOverrides: { R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret', CLOUDFLARE_API_TOKEN: 'token' },
+    user,
+    envOverrides: { R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret', CLOUDFLARE_API_TOKEN: 'token', ...envOverrides },
   });
 }
 
@@ -144,6 +149,29 @@ describe('managed storage reconcile', () => {
     expect(Date.parse(applied.managedEnvironmentApplied.appliedAt)).not.toBeNaN();
     const finalPut = kv.put.mock.calls.at(-1)!;
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
+  });
+
+  it('reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+
+    const response = await appFor(kv, {
+      email: 'user@example.com',
+      authenticated: true,
+      subscriptionTier: 'advanced',
+      billingStatus: 'canceled',
+    }, { SAAS_MODE: 'active' }).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-bucket',
+      'https://r2.example.com',
+      'default',
+      expect.anything(),
+    );
+    const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(applied.managedEnvironmentApplied.mode).toBe('default');
   });
 
   it('REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails', async () => {
