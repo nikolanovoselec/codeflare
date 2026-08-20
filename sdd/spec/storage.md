@@ -594,8 +594,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. A losing concurrent selection makes at most four repair attempts. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 5. Reconfiguration fails explicitly when selection does not settle within the repair bound. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 6. Exhausted repair preserves the last observed authoritative selection. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+7. The deployment cache bucket includes the sanitized Worker name, retains a collision-resistant account-and-Worker suffix, and never exceeds R2's 63-character limit. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC7: derives a recognizable bounded bucket from account and worker identity) -->
+8. A selected legacy opaque bucket moves automatically only after the recognizable bucket contains a verified active release; configuration switches before the exact authenticated legacy bucket is emptied and deleted, and incomplete cleanup remains retryable. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (REQ-STOR-020 AC8: empties and deletes only an existing named bucket) -->
 
-**Constraints:** A losing selection cannot overwrite or roll back the winner.
+**Constraints:** A losing selection cannot overwrite or roll back the winner. Legacy cleanup never scans by prefix or deletes an unverified bucket identity.
 
 **Priority:** P1
 

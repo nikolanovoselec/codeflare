@@ -138,15 +138,45 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
+async function managedReleaseCacheSuffix(accountId: string, workerName: string): Promise<string> {
+  const normalizedAccountId = accountId.trim();
+  const normalizedWorkerName = workerName.trim() || 'codeflare';
+  if (!normalizedAccountId) throw new Error('Managed release cache requires a Cloudflare account ID');
+  const identity = `${normalizedAccountId}\0${normalizedWorkerName}`;
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity)));
+  return Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function trimBucketHyphens(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '-') start += 1;
+  while (end > start && value[end - 1] === '-') end -= 1;
+  return value.slice(start, end);
+}
+
+function recognizableWorkerName(workerName: string, maxLength: number): string {
+  const sanitized = trimBucketHyphens(workerName.trim().toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')) || 'codeflare';
+  return trimBucketHyphens(sanitized.slice(0, maxLength)) || 'codeflare'.slice(0, maxLength);
+}
+
+/** Exact pre-recognizable derivation retained only to authenticate legacy cleanup. */
+export async function getLegacyManagedReleaseCacheBucketName(
+  accountId: string,
+  workerName = 'codeflare',
+): Promise<string> {
+  return `codeflare-managed-${await managedReleaseCacheSuffix(accountId, workerName)}`;
+}
+
 export async function getManagedReleaseCacheBucketName(
   accountId: string,
   workerName = 'codeflare',
 ): Promise<string> {
-  const identity = `${accountId.trim()}\0${workerName.trim() || 'codeflare'}`;
-  if (!accountId.trim()) throw new Error('Managed release cache requires a Cloudflare account ID');
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity)));
-  const suffix = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, '0')).join('');
-  return `codeflare-managed-${suffix}`;
+  const suffix = `-managed-${await managedReleaseCacheSuffix(accountId, workerName)}`;
+  const recognizable = recognizableWorkerName(workerName || 'codeflare', 63 - suffix.length);
+  return `${recognizable}${suffix}`;
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   activateManagedRelease,
   createR2ManagedReleaseCache,
+  getLegacyManagedReleaseCacheBucketName,
   getManagedReleaseCacheBucketName,
   type ActiveManagedRelease,
   type ManagedReleaseCache,
@@ -114,12 +115,22 @@ describe('managed release deployment cache', () => {
 });
 
 describe('R2 managed release cache boundary', () => {
-  it('derives a stable deployment bucket from both account and worker identity', async () => {
-    const first = await getManagedReleaseCacheBucketName(' account-1 ', 'worker-a');
-    expect(first).toMatch(/^codeflare-managed-[0-9a-f]{24}$/);
-    await expect(getManagedReleaseCacheBucketName('account-1', 'worker-a')).resolves.toBe(first);
+  it('REQ-STOR-020 AC7: derives a recognizable bounded bucket from account and worker identity', async () => {
+    const first = await getManagedReleaseCacheBucketName(' account-1 ', 'Worker_A');
+    expect(first).toMatch(/^worker-a-managed-[0-9a-f]{24}$/);
+    expect(first.length).toBeLessThanOrEqual(63);
+    await expect(getManagedReleaseCacheBucketName('account-1', 'Worker_A')).resolves.toBe(first);
     await expect(getManagedReleaseCacheBucketName('account-1', 'worker-b')).resolves.not.toBe(first);
-    await expect(getManagedReleaseCacheBucketName('account-2', 'worker-a')).resolves.not.toBe(first);
+    await expect(getManagedReleaseCacheBucketName('account-2', 'Worker_A')).resolves.not.toBe(first);
+
+    const bounded = await getManagedReleaseCacheBucketName('account-1', `${'long-worker-'.repeat(10)}tail`);
+    expect(bounded).toMatch(/^[a-z0-9-]+-managed-[0-9a-f]{24}$/);
+    expect(bounded.length).toBeLessThanOrEqual(63);
+  });
+
+  it('retains the exact legacy derivation only for authenticated cleanup', async () => {
+    await expect(getLegacyManagedReleaseCacheBucketName('account-1', 'worker-a'))
+      .resolves.toMatch(/^codeflare-managed-[0-9a-f]{24}$/);
   });
 
   it('uses configuration-scoped pointer keys, real create/update CAS headers, and R2 SSE', async () => {

@@ -22,7 +22,16 @@ vi.mock('../../lib/cf-api', () => ({
   parseCfResponse: vi.fn(),
 }));
 
-import { createBucketIfNotExists, createScopedR2Token, deleteScopedR2Token, getOrCreateScopedR2Token } from '../../lib/r2-admin';
+const r2ClientMocks = vi.hoisted(() => ({
+  client: { sign: vi.fn() },
+  empty: vi.fn(async () => 0),
+}));
+vi.mock('../../lib/r2-client', () => ({
+  createR2Client: vi.fn(() => r2ClientMocks.client),
+  emptyR2Bucket: r2ClientMocks.empty,
+}));
+
+import { createBucketIfNotExists, createScopedR2Token, deleteR2BucketIfExists, deleteScopedR2Token, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { parseCfResponse } from '../../lib/cf-api';
 import { r2AdminCB } from '../../lib/circuit-breakers';
 
@@ -140,6 +149,77 @@ describe('r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / RE
         expect.stringContaining('/accounts/test-account-id/r2/buckets/bucket-name'),
         expect.anything(),
       );
+    });
+  });
+
+  describe('deleteR2BucketIfExists', () => {
+    it('REQ-STOR-020 AC8: empties and deletes only an existing named bucket', async () => {
+      mockFetch
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+        .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+      await expect(deleteR2BucketIfExists({
+        accountId: 'account-123',
+        apiToken: 'token-abc',
+        bucketName: 'worker-managed-abc123',
+        endpoint: 'https://account-123.r2.cloudflarestorage.com',
+        r2Credentials: { R2_ACCESS_KEY_ID: 'access', R2_SECRET_ACCESS_KEY: 'secret' },
+      })).resolves.toBe(true);
+
+      expect(r2ClientMocks.empty).toHaveBeenCalledWith(
+        r2ClientMocks.client,
+        'https://account-123.r2.cloudflarestorage.com',
+        'worker-managed-abc123',
+        undefined,
+        mockFetch,
+      );
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        expect.stringContaining('/accounts/account-123/r2/buckets/worker-managed-abc123'),
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+    });
+
+    it('treats an absent bucket as already deleted without issuing S3 work', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+
+      await expect(deleteR2BucketIfExists({
+        accountId: 'account-123',
+        apiToken: 'token-abc',
+        bucketName: 'worker-managed-abc123',
+        endpoint: 'https://account-123.r2.cloudflarestorage.com',
+        r2Credentials: { R2_ACCESS_KEY_ID: 'access', R2_SECRET_ACCESS_KEY: 'secret' },
+      })).resolves.toBe(false);
+
+      expect(r2ClientMocks.empty).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an invalid bucket identity before any network request', async () => {
+      await expect(deleteR2BucketIfExists({
+        accountId: 'account-123',
+        apiToken: 'token-abc',
+        bucketName: '../user-bucket',
+        endpoint: 'https://account-123.r2.cloudflarestorage.com',
+        r2Credentials: { R2_ACCESS_KEY_ID: 'access', R2_SECRET_ACCESS_KEY: 'secret' },
+      })).rejects.toThrow(/bucket name is invalid/i);
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(r2ClientMocks.empty).not.toHaveBeenCalled();
+    });
+
+    it('does not delete a bucket when emptying it fails', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+      r2ClientMocks.empty.mockRejectedValueOnce(new Error('ListObjectsV2 failed'));
+
+      await expect(deleteR2BucketIfExists({
+        accountId: 'account-123',
+        apiToken: 'token-abc',
+        bucketName: 'worker-managed-abc123',
+        endpoint: 'https://account-123.r2.cloudflarestorage.com',
+        r2Credentials: { R2_ACCESS_KEY_ID: 'access', R2_SECRET_ACCESS_KEY: 'secret' },
+      })).rejects.toThrow(/ListObjectsV2 failed/);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -17,11 +17,12 @@ import {
   getManagedEnvironmentStateKey,
   SETUP_KEYS,
 } from './kv-keys';
-import { createBucketIfNotExists } from './r2-admin';
+import { createBucketIfNotExists, deleteR2BucketIfExists } from './r2-admin';
 import {
   activateCachedManagedRelease,
   activateManagedRelease,
   createR2ManagedReleaseCache,
+  getLegacyManagedReleaseCacheBucketName,
   getManagedReleaseCacheBucketName,
   type ActiveManagedRelease,
   type ManagedReleaseCache,
@@ -135,6 +136,7 @@ const ManagedEnvironmentConfigSchema = z.object({
   publicKeyFingerprint: z.string().regex(/^[0-9a-f]{16}$/),
   configFingerprint: Hex64,
   cacheBucketName: z.string().min(1).max(63),
+  legacyCacheBucketName: z.string().min(1).max(63).optional(),
 }).strict();
 
 export type ManagedEnvironmentConfig = z.infer<typeof ManagedEnvironmentConfigSchema>;
@@ -906,6 +908,112 @@ async function readEncryptedManagedPat(
   return parsed.data.token;
 }
 
+async function prepareManagedCacheMigration(input: {
+  config: ManagedEnvironmentConfig;
+  env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>;
+  accountId: string;
+  endpoint: string;
+  token: string;
+  fetcher?: typeof fetch;
+  now?: Date;
+}): Promise<ManagedEnvironmentConfig> {
+  const workerName = input.env.CLOUDFLARE_WORKER_NAME?.trim() || 'codeflare';
+  const [legacyBucketName, cacheBucketName] = await Promise.all([
+    getLegacyManagedReleaseCacheBucketName(input.accountId, workerName),
+    getManagedReleaseCacheBucketName(input.accountId, workerName),
+  ]);
+  if (input.config.legacyCacheBucketName && input.config.legacyCacheBucketName !== legacyBucketName) {
+    throw new Error('Managed release cache cleanup identity is invalid');
+  }
+  if (input.config.cacheBucketName === cacheBucketName) return input.config;
+  if (input.config.cacheBucketName !== legacyBucketName) return input.config;
+
+  const bucket = await createBucketIfNotExists(input.accountId, input.env.CLOUDFLARE_API_TOKEN, cacheBucketName);
+  if (!bucket.success) {
+    throw new Error(`Failed to create recognizable managed release cache bucket: ${bucket.error ?? 'unknown error'}`);
+  }
+  const cache = createR2ManagedReleaseCache({
+    env: input.env,
+    endpoint: input.endpoint,
+    bucketName: cacheBucketName,
+    configFingerprint: input.config.configFingerprint,
+    fetcher: input.fetcher,
+  });
+  const resolved = await resolveManagedEnvironmentRelease({
+    kv: input.env.KV,
+    stateKey: getManagedEnvironmentStateKey(input.config.configFingerprint),
+    cache,
+    repository: input.config.repository,
+    repositoryId: input.config.repositoryId,
+    token: input.token,
+    publicKeyHex: input.config.publicKeyHex,
+    expectedRuntimeHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+    fetcher: input.fetcher,
+    now: input.now,
+    requireFresh: true,
+  });
+  if (!resolved.active) throw new Error('Recognizable managed release cache has no verified active release');
+
+  const current = await loadManagedEnvironmentConfig(input.env.KV, true);
+  if (!current
+    || current.configFingerprint !== input.config.configFingerprint
+    || current.cacheBucketName !== legacyBucketName) {
+    throw new Error('Managed environment selection changed during cache migration');
+  }
+  const migrated: ManagedEnvironmentConfig = {
+    ...current,
+    cacheBucketName,
+    legacyCacheBucketName: legacyBucketName,
+  };
+  await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(migrated));
+  return migrated;
+}
+
+async function cleanupLegacyManagedCache(input: {
+  config: ManagedEnvironmentConfig;
+  env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>;
+  accountId: string;
+  endpoint: string;
+  fetcher?: typeof fetch;
+}): Promise<ManagedEnvironmentConfig> {
+  if (!input.config.legacyCacheBucketName) return input.config;
+  const workerName = input.env.CLOUDFLARE_WORKER_NAME?.trim() || 'codeflare';
+  const [legacyBucketName, cacheBucketName] = await Promise.all([
+    getLegacyManagedReleaseCacheBucketName(input.accountId, workerName),
+    getManagedReleaseCacheBucketName(input.accountId, workerName),
+  ]);
+  if (input.config.legacyCacheBucketName !== legacyBucketName
+    || input.config.cacheBucketName !== cacheBucketName) {
+    throw new Error('Managed release cache cleanup identity is invalid');
+  }
+  const selectedBeforeDelete = await loadManagedEnvironmentConfig(input.env.KV, true);
+  if (!selectedBeforeDelete
+    || selectedBeforeDelete.configFingerprint !== input.config.configFingerprint
+    || selectedBeforeDelete.cacheBucketName !== cacheBucketName
+    || selectedBeforeDelete.legacyCacheBucketName !== legacyBucketName) {
+    throw new Error('Managed environment selection changed before cache cleanup');
+  }
+  await deleteR2BucketIfExists({
+    accountId: input.accountId,
+    apiToken: input.env.CLOUDFLARE_API_TOKEN,
+    bucketName: legacyBucketName,
+    endpoint: input.endpoint,
+    r2Credentials: input.env,
+    fetcher: input.fetcher,
+  });
+
+  const current = await loadManagedEnvironmentConfig(input.env.KV, true);
+  if (!current
+    || current.configFingerprint !== input.config.configFingerprint
+    || current.cacheBucketName !== cacheBucketName
+    || current.legacyCacheBucketName !== legacyBucketName) {
+    return input.config;
+  }
+  const { legacyCacheBucketName: _deleted, ...settled } = current;
+  await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(settled));
+  return settled;
+}
+
 export async function configureManagedEnvironment(input: {
   env: Pick<Env, 'KV' | 'CLOUDFLARE_API_TOKEN' | 'ENCRYPTION_KEY'>;
   accountId: string;
@@ -946,12 +1054,16 @@ export async function configureManagedEnvironment(input: {
 
   const fetcher = input.fetcher ?? fetch;
   const repositoryId = await resolveRepositoryId(repository, token, fetcher);
-  const [publicKeyFingerprint, configFingerprint, sequenceFingerprint, cacheBucketName] = await Promise.all([
+  const [publicKeyFingerprint, configFingerprint, sequenceFingerprint, cacheBucketName, legacyBucketName] = await Promise.all([
     getManagedEnvironmentKeyFingerprint(publicKeyHex),
     getManagedEnvironmentConfigFingerprint(repositoryId, publicKeyHex),
     getManagedEnvironmentSequenceFingerprint(repositoryId),
     getManagedReleaseCacheBucketName(input.accountId, input.workerName),
+    getLegacyManagedReleaseCacheBucketName(input.accountId, input.workerName),
   ]);
+  if (existing?.legacyCacheBucketName && existing.legacyCacheBucketName !== legacyBucketName) {
+    throw new Error('Managed release cache cleanup identity is invalid');
+  }
   const bucket = await createBucketIfNotExists(input.accountId, input.env.CLOUDFLARE_API_TOKEN, cacheBucketName);
   if (!bucket.success) throw new Error(`Failed to create managed release cache bucket: ${bucket.error ?? 'unknown error'}`);
 
@@ -971,7 +1083,7 @@ export async function configureManagedEnvironment(input: {
   });
   const priorCache = existing
     && existing.repositoryId === repositoryId
-    && existing.configFingerprint !== configFingerprint
+    && (existing.configFingerprint !== configFingerprint || existing.cacheBucketName !== cacheBucketName)
     ? createR2ManagedReleaseCache({
       env: input.r2Credentials,
       endpoint: input.endpoint,
@@ -1016,6 +1128,10 @@ export async function configureManagedEnvironment(input: {
     await activateCachedManagedRelease(cache, prepared);
   }
 
+  const pendingLegacyBucketName = existing?.legacyCacheBucketName
+    ?? (existing?.cacheBucketName === legacyBucketName && legacyBucketName !== cacheBucketName
+      ? legacyBucketName
+      : undefined);
   const candidate: ManagedEnvironmentConfig = {
     schemaVersion: 1,
     enabled: true,
@@ -1025,6 +1141,7 @@ export async function configureManagedEnvironment(input: {
     publicKeyFingerprint,
     configFingerprint,
     cacheBucketName,
+    ...(pendingLegacyBucketName ? { legacyCacheBucketName: pendingLegacyBucketName } : {}),
   };
   const patKey = getManagedEnvironmentPatKey(configFingerprint);
   const sameNamespace = existing?.configFingerprint === configFingerprint;
@@ -1054,7 +1171,16 @@ export async function configureManagedEnvironment(input: {
     const active = await activatePrepared();
     const sequenceWinner = await activateCachedManagedRelease(sequenceCache, {
       ...active,
-      selection: { ...candidate, enabled: true },
+      selection: {
+        schemaVersion: candidate.schemaVersion,
+        enabled: true,
+        repository: candidate.repository,
+        repositoryId: candidate.repositoryId,
+        publicKeyHex: candidate.publicKeyHex,
+        publicKeyFingerprint: candidate.publicKeyFingerprint,
+        configFingerprint: candidate.configFingerprint,
+        cacheBucketName: candidate.cacheBucketName,
+      },
     });
     if (sequenceWinner.selection?.configFingerprint !== candidate.configFingerprint) {
       throw new Error('Managed environment newer release won the concurrent selection');
@@ -1146,7 +1272,7 @@ export async function configureManagedEnvironment(input: {
 }
 
 export async function resolveManagedEnvironment(input: {
-  env: Pick<Env, 'KV' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY'>;
+  env: Pick<Env, 'KV' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME'>;
   fetcher?: typeof fetch;
   now?: Date;
   requireFresh?: boolean;
@@ -1159,7 +1285,7 @@ export async function resolveManagedEnvironment(input: {
   lastCheckedAt?: string;
   lastError?: string;
 }> {
-  const config = await loadManagedEnvironmentConfig(input.env.KV, true);
+  let config = await loadManagedEnvironmentConfig(input.env.KV, true);
   if (!config) return { configured: false, enabled: false, freshness: 'unconfigured' };
   if (!config.enabled) return { configured: true, enabled: false, config, freshness: 'disabled' };
 
@@ -1173,8 +1299,21 @@ export async function resolveManagedEnvironment(input: {
     if (!cryptoKey) throw new Error('Managed environment encryption key is unavailable');
     storedPat = await readEncryptedManagedPat(input.env.KV, config.configFingerprint, cryptoKey) ?? '';
     if (!storedPat) throw new Error('Managed environment repository PAT is unavailable');
-    const endpoint = await input.env.KV.get(SETUP_KEYS.R2_ENDPOINT);
+    const [accountId, endpoint] = await Promise.all([
+      input.env.KV.get(SETUP_KEYS.ACCOUNT_ID),
+      input.env.KV.get(SETUP_KEYS.R2_ENDPOINT),
+    ]);
+    if (!accountId) throw new Error('Managed environment R2 account ID is unavailable');
     if (!endpoint) throw new Error('Managed environment R2 endpoint is unavailable');
+    config = await prepareManagedCacheMigration({
+      config,
+      env: input.env,
+      accountId,
+      endpoint,
+      token: storedPat,
+      fetcher: input.fetcher,
+      now: input.now,
+    });
     const cache = createR2ManagedReleaseCache({
       env: input.env,
       endpoint,
@@ -1195,6 +1334,15 @@ export async function resolveManagedEnvironment(input: {
       now: input.now,
       requireFresh: input.requireFresh,
     });
+    if (resolved.active && config.legacyCacheBucketName) {
+      config = await cleanupLegacyManagedCache({
+        config,
+        env: input.env,
+        accountId,
+        endpoint,
+        fetcher: input.fetcher,
+      });
+    }
     return {
       configured: true,
       enabled: true,
