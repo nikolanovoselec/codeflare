@@ -259,6 +259,32 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied.digest).toBe('d'.repeat(64));
   });
 
+  it('REQ-STOR-022 AC4 + REQ-STOR-024 AC5: disables without disposable cache history', async () => {
+    state.active = null;
+    state.cached = null;
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64),
+        managedExtensionsDigest: '2'.repeat(64),
+        sequence: 8,
+        mode: 'advanced',
+        appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
+      managedRelease: null,
+      priorManagedDigest: '1'.repeat(64),
+    }));
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+  });
+
   it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {
     state.active = null;
     const prior = { ...release, sequence: 8 };

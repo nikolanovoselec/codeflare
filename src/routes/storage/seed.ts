@@ -136,7 +136,9 @@ app.post('/agent-configs', async (c) => {
         }
       : priorManagedRelease
         ? { managedRelease: null, priorManagedRelease }
-        : {};
+        : priorManagedDigest
+          ? { managedRelease: null, priorManagedDigest }
+          : {};
 
     const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {
       overwrite: true,
@@ -145,7 +147,7 @@ app.post('/agent-configs', async (c) => {
       r2SseDisabled,
       ...managedOptions,
     });
-    if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
+    if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
       throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
     }
 
