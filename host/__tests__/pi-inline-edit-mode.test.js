@@ -111,8 +111,25 @@ test('REQ-IDE-025: inline result mode isolates provider tools and context then r
     tool_choice: { type: 'function', function: { name: INLINE_EDIT_TOOL } },
     parallel_tool_calls: false,
   });
-  const unknownPayload = { input: [{ role: 'user', content: 'request' }] };
-  assert.equal(await runtime.emit('before_provider_request', { payload: unknownPayload }), unknownPayload);
+  const responsesPayload = {
+    model: 'gpt-5.6-sol',
+    input: [{ role: 'user', content: 'request' }],
+    reasoning: { effort: 'high', summary: 'auto' },
+    tools: [
+      { type: 'function', name: 'ask_user_question', parameters: {} },
+      { type: 'function', name: INLINE_EDIT_TOOL, parameters: {} },
+    ],
+    tool_choice: 'auto',
+    parallel_tool_calls: true,
+  };
+  assert.deepEqual(await runtime.emit('before_provider_request', { payload: responsesPayload }), {
+    ...responsesPayload,
+    tools: [{ type: 'function', name: INLINE_EDIT_TOOL, parameters: {} }],
+    tool_choice: { type: 'function', name: INLINE_EDIT_TOOL },
+    parallel_tool_calls: false,
+  });
+  const qwenPayload = { input: [{ role: 'user', content: 'request' }] };
+  assert.equal(await runtime.emit('before_provider_request', { payload: qwenPayload }), qwenPayload);
 
   assert.deepEqual(
     await runtime.emit('tool_call', { toolName: 'write', toolCallId: 'write-1', input: { path: '/tmp/x' } }),
@@ -132,6 +149,32 @@ test('REQ-IDE-025: inline result mode isolates provider tools and context then r
   assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write']);
 });
 
+test('REQ-IDE-027: sidebar panel requests ask OpenAI Responses models for visible reasoning summaries', async () => {
+  const previousGeneration = process.env.CODEFLARE_SIDEBAR_PROCESS_GENERATION;
+  process.env.CODEFLARE_SIDEBAR_PROCESS_GENERATION = 'test-generation';
+  try {
+    const runtime = fixture();
+    const responsesPayload = {
+      input: [{ role: 'user', content: 'request' }],
+      reasoning: { effort: 'high', summary: 'auto' },
+      tools: [{ type: 'function', name: 'read', parameters: {} }],
+    };
+    assert.deepEqual(await runtime.emit('before_provider_request', { payload: responsesPayload }), {
+      ...responsesPayload,
+      reasoning: { effort: 'high', summary: 'detailed' },
+    });
+
+    const qwenPayload = {
+      messages: [{ role: 'user', content: 'request' }],
+      reasoning_effort: 'high',
+    };
+    assert.equal(await runtime.emit('before_provider_request', { payload: qwenPayload }), qwenPayload);
+  } finally {
+    if (previousGeneration === undefined) delete process.env.CODEFLARE_SIDEBAR_PROCESS_GENERATION;
+    else process.env.CODEFLARE_SIDEBAR_PROCESS_GENERATION = previousGeneration;
+  }
+});
+
 test('REQ-IDE-030: inline results use host correlation and reject duplicates', async () => {
   const runtime = fixture();
   await runtime.emit('session_start');
@@ -143,7 +186,7 @@ test('REQ-IDE-030: inline results use host correlation and reject duplicates', a
   await assert.rejects(tool.execute('result-stale', proposal), /active editor turn/i);
   await command.handler(encodeInlineEditCommandPayload({
     requestId: 'inline-12345678',
-    prompt: 'Explain this code.',
+    prompt: 'Use const for the selected declaration.',
   }), {
     waitForIdle: async () => undefined,
   });

@@ -4,6 +4,7 @@ import { Type } from "typebox";
 export const INLINE_EDIT_COMMAND = "codeflare-inline-edit";
 export const INLINE_EDIT_TOOL = "codeflare_submit_inline_result";
 const MAX_COMMAND_BYTES = 2 * 1024 * 1024;
+const SIDEBAR_PROCESS_GENERATION_ENV = "CODEFLARE_SIDEBAR_PROCESS_GENERATION";
 
 export type InlineEditCommandPayload = {
   requestId: string;
@@ -61,23 +62,55 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isOpenAiFunctionTool(value: unknown, name: string): boolean {
+function isOpenAiChatFunctionTool(value: unknown, name: string): boolean {
   return isRecord(value)
     && value.type === "function"
     && isRecord(value.function)
     && value.function.name === name;
 }
 
-export function constrainInlineOpenAiPayload(payload: unknown): unknown {
-  if (!isRecord(payload) || !Array.isArray(payload.messages) || !Array.isArray(payload.tools)) return payload;
-  const resultTool = payload.tools.find((tool) => isOpenAiFunctionTool(tool, INLINE_EDIT_TOOL));
-  if (!resultTool) return payload;
+function isOpenAiResponsesFunctionTool(value: unknown, name: string): boolean {
+  return isRecord(value)
+    && value.type === "function"
+    && value.name === name;
+}
+
+export function requestSidebarReasoningSummary(payload: unknown): unknown {
+  if (
+    !isRecord(payload)
+    || !Array.isArray(payload.input)
+    || !isRecord(payload.reasoning)
+    || payload.reasoning.summary !== "auto"
+  ) return payload;
   return {
     ...payload,
-    tools: [resultTool],
-    tool_choice: { type: "function", function: { name: INLINE_EDIT_TOOL } },
-    parallel_tool_calls: false,
+    reasoning: { ...payload.reasoning, summary: "detailed" },
   };
+}
+
+export function constrainInlineOpenAiPayload(payload: unknown): unknown {
+  if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
+  if (Array.isArray(payload.messages)) {
+    const resultTool = payload.tools.find((tool) => isOpenAiChatFunctionTool(tool, INLINE_EDIT_TOOL));
+    if (!resultTool) return payload;
+    return {
+      ...payload,
+      tools: [resultTool],
+      tool_choice: { type: "function", function: { name: INLINE_EDIT_TOOL } },
+      parallel_tool_calls: false,
+    };
+  }
+  if (Array.isArray(payload.input)) {
+    const resultTool = payload.tools.find((tool) => isOpenAiResponsesFunctionTool(tool, INLINE_EDIT_TOOL));
+    if (!resultTool) return payload;
+    return {
+      ...payload,
+      tools: [resultTool],
+      tool_choice: { type: "function", name: INLINE_EDIT_TOOL },
+      parallel_tool_calls: false,
+    };
+  }
+  return payload;
 }
 
 export default function registerInlineEditMode(pi: ExtensionAPI): void {
@@ -96,8 +129,9 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
     promptSnippet: "Submit the final native Inline Chat result",
     promptGuidelines: [
       `Submit exactly one ${INLINE_EDIT_TOOL} call and do not emit prose afterward.`,
-      "Use outcome edit with one or more edits only when the document must change.",
-      "Use outcome noChange with an empty edits array for explanations or when no document change is needed.",
+      "Inline Chat is an edit surface: treat the invoking prompt as a request to change the selected document.",
+      "Use outcome edit with one or more edits whenever the requested change can be made.",
+      "Use outcome noChange only when the requested state already exists or no valid safe edit can be formed; a brief prompt or the word here is not a no-change reason.",
       "If invalid arguments are rejected, correct them within the same turn; never submit a second accepted result.",
     ],
     parameters: Type.Object({
@@ -164,9 +198,10 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
     if (!active) return;
     return {
       systemPrompt: [
-        "You are handling one Codeflare native Inline Chat request.",
+        "You are handling one Codeflare native Inline Chat edit request.",
         `Call ${INLINE_EDIT_TOOL} exactly once and emit no prose outside that call.`,
-        "Use outcome edit only for a required document change; otherwise use outcome noChange with an empty edits array and a concise explanation.",
+        "Treat the invoking prompt as a request to change the selected document and return edits whenever that change can be made.",
+        "Use noChange only when the requested state already exists or no valid safe edit can be formed; never infer no change merely because the prompt is brief or says here.",
         "Edit coordinates are zero-based UTF-16 line and character positions.",
         "Do not use filesystem tools or expose chain-of-thought.",
       ].join(" "),
@@ -187,8 +222,11 @@ export default function registerInlineEditMode(pi: ExtensionAPI): void {
   });
 
   pi.on("before_provider_request", (event: any) => {
-    if (!active) return;
-    return constrainInlineOpenAiPayload(event?.payload);
+    const sidebarGeneration = process.env[SIDEBAR_PROCESS_GENERATION_ENV];
+    const isSidebarProcess = typeof sidebarGeneration === "string" && sidebarGeneration.length > 0;
+    if (active) return constrainInlineOpenAiPayload(event?.payload);
+    if (!isSidebarProcess) return;
+    return requestSidebarReasoningSummary(event?.payload);
   });
 
   pi.on("tool_call", (event: any) => {
