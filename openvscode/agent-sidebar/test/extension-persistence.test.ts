@@ -107,12 +107,18 @@ function managedExtension(
   };
 }
 
-function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
-  writeFileSync(path, JSON.stringify({
+function managedExtensionsBytes(records: Array<ReturnType<typeof managedExtension>>) {
+  return JSON.stringify({
     schemaVersion: 1,
     release: { digest: 'a'.repeat(64), sequence: 7 },
     extensions: records,
-  }));
+  });
+}
+
+function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
+  const bytes = managedExtensionsBytes(records);
+  writeFileSync(path, bytes);
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = createHash('sha256').update(bytes).digest('hex');
 }
 
 function writeRegistry(
@@ -172,6 +178,7 @@ afterEach(() => {
   delete process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST;
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
   delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -248,6 +255,35 @@ test('REQ-IDE-042 AC1: a company manifest from another release is rejected befor
   assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
   assert.equal(fetcher.mock.calls.length, 0);
   assert.equal(host.warnings.length, 1);
+});
+
+test('REQ-IDE-042 AC1: changed company manifest bytes are rejected despite a matching release digest', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const trusted = managedExtension();
+  writeManagedExtensions(managedExtensionsPath, [trusted]);
+  const substituted = managedExtension('acme.substituted', '1.0.0');
+  writeFileSync(managedExtensionsPath, managedExtensionsBytes([substituted]));
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(fetcher.mock.calls.length, 0);
+  assert.equal(host.commands.length, 0);
+});
+
+test('REQ-IDE-042 AC3: a missing active-release manifest preserves prior company extensions', async () => {
+  const { extensionsDir, managedExtensionsPath } = fixture();
+  const priorId = 'acme.company';
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([priorId]));
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = 'b'.repeat(64);
+
+  const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
+
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.equal(host.commands.length, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
 });
 
 test('REQ-IDE-044 AC1: unsigned company download URLs are rejected before download', async () => {
