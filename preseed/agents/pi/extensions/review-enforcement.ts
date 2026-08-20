@@ -1262,7 +1262,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
       const latest = recoveryFacts.latestBoundary ?? recoveryFacts.boundary;
       if (latest
-        && recoveryFacts.reviewBoundaryToolUseId !== latest.toolUseId
         && (!boundaryWasEvaluated(ctx, latest.toolUseId)
           || boundaryLaunchWasAccepted(ctx, latest.toolUseId))) {
         const boundary = persistedBoundary(ctx, recoveryFile);

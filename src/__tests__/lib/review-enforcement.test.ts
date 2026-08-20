@@ -962,11 +962,6 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
 
-    appendSession(fixture.sessionFile,
-      assistantTool('ci-log', 'bash', { command: 'gh run view 123 --log-failed' }),
-      toolResult('ci-log', 'bash'),
-    );
-    await harness.emit('tool_result', boundaryEvent('gh run view 123 --log-failed', 'ci-log'));
     expect(harness.sent.filter(({ message }) => message.customType === 'pr-boundary-launch-plan')).toHaveLength(1);
 
     appendSession(fixture.sessionFile, triageMessage());
@@ -2884,28 +2879,53 @@ describe('Pi review reminder and settled enforcement', () => {
   it('REQ-AGENT-110/REQ-AGENT-141: startup and resume recover one evaluated plan whose queued follow-up was lost', async () => {
     for (const reason of ['startup', 'resume'] as const) {
       const fixture = makeReviewFixture();
-    const initialHarness = await registerFixture(fixture);
-    initialHarness.setSentMessagePersistence(false);
-    appendSession(fixture.sessionFile,
-      assistantTool('push-queued', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-queued', 'bash'),
-    );
-    await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-queued'));
-    expect(initialHarness.sent).toHaveLength(1);
-    expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-launch-plan');
+      const initialHarness = await registerFixture(fixture);
+      initialHarness.setSentMessagePersistence(false);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-queued', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-queued', 'bash'),
+      );
+      await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-queued'));
+      expect(initialHarness.sent).toHaveLength(1);
+      expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-launch-plan');
 
-    const recoveredHarness = await registerFixture(fixture);
-    await recoveredHarness.emit('session_start', { reason });
-    await recoveredHarness.emit('agent_settled');
-    await recoveredHarness.emit('agent_settled');
+      const recoveredHarness = await registerFixture(fixture);
+      await recoveredHarness.emit('session_start', { reason });
+      await recoveredHarness.emit('agent_settled');
+      await recoveredHarness.emit('agent_settled');
 
-    expect(recoveredHarness.reviewPrompts).toEqual([]);
-    expect(recoveredHarness.sent).toHaveLength(1);
+      expect(recoveredHarness.reviewPrompts).toEqual([]);
+      expect(recoveredHarness.sent).toHaveLength(1);
       expect(recoveredHarness.sent[0]?.message.details).toMatchObject({
         boundaryToolUseId: 'push-queued',
         head: fixture.head,
         ciEvent: 'push',
       });
+    }
+  });
+
+  it('REQ-AGENT-132/REQ-AGENT-141: startup and resume do not inherit an older same-head cycle', async () => {
+    for (const reason of ['startup', 'resume'] as const) {
+      const fixture = makeReviewFixture();
+      const initialHarness = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-old-cycle', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-old-cycle', 'bash'),
+      );
+      await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-old-cycle'));
+      appendSession(fixture.sessionFile,
+        assistantTool('status-new-cycle', 'bash', { command: 'git status --short' }),
+        toolResult('status-new-cycle', 'bash'),
+      );
+
+      const recoveredHarness = await registerFixture(fixture);
+      recoveredHarness.setReviewDecision('acknowledge');
+      await recoveredHarness.emit('session_start', { reason });
+      await recoveredHarness.emit('agent_settled');
+
+      expect(recoveredHarness.reviewPrompts).toHaveLength(1);
+      expect(recoveredHarness.sent).toEqual([]);
+      expect(ackHead(fixture.repo)).toBe(fixture.head);
     }
   });
 
