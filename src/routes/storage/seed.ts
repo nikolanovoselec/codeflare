@@ -84,6 +84,7 @@ app.post('/agent-configs', async (c) => {
   try {
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
+    let priorManagedDigest: string | undefined;
     const applied = preferences?.managedEnvironmentApplied;
     if (applied) {
       const priorRelease = activeManagedRelease?.digest === applied.digest
@@ -93,6 +94,9 @@ app.post('/agent-configs', async (c) => {
         priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
       } else if (!activeManagedRelease) {
         throw new Error('Previously applied managed release is unavailable while disabling Managed Environment');
+      } else {
+        if (!/^[0-9a-f]{64}$/.test(applied.digest)) throw new Error('Previously applied managed release digest is invalid');
+        priorManagedDigest = applied.digest;
       }
     }
 
@@ -127,7 +131,7 @@ app.post('/agent-configs', async (c) => {
     const managedOptions = activeManagedRelease
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
-          ...(priorManagedRelease && { priorManagedRelease }),
+          ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
         }
       : priorManagedRelease
         ? { managedRelease: null, priorManagedRelease }
@@ -140,7 +144,7 @@ app.post('/agent-configs', async (c) => {
       r2SseDisabled,
       ...managedOptions,
     });
-    if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
+    if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
       throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
     }
 

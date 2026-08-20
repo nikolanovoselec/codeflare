@@ -623,6 +623,40 @@ function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocu
   };
 }
 
+async function deleteManagedConfigsByDigest(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+  digest: string,
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+
+  const outcomes = await mapWithConcurrency(candidates, async (key) => {
+    const url = getR2Url(endpoint, bucketName, key);
+    try {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+      if (head.headers.get(PRESEED_MARKER_HEADER) !== digest) return {};
+      const response = await client.fetch(url, { method: 'DELETE' });
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+      return { deleted: key };
+    } catch (error) {
+      return { warning: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.deleted) deleted.push(outcome.deleted);
+    if (outcome.warning) warnings.push(outcome.warning);
+  }
+  return { deleted, warnings };
+}
+
 async function deletePriorManagedConfigs(
   env: SeedEnv,
   bucketName: string,
@@ -640,30 +674,7 @@ async function deletePriorManagedConfigs(
     ? [...getManagedDocumentKeysForMode(current.release, mode), '.codeflare/managed-extensions.json']
     : []);
   const candidates = [...priorKeys].filter((key) => !currentKeys.has(key));
-  const client = createR2Client(env);
-  const sseHeaders = getSseHeaders(env, r2SseDisabled);
-  const deleted: string[] = [];
-  const warnings: string[] = [];
-
-  const outcomes = await mapWithConcurrency(candidates, async (key) => {
-    const url = getR2Url(endpoint, bucketName, key);
-    try {
-      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-      if (head.status === 404) return {};
-      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-      if (head.headers.get(PRESEED_MARKER_HEADER) !== prior.digest) return {};
-      const response = await client.fetch(url, { method: 'DELETE' });
-      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
-      return { deleted: key };
-    } catch (error) {
-      return { warning: error instanceof Error ? error.message : String(error) };
-    }
-  });
-  for (const outcome of outcomes) {
-    if (outcome.deleted) deleted.push(outcome.deleted);
-    if (outcome.warning) warnings.push(outcome.warning);
-  }
-  return { deleted, warnings };
+  return deleteManagedConfigsByDigest(env, bucketName, endpoint, candidates, prior.digest, r2SseDisabled);
 }
 
 async function deleteRetiredManagedConfigs(
@@ -713,6 +724,8 @@ export async function reconcileAgentConfigs(
     /** undefined = ordinary baked behavior; null = disable curation and restore baked behavior. */
     managedRelease?: ManagedReleaseSelection | null;
     priorManagedRelease?: PriorManagedReleaseSelection;
+    /** Prior applied ownership marker used only for bounded current-release paths. */
+    priorManagedDigest?: string;
   }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
@@ -769,6 +782,21 @@ export async function reconcileAgentConfigs(
         options.priorManagedRelease,
         managedRelease ?? null,
         mode,
+        options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    } else if (managedRelease && options.priorManagedDigest) {
+      const currentModeKeys = new Set(getManagedDocumentKeysForMode(managedRelease.release, mode));
+      const candidates = managedRelease.release.documents
+        .map((document) => document.key)
+        .filter((key) => !currentModeKeys.has(key));
+      const cleanupResult = await deleteManagedConfigsByDigest(
+        env,
+        bucketName,
+        endpoint,
+        candidates,
+        options.priorManagedDigest,
         options.r2SseDisabled,
       );
       deleted.push(...cleanupResult.deleted);
