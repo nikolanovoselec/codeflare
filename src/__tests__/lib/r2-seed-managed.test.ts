@@ -134,6 +134,38 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deletes).toEqual([`${endpoint}/bucket/.claude/obsolete.md`]);
   });
 
+  it('REQ-STOR-024 AC5: missing cache history cleans only the prior applied digest marker', async () => {
+    const priorDigest = '1'.repeat(64);
+    const currentKey = '.claude/skills/current/SKILL.md';
+    const obsoleteKey = '.claude/skills/obsolete/SKILL.md';
+    const userKey = '.claude/skills/personal/SKILL.md';
+    fetchR2.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('list-type=2')) {
+        const contents = [currentKey, obsoleteKey, userKey]
+          .map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents>`)
+          .join('');
+        return Promise.resolve(new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`, { status: 200 }));
+      }
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith(`/${obsoleteKey}`) ? priorDigest : 'user-owned';
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection('2'.repeat(64), release(2, [document(currentKey)])),
+      priorManagedDigest: priorDigest,
+    });
+
+    expect(result.deleted).toEqual([obsoleteKey]);
+    expect(fetchR2.mock.calls.filter(([, init]) => init?.method === 'DELETE').map(([url]) => url)).toEqual([
+      `${endpoint}/bucket/${obsoleteKey}`,
+    ]);
+  });
+
   it('REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths', async () => {
     const current = release(2, [document('.claude/current.md')]);
     current.retiredPaths = ['.pi/agent/extensions/legacy-owned.ts', '.pi/agent/extensions/user-owned.ts'];

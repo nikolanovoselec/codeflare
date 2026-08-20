@@ -360,7 +360,8 @@ async function deleteStaleMarkedConfigs(
   bucketName: string,
   endpoint: string,
   seededKeys: ReadonlySet<string>,
-  r2SseDisabled?: boolean
+  r2SseDisabled?: boolean,
+  expectedMarker?: string,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const r2Client = createR2Client(env);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
@@ -452,6 +453,7 @@ async function deleteStaleMarkedConfigs(
         // which is the by-name path's business, not this one's.
         const marker = head.headers.get(PRESEED_MARKER_HEADER);
         if (!marker || marker === PRESEED_CONTENT_HASH) return null;
+        if (expectedMarker && marker !== expectedMarker) return null;
 
         const res = await r2Client.fetch(url, { method: 'DELETE' });
         if (res.ok || res.status === 404) return key;
@@ -713,6 +715,8 @@ export async function reconcileAgentConfigs(
     /** undefined = ordinary baked behavior; null = disable curation and restore baked behavior. */
     managedRelease?: ManagedReleaseSelection | null;
     priorManagedRelease?: PriorManagedReleaseSelection;
+    /** Applied ownership marker used when disposable cache history no longer exists. */
+    priorManagedDigest?: string;
   }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
@@ -770,6 +774,21 @@ export async function reconcileAgentConfigs(
         managedRelease ?? null,
         mode,
         options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    } else if (managedRelease && options.priorManagedDigest) {
+      const currentKeys = new Set([
+        ...getManagedDocumentKeysForMode(managedRelease.release, mode),
+        '.codeflare/managed-extensions.json',
+      ]);
+      const cleanupResult = await deleteStaleMarkedConfigs(
+        env,
+        bucketName,
+        endpoint,
+        currentKeys,
+        options.r2SseDisabled,
+        options.priorManagedDigest,
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);

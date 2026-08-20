@@ -84,13 +84,21 @@ app.post('/agent-configs', async (c) => {
   try {
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
+    let priorManagedDigest: string | undefined;
     const applied = preferences?.managedEnvironmentApplied;
     if (applied) {
       const priorRelease = activeManagedRelease?.digest === applied.digest
         ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
         : await getCachedManagedReleaseByDigest(c.env, applied.digest);
-      if (!priorRelease) throw new Error('Previously applied managed release is missing from the verified deployment cache');
-      priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
+      if (priorRelease) {
+        priorManagedRelease = { digest: applied.digest, mode: applied.mode, ...priorRelease };
+      } else {
+        if (!/^[0-9a-f]{64}$/.test(applied.digest)) throw new Error('Previously applied managed release digest is invalid');
+        // Deployment cache buckets are disposable. After a cache replacement,
+        // the applied digest still provides the exact ownership marker needed
+        // to converge stale managed paths without retaining historical bundles.
+        priorManagedDigest = applied.digest;
+      }
     }
 
     // Preserve ordinary baked reseed behavior. The no-hot-mutation gate applies
@@ -122,7 +130,10 @@ app.post('/agent-configs', async (c) => {
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
     const managedOptions = activeManagedRelease
-      ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+      ? {
+          managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
+          ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
+        }
       : priorManagedRelease
         ? { managedRelease: null, priorManagedRelease }
         : {};
