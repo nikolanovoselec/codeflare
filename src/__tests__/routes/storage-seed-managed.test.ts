@@ -253,13 +253,14 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
     expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
       managedRelease: expect.objectContaining({ digest: 'd'.repeat(64) }),
-      priorManagedDigest: '1'.repeat(64),
     }));
+    const reconcileOptions = reconcile.mock.calls.at(-1)?.[4] as Record<string, unknown>;
+    expect(reconcileOptions).not.toHaveProperty('priorManagedRelease');
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied.digest).toBe('d'.repeat(64));
   });
 
-  it('REQ-STOR-022 AC4 + REQ-STOR-024 AC5: disables without disposable cache history', async () => {
+  it('REQ-STOR-022 AC4 + REQ-STOR-024 AC5: cacheless disable fails closed with applied state intact', async () => {
     state.active = null;
     state.cached = null;
     const kv = createMockKV();
@@ -276,13 +277,10 @@ describe('managed storage reconcile', () => {
 
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
 
-    expect(response.status).toBe(200);
-    expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
-      managedRelease: null,
-      priorManagedDigest: '1'.repeat(64),
-    }));
+    expect(response.status).toBe(500);
+    expect(reconcile).not.toHaveBeenCalled();
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
-    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentApplied?.digest).toBe('1'.repeat(64));
   });
 
   it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {

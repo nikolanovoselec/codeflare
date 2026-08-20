@@ -9,7 +9,6 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
-import { MANAGED_RELEASE_PATH_PREFIXES } from '../../scripts/agent-seed-release-limits.mjs';
 
 const logger = createLogger('r2-seed');
 
@@ -31,10 +30,6 @@ const sleep = (ms: number): Promise<void> =>
  * is no longer part of the product.
  */
 const PRESEED_MARKER_HEADER = 'x-amz-meta-codeflare-preseed';
-const MANAGED_RECONCILIATION_PREFIXES = Object.freeze([
-  ...MANAGED_RELEASE_PATH_PREFIXES,
-  '.codeflare/',
-]);
 
 const markerHeaders = (marker = PRESEED_CONTENT_HASH): Record<string, string> => ({ [PRESEED_MARKER_HEADER]: marker });
 
@@ -334,17 +329,23 @@ export function getConfigsForMode(
  * is a file the product has dropped. That marker is the entire record -- nothing
  * has to be enumerated at build time and no list has to be maintained.
  *
- * Two bounds keep it safe. Ordinary baked cleanup derives narrow two-segment
- * prefixes from the current seed. Cache-history-free managed cleanup instead
- * supplies the finite path-policy roots so a fully retired prefix remains
- * discoverable, then requires the exact prior applied digest. The getting-started
- * roots remain out of scope, and a user-owned or differently marked file is
- * untouchable.
+ * Two bounds keep it safe. Listing is confined to the prefixes the seed actually
+ * writes, which is what keeps the getting-started docs (REQ-STOR-009, at
+ * `Getting Started.md`, `Documentation/`, `Examples/`) out of scope even though
+ * they are stamped by the same helper; and deletion still requires our marker,
+ * so a user's file is untouchable whether or not it sits under those prefixes.
  *
  * A listing does NOT return custom metadata -- verified against R2 -- so the
- * marker can only be read with a HEAD. Fan-out is batched, and a candidate count
- * past the cap skips the sweep with a warning rather than exhausting the request
- * budget.
+ * marker can only be read with a HEAD, and the reconcile that calls this has
+ * already spent a PUT on every live key. Both bounds below therefore exist to
+ * keep the HEAD count near zero rather than near the size of the bucket:
+ *
+ *   - listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`,
+ *     14 of them) rather than per runtime root, which keeps the large runtime
+ *     trees -- `.claude/projects/` session transcripts, `.claude/todos/` -- out
+ *     of the pages entirely;
+ *   - the fan-out is batched, and a candidate count past the cap skips the sweep
+ *     with a warning instead of issuing the requests.
  *
  * Narrowing stops there deliberately. A retired skill is a whole DIRECTORY, so
  * any filter keyed to "a directory the seed still populates" would discard the
@@ -359,9 +360,7 @@ async function deleteStaleMarkedConfigs(
   bucketName: string,
   endpoint: string,
   seededKeys: ReadonlySet<string>,
-  r2SseDisabled?: boolean,
-  expectedMarker?: string,
-  listingPrefixes?: readonly string[],
+  r2SseDisabled?: boolean
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const r2Client = createR2Client(env);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
@@ -372,12 +371,10 @@ async function deleteStaleMarkedConfigs(
   // anyone remembering to add it here. A key shallower than three segments has
   // no directory to group by, and listing it would return only itself -- which
   // is seeded, so it can never be a candidate. Skipped rather than listed.
-  const prefixes = new Set<string>(listingPrefixes);
-  if (!listingPrefixes) {
-    for (const key of seededKeys) {
-      const segments = key.split('/');
-      if (segments.length > 2) prefixes.add(`${segments[0]}/${segments[1]}/`);
-    }
+  const prefixes = new Set<string>();
+  for (const key of seededKeys) {
+    const segments = key.split('/');
+    if (segments.length > 2) prefixes.add(`${segments[0]}/${segments[1]}/`);
   }
 
   const candidates: string[] = [];
@@ -455,7 +452,6 @@ async function deleteStaleMarkedConfigs(
         // which is the by-name path's business, not this one's.
         const marker = head.headers.get(PRESEED_MARKER_HEADER);
         if (!marker || marker === PRESEED_CONTENT_HASH) return null;
-        if (expectedMarker && marker !== expectedMarker) return null;
 
         const res = await r2Client.fetch(url, { method: 'DELETE' });
         if (res.ok || res.status === 404) return key;
@@ -717,8 +713,6 @@ export async function reconcileAgentConfigs(
     /** undefined = ordinary baked behavior; null = disable curation and restore baked behavior. */
     managedRelease?: ManagedReleaseSelection | null;
     priorManagedRelease?: PriorManagedReleaseSelection;
-    /** Applied ownership marker used when disposable cache history no longer exists. */
-    priorManagedDigest?: string;
   }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
@@ -776,24 +770,6 @@ export async function reconcileAgentConfigs(
         managedRelease ?? null,
         mode,
         options.r2SseDisabled,
-      );
-      deleted.push(...cleanupResult.deleted);
-      warnings.push(...cleanupResult.warnings);
-    } else if (managedRelease !== undefined && options.priorManagedDigest) {
-      const currentKeys = new Set(managedRelease
-        ? [
-            ...getManagedDocumentKeysForMode(managedRelease.release, mode),
-            '.codeflare/managed-extensions.json',
-          ]
-        : getConfigsForMode(mode, contextModeEnabled).map((document) => document.key));
-      const cleanupResult = await deleteStaleMarkedConfigs(
-        env,
-        bucketName,
-        endpoint,
-        currentKeys,
-        options.r2SseDisabled,
-        options.priorManagedDigest,
-        MANAGED_RECONCILIATION_PREFIXES,
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);
