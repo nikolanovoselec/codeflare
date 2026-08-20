@@ -933,7 +933,7 @@ describe('managed release resolver', () => {
       };
       expect(migration).toEqual(expect.objectContaining({
         cacheBucketName: firstConfig.cacheBucketName,
-        legacyCacheBucketName,
+        legacyCacheBucketName: legacyBucketName,
         cleanupPending: true,
       }));
       expect(r2.has(`/${firstConfig.cacheBucketName}/configs/${firstConfig.configFingerprint}/active.json`)).toBe(true);

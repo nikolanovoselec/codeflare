@@ -979,7 +979,7 @@ async function prepareManagedCacheMigration(input: {
 
   const migration: ManagedCacheMigration = {
     schemaVersion: 1,
-    legacyCacheBucketName,
+    legacyCacheBucketName: legacyBucketName,
     cacheBucketName,
     cleanupPending: true,
   };

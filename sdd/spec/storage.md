@@ -712,29 +712,50 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-025: Managed deployment cache identity and migration
+### REQ-STOR-025: Managed deployment cache migration
 
-**Intent:** Each deployment exposes one recognizable managed cache identity and safely retires its exact opaque predecessor.
+**Intent:** Each deployment safely retires its exact opaque managed cache predecessor.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. The cache bucket name includes the sanitized Worker name. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-025 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
-2. The cache bucket name includes a collision-resistant account-and-Worker suffix. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-025 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
-3. The cache bucket name is at most 63 characters. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-025 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
-4. Automatic migration records the recognizable cache only after it contains a verified active release. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
-5. Automatic migration never rewrites the selected repository or trust configuration. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
-6. Cleanup empties and deletes only the exact authenticated legacy bucket. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @impl: src/lib/r2-admin.ts::deleteR2BucketIfExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (REQ-STOR-025 AC6: empties and deletes only an existing named bucket) -->
-7. Failed cleanup remains pending for a later resolver retry. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+1. Automatic migration records the recognizable cache only after it contains a verified active release. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+2. Automatic migration never rewrites the selected repository or trust configuration. <!-- @impl: src/lib/remote-curation.ts::prepareManagedCacheMigration --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+3. Cleanup empties and deletes only the exact authenticated legacy bucket. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @impl: src/lib/r2-admin.ts::deleteR2BucketIfExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (REQ-STOR-025 AC3: empties and deletes only an existing named bucket) -->
+4. Failed cleanup remains pending for a later resolver retry. <!-- @impl: src/lib/remote-curation.ts::cleanupLegacyManagedCache --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 
 **Constraints:** Cleanup never scans by prefix or deletes an unauthenticated bucket identity.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-026](#req-stor-026-managed-deployment-cache-identity), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated cache identity, migration ordering, concurrency, and deletion tests
+**Verification:** Automated migration ordering, concurrency, retry, and deletion tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-026: Managed deployment cache identity
+
+**Intent:** Each deployment exposes one recognizable collision-resistant managed cache identity.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The cache bucket name includes the sanitized Worker name. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+2. The cache bucket name includes a collision-resistant account-and-Worker suffix. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+3. The cache bucket name is at most 63 characters. <!-- @impl: src/lib/remote-curation-cache.ts::getManagedReleaseCacheBucketName --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-026 AC1-AC3: derives a recognizable bounded bucket from account and worker identity) -->
+
+**Constraints:** The suffix remains stable for one account-and-Worker identity.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation)
+
+**Verification:** Automated cache identity tests
 
 **Status:** Implemented
 
