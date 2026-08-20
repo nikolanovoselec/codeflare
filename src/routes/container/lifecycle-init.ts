@@ -68,6 +68,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // baked entrypoint paths on a warm Durable Object.
     remoteCurationActive: params.remoteCurationActive === true,
     remoteCurationReleaseDigest: params.remoteCurationReleaseDigest ?? null,
+    remoteCurationManifestDigest: params.remoteCurationManifestDigest ?? null,
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
     // REQ-ENTERPRISE-004: forward the user's matched Access groups so the

@@ -2334,8 +2334,8 @@ run_initial_r2_restore() {
         update_sync_status "skipped" "$SYNC_ERROR"
     fi
 }
-run_initial_r2_restore
 
+run_post_restore_startup() {
 configure_pi_goal_defaults() {
     local goal_config="$USER_HOME/.pi/agent/pi-goal.json"
     PI_GOAL_STARTUP_CONFIG="$goal_config" node --input-type=commonjs <<'NODE'
@@ -3677,6 +3677,7 @@ fi
 
 # Configure tab auto-start
 configure_tab_autostart
+}
 
 complete_managed_curation_startup() {
     # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
@@ -3736,7 +3737,13 @@ complete_managed_curation_startup() {
         echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
     fi
 }
-complete_managed_curation_startup
+
+run_managed_curation_startup() {
+    run_initial_r2_restore
+    run_post_restore_startup
+    complete_managed_curation_startup
+}
+run_managed_curation_startup
 
 echo "[entrypoint] Startup complete. Servers running:"
 echo "[entrypoint]   - Terminal server (port 8080): PID $TERMINAL_PID"

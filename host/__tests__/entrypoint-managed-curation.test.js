@@ -28,8 +28,8 @@ const layDown = functionSource('lay_down_agent_seed_preseed');
 const relay = functionSource('relay_managed_pi_extensions');
 const initialRestore = functionSource('run_initial_r2_restore');
 const completeStartup = functionSource('complete_managed_curation_startup');
-const initialInvocation = productionInvocation('run_initial_r2_restore');
-const completeInvocation = productionInvocation('complete_managed_curation_startup');
+const managedStartup = functionSource('run_managed_curation_startup');
+const managedStartupInvocation = productionInvocation('run_managed_curation_startup');
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'managed-entrypoint-'));
@@ -77,15 +77,15 @@ function runStartup(remoteCurationActive) {
     'start_vault_monitor_daemon() { :; }',
     'start_silverbullet_supervisor() { :; }',
     'start_openvscode_supervisor() { :; }',
+    'run_post_restore_startup() { echo post-restore >> "$EVENTS"; }',
     'renice() { :; }',
     'ionice() { :; }',
     layDown,
     relay,
     initialRestore,
     completeStartup,
-    initialInvocation,
-    'echo post-restore >> "$EVENTS"',
-    completeInvocation,
+    managedStartup,
+    managedStartupInvocation,
     'wait',
   ].join('\n')], { encoding: 'utf8' });
   return {

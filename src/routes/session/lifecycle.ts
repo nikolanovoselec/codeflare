@@ -186,7 +186,10 @@ app.get('/batch-status', async (c) => {
       const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
       const managedMismatch = active
-        ? applied?.digest !== active.digest || applied.mode !== mode || applied.sequence !== active.pointer.sequence
+        ? applied?.digest !== active.digest
+          || applied.mode !== mode
+          || applied.sequence !== active.pointer.sequence
+          || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
         : applied !== undefined;
 
       if (active || applied) {
@@ -206,7 +209,10 @@ app.get('/batch-status', async (c) => {
       // Cache availability may fail open only to a previously applied verified
       // bucket state. A fresh bucket remains blocked and must not trigger a
       // reconciliation request until the verified deployment cache is readable.
-      managedReleaseStatus = prefs?.managedEnvironmentApplied?.mode === mode ? 'current' : 'update_pending';
+      managedReleaseStatus = prefs?.managedEnvironmentApplied?.mode === mode
+        && /^[0-9a-f]{64}$/.test(prefs.managedEnvironmentApplied.managedExtensionsDigest ?? '')
+        ? 'current'
+        : 'update_pending';
       preseedNeedsUpgrade = false;
     }
   }

@@ -287,6 +287,8 @@ export interface UserPreferences {
   /** Last verified managed release fully reconciled into this user's bucket. */
   managedEnvironmentApplied?: {
     digest: string;
+    /** SHA-256 of the exact Worker-synthesized managed-extensions.json bytes; absent on pre-upgrade stamps. */
+    managedExtensionsDigest?: string;
     sequence: number;
     mode: SessionMode;
     appliedAt: string;
@@ -395,8 +397,10 @@ export interface ContainerConfigPayload {
   r2SseDisabled?: boolean;
   /** True only when this bucket has fully applied the active verified managed release. */
   remoteCurationActive?: boolean;
-  /** Digest that binds restored company-extension metadata to that applied release. */
+  /** Digest that identifies the applied signed managed release. */
   remoteCurationReleaseDigest?: string;
+  /** SHA-256 of the exact managed-extensions.json bytes synthesized by the Worker. */
+  remoteCurationManifestDigest?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

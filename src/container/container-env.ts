@@ -30,6 +30,7 @@ export interface ContainerEnvState {
   _r2SseDisabled?: boolean;
   _remoteCurationActive?: boolean;
   _remoteCurationReleaseDigest?: string | null;
+  _remoteCurationManifestDigest?: string | null;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -84,6 +85,7 @@ interface RestartPrefsInput {
   r2SseDisabled?: boolean;
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
+  remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
@@ -113,6 +115,7 @@ export interface SetBucketNameCreds {
   r2SseDisabled?: boolean;
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
+  remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
@@ -273,6 +276,9 @@ export function buildEnvVars(
     ...(state._remoteCurationActive && state._remoteCurationReleaseDigest && {
       REMOTE_CURATION_RELEASE_DIGEST: state._remoteCurationReleaseDigest,
     }),
+    ...(state._remoteCurationActive && state._remoteCurationManifestDigest && {
+      REMOTE_CURATION_MANIFEST_DIGEST: state._remoteCurationManifestDigest,
+    }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
@@ -398,6 +404,12 @@ export async function applyBucketName(
     && typeof remoteCurationReleaseDigest === 'string'
     && /^[0-9a-f]{64}$/.test(remoteCurationReleaseDigest)
     ? remoteCurationReleaseDigest
+    : null;
+  const remoteCurationManifestDigest = r2Creds?.remoteCurationManifestDigest;
+  state._remoteCurationManifestDigest = state._remoteCurationActive
+    && typeof remoteCurationManifestDigest === 'string'
+    && /^[0-9a-f]{64}$/.test(remoteCurationManifestDigest)
+    ? remoteCurationManifestDigest
     : null;
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
@@ -556,6 +568,15 @@ export async function applyPrefsOnRestart(
       : null;
     if (digest !== (state._remoteCurationReleaseDigest ?? null)) {
       state._remoteCurationReleaseDigest = digest;
+      changed = true;
+    }
+  }
+  if (input.remoteCurationManifestDigest !== undefined) {
+    const digest = input.remoteCurationActive === true && /^[0-9a-f]{64}$/.test(input.remoteCurationManifestDigest ?? '')
+      ? input.remoteCurationManifestDigest
+      : null;
+    if (digest !== (state._remoteCurationManifestDigest ?? null)) {
+      state._remoteCurationManifestDigest = digest;
       changed = true;
     }
   }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readlink, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -79,9 +79,10 @@ export async function prepareOfficialClaudeIde(options) {
   });
 }
 
-async function loadManagedExtensions(managedExtensionsPath, managedReleaseDigest) {
+async function loadManagedExtensions(managedExtensionsPath, managedReleaseDigest, managedManifestDigest) {
   const expectedDigest = managedReleaseDigest ?? process.env.REMOTE_CURATION_RELEASE_DIGEST;
-  if (!/^[0-9a-f]{64}$/.test(expectedDigest ?? '')) return [];
+  const expectedManifestDigest = managedManifestDigest ?? process.env.REMOTE_CURATION_MANIFEST_DIGEST;
+  if (!/^[0-9a-f]{64}$/.test(expectedDigest ?? '') || !/^[0-9a-f]{64}$/.test(expectedManifestDigest ?? '')) return [];
   try {
     const path = managedExtensionsPath === undefined
       ? resolve(process.env.HOME ?? "/home/user", ".codeflare", "managed-extensions.json")
@@ -93,6 +94,9 @@ async function loadManagedExtensions(managedExtensionsPath, managedReleaseDigest
     }
     const bytes = await readFile(path);
     if (bytes.length > MANAGED_EXTENSIONS_MAX_BYTES) throw new Error("managed extensions exceed their bound");
+    if (createHash("sha256").update(bytes).digest("hex") !== expectedManifestDigest) {
+      throw new Error("managed extensions digest mismatch");
+    }
     const parsed = JSON.parse(bytes.toString("utf8"));
     if (
       !parsed
@@ -211,7 +215,7 @@ async function writeOpenVscodeProfileState(serverDataRoot) {
 export async function prepareOpenVscodeSettings(options) {
   const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
   const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
-  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
   await writeOpenVscodeUserSettings(serverDataRoot, buildOpenVscodeSettings(claudeConfigRoot, managedExtensions));
 }
 
@@ -219,13 +223,13 @@ export async function prepareOpenVscodeSettings(options) {
 // which have no Claude config projection. REQ-IDE-009.
 export async function prepareBaseOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
-  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
   await writeOpenVscodeUserSettings(root, buildPiOpenVscodeSettings(managedExtensions));
 }
 
 export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
-  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest);
+  const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
   await writeOpenVscodeUserSettings(root, buildUnsupportedOpenVscodeSettings(managedExtensions));
 }
 

@@ -27,6 +27,7 @@ export interface UserPreferences {
   /** Server-owned stamp for the last fully applied verified managed release. */
   managedEnvironmentApplied?: {
     digest: string;
+    managedExtensionsDigest?: string;
     sequence: number;
     mode: SessionMode;
     appliedAt: string;

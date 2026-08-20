@@ -3,7 +3,7 @@ import type { Env, UserPreferences } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
-import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../../lib/r2-seed';
+import { managedExtensionsDocumentDigest, seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin, type PriorManagedReleaseSelection } from '../../lib/r2-seed';
 import { resolveBucketSseOnEnsure, isBucketMigrating } from '../../lib/r2-migration';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -170,6 +170,7 @@ app.post('/agent-configs', async (c) => {
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
           managedEnvironmentApplied: {
             digest: activeManagedRelease.digest,
+            managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
             sequence: activeManagedRelease.release.sequence,
             mode,
             appliedAt: new Date().toISOString(),

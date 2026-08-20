@@ -55,6 +55,7 @@ interface PersistenceOptions {
   syncPidFile?: string;
   managedExtensionsPath?: string;
   managedReleaseDigest?: string | null;
+  managedManifestDigest?: string | null;
   debounceMs?: number;
 }
 
@@ -64,6 +65,7 @@ interface ResolvedOptions {
   syncPidFile: string;
   managedExtensionsPath: string;
   managedReleaseDigest: string | null;
+  managedManifestDigest: string | null;
   debounceMs: number;
 }
 
@@ -222,10 +224,18 @@ function isManagedExtensionRecord(value: unknown): value is ManagedExtensionReco
   }
 }
 
-async function loadManagedExtensions(path: string, expectedDigest: string | null): Promise<ManagedExtensionRecord[]> {
-  if (!expectedDigest) return [];
+async function loadManagedExtensions(
+  path: string,
+  expectedReleaseDigest: string | null,
+  expectedManifestDigest: string | null,
+): Promise<ManagedExtensionRecord[]> {
+  if (!expectedReleaseDigest) return [];
+  if (!expectedManifestDigest) throw new Error('missing trusted company extension manifest digest');
   try {
     const bytes = await readBoundedRegularFile(path, COMPANY_MANIFEST_MAX_BYTES);
+    if (createHash('sha256').update(bytes).digest('hex') !== expectedManifestDigest) {
+      throw new Error('company extension manifest digest mismatch');
+    }
     const parsed: unknown = JSON.parse(bytes.toString('utf8'));
     if (
       !isRecord(parsed)
@@ -236,7 +246,7 @@ async function loadManagedExtensions(path: string, expectedDigest: string | null
       || !ownKeysAreAllowed(parsed.release, new Set(['digest', 'sequence']))
       || Object.keys(parsed.release).length !== 2
       || typeof parsed.release.digest !== 'string'
-      || parsed.release.digest !== expectedDigest
+      || parsed.release.digest !== expectedReleaseDigest
       || !sha256Pattern.test(parsed.release.digest)
       || typeof parsed.release.sequence !== 'number'
       || !Number.isSafeInteger(parsed.release.sequence)
@@ -260,7 +270,9 @@ async function loadManagedExtensions(path: string, expectedDigest: string | null
     }
     return [...extensions].sort((left, right) => left.id.localeCompare(right.id));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error('active company extension manifest is missing');
+    }
     throw error;
   }
 }
@@ -284,8 +296,13 @@ async function companyProvenanceIds(
   extensionsDir: string,
   managedExtensionsPath: string,
   managedReleaseDigest: string | null,
+  managedManifestDigest: string | null,
 ): Promise<Set<string>> {
-  const active = new Set((await loadManagedExtensions(managedExtensionsPath, managedReleaseDigest)).map(({ id }) => id));
+  const active = new Set((await loadManagedExtensions(
+    managedExtensionsPath,
+    managedReleaseDigest,
+    managedManifestDigest,
+  )).map(({ id }) => id));
   const prior = await loadCompanyMarker(extensionsDir);
   return new Set([...prior, ...active]);
 }
@@ -489,7 +506,12 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
   try {
     present = await loadRegistry(options.extensionsDir);
     obsolete = await loadObsolete(options.extensionsDir);
-    companyIds = await companyProvenanceIds(options.extensionsDir, options.managedExtensionsPath, options.managedReleaseDigest);
+    companyIds = await companyProvenanceIds(
+      options.extensionsDir,
+      options.managedExtensionsPath,
+      options.managedReleaseDigest,
+      options.managedManifestDigest,
+    );
   } catch {
     return false;
   }
@@ -508,7 +530,7 @@ async function persistSecurityAcknowledgement(options: ResolvedOptions): Promise
 }
 
 export async function captureExtensionManifest(
-  options: Required<Pick<PersistenceOptions, 'extensionsDir' | 'manifestPath' | 'syncPidFile'>> & Pick<PersistenceOptions, 'managedExtensionsPath' | 'managedReleaseDigest'>,
+  options: Required<Pick<PersistenceOptions, 'extensionsDir' | 'manifestPath' | 'syncPidFile'>> & Pick<PersistenceOptions, 'managedExtensionsPath' | 'managedReleaseDigest' | 'managedManifestDigest'>,
 ): Promise<boolean> {
   const loaded = await loadExtensionManifest(options.manifestPath);
   if (loaded.state === 'invalid') return false;
@@ -519,7 +541,12 @@ export async function captureExtensionManifest(
     const present = await loadRegistry(options.extensionsDir);
     const obsolete = await loadObsolete(options.extensionsDir);
     const managedExtensionsPath = options.managedExtensionsPath ?? join(dirname(options.manifestPath), 'managed-extensions.json');
-    const companyIds = await companyProvenanceIds(options.extensionsDir, managedExtensionsPath, options.managedReleaseDigest ?? null);
+    const companyIds = await companyProvenanceIds(
+      options.extensionsDir,
+      managedExtensionsPath,
+      options.managedReleaseDigest ?? null,
+      options.managedManifestDigest ?? null,
+    );
     const extensions: Record<string, ExtensionRecord> = {};
     for (const [id, record] of Object.entries(current.extensions)) {
       if (companyIds.has(id)) {
@@ -647,22 +674,37 @@ async function installCompanyExtension(record: ManagedExtensionRecord): Promise<
 }
 
 export async function reconcileCompanyExtensions(
-  options: Pick<ResolvedOptions, 'extensionsDir' | 'managedExtensionsPath'> & Partial<Pick<ResolvedOptions, 'managedReleaseDigest'>>,
+  options: Pick<ResolvedOptions, 'extensionsDir' | 'managedExtensionsPath'> & Partial<Pick<ResolvedOptions, 'managedReleaseDigest' | 'managedManifestDigest'>>,
 ): Promise<{ failures: string[]; managedIds: string[] }> {
-  const suppliedDigest = options.managedReleaseDigest !== undefined
+  const suppliedReleaseDigest = options.managedReleaseDigest !== undefined
     ? options.managedReleaseDigest
     : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
-  const expectedDigest = suppliedDigest && sha256Pattern.test(suppliedDigest) ? suppliedDigest : null;
+  const expectedReleaseDigest = suppliedReleaseDigest && sha256Pattern.test(suppliedReleaseDigest)
+    ? suppliedReleaseDigest
+    : null;
+  const suppliedManifestDigest = options.managedManifestDigest !== undefined
+    ? options.managedManifestDigest
+    : process.env.REMOTE_CURATION_MANIFEST_DIGEST ?? null;
+  const expectedManifestDigest = suppliedManifestDigest && sha256Pattern.test(suppliedManifestDigest)
+    ? suppliedManifestDigest
+    : null;
   let managed: ManagedExtensionRecord[];
   try {
-    managed = await loadManagedExtensions(options.managedExtensionsPath, expectedDigest);
+    managed = await loadManagedExtensions(
+      options.managedExtensionsPath,
+      expectedReleaseDigest,
+      expectedManifestDigest,
+    );
   } catch {
     try {
-      await vscode.window.showWarningMessage('Company Browser IDE extensions could not be reconciled.');
+      await vscode.window.showWarningMessage(
+        'Managed Browser IDE extensions could not be verified. Stop this session, then run “Recreate Agent Skills & Rules” in Codeflare Settings.',
+      );
     } catch {
       // Reconciliation remains isolated from notification delivery.
     }
-    return { failures: ['managed-extension-manifest'], managedIds: [] };
+    const priorIds = [...await loadCompanyMarker(options.extensionsDir)].sort();
+    return { failures: ['managed-extension-manifest'], managedIds: priorIds };
   }
   const managedIds = managed.map(({ id }) => id);
   const managedIdSet = new Set(managedIds);
@@ -860,6 +902,12 @@ function resolveOptions(options: PersistenceOptions = {}): ResolvedOptions {
       const value = options.managedReleaseDigest !== undefined
         ? options.managedReleaseDigest
         : process.env.REMOTE_CURATION_RELEASE_DIGEST ?? null;
+      return value && sha256Pattern.test(value) ? value : null;
+    })(),
+    managedManifestDigest: (() => {
+      const value = options.managedManifestDigest !== undefined
+        ? options.managedManifestDigest
+        : process.env.REMOTE_CURATION_MANIFEST_DIGEST ?? null;
       return value && sha256Pattern.test(value) ? value : null;
     })(),
     debounceMs: options.debounceMs ?? 2_000,

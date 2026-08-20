@@ -3968,13 +3968,13 @@ None.
 
 ### REQ-AGENT-149: Shared compiler CLI compatibility
 
-**Intent:** Compiler extraction does not change the existing image-generation contract.
+**Intent:** Existing image generation remains byte-compatible.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. The existing CLI wrapper generates byte-identical image output through the shared compiler. <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+1. Existing image-generation CLI output remains byte-identical. <!-- @impl: scripts/generate-agent-seed.mjs::main --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:** The wrapper remains import-safe and side-effect free.
 

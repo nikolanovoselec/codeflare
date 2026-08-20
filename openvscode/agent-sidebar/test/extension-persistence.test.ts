@@ -118,6 +118,7 @@ function managedExtensionsBytes(records: Array<ReturnType<typeof managedExtensio
 function writeManagedExtensions(path: string, records: Array<ReturnType<typeof managedExtension>>) {
   const bytes = managedExtensionsBytes(records);
   writeFileSync(path, bytes);
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
   process.env.REMOTE_CURATION_MANIFEST_DIGEST = createHash('sha256').update(bytes).digest('hex');
 }
 
@@ -165,7 +166,8 @@ beforeEach(() => {
   host.settingsUpdates = [];
   host.updateSetting = async () => undefined;
   host.acknowledgeSecurity = true;
-  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
+  delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   host.warnings = [];
   host.progressTitles = [];
 });
@@ -271,19 +273,55 @@ test('REQ-IDE-042 AC1: changed company manifest bytes are rejected despite a mat
   assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
   assert.equal(fetcher.mock.calls.length, 0);
   assert.equal(host.commands.length, 0);
+  assert.deepEqual(host.warnings, [
+    'Managed Browser IDE extensions could not be verified. Stop this session, then run “Recreate Agent Skills & Rules” in Codeflare Settings.',
+  ]);
 });
 
-test('REQ-IDE-042 AC3: a missing active-release manifest preserves prior company extensions', async () => {
+test('REQ-IDE-045 AC6: a missing active-release manifest preserves prior company extensions', async () => {
   const { extensionsDir, managedExtensionsPath } = fixture();
   const priorId = 'acme.company';
   writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([priorId]));
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
   process.env.REMOTE_CURATION_MANIFEST_DIGEST = 'b'.repeat(64);
 
   const result = await reconcileCompanyExtensions({ extensionsDir, managedExtensionsPath });
 
-  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [] });
+  assert.deepEqual(result, { failures: ['managed-extension-manifest'], managedIds: [priorId] });
   assert.equal(host.commands.length, 0);
   assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
+});
+
+test('REQ-IDE-045 AC6: manifest failure preserves company ownership while unrelated personal restore continues', async () => {
+  const { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile } = fixture();
+  const priorId = 'acme.company';
+  writeFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), JSON.stringify([priorId]));
+  writeFileSync(manifestPath, JSON.stringify({
+    ...validManifest({
+      [priorId]: { version: '1.0.0' },
+      'publisher.personal': { version: '2.0.0' },
+    }),
+    securityWarningShown: true,
+  }));
+  writeRegistry(extensionsDir);
+  process.env.REMOTE_CURATION_RELEASE_DIGEST = 'a'.repeat(64);
+  process.env.REMOTE_CURATION_MANIFEST_DIGEST = 'b'.repeat(64);
+  const installed: string[] = [];
+  host.execute = async (_command, source) => {
+    if (typeof source === 'string') installed.push(source);
+  };
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  const deactivate = await activateExtensionPersistence(
+    { subscriptions } as never,
+    { extensionsDir, manifestPath, managedExtensionsPath, syncPidFile, debounceMs: 2_000 },
+  );
+
+  assert.deepEqual(installed, ['publisher.personal@2.0.0']);
+  assert.deepEqual(JSON.parse(readFileSync(join(extensionsDir, '.codeflare-company-extensions.json'), 'utf8')), [priorId]);
+  assert.equal(host.warnings.length, 1);
+  await deactivate();
+  for (const subscription of subscriptions) subscription.dispose();
 });
 
 test('REQ-IDE-044 AC1: unsigned company download URLs are rejected before download', async () => {

@@ -183,6 +183,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const sessionMode = await resolveEffectiveSessionMode(preferences, user, c.env);
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
+    let remoteCurationManifestDigest: string | undefined;
     try {
       const activeManagedRelease = await getActiveManagedRelease(c.env);
       const applied = preferences.managedEnvironmentApplied;
@@ -190,20 +191,27 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         ? applied?.digest !== activeManagedRelease.digest
           || applied.mode !== sessionMode
           || applied.sequence !== activeManagedRelease.pointer.sequence
+          || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
         : applied !== undefined;
       if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = activeManagedRelease !== null;
       remoteCurationReleaseDigest = activeManagedRelease?.digest;
+      remoteCurationManifestDigest = applied?.managedExtensionsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
       // A transient deployment-cache read failure may continue only from a
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
-      if (!preferences.managedEnvironmentApplied || preferences.managedEnvironmentApplied.mode !== sessionMode) {
+      if (
+        !preferences.managedEnvironmentApplied
+        || preferences.managedEnvironmentApplied.mode !== sessionMode
+        || !/^[0-9a-f]{64}$/.test(preferences.managedEnvironmentApplied.managedExtensionsDigest ?? '')
+      ) {
         throw new ManagedEnvironmentUpdatePendingError();
       }
       remoteCurationActive = true;
       remoteCurationReleaseDigest = preferences.managedEnvironmentApplied.digest;
+      remoteCurationManifestDigest = preferences.managedEnvironmentApplied.managedExtensionsDigest;
     }
 
     // REQ-ENTERPRISE-020: refuse to start a container while the bucket is migrating its
@@ -326,6 +334,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       r2SseDisabled,
       remoteCurationActive,
       remoteCurationReleaseDigest,
+      remoteCurationManifestDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured

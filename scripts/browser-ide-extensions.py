@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -41,7 +42,13 @@ class UnsafeInput(ValueError):
     """An external file cannot safely participate in capture."""
 
 
-def _read_json_file(path: Path, max_bytes: int, *, require_regular: bool = True) -> Any:
+def _read_json_file(
+    path: Path,
+    max_bytes: int,
+    *,
+    require_regular: bool = True,
+    expected_sha256: str | None = None,
+) -> Any:
     info = path.lstat()
     if require_regular and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
         raise UnsafeInput(f"unsafe file type: {path}")
@@ -51,6 +58,8 @@ def _read_json_file(path: Path, max_bytes: int, *, require_regular: bool = True)
         payload = path.read_bytes()
         if len(payload) > max_bytes:
             raise UnsafeInput(f"file grew beyond bound: {path}")
+        if expected_sha256 is not None and hashlib.sha256(payload).hexdigest() != expected_sha256:
+            raise UnsafeInput(f"file digest mismatch: {path}")
         return json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UnsafeInput(f"invalid JSON: {path}") from exc
@@ -133,7 +142,18 @@ def _read_managed_extension_ids(manifest_path: Path, extensions_dir: Path, polic
     managed_path = manifest_path.with_name("managed-extensions.json")
     active: set[str] = set()
     if managed_path.exists() or managed_path.is_symlink():
-        managed = _read_json_file(managed_path, _MANAGED_EXTENSIONS_MAX_BYTES)
+        expected_release_digest = os.environ.get("REMOTE_CURATION_RELEASE_DIGEST", "")
+        expected_manifest_digest = os.environ.get("REMOTE_CURATION_MANIFEST_DIGEST", "")
+        trusted_manifest_digest = None
+        if sha256.fullmatch(expected_release_digest):
+            if not sha256.fullmatch(expected_manifest_digest):
+                raise UnsafeInput("missing managed extension manifest digest")
+            trusted_manifest_digest = expected_manifest_digest
+        managed = _read_json_file(
+            managed_path,
+            _MANAGED_EXTENSIONS_MAX_BYTES,
+            expected_sha256=trusted_manifest_digest,
+        )
         release = managed.get("release") if isinstance(managed, dict) else None
         records = managed.get("extensions") if isinstance(managed, dict) else None
         if (
@@ -151,7 +171,6 @@ def _read_managed_extension_ids(manifest_path: Path, extensions_dir: Path, polic
             or len(records) > _MANAGED_EXTENSION_MAX_COUNT
         ):
             raise UnsafeInput("invalid managed extension manifest")
-        expected_release_digest = os.environ.get("REMOTE_CURATION_RELEASE_DIGEST", "")
         if not sha256.fullmatch(expected_release_digest) or release["digest"] != expected_release_digest:
             records = []
         aggregate_size = 0

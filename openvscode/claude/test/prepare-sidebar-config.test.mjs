@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, lstat, readFile, readlink, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -231,13 +232,18 @@ test("REQ-IDE-042 AC1: settings preparation reads the restored company extension
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({
+  const manifest = JSON.stringify({
     schemaVersion: 1,
     release: { digest: "a".repeat(64), sequence: 7 },
     extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
-  }));
+  });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {
@@ -252,13 +258,18 @@ test("REQ-IDE-042 AC1: company allowance ignores a restored manifest from anothe
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({
+  const manifest = JSON.stringify({
     schemaVersion: 1,
     release: { digest: "a".repeat(64), sequence: 7 },
     extensions: [{ id: "cherrymarkdownpublisher.cherry-markdown" }],
-  }));
+  });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "b".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "b".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {
@@ -272,9 +283,14 @@ test("REQ-IDE-042 AC1: invalid company manifest falls back to the baseline allow
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");
   const managedExtensionsPath = join(sourceRoot, "..", ".codeflare", "managed-extensions.json");
   await mkdir(join(managedExtensionsPath, ".."), { recursive: true });
-  await writeFile(managedExtensionsPath, JSON.stringify({ schemaVersion: 1, extensions: [{ id: "invalid" }] }));
+  const manifest = JSON.stringify({ schemaVersion: 1, extensions: [{ id: "invalid" }] });
+  await writeFile(managedExtensionsPath, manifest);
 
-  await prepareBaseOpenVscodeSettings(serverDataRoot, { managedExtensionsPath, managedReleaseDigest: "a".repeat(64) });
+  await prepareBaseOpenVscodeSettings(serverDataRoot, {
+    managedExtensionsPath,
+    managedReleaseDigest: "a".repeat(64),
+    managedManifestDigest: createHash("sha256").update(manifest).digest("hex"),
+  });
 
   const written = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
   assert.deepEqual(written["extensions.allowed"], {

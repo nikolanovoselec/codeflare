@@ -601,15 +601,25 @@ function getManagedDocumentKeysForMode(release: ManagedReleaseIndex, mode: Sessi
   return keys;
 }
 
+export function managedExtensionsDocumentContent(selection: ManagedReleaseSelection): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    release: { digest: selection.digest, sequence: selection.release.sequence },
+    extensions: selection.release.managedExtensions,
+  });
+}
+
+export async function managedExtensionsDocumentDigest(selection: ManagedReleaseSelection): Promise<string> {
+  const bytes = new TextEncoder().encode(managedExtensionsDocumentContent(selection));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocument {
   return {
     key: '.codeflare/managed-extensions.json',
     contentType: 'application/json; charset=utf-8',
-    content: JSON.stringify({
-      schemaVersion: 1,
-      release: { digest: selection.digest, sequence: selection.release.sequence },
-      extensions: selection.release.managedExtensions,
-    }),
+    content: managedExtensionsDocumentContent(selection),
   };
 }
 

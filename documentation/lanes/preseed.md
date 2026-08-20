@@ -402,7 +402,7 @@ Curated content is not copied into this public preseed, and a public baked-prese
 git clone https://github.com/nikolanovoselec/codeflare-curation.git
 ```
 
-Editing `preseed/agents/**` here instead is a silent no-op for every deployment, because deployments read the signed release rather than the image baseline. Only two cases justify editing this repository: a task explicitly scoped to the image fallback, or a change to the shared compiler, transform, seed ABI, or Pi runtime lock, which are Codeflare-owned and land here first.
+Editing `preseed/agents/**` here instead is a silent no-op for deployments with Managed Environment curation active, because those deployments read the signed release rather than the image baseline. Only two cases justify editing this repository: a task explicitly scoped to the image fallback, or a change to the shared compiler, transform, seed ABI, or Pi runtime lock, which are Codeflare-owned and land here first.
 
 Behavior required in both timelines receives two explicit edits, with the private version authoritative; no public-to-private synchronization job is used. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 

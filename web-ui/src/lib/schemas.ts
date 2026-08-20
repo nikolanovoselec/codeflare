@@ -61,6 +61,7 @@ export const UserPreferencesSchema = z.object({
   userTimezone: z.string().optional(),
   managedEnvironmentApplied: z.object({
     digest: z.string().regex(/^[0-9a-f]{64}$/),
+    managedExtensionsDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(),
     sequence: z.number().int().positive(),
     mode: SessionModeSchema,
     appliedAt: z.string(),

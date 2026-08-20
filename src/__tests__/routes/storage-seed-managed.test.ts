@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccessUser, Env } from '../../types';
 import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
@@ -9,6 +10,7 @@ import {
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { managedExtensionsDocumentContent } from '../../lib/r2-seed';
 
 const state = vi.hoisted(() => ({
   active: null as ActiveVerifiedManagedRelease | null,
@@ -27,11 +29,15 @@ vi.mock('../../lib/managed-release-active', () => ({
   }),
   getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
 }));
-vi.mock('../../lib/r2-seed', () => ({
-  seedGettingStartedDocs: vi.fn(),
-  reconcileAgentConfigs: reconcile,
-  reseedContextModePlugin: reseedContext,
-}));
+vi.mock('../../lib/r2-seed', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+  return {
+    ...actual,
+    seedGettingStartedDocs: vi.fn(),
+    reconcileAgentConfigs: reconcile,
+    reseedContextModePlugin: reseedContext,
+  };
+});
 vi.mock('../../lib/r2-admin', () => ({ createBucketIfNotExists: createBucket }));
 vi.mock('../../lib/r2-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/r2-client')>()),
@@ -145,9 +151,14 @@ describe('managed storage reconcile', () => {
     }));
     expect(reseedContext).toHaveBeenCalled();
     const applied = await kv.get('user-prefs:user-bucket', 'json') as any;
+    const expectedManifestBytes = managedExtensionsDocumentContent({
+      digest: state.active!.digest,
+      compressed: state.active!.compressed,
+      release: state.active!.release,
+    });
     expect(applied.managedEnvironmentApplied).toMatchObject({
       digest: 'd'.repeat(64),
-      managedExtensionsDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      managedExtensionsDigest: createHash('sha256').update(expectedManifestBytes).digest('hex'),
       sequence: 9,
       mode: 'advanced',
     });
@@ -211,7 +222,7 @@ describe('managed storage reconcile', () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
-      managedEnvironmentApplied: { digest: '1'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      managedEnvironmentApplied: { digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
     });
 
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
@@ -232,7 +243,7 @@ describe('managed storage reconcile', () => {
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
       workspaceSyncEnabled: true,
-      managedEnvironmentApplied: { digest: '1'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+      managedEnvironmentApplied: { digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
     });
 
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });

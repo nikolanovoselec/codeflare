@@ -32,6 +32,7 @@ export const SetBucketNameBodySchema = z.object({
   r2SseDisabled: z.boolean().optional(),
   remoteCurationActive: z.boolean().optional(),
   remoteCurationReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+  remoteCurationManifestDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
@@ -51,8 +52,14 @@ export const SetBucketNameBodySchema = z.object({
   if (value.remoteCurationActive === true && !value.remoteCurationReleaseDigest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'active remote curation requires its applied release digest' });
   }
+  if (value.remoteCurationActive === true && !value.remoteCurationManifestDigest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationManifestDigest'], message: 'active remote curation requires its managed extension manifest digest' });
+  }
   if (value.remoteCurationActive !== true && value.remoteCurationReleaseDigest != null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'inactive remote curation cannot transport a release digest' });
+  }
+  if (value.remoteCurationActive !== true && value.remoteCurationManifestDigest != null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationManifestDigest'], message: 'inactive remote curation cannot transport a managed extension manifest digest' });
   }
 });
 
