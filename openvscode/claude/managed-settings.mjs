@@ -41,7 +41,7 @@ export function buildBaseOpenVscodeSettings(managedExtensions = []) {
         args: ["-l"],
         env: { MANUAL_TAB: "1" },
       },
-      "Session Agent": {
+      "Codeflare Session Agent": {
         path: "/bin/bash",
         args: ["-l"],
       },

@@ -8,7 +8,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Managed-release decisions use the entitlement-clamped session mode** ([REQ-SEC-015](security.md#req-sec-015-blocked-user-cannot-self-upgrade-subscription) amended). Status polling, reconciliation, applied-release stamping, and container startup now resolve one billing-aware effective mode. A downgraded SaaS user with a stale Pro preference therefore reconciles to Standard instead of starting against previously applied Pro managed content.
 
-- **Browser IDE terminals now open in Bash by default** ([REQ-IDE-047](browser-ide.md#req-ide-047-bash-first-browser-ide-terminals) added as Implemented). Every IDE inventory manages one Bash login-shell profile carrying the existing `MANUAL_TAB=1` bypass and one explicit `Session Agent` login-shell profile without that bypass. New integrated terminals therefore start as plain Bash while users can still select the session's configured agent from the terminal profile menu. The change reuses existing shell initialization and does not add a launcher or agent process.
+- **Browser IDE terminals now open in Bash by default** ([REQ-IDE-047](browser-ide.md#req-ide-047-bash-first-browser-ide-terminals) added as Implemented). Every IDE inventory manages one Bash login-shell profile carrying the existing `MANUAL_TAB=1` bypass and one explicit `Codeflare Session Agent` login-shell profile without that bypass. New integrated terminals therefore start as plain Bash while users can still select the session's configured agent from the terminal profile menu. The change reuses existing shell initialization and does not add a launcher or agent process.
 
 ## 2026-08-19
 

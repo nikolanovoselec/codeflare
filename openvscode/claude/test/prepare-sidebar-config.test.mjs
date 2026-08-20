@@ -181,9 +181,9 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
     "keyboard.layout": "de",
     "extensions.allowed": { "*": false },
     "workbench.startupEditor": "welcomePage",
-    "terminal.integrated.defaultProfile.linux": "Session Agent",
+    "terminal.integrated.defaultProfile.linux": "Legacy Agent",
     "terminal.integrated.profiles.linux": {
-      "Session Agent": { path: "/bin/bash", args: ["-l"] },
+      "Legacy Agent": { path: "/bin/bash", args: ["-l"] },
     },
     "chat.disableAIFeatures": false,
     "accessibility.openChatEditedFiles": true,
@@ -211,7 +211,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
         args: ["-l"],
         env: { MANUAL_TAB: "1" },
       },
-      "Session Agent": {
+      "Codeflare Session Agent": {
         path: "/bin/bash",
         args: ["-l"],
       },

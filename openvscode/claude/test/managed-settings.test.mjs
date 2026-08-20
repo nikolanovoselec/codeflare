@@ -16,7 +16,7 @@ const EXPECTED_TERMINAL_PROFILES = {
     args: ["-l"],
     env: { MANUAL_TAB: "1" },
   },
-  "Session Agent": {
+  "Codeflare Session Agent": {
     path: "/bin/bash",
     args: ["-l"],
   },
