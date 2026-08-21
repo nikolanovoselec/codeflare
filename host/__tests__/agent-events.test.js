@@ -132,6 +132,22 @@ describe('REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination', () => {
     assert.deepEqual(queue.drain({ ackEventIds: [] }).events, []);
   });
 
+  it('accepts a late suppress from the granted client and never makes the event drain-eligible', () => {
+    const { queue, advanceBy } = queueAt();
+    const returning = client('returning-active');
+    queue.enqueue('input-required', [returning]);
+    queue.submitDisposition('event-1', returning, 'display-request');
+    assert.equal(queue.get('event-1').state, 'awaiting-display-confirmation');
+
+    const suppressed = queue.submitDisposition('event-1', returning, 'suppress');
+
+    assert.equal(suppressed.accepted, true);
+    assert.equal(queue.get('event-1').state, 'cancelled');
+    assert.equal(eventActions(suppressed, 'cancel-display').length, 1);
+    advanceBy(AGENT_EVENT_LIMITS.displayConfirmationWindowMs + 1);
+    assert.deepEqual(queue.drain({ ackEventIds: [] }).events, []);
+  });
+
   it('rejects a disposition or confirmation from a foreign connection', () => {
     const { queue } = queueAt();
     const attached = client('attached');

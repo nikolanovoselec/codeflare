@@ -456,6 +456,9 @@ describe('useTerminal hook', () => {
       });
 
       expect(mockAgentEventDisposition).toHaveBeenCalledTimes(2);
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenLastCalledWith(
+        'test-session-123', '1', 'event-a', 'suppress',
+      );
       expect(showGrantedAgentEvent).not.toHaveBeenCalled();
       expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
       dispose();
