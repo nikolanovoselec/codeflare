@@ -58,7 +58,7 @@ describe('REQ-SEC-022 AC5 / D1: agent-event raw-port drain authentication', () =
 
     expect(result).toEqual({ hostNow: 1_700_000_000_000, events: [] });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('http://localhost/internal/agent-events/drain');
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer agent-token-123');

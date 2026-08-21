@@ -202,7 +202,7 @@ describe('REQ-TERM-023 AC6 / REQ-SEC-023 AC1-AC3: notification routes', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      expect(response.status).toBe(400, JSON.stringify(body));
+      expect({ body, status: response.status }).toEqual({ body, status: 400 });
     }
     expect(await subscriptionKeys(kv, 'bucket-a')).toEqual([]);
   });

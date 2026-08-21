@@ -557,9 +557,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const syncIndex = calls.findIndex((call) => call.url.includes('/internal/final-sync'));
       expect(eventIndex).toBeGreaterThanOrEqual(0);
       expect(syncIndex).toBeGreaterThan(eventIndex);
-      const eventCall = calls[eventIndex];
-      expect((eventCall.init?.headers as Record<string, string>).Authorization).toBe('Bearer destroy-agent-token');
-      expect(JSON.parse(eventCall.init?.body as string)).toEqual({ ackEventIds: [], final: true });
+      const eventCall = calls[eventIndex]!;
+      expect((eventCall.init!.headers as Record<string, string>).Authorization).toBe('Bearer destroy-agent-token');
+      expect(JSON.parse(eventCall.init!.body as string)).toEqual({ ackEventIds: [], final: true });
     });
 
     it('does not persist invalid values from setBucketName', async () => {
