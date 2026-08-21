@@ -13,7 +13,9 @@ const mockFocus = vi.fn();
 const mockRegisterOscHandler = vi.fn(
   (_identifier: number, _handler: (data: string) => boolean) => ({ dispose: vi.fn() }),
 );
-const agentEventCallbackState = vi.hoisted(() => ({ handler: undefined as ((message: any) => void) | undefined }));
+const agentEventCallbackState = vi.hoisted(() => ({
+  handler: undefined as ((message: any) => void | Promise<void>) | undefined,
+}));
 const mockRegisterAgentEventCallback = vi.hoisted(() => vi.fn(
   (_sessionId: string, _terminalId: string, handler: (message: any) => void) => {
     agentEventCallbackState.handler = handler;
@@ -378,6 +380,7 @@ describe('useTerminal hook', () => {
     });
 
     it('displays and confirms only a host-granted event with current store-owned identity', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
       const notificationSessionId = 'abcdef0123456789';
       sessionState.sessions = [{ id: notificationSessionId, agentType: 'pi', name: 'Test session' }];
       const dispose = createRoot((dispose) => {
@@ -405,6 +408,7 @@ describe('useTerminal hook', () => {
     });
 
     it('does not confirm a grant when local display fails', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
       mockShowGrantedAgentEvent.mockResolvedValue(false);
       const dispose = createRoot((dispose) => {
         const result = useTerminal(defaultProps);
@@ -414,6 +418,69 @@ describe('useTerminal hook', () => {
       await agentEventCallbackState.handler?.({
         type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
       });
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('does not display a grant that the host already cancelled', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      await agentEventCallbackState.handler?.({ type: 'agent-event-cancelled', eventId: 'event-a' });
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+
+      expect(showGrantedAgentEvent).not.toHaveBeenCalled();
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('rechecks presence and does not display when the granted pane is now active', async () => {
+      mockAgentEventDisposition
+        .mockReturnValueOnce('display-request')
+        .mockReturnValueOnce('suppress');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: false, visible: false, focused: false });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      await agentEventCallbackState.handler?.({ type: 'agent-event', eventId: 'event-a', kind: 'input-required' });
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+
+      expect(mockAgentEventDisposition).toHaveBeenCalledTimes(2);
+      expect(showGrantedAgentEvent).not.toHaveBeenCalled();
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('never confirms a display cancelled while the browser call is pending', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      let resolveDisplay: ((displayed: boolean) => void) | undefined;
+      mockShowGrantedAgentEvent.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveDisplay = resolve;
+      }));
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const grant = agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+      await vi.waitFor(() => expect(showGrantedAgentEvent).toHaveBeenCalledOnce());
+      await agentEventCallbackState.handler?.({ type: 'agent-event-cancelled', eventId: 'event-a' });
+      resolveDisplay?.(true);
+      await grant;
+
       expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
       dispose();
     });

@@ -466,6 +466,23 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       }));
     });
 
+    it('REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [{
+        schemaVersion: 1,
+        eventId: 'event-stalled-provider',
+        kind: 'input-required',
+        createdAt: 1_699_999_999_000,
+      }];
+      testState.scheduleCalls = [];
+      sendAgentEventPushesMock.mockImplementationOnce(() => new Promise(() => {}));
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      expect(testState.stopCalls).toBe(0);
+    }, 10_000);
+
     it('D2: after send succeeds but ACK fails, re-offer is ACKed without same-instance re-send', async () => {
       setNotificationSession();
       testState.agentDrainEvents = [{

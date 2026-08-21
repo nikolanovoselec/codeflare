@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 
 const sendNotificationMock = vi.hoisted(() => vi.fn());
@@ -72,6 +72,11 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-023 AC4-AC7: Web Push sender', () => {
     sendNotificationMock.mockResolvedValue({ status: 201, expired: false, body: '' });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it('sends only the fixed seven-field payload enriched from the DO-owned Session', async () => {
     await storeSubscription(kv, bucketName, 'digest-a', subscription(
       'https://fcm.googleapis.com/fcm/send/device-a',
@@ -106,11 +111,11 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-023 AC4-AC7: Web Push sender', () => {
       agent: 'Pi',
       createdAt: 1_700_000_000_000,
     });
-    expect(options).toEqual({
+    expect(options).toEqual(expect.objectContaining({
       vapid: VAPID,
       ttl: 3_600,
       urgency: 'high',
-    });
+    }));
   });
 
   it('uses normal urgency for completion and failure while retaining one-hour TTL', async () => {
@@ -208,6 +213,42 @@ describe('REQ-TERM-023 AC5 / REQ-SEC-023 AC4-AC7: Web Push sender', () => {
     });
     expect(sendNotificationMock).not.toHaveBeenCalled();
     expect(result.sentEventIds).toEqual([]);
+  });
+
+  it('aborts a provider request that never settles and retains the event for re-offer', async () => {
+    vi.useFakeTimers();
+    await storeSubscription(kv, bucketName, 'digest-stalled', subscription(
+      'https://fcm.googleapis.com/fcm/send/device-stalled',
+      1,
+    ));
+    let observedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>(
+      (_resolve, reject) => {
+        observedSignal = init?.signal ?? undefined;
+        observedSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    sendNotificationMock.mockImplementation(
+      async (_target: PushSubscriptionRecord, _payload: string, options: { fetch?: typeof fetch }) => {
+        if (!options.fetch) throw new Error('bounded transport missing');
+        await options.fetch('https://push.example.test/message', { method: 'POST' });
+        return { status: 201, expired: false, body: '' };
+      },
+    );
+
+    const delivery = sendAgentEventPushes({
+      kv: kv as unknown as KVNamespace,
+      bucketName,
+      session: SESSION,
+      events: [event('event-stalled')],
+      vapid: VAPID,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(delivery).resolves.toEqual({ sentEventIds: [] });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(observedSignal?.aborted).toBe(true);
   });
 
   it('bounds events, subscriptions, and total fan-out', async () => {

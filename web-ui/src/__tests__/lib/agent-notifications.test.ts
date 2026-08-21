@@ -8,6 +8,14 @@ import {
   type AgentPresence,
 } from '../../lib/agent-notifications';
 
+const VAPID_PUBLIC_KEY = 'B'.repeat(87);
+
+function decodePublicKey(value: string): ArrayBuffer {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const decoded = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0)).buffer;
+}
+
 const PRESENCE: AgentPresence = Object.freeze({
   documentVisible: true,
   windowFocused: true,
@@ -16,9 +24,13 @@ const PRESENCE: AgentPresence = Object.freeze({
   terminalOnePaneFocused: true,
 });
 
-function subscription(endpoint = 'https://fcm.googleapis.com/fcm/send/device-a') {
+function subscription(
+  endpoint = 'https://fcm.googleapis.com/fcm/send/device-a',
+  applicationServerKey?: ArrayBuffer,
+) {
   return Object.freeze({
     endpoint,
+    options: applicationServerKey === undefined ? undefined : { applicationServerKey },
     toJSON: () => ({
       endpoint,
       keys: { p256dh: 'p256dh', auth: 'auth' },
@@ -32,7 +44,7 @@ function browser(overrides: Partial<AgentNotificationBrowser> = {}): AgentNotifi
     permission: () => 'granted',
     requestPermission: vi.fn(async () => 'granted' as const),
     currentSubscription: vi.fn(async () => current),
-    getVapidPublicKey: vi.fn(async () => 'public-vapid-key'),
+    getVapidPublicKey: vi.fn(async () => VAPID_PUBLIC_KEY),
     subscribe: vi.fn(async () => current),
     saveSubscription: vi.fn(async () => undefined),
     deleteSubscription: vi.fn(async () => undefined),
@@ -140,8 +152,45 @@ describe('REQ-TERM-023 AC6: one per-device enrollment switch', () => {
 
     expect(env.requestPermission).toHaveBeenCalledOnce();
     expect(env.getVapidPublicKey).toHaveBeenCalledOnce();
-    expect(env.subscribe).toHaveBeenCalledWith('public-vapid-key');
+    expect(env.subscribe).toHaveBeenCalledWith(VAPID_PUBLIC_KEY);
     expect(env.saveSubscription).toHaveBeenCalledWith(created.toJSON());
+  });
+
+  it('re-registers an existing matching subscription before reporting enrollment on', async () => {
+    const current = subscription(
+      'https://fcm.googleapis.com/fcm/send/existing-device',
+      decodePublicKey(VAPID_PUBLIC_KEY),
+    );
+    const env = browser({ currentSubscription: vi.fn(async () => current) });
+
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('on');
+
+    expect(env.getVapidPublicKey).toHaveBeenCalledOnce();
+    expect(env.saveSubscription).toHaveBeenCalledWith(current.toJSON());
+    expect(env.subscribe).not.toHaveBeenCalled();
+    expect(env.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('replaces an existing subscription whose application server key cannot match current config', async () => {
+    const current = subscription(
+      'https://fcm.googleapis.com/fcm/send/old-device',
+      decodePublicKey('C'.repeat(87)),
+    );
+    const replacement = subscription(
+      'https://fcm.googleapis.com/fcm/send/new-device',
+      decodePublicKey(VAPID_PUBLIC_KEY),
+    );
+    const env = browser({
+      currentSubscription: vi.fn(async () => current),
+      subscribe: vi.fn(async () => replacement),
+    });
+
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('on');
+
+    expect(env.deleteSubscription).toHaveBeenCalledWith(current.endpoint);
+    expect(env.unsubscribe).toHaveBeenCalledWith(current);
+    expect(env.subscribe).toHaveBeenCalledWith(VAPID_PUBLIC_KEY);
+    expect(env.saveSubscription).toHaveBeenCalledWith(replacement.toJSON());
   });
 
   it('does not subscribe or save after permission denial', async () => {

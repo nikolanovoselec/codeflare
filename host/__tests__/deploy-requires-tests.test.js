@@ -11,9 +11,10 @@
 // manual deploys keep working, they just stop being verified.
 
 import { spawnSync } from 'node:child_process';
+import { createECDH } from 'node:crypto';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
@@ -22,6 +23,7 @@ import { parse as parseYaml } from 'yaml';
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
 const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
+const VAPID_GATE = join(ROOT, 'scripts', 'ci', 'validate-vapid-config.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
@@ -340,6 +342,68 @@ describe('manual deploys cannot skip tests', () => {
     for (const [result, expected] of [['success', 0], ['skipped', 1], ['failure', 1], ['cancelled', 1]]) {
       const outcome = spawnSync(process.execPath, [OUTCOME_GATE, result], { encoding: 'utf8' });
       assert.equal(outcome.status, expected, result);
+    }
+  });
+});
+
+describe('REQ-OPS-013 AC6: notification deployment configuration', () => {
+  function keyPair() {
+    const ecdh = createECDH('prime256v1');
+    ecdh.generateKeys();
+    return {
+      publicKey: ecdh.getPublicKey().toString('base64url'),
+      privateKey: ecdh.getPrivateKey().toString('base64url'),
+    };
+  }
+
+  function validate(env) {
+    assert.ok(existsSync(VAPID_GATE), 'notification configuration validator is missing');
+    return spawnSync(process.execPath, [VAPID_GATE], {
+      encoding: 'utf8',
+      env,
+    });
+  }
+
+  it('validates the subject and matching P-256 keypair before Worker promotion', () => {
+    const pair = keyPair();
+    const valid = validate({
+      VAPID_SUBJECT: 'mailto:ops@codeflare.example',
+      VAPID_PUBLIC_KEY: pair.publicKey,
+      VAPID_PRIVATE_KEY: pair.privateKey,
+    });
+    assert.equal(valid.status, 0, valid.stderr);
+
+    const deploy = jobBlock('deploy');
+    const validation = deploy.indexOf('node scripts/ci/validate-vapid-config.mjs');
+    const promotion = deploy.indexOf('npx wrangler deploy');
+    assert.ok(validation >= 0, 'deploy job does not run the VAPID validator');
+    assert.ok(promotion > validation, 'VAPID validation must happen before Worker promotion');
+  });
+
+  it('rejects whitespace, bad subjects, malformed keys, and mismatched pairs without printing key values', () => {
+    const pair = keyPair();
+    const other = keyPair();
+    const invalid = [
+      ['whitespace subject', { VAPID_SUBJECT: '   ' }],
+      ['surrounding whitespace', { VAPID_SUBJECT: ' mailto:ops@codeflare.example' }],
+      ['bad subject scheme', { VAPID_SUBJECT: 'ftp://codeflare.example' }],
+      ['malformed public key', { VAPID_PUBLIC_KEY: 'PUBLIC_KEY_SENTINEL' }],
+      ['malformed private key', { VAPID_PRIVATE_KEY: 'PRIVATE_KEY_SENTINEL' }],
+      ['mismatched keypair', { VAPID_PRIVATE_KEY: other.privateKey }],
+    ];
+
+    for (const [name, overrides] of invalid) {
+      const env = {
+        VAPID_SUBJECT: 'https://codeflare.example',
+        VAPID_PUBLIC_KEY: pair.publicKey,
+        VAPID_PRIVATE_KEY: pair.privateKey,
+        ...overrides,
+      };
+      const result = validate(env);
+      assert.notEqual(result.status, 0, name);
+      const output = `${result.stdout}${result.stderr}`;
+      assert.ok(!output.includes(env.VAPID_PUBLIC_KEY), `${name}: public key value leaked`);
+      assert.ok(!output.includes(env.VAPID_PRIVATE_KEY), `${name}: private key value leaked`);
     }
   });
 });
