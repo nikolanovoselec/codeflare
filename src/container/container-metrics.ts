@@ -356,7 +356,7 @@ function hasExactKeys(value: Record<string, unknown>, expected: readonly string[
  * code. One invalid or over-cap event rejects the whole batch rather than
  * truncating attacker-controlled input into an apparently valid prefix.
  */
-export function validateAgentEvents(value: unknown): AgentEventDrainResponse | null {
+function validateAgentEvents(value: unknown): AgentEventDrainResponse | null {
   if (!isRecord(value)
       || !hasExactKeys(value, ['hostNow', 'events'])
       || typeof value.hostNow !== 'number'
