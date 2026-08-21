@@ -69,6 +69,8 @@ The customer chooses the identity provider, GitHub organization, storage regime,
 
 Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Copilot, Pi, Google Antigravity, OpenCode, and Bash. Enterprise administrators choose from gateway-capable Pi and GitHub Copilot agents, with Bash always available.
 
+Enterprise sessions can send native notifications from validated lifecycle signals when no connected view is active ([REQ-TERM-023](sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery)).
+
 Hosted model providers remain first-class. Supported enterprise traffic can be routed through Cloudflare AI Gateway in the customer's account, with route catalogs, model policy, context limits, and user attribution controlled there. [Codeflare Inference Mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh) is an optional, separately deployed source for open models on customer-controlled GPU or CPU capacity.
 
 <p align="center">
@@ -137,7 +139,7 @@ Use a Cloudflare account that can run Workers and Containers, a GitHub fork with
 The public path creates a private single-tenant instance in four steps:
 
 1. Fork this repository.
-2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions repository secrets using the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
+2. Add `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` as GitHub Actions repository secrets. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator) and [Web Push configuration contract](documentation/lanes/configuration.md#secrets); do not define environment-level `VAPID_*` overrides.
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
@@ -149,7 +151,7 @@ Retain the successful Deploy run and commit, confirm public health and provider 
 
 ### Enterprise deployment
 
-Enterprise rollout uses private environment configuration rather than the public two-secret path. Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy.
+Enterprise rollout uses private environment configuration in addition to the five shared repository secrets documented by the [Web Push configuration contract](documentation/lanes/configuration.md#secrets). Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy ([Enterprise requirements](sdd/spec/enterprise-mode.md), [private operations](https://github.com/nikolanovoselec/codeflare-private)).
 
 Exact enterprise secrets, token scopes, environment layouts, promotion checks, and rollback procedures live in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required). They are intentionally not copied into the public repository.
 

@@ -53,6 +53,15 @@ describe('checkContainerAuth / REQ-SEC-022 (container proxy bearer validation)',
       assert.equal(out.status, 401);
     });
 
+    it('REQ-SEC-022 AC5: the internal agent-event drain is protected and never auth-exempt', () => {
+      assert.equal(AUTH_EXEMPT_PATHS.has('/internal/agent-events/drain'), false);
+      assert.equal(checkContainerAuth('/internal/agent-events/drain', undefined, 'expected-token').status, 401);
+      assert.deepEqual(
+        checkContainerAuth('/internal/agent-events/drain', 'Bearer expected-token', 'expected-token'),
+        { allowed: true },
+      );
+    });
+
     it('returns 401 when Authorization header lacks Bearer prefix', () => {
       const out = checkContainerAuth('/sessions', 'expected-token', 'expected-token');
       assert.equal(out.allowed, false);

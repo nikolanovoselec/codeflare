@@ -324,7 +324,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
-**Intent:** When a container is stopped for any reason (user stop, user delete, idle timeout, quota eviction), its workspace is fully synced to R2 before the container process is terminated, so no data is lost. The platform's grace period between SIGTERM and SIGKILL is far shorter than a bidirectional sync can take, so the final sync is performed as an *awaited live bisync while the container is still running* - the Durable Object triggers it and blocks on its completion before stopping the container - rather than relying on the SIGTERM trap, which is retained only as a best-effort backstop.
+**Intent:** Deliberate stop paths complete one bounded live workspace sync before terminating the container; the SIGTERM trap remains only a best-effort backstop.
 
 **Applies To:** User
 
@@ -335,22 +335,52 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
 5. Total teardown is hard-capped from `destroy()` entry: every awaited teardown stage consumes the same 135s deadline, so storage, sync, stop, or provider stalls cannot extend the operation. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-6. User stop and user delete behave identically: both route through the same graceful-destroy path, and idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)) -->
+6. User stop and user delete behave identically: both route through the same graceful-destroy path, and idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop) -->
 7. The SIGTERM trap is retained as a best-effort backstop final sync for paths that bypass the orchestrated drain, but is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints). <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 
 **Constraints:**
 
-- The platform's post-SIGTERM kill grace is never relied on for sync completion; the authoritative sync runs while the container is alive and the DO holds teardown open awaiting it.
-- The container's final-sync endpoint internal timeout MUST exceed the DO's drain budget (120s), so the DO's `AbortSignal` not the endpoint is the authoritative ceiling.
-- A failed or timed-out drain proceeds to stop (135s hard force-kill ceiling).
-- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is.
-- The container image still declares a trappable stop signal so the backstop trap stays reachable.
+- The authoritative sync runs while the container is alive; post-SIGTERM grace is not its completion mechanism.
+- The final-sync endpoint timeout exceeds the DO's 120-second drain budget.
+- Completion requires this run's `syncing` state before its terminal state.
+- The container image retains a trappable stop signal.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated test ([Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js))
+**Verification:** Automated test ([drainFinalSync and idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint and completion signal](../../host/__tests__/final-sync-endpoint.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-027: Final notification drain precedes shutdown sync
+
+**Intent:** Deliberate stop paths give pending away notifications one bounded final attempt before final workspace sync and container stop.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Idle, quota, Stop, and Delete invoke one independently bounded final agent-event drain before final sync. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+2. A final drain makes unresolved client decisions eligible for fallback before reading events. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (final drain atomically promotes pending and awaiting-confirmation events) -->
+3. Terminal-convergence recovery attempts no final drain after host transport becomes unavailable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-022 AC7 + REQ-SESSION-024 AC4: retains exhausted recovery and retries when terminal container stop fails) -->
+4. Teardown preserves the lifecycle Bearer and session ID until the final event request is built, then clears stored state. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-027 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+6. A failed final event drain still permits final sync and container stop. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop) -->
+7. A failed final sync preserves the completed event attempt and still permits container stop. <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops) -->
+
+**Constraints:**
+
+- Final order is agent-event drain, R2 sync, then stop.
+- Failed or timed-out drains still proceed within the 135-second teardown ceiling.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
+
+**Verification:** Automated test ([destroy ordering](../../src/__tests__/container/lifecycle.test.ts), [idle and quota ordering](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 

@@ -1,186 +1,226 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
+import { describe, expect, it, vi } from 'vitest';
 import {
-  agentNotificationPermission,
-  enableAgentNotifications,
-  parseAgentNotification,
-  showAgentNotification,
+  agentEventDisposition,
+  agentNotificationsEnabled,
+  setAgentNotificationsEnabled,
+  showGrantedAgentEvent,
   type AgentNotificationBrowser,
+  type AgentPresence,
 } from '../../lib/agent-notifications';
 
-const context = Object.freeze({
-  agentType: 'pi' as const,
-  terminalId: '1',
-  sessionName: 'Matrix',
+const VAPID_PUBLIC_KEY = 'B'.repeat(87);
+
+function decodePublicKey(value: string): ArrayBuffer {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const decoded = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0)).buffer;
+}
+
+const PRESENCE: AgentPresence = Object.freeze({
+  documentVisible: true,
+  windowFocused: true,
+  terminalView: true,
+  activeSessionMatches: true,
+  terminalOnePaneFocused: true,
 });
 
+function subscription(
+  endpoint = 'https://fcm.googleapis.com/fcm/send/device-a',
+  applicationServerKey?: ArrayBuffer,
+) {
+  return Object.freeze({
+    endpoint,
+    options: applicationServerKey === undefined ? undefined : { applicationServerKey },
+    toJSON: () => ({
+      endpoint,
+      keys: { p256dh: 'p256dh', auth: 'auth' },
+    }),
+  });
+}
+
 function browser(overrides: Partial<AgentNotificationBrowser> = {}): AgentNotificationBrowser {
+  const current = subscription();
   return {
     permission: () => 'granted',
-    requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'granted'),
-    registerWorker: vi.fn(async () => ({ showNotification: vi.fn(async () => undefined) })),
-    getWorker: vi.fn(async () => ({ showNotification: vi.fn(async () => undefined) })),
+    requestPermission: vi.fn(async () => 'granted' as const),
+    currentSubscription: vi.fn(async () => current),
+    getVapidPublicKey: vi.fn(async () => VAPID_PUBLIC_KEY),
+    subscribe: vi.fn(async () => current),
+    saveSubscription: vi.fn(async () => undefined),
+    deleteSubscription: vi.fn(async () => undefined),
+    unsubscribe: vi.fn(async () => true),
+    showNotification: vi.fn(async () => undefined),
     ...overrides,
   };
 }
 
-describe('native agent browser notifications / REQ-TERM-023', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('converts one native OSC 777 notification into bounded inert text for terminal 1', () => {
-    expect(parseAgentNotification('notify;Pi;Ready for input', context)).toEqual({
-      title: 'Pi · Matrix',
-      body: 'Ready for input',
-      sessionUrl: window.location.href,
-    });
-  });
-
-  it('derives notification identity from the selected agent instead of terminal text', () => {
-    expect(parseAgentNotification('notify;System Update;Ready for input', context)).toEqual({
-      title: 'Pi · Matrix',
-      body: 'Ready for input',
-      sessionUrl: window.location.href,
-    });
+describe('REQ-TERM-023 AC2/AC3: away presence disposition', () => {
+  it('suppresses only when every active-terminal predicate is true', () => {
+    expect(agentEventDisposition(PRESENCE)).toBe('suppress');
   });
 
   it.each([
-    ['unsupported agent', { ...context, agentType: 'bash' as const }, 'notify;Pi;Ready'],
-    ['other terminal', { ...context, terminalId: '2' }, 'notify;Pi;Ready'],
-    ['missing title', context, 'notify;;Ready'],
-    ['missing body', context, 'notify;Pi;'],
-    ['unexpected operation', context, 'open;Pi;Ready'],
-    ['control-bearing title', context, 'notify;Pi\nspoof;Ready'],
-    ['control-bearing body', context, 'notify;Pi;Ready\u001b[31m'],
-    ['format-bearing title', context, 'notify;Pi\u202espoof;Ready'],
-    ['format-bearing body', context, 'notify;Pi;Ready\u2066spoof\u2069'],
-    ['oversized title', context, `notify;${'p'.repeat(65)};Ready`],
-    ['oversized composed title', { ...context, sessionName: 's'.repeat(60) }, 'notify;Pi;Ready'],
-    ['oversized body', context, `notify;Pi;${'é'.repeat(129)}`],
-  ])('rejects %s', (_name, notificationContext, payload) => {
-    expect(parseAgentNotification(payload, notificationContext)).toBeUndefined();
+    ['hidden document', { documentVisible: false }],
+    ['unfocused window', { windowFocused: false }],
+    ['dashboard or other view', { terminalView: false }],
+    ['other session', { activeSessionMatches: false }],
+    ['other pane or terminal', { terminalOnePaneFocused: false }],
+  ])('requests display for %s', (_name, change) => {
+    expect(agentEventDisposition({ ...PRESENCE, ...change })).toBe('display-request');
   });
+});
 
-  it('shows one validated event through an existing service-worker registration', async () => {
-    const showNotification = vi.fn(async () => undefined);
-    const env = browser({
-      getWorker: vi.fn(async () => ({ showNotification })),
-    });
-
-    await showAgentNotification('notify;Claude Code;Task complete', {
-      agentType: 'claude-code',
-      terminalId: '1',
-      sessionName: 'Nebuchadnezzar',
+describe('REQ-TERM-023 AC3/AC5: granted local display', () => {
+  it.each([
+    ['input-required', 'Needs your input'],
+    ['task-completed', 'Task completed'],
+    ['task-failed', 'Task failed'],
+  ] as const)('maps %s to fixed text plus trusted store identity', async (kind, body) => {
+    const env = browser();
+    await showGrantedAgentEvent({
+      eventId: 'event-a',
+      kind,
+      agent: 'Pi',
+      sessionName: 'Pi #1',
+      sessionPath: '/app/session/abcdef0123456789',
     }, env);
 
-    expect(showNotification).toHaveBeenCalledOnce();
-    expect(showNotification).toHaveBeenCalledWith('Claude Code · Nebuchadnezzar', {
-      body: 'Task complete',
-      tag: `codeflare-agent:${window.location.origin}${window.location.pathname}`,
+    expect(env.showNotification).toHaveBeenCalledWith('Pi · Pi #1', {
+      body,
+      tag: 'codeflare-agent:/app/session/abcdef0123456789',
       renotify: true,
-      data: { sessionUrl: window.location.href },
+      data: {
+        eventId: 'event-a',
+        sessionUrl: `${window.location.origin}/app/session/abcdef0123456789`,
+      },
     });
     expect(env.requestPermission).not.toHaveBeenCalled();
-    expect(env.registerWorker).not.toHaveBeenCalled();
   });
 
-  it('keys the replacement tag on the stable path, never transient query params', async () => {
-    vi.stubGlobal('location', new URL('http://localhost:3000/s/abc?warm=1'));
-    const showNotification = vi.fn(async () => undefined);
+  it('fails quietly when permission was revoked and never prompts from an event', async () => {
     const env = browser({
-      getWorker: vi.fn(async () => ({ showNotification })),
+      permission: () => 'default',
+      showNotification: vi.fn(async () => { throw new Error('must not display'); }),
     });
-
-    await showAgentNotification('notify;Pi;Ready for input', context, env);
-
-    expect(showNotification).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
-      tag: 'codeflare-agent:http://localhost:3000/s/abc',
-      data: { sessionUrl: 'http://localhost:3000/s/abc?warm=1' },
-    }));
-  });
-
-  it.each(['default', 'denied'] as const)('does not prompt or display when permission is %s', async (permission) => {
-    const env = browser({
-      permission: () => permission,
-      getWorker: vi.fn(async () => { throw new Error('must not resolve worker'); }),
-    });
-
-    await showAgentNotification('notify;Pi;Ready for input', context, env);
-
+    await expect(showGrantedAgentEvent({
+      eventId: 'event-a',
+      kind: 'input-required',
+      agent: 'Claude Code',
+      sessionName: 'Claude #1',
+      sessionPath: '/app/session/abcdef0123456789',
+    }, env)).resolves.toBe(false);
     expect(env.requestPermission).not.toHaveBeenCalled();
-    expect(env.getWorker).not.toHaveBeenCalled();
+    expect(env.showNotification).not.toHaveBeenCalled();
   });
 
-  it('reports a missing Notification API as unavailable before and after the enable action', async () => {
-    vi.stubGlobal('Notification', undefined);
-
-    expect(agentNotificationPermission()).toBe('unavailable');
-    await expect(enableAgentNotifications()).resolves.toBe('unavailable');
-  });
-
-  it('requests permission and registers the inert worker only from the explicit enable action', async () => {
+  it('rejects malformed IDs, unknown kinds, untrusted names, and non-canonical paths', async () => {
     const env = browser();
+    for (const event of [
+      { eventId: '', kind: 'input-required', agent: 'Pi', sessionName: 'Pi #1', sessionPath: '/app/session/abcdef0123456789' },
+      { eventId: 'event-a', kind: 'other', agent: 'Pi', sessionName: 'Pi #1', sessionPath: '/app/session/abcdef0123456789' },
+      { eventId: 'event-a', kind: 'input-required', agent: 'Attacker', sessionName: 'Pi #1', sessionPath: '/app/session/abcdef0123456789' },
+      { eventId: 'event-a', kind: 'input-required', agent: 'Pi', sessionName: 'bad\nname', sessionPath: '/app/session/abcdef0123456789' },
+      { eventId: 'event-a', kind: 'input-required', agent: 'Pi', sessionName: 'Pi #1', sessionPath: 'https://attacker.example/app/session/abcdef0123456789' },
+    ]) {
+      await expect(showGrantedAgentEvent(event as never, env)).resolves.toBe(false);
+    }
+    expect(env.showNotification).not.toHaveBeenCalled();
+  });
+});
 
-    await expect(enableAgentNotifications(env)).resolves.toBe('granted');
+describe('REQ-TERM-025 AC1-AC5: one per-device enrollment switch', () => {
+  it('reads on only when permission is granted and a valid subscription exists', async () => {
+    await expect(agentNotificationsEnabled(browser())).resolves.toBe(true);
+    await expect(agentNotificationsEnabled(browser({
+      permission: () => 'default',
+    }))).resolves.toBe(false);
+    await expect(agentNotificationsEnabled(browser({
+      currentSubscription: vi.fn(async () => undefined),
+    }))).resolves.toBe(false);
+  });
+
+  it('enables in one gesture: permission, public config, subscribe, then authenticated save', async () => {
+    const created = subscription('https://updates.push.services.mozilla.com/wpush/v2/device-a');
+    const env = browser({
+      permission: () => 'default',
+      requestPermission: vi.fn(async () => 'granted' as const),
+      currentSubscription: vi.fn(async () => undefined),
+      subscribe: vi.fn(async () => created),
+    });
+
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('on');
 
     expect(env.requestPermission).toHaveBeenCalledOnce();
-    expect(env.registerWorker).toHaveBeenCalledOnce();
+    expect(env.getVapidPublicKey).toHaveBeenCalledOnce();
+    expect(env.subscribe).toHaveBeenCalledWith(VAPID_PUBLIC_KEY);
+    expect(env.saveSubscription).toHaveBeenCalledWith(created.toJSON());
   });
 
-  it('does not register a worker after permission denial', async () => {
+  it('re-registers an existing matching subscription before reporting enrollment on', async () => {
+    const current = subscription(
+      'https://fcm.googleapis.com/fcm/send/existing-device',
+      decodePublicKey(VAPID_PUBLIC_KEY),
+    );
+    const env = browser({ currentSubscription: vi.fn(async () => current) });
+
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('on');
+
+    expect(env.getVapidPublicKey).toHaveBeenCalledOnce();
+    expect(env.saveSubscription).toHaveBeenCalledWith(current.toJSON());
+    expect(env.subscribe).not.toHaveBeenCalled();
+    expect(env.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('replaces an existing subscription whose application server key cannot match current config', async () => {
+    const current = subscription(
+      'https://fcm.googleapis.com/fcm/send/old-device',
+      decodePublicKey('C'.repeat(87)),
+    );
+    const replacement = subscription(
+      'https://fcm.googleapis.com/fcm/send/new-device',
+      decodePublicKey(VAPID_PUBLIC_KEY),
+    );
     const env = browser({
-      requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'denied'),
+      currentSubscription: vi.fn(async () => current),
+      subscribe: vi.fn(async () => replacement),
     });
 
-    await expect(enableAgentNotifications(env)).resolves.toBe('denied');
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('on');
 
-    expect(env.registerWorker).not.toHaveBeenCalled();
+    expect(env.deleteSubscription).toHaveBeenCalledWith(current.endpoint);
+    expect(env.unsubscribe).toHaveBeenCalledWith(current);
+    expect(env.subscribe).toHaveBeenCalledWith(VAPID_PUBLIC_KEY);
+    expect(env.saveSubscription).toHaveBeenCalledWith(replacement.toJSON());
   });
 
-  it.each([
-    ['permission request rejection', browser({ requestPermission: vi.fn(async () => { throw new Error('blocked'); }) })],
-    ['missing service-worker registration', browser({ registerWorker: vi.fn(async () => undefined) })],
-    ['service-worker registration rejection', browser({ registerWorker: vi.fn(async () => { throw new Error('blocked'); }) })],
-  ])('reports notification enablement as unavailable after %s', async (_name, env) => {
-    await expect(enableAgentNotifications(env)).resolves.toBe('unavailable');
+  it('does not subscribe or save after permission denial', async () => {
+    const env = browser({
+      permission: () => 'default',
+      requestPermission: vi.fn(async () => 'denied' as const),
+    });
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('denied');
+    expect(env.getVapidPublicKey).not.toHaveBeenCalled();
+    expect(env.subscribe).not.toHaveBeenCalled();
+    expect(env.saveSubscription).not.toHaveBeenCalled();
   });
 
-  it('displays through the ready worker when the stored registration has not activated yet', async () => {
-    const readyShow = vi.fn(async () => undefined);
-    const inactiveShow = vi.fn(async () => undefined);
-    vi.stubGlobal('Notification', { permission: 'granted' });
-    vi.stubGlobal('navigator', {
-      serviceWorker: {
-        getRegistration: vi.fn(async () => ({ active: null, showNotification: inactiveShow })),
-        ready: Promise.resolve({ active: {}, showNotification: readyShow }),
-      },
-    });
+  it('disables by deleting server capability then unsubscribing locally', async () => {
+    const current = subscription('https://web.push.apple.com/device-a');
+    const env = browser({ currentSubscription: vi.fn(async () => current) });
 
-    await showAgentNotification('notify;Pi;Ready for input', context);
+    await expect(setAgentNotificationsEnabled(false, env)).resolves.toBe('off');
 
-    expect(readyShow).toHaveBeenCalledOnce();
-    expect(inactiveShow).not.toHaveBeenCalled();
+    expect(env.deleteSubscription).toHaveBeenCalledWith(current.endpoint);
+    expect(env.unsubscribe).toHaveBeenCalledWith(current);
+    expect(env.requestPermission).not.toHaveBeenCalled();
   });
 
-  it('enable registers the worker at the root scope and resolves only through the ready registration', async () => {
-    let readyAwaited = false;
-    const register = vi.fn(async () => ({ active: null }));
-    vi.stubGlobal('Notification', {
-      permission: 'granted',
-      requestPermission: vi.fn(async (): Promise<NotificationPermission> => 'granted'),
+  it('treats subscription/config/worker failures as unavailable without capability leakage', async () => {
+    const env = browser({
+      currentSubscription: vi.fn(async () => undefined),
+      getVapidPublicKey: vi.fn(async () => { throw new Error('endpoint=secret'); }),
     });
-    vi.stubGlobal('navigator', {
-      serviceWorker: {
-        register,
-        get ready() {
-          readyAwaited = true;
-          return Promise.resolve({ active: {}, showNotification: vi.fn(async () => undefined) });
-        },
-      },
-    });
-
-    await expect(enableAgentNotifications()).resolves.toBe('granted');
-
-    expect(register).toHaveBeenCalledWith('/agent-notifications-sw.js', { scope: '/' });
-    expect(readyAwaited).toBe(true);
+    await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('unavailable');
+    expect(env.saveSubscription).not.toHaveBeenCalled();
   });
 });

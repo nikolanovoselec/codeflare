@@ -70,6 +70,32 @@ function getText(port, path, headers = {}) {
   });
 }
 
+function postJson(port, path, value, headers = {}) {
+  const body = typeof value === 'string' ? value : JSON.stringify(value);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path,
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+        ...headers,
+      },
+    }, (res) => {
+      let responseBody = '';
+      res.on('data', (chunk) => { responseBody += chunk; });
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        body: responseBody ? JSON.parse(responseBody) : null,
+      }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 describe('request router seam (server.ts decomposition)', () => {
   let server;
   let port;
@@ -122,6 +148,88 @@ describe('request router seam (server.ts decomposition)', () => {
     const { status, body } = await getJson(port, '/no-such-route', { authorization: 'Bearer seam-test-token' });
     assert.equal(status, 404);
     assert.equal(body.error, 'Not found');
+  });
+});
+
+describe('REQ-TERM-023 AC4 / REQ-SEC-022 AC5: authenticated agent-event drain', () => {
+  const auth = { authorization: 'Bearer agent-event-test-token' };
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const calls = [];
+  let server;
+  let port;
+
+  before(async () => {
+    process.env.CONTAINER_AUTH_TOKEN = 'agent-event-test-token';
+    const sessionManager = {
+      size: 1,
+      list: () => [],
+      getOrCreate: () => null,
+      delete: () => false,
+      drainAgentEvents(request) {
+        calls.push(request);
+        return {
+          hostNow: 1_700_000_000_000,
+          events: [{
+            schemaVersion: 1,
+            eventId: 'event-1',
+            kind: 'input-required',
+            createdAt: 1_699_999_999_000,
+          }],
+        };
+      },
+    };
+    server = http.createServer(createRequestHandler(makeDeps({ sessionManager }).deps));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    port = server.address().port;
+  });
+
+  after(async () => {
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    server.close();
+    await once(server, 'close');
+  });
+
+  it('returns 401 before parsing a headerless drain body', async () => {
+    const before = calls.length;
+    const response = await postJson(port, '/internal/agent-events/drain', '{not-json');
+    assert.equal(response.status, 401);
+    assert.equal(calls.length, before);
+  });
+
+  it('passes the exact bounded clear request and returns hostNow plus four-field events', async () => {
+    const response = await postJson(port, '/internal/agent-events/drain', {
+      ackEventIds: ['already-sent'],
+      final: true,
+    }, auth);
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls.at(-1), { ackEventIds: ['already-sent'], final: true });
+    assert.deepEqual(response.body, {
+      hostNow: 1_700_000_000_000,
+      events: [{
+        schemaVersion: 1,
+        eventId: 'event-1',
+        kind: 'input-required',
+        createdAt: 1_699_999_999_000,
+      }],
+    });
+  });
+
+  it('rejects malformed, duplicate, oversized, false-final, and extra-field requests', async () => {
+    for (const body of [
+      {},
+      { ackEventIds: 'event-1' },
+      { ackEventIds: ['event-1', 'event-1'] },
+      { ackEventIds: ['x'.repeat(257)] },
+      { ackEventIds: [], final: false },
+      { ackEventIds: [], recipient: 'attacker@example.com' },
+    ]) {
+      const before = calls.length;
+      const response = await postJson(port, '/internal/agent-events/drain', body, auth);
+      assert.equal(response.status, 400, JSON.stringify(body));
+      assert.equal(calls.length, before, JSON.stringify(body));
+    }
   });
 });
 

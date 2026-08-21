@@ -127,6 +127,45 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`presets:${bucketName}`);
   });
 
+  it('REQ-AUTH-018 AC3 / REQ-SEC-023 AC4: deletes every push-subscription prefix entry and preserves other users', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    mockKV._set(`pushsub:${bucketName}:digest-a`, { endpoint: 'https://fcm.googleapis.com/fcm/send/a' });
+    mockKV._set(`pushsub:${bucketName}:digest-b`, { endpoint: 'https://web.push.apple.com/b' });
+    mockKV._set('pushsub:codeflare-other-user:digest-c', { endpoint: 'https://fcm.googleapis.com/fcm/send/c' });
+
+    await cleanupUserData(email, createEnv());
+
+    expect(mockKV.delete).toHaveBeenCalledWith(`pushsub:${bucketName}:digest-a`);
+    expect(mockKV.delete).toHaveBeenCalledWith(`pushsub:${bucketName}:digest-b`);
+    expect(await mockKV.get('pushsub:codeflare-other-user:digest-c')).not.toBeNull();
+  });
+
+  it('REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    const originalList = mockKV.list;
+    mockKV.list = vi.fn(async (options?: { prefix?: string; cursor?: string }) => {
+      if (options?.prefix !== `pushsub:${bucketName}:`) return originalList(options);
+      if (!options.cursor) {
+        return {
+          keys: [{ name: `pushsub:${bucketName}:digest-page-1`, metadata: null }],
+          list_complete: false,
+          cursor: 'page-2',
+        } as never;
+      }
+      return {
+        keys: [{ name: `pushsub:${bucketName}:digest-page-2`, metadata: null }],
+        list_complete: true,
+      } as never;
+    });
+
+    await cleanupUserData(email, createEnv());
+
+    expect(mockKV.list).toHaveBeenCalledWith({ prefix: `pushsub:${bucketName}:` });
+    expect(mockKV.list).toHaveBeenCalledWith({ prefix: `pushsub:${bucketName}:`, cursor: 'page-2' });
+    expect(mockKV.delete).toHaveBeenCalledWith(`pushsub:${bucketName}:digest-page-1`);
+    expect(mockKV.delete).toHaveBeenCalledWith(`pushsub:${bucketName}:digest-page-2`);
+  });
+
   it('reads r2token, calls deleteScopedR2Token, deletes r2token KV entry', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     mockKV._set(`r2token:${email}`, {

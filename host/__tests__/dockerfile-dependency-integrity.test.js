@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+const rootPackage = readJson('package.json');
 const rootLock = readJson('package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
 const npmToolsPackage = readJson('preseed/npm-tools/package.json');
@@ -74,6 +75,13 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assertCompleteIntegrityTree(piLock);
     assertCompleteIntegrityTree(browserRunLock);
     assertCompleteIntegrityTree(wranglerLock);
+  });
+
+  it('REQ-SEC-024 dependency constraint: edgepush is exact-pinned with committed integrity', () => {
+    assert.equal(rootPackage.dependencies.edgepush, '0.1.1');
+    assert.equal(rootLock.packages[''].dependencies.edgepush, '0.1.1');
+    assert.equal(rootLock.packages['node_modules/edgepush'].version, '0.1.1');
+    assert.match(rootLock.packages['node_modules/edgepush'].integrity, /^sha512-/);
   });
 
   it('pins patched versions across every affected committed runtime tree', () => {

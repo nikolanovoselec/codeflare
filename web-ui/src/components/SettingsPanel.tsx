@@ -18,7 +18,11 @@ import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
 import AdminActionButton from './settings/AdminActionButton';
-import { agentNotificationPermission, enableAgentNotifications } from '../lib/agent-notifications';
+import {
+  agentNotificationPermission,
+  agentNotificationsEnabled,
+  setAgentNotificationsEnabled,
+} from '../lib/agent-notifications';
 import type { AgentNotificationEnablement } from '../lib/agent-notifications';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
@@ -120,6 +124,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
   const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
+  const [notificationEnabled, setNotificationEnabled] = createSignal(false);
+  let notificationRevision = 0;
 
   // Live tier — refreshed from API each time panel opens so tier
   // upgrades take effect without a full page reload.
@@ -181,6 +187,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     setSettings(loaded);
     setAccentHexInput(loaded.accentColor || '');
     setNotificationPermission(agentNotificationPermission());
+    const revision = notificationRevision;
+    void agentNotificationsEnabled().then((enabled) => {
+      if (notificationRevision === revision) setNotificationEnabled(enabled);
+    });
   });
 
   // Save settings whenever they change (deferred to skip initial mount)
@@ -229,8 +239,18 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     void sessionStore.updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption });
   };
 
-  const handleEnableAgentNotifications = async () => {
-    setNotificationPermission(await enableAgentNotifications());
+  const handleAgentNotificationsToggle = async () => {
+    const enabled = !notificationEnabled();
+    notificationRevision += 1;
+    const state = await setAgentNotificationsEnabled(enabled);
+    setNotificationEnabled(state === 'on');
+    setNotificationPermission(
+      state === 'on'
+        ? 'granted'
+        : state === 'denied' || state === 'unavailable'
+          ? state
+          : agentNotificationPermission(),
+    );
   };
 
   const handleRecreateDocs = async () => {
@@ -355,6 +375,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
               notificationPermission={notificationPermission}
+              notificationEnabled={notificationEnabled}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
               isFreeUser={isFreeUser}
@@ -367,7 +388,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               onSessionModeChange={handleSessionModeChange}
               onFastStartToggle={handleFastStartToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
-              onEnableAgentNotifications={() => { void handleEnableAgentNotifications(); }}
+              onEnableAgentNotifications={() => { void handleAgentNotificationsToggle(); }}
               onSleepAfterChange={handleSleepAfterChange}
               onRecreateDocs={() => { void handleRecreateDocs(); }}
               onRecreateAgentConfigs={() => { void handleRecreateAgentConfigs(); }}

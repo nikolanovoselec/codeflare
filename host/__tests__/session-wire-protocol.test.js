@@ -39,9 +39,10 @@ function makeFakePty() {
     process: 'bash',
     _dataListeners: [],
     _exitListeners: [],
+    _writes: [],
     onData(fn) { pty._dataListeners.push(fn); return { dispose() {} }; },
     onExit(fn) { pty._exitListeners.push(fn); return { dispose() {} }; },
-    write() {},
+    write(data) { pty._writes.push(data); },
     resize() {},
     kill() {},
     emitData(data) { for (const fn of pty._dataListeners) fn(data); },
@@ -62,6 +63,7 @@ mock.module('node-pty', {
 
 // Import the REAL compiled Session after the mock is registered.
 const { Session } = await import('../dist/session.js');
+const { AGENT_EVENT_FRAMES } = await import('../dist/agent-events.js');
 
 function createWs(readyState = 1) {
   return {
@@ -123,6 +125,22 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
   });
 });
 
+describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
+  it('preserves focus bytes and does not synthesize focus-out on detach', (t) => {
+    const session = new Session('claude-focus', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const ws = createWs();
+    session.attach(ws);
+    const pty = lastSpawn.pty;
+
+    session.write('\x1b[I\x1b[O');
+    assert.deepEqual(pty._writes, ['\x1b[I\x1b[O']);
+
+    session.detach(ws);
+    assert.deepEqual(pty._writes, ['\x1b[I\x1b[O']);
+  });
+});
+
 // ── REQ-TERM-002 AC4: raw PTY data flows unwrapped ──────────────────────────
 
 describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping', () => {
@@ -159,6 +177,119 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
     assert.equal(open.sent.length, openBefore + 1, 'open client receives the raw frame');
     assert.equal(closed.sent.length, closedBefore, 'closed client receives nothing');
     assert.equal(open.sent[openBefore], 'payload-bytes');
+
+    session.kill();
+  });
+});
+
+// ── REQ-TERM-023: live terminal-1 event coordination ───────────────────────
+
+describe('REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination', () => {
+  it('announces one opaque event for an exact live terminal-1 frame while preserving raw bytes', (t) => {
+    const session = new Session('origin-session-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+
+    const emitted = ws.sent.slice(before);
+    assert.equal(emitted.at(-1), AGENT_EVENT_FRAMES.piInputRequired,
+      'the original PTY frame remains byte-for-byte visible');
+    const controls = emitted
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .filter((message) => message?.type === 'agent-event');
+    assert.equal(controls.length, 1, 'one event-specific coordination frame is announced');
+    assert.equal(controls[0].kind, 'input-required');
+    assert.match(controls[0].eventId, /^[A-Za-z0-9_-]+$/);
+    assert.deepEqual(Object.keys(controls[0]).sort(), ['eventId', 'kind', 'type']);
+
+    session.kill();
+  });
+
+  it('does not queue or announce an otherwise valid frame from a non-primary terminal', (t) => {
+    const session = new Session('origin-session-2', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+
+    const emitted = ws.sent.slice(before);
+    assert.deepEqual(emitted, [AGENT_EVENT_FRAMES.piInputRequired],
+      'non-primary terminal output is forwarded but never interpreted as an event');
+    session.kill();
+  });
+
+  it('forwards malformed parser input unchanged and emits no event control message', (t) => {
+    const session = new Session('malformed-session-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+    const malformed = '\x1b]777;notify;Pi;unreviewed body\x07';
+
+    lastSpawn.pty.emitData(malformed);
+
+    const emitted = ws.sent.slice(before);
+    assert.deepEqual(emitted, [malformed]);
+    session.kill();
+  });
+
+  it('a new attachment reconciles the pending event before active presence can suppress it', (t) => {
+    const session = new Session('attach-reconcile-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const first = createWs();
+    session.attach(first);
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+    const event = first.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event');
+    assert.ok(event?.eventId);
+
+    const second = createWs();
+    session.attach(second);
+    const replayed = second.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event' && message.eventId === event.eventId);
+    assert.ok(replayed, 'the reconnecting client receives each unresolved event');
+    assert.equal(first.sent.some((frame) => {
+      try {
+        const message = JSON.parse(frame);
+        return message.type === 'agent-event-cancelled' && message.eventId === event.eventId;
+      } catch {
+        return false;
+      }
+    }), false, 'attachment alone does not discard an away notification');
+
+    assert.equal(session.submitAgentEventDisposition(event.eventId, second, 'suppress'), true);
+    const cancellation = first.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event-cancelled' && message.eventId === event.eventId);
+    assert.ok(cancellation, 'explicit active presence still suppresses every client');
+
+    session.kill();
+  });
+
+  it('classified user input cancels pending and drained-unacknowledged events', (t) => {
+    const activity = { recordClientConnected() {}, recordAllClientsDisconnected() {}, recordInput() {} };
+    const session = new Session('input-cancel-1', 'Terminal', false, { activityTracker: activity });
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
+    const ws = createWs();
+    session.attach(ws);
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+    const event = ws.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event');
+    assert.ok(event?.eventId);
+
+    session.write('x');
+    const cancellation = ws.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event-cancelled' && message.eventId === event.eventId);
+    assert.ok(cancellation);
 
     session.kill();
   });

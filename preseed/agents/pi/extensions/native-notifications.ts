@@ -2,6 +2,16 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 const INPUT_NEEDED = '\u001b]777;notify;Pi;Agent needs your input\u0007';
 const READY_FOR_INPUT = '\u001b]777;notify;Pi;Ready for input\u0007';
+const TASK_FAILED = '\u001b]777;notify;Pi;Task failed\u0007';
+
+type RunState = {
+  readonly started: boolean;
+  readonly interactiveInput: boolean;
+  readonly suppressed: boolean;
+  readonly eventEmitted: boolean;
+  readonly signal?: AbortSignal;
+  readonly finalStopReason?: string;
+};
 
 export function isPiRpcMode(argv: readonly string[]): boolean {
   return argv.some((value, index) => value === '--mode' && argv[index + 1] === 'rpc');
@@ -25,28 +35,87 @@ export default function nativeNotifications(
   // RPC stdout is strict JSONL. Native Chat uses Code OSS notifications instead.
   if (isPiRpcMode(argv)) return;
 
-  let turnSignal: AbortSignal | undefined;
-  let suppressCompletion = false;
+  let run: RunState | undefined;
+
+  pi.on('input', async (event) => {
+    const interactiveInput = event.source === 'interactive';
+    run = run === undefined
+      ? {
+          started: false,
+          interactiveInput,
+          suppressed: !interactiveInput,
+          eventEmitted: false,
+        }
+      : {
+          ...run,
+          interactiveInput: run.interactiveInput || interactiveInput,
+          suppressed: run.suppressed || !interactiveInput,
+        };
+  });
 
   pi.on('agent_start', async (_event, ctx) => {
-    turnSignal = ctx.signal;
-    suppressCompletion = false;
+    run = run === undefined
+      ? {
+          started: true,
+          interactiveInput: false,
+          suppressed: false,
+          eventEmitted: false,
+          signal: ctx.signal,
+        }
+      : {
+          ...run,
+          started: true,
+          signal: ctx.signal,
+          finalStopReason: undefined,
+        };
   });
 
   // The payload (question/option text) is deliberately ignored: fixed inert
-  // notification text only, never model-authored content.
-  pi.events.on(ASK_USER_PROMPT_EVENT, () => emit(INPUT_NEEDED));
+  // notification text only, never model-authored content. A run can produce at
+  // most one terminal event, even if the notifier channel fires repeatedly.
+  pi.events.on(ASK_USER_PROMPT_EVENT, () => {
+    if (run?.eventEmitted === true) return;
+    emit(INPUT_NEEDED);
+    run = run === undefined
+      ? {
+          started: false,
+          interactiveInput: false,
+          suppressed: false,
+          eventEmitted: true,
+        }
+      : { ...run, eventEmitted: true };
+  });
 
   pi.on('tool_result', async (event) => {
     if (event.toolName !== 'ask_user_question') return;
     const details = event.details as { cancelled?: boolean } | undefined;
-    suppressCompletion = details?.cancelled === true;
+    if (details?.cancelled === true && run !== undefined) {
+      run = { ...run, suppressed: true };
+    }
+  });
+
+  pi.on('agent_end', async (event) => {
+    if (run === undefined) return;
+    const finalAssistant = [...event.messages]
+      .reverse()
+      .find((message) => message.role === 'assistant');
+    run = { ...run, finalStopReason: finalAssistant?.stopReason };
   });
 
   pi.on('agent_settled', async () => {
-    const suppressed = suppressCompletion || turnSignal?.aborted === true;
-    turnSignal = undefined;
-    suppressCompletion = false;
-    if (!suppressed) emit(READY_FOR_INPUT);
+    const settledRun = run;
+    run = undefined;
+    if (
+      settledRun === undefined
+      || !settledRun.started
+      || !settledRun.interactiveInput
+      || settledRun.suppressed
+      || settledRun.eventEmitted
+      || settledRun.signal?.aborted === true
+      || settledRun.finalStopReason === undefined
+      || settledRun.finalStopReason === 'aborted'
+    ) return;
+
+    emit(settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT);
   });
 }

@@ -41,6 +41,12 @@ const testState = vi.hoisted(() => ({
   // tests can assert the drain happens BEFORE the stop.
   finalSyncCalls: 0,
   finalSyncStatus: 200,
+  agentDrainCalls: 0,
+  agentFinalDrainCalls: 0,
+  agentDrainStatus: 200,
+  agentAckDrainStatus: 200,
+  agentDrainEvents: [] as Array<Record<string, unknown>>,
+  agentDrainRequests: [] as Array<{ body: Record<string, unknown>; authorization?: string }>,
   callOrder: [] as string[],
   storageGetFailures: new Set<string>(),
   storagePutFailures: new Set<string>(),
@@ -70,6 +76,24 @@ vi.mock('@cloudflare/containers', () => {
           get running() { return testState.containerRunning; },
           getTcpPort: () => ({
             fetch: async (url: string, init?: RequestInit) => {
+              if (url.includes('/internal/agent-events/drain')) {
+                testState.agentDrainCalls += 1;
+                const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+                const headers = init?.headers as Record<string, string> | undefined;
+                testState.agentDrainRequests.push({ body, authorization: headers?.Authorization });
+                if (body.final === true) {
+                  testState.agentFinalDrainCalls += 1;
+                  testState.callOrder.push('agent-events-final');
+                }
+                const isAck = Array.isArray(body.ackEventIds) && body.ackEventIds.length > 0;
+                return new Response(JSON.stringify({
+                  hostNow: 1_700_000_000_000,
+                  events: testState.agentDrainEvents,
+                }), {
+                  status: isAck ? testState.agentAckDrainStatus : testState.agentDrainStatus,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
               if (url.includes('/internal/final-sync')) {
                 // drainFinalSync's call. Record it (and order vs stop) and honor
                 // the failure switch / configured status so best-effort behavior
@@ -187,8 +211,13 @@ const mockLogger = vi.hoisted(() => ({
   error: vi.fn(),
   debug: vi.fn(),
 }));
+const sendAgentEventPushesMock = vi.hoisted(() => vi.fn());
 vi.mock('../lib/logger', () => ({
   createLogger: () => mockLogger,
+}));
+vi.mock('../lib/push-sender', () => ({
+  AGENT_EVENT_PUSH_BUDGET_MS: 4_000,
+  sendAgentEventPushes: sendAgentEventPushesMock,
 }));
 
 // Import AFTER mocks are set up
@@ -272,11 +301,22 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.kvRef = mockKV;
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
+    testState.agentDrainCalls = 0;
+    testState.agentFinalDrainCalls = 0;
+    testState.agentDrainStatus = 200;
+    testState.agentAckDrainStatus = 200;
+    testState.agentDrainEvents = [];
+    testState.agentDrainRequests = [];
+    sendAgentEventPushesMock.mockReset();
+    sendAgentEventPushesMock.mockImplementation(async ({ events }: { events: Array<{ eventId: string }> }) => ({
+      sentEventIds: events.map((event) => event.eventId),
+    }));
     testState.callOrder = [];
     testState.storageGetFailures.clear();
     testState.storagePutFailures.clear();
     testState.storageDeleteFailures.clear();
     testState.storageStore.clear();
+    testState.storageStore.set('containerAuthToken', 'agent-event-token');
 
     containerInstance = createContainerInstance();
   });
@@ -334,6 +374,147 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('collectMetrics', () => {
+    const setNotificationSession = () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Pi #1',
+        userId: 'test@example.com',
+        agentType: 'pi',
+        status: 'running',
+        createdAt: '2026-08-21T00:00:00.000Z',
+        lastAccessedAt: '2026-08-21T00:00:00.000Z',
+      } as Session);
+      const env = (containerInstance as unknown as { env: Record<string, unknown> }).env;
+      env.VAPID_SUBJECT = 'mailto:ops@codeflare.example';
+      env.VAPID_PUBLIC_KEY = 'public-key';
+      env.VAPID_PRIVATE_KEY = 'private-key';
+    };
+
+    it('REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [{
+        schemaVersion: 1,
+        eventId: 'event-a',
+        kind: 'input-required',
+        createdAt: 1_699_999_999_000,
+      }];
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.agentDrainCalls).toBe(2);
+      expect(testState.agentDrainRequests[0]).toEqual({
+        body: { ackEventIds: [] },
+        authorization: 'Bearer agent-event-token',
+      });
+      expect(sendAgentEventPushesMock).toHaveBeenCalledTimes(1);
+      expect(sendAgentEventPushesMock).toHaveBeenCalledWith(expect.objectContaining({
+        bucketName: 'test-bucket',
+        session: expect.objectContaining({ id: 'testsession123456', name: 'Pi #1', agentType: 'pi' }),
+        events: [expect.objectContaining({ eventId: 'event-a', kind: 'input-required' })],
+        vapid: {
+          subject: 'mailto:ops@codeflare.example',
+          publicKey: 'public-key',
+          privateKey: 'private-key',
+        },
+      }));
+      expect(testState.agentDrainRequests[1]?.body).toEqual({ ackEventIds: ['event-a'] });
+    });
+
+    it('REQ-SEC-024 AC1 / D3: rejects invalid version, kind, age, count, and display-shaped fields', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [
+        { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
+        { schemaVersion: 1, eventId: 'bad-kind', kind: 'arbitrary', createdAt: 1_700_000_000_000 },
+        { schemaVersion: 1, eventId: 'too-old', kind: 'input-required', createdAt: 1_699_999_000_000 },
+        { schemaVersion: 1, eventId: 'injected', kind: 'input-required', createdAt: 1_700_000_000_000, sessionName: 'attacker' },
+      ];
+
+      await containerInstance.collectMetrics();
+
+      expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+      expect(testState.agentDrainCalls).toBe(1);
+    });
+
+    it('D3: rejects an over-cap response instead of delivering a truncated attacker-controlled batch', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = Array.from({ length: 9 }, (_, index) => ({
+        schemaVersion: 1,
+        eventId: `event-${index}`,
+        kind: 'input-required',
+        createdAt: 1_700_000_000_000,
+      }));
+
+      await containerInstance.collectMetrics();
+
+      expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+      expect(testState.agentDrainCalls).toBe(1);
+    });
+
+    it('D4: resolves the trusted Session before probes so health failure does not skip delivery', async () => {
+      setNotificationSession();
+      testState.healthFetchShouldFail = true;
+      testState.agentDrainEvents = [{
+        schemaVersion: 1,
+        eventId: 'event-health-failed',
+        kind: 'input-required',
+        createdAt: 1_700_000_000_000,
+      }];
+
+      await containerInstance.collectMetrics();
+
+      expect(sendAgentEventPushesMock).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({ id: 'testsession123456' }),
+      }));
+    });
+
+    it('REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [{
+        schemaVersion: 1,
+        eventId: 'event-stalled-provider',
+        kind: 'input-required',
+        createdAt: 1_699_999_999_000,
+      }];
+      testState.scheduleCalls = [];
+      sendAgentEventPushesMock.mockImplementationOnce(() => new Promise(() => {}));
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      expect(testState.stopCalls).toBe(0);
+    }, 10_000);
+
+    it('D2: after send succeeds but ACK fails, re-offer is ACKed without same-instance re-send', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [{
+        schemaVersion: 1,
+        eventId: 'event-reoffered',
+        kind: 'input-required',
+        createdAt: 1_700_000_000_000,
+      }];
+      testState.agentAckDrainStatus = 500;
+
+      await containerInstance.collectMetrics();
+      await containerInstance.collectMetrics();
+
+      expect(sendAgentEventPushesMock).toHaveBeenCalledTimes(1);
+      expect(testState.agentDrainRequests.filter(
+        (request) => (request.body.ackEventIds as string[]).includes('event-reoffered'),
+      )).toHaveLength(2);
+    });
+
+    it('D3/D4: notification polling never mutates activity or usage inputs', async () => {
+      setNotificationSession();
+      testState.agentDrainEvents = [];
+      const activityBefore = structuredClone(testState.activityResult);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.activityResult).toEqual(activityBefore);
+      expect(testState.stopCalls).toBe(0);
+      expect(testState.agentDrainCalls).toBe(1);
+    });
+
     it('warns when /health reports an unhealthy R2 sync (failed/timeout) so an in-container bisync death is visible in Workers logs', async () => {
       // The 2026-05-31 integration bisync death ran invisible for 11 days
       // because the daemon's state never left the container. This warn (one
@@ -982,6 +1163,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'terminal-stop-pending' });
       expect(testState.stopCalls).toBe(1);
+      expect(testState.agentFinalDrainCalls).toBe(0);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
       expect(timekeeperStub.fetch).not.toHaveBeenCalled();
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
@@ -994,6 +1176,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('stopped');
       expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
       expect(testState.stopCalls).toBe(2);
+      expect(testState.agentFinalDrainCalls).toBe(0);
       expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
       expect(timekeeperStub.fetch).not.toHaveBeenCalled();
       expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
@@ -1679,7 +1862,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)', async () => {
+    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
       // setup and assert the order via callOrder rather than just that stop ran.
@@ -1727,7 +1910,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await instance.collectMetrics();
 
       expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
-      expect(testState.callOrder).toEqual(['finalsync', 'stop']);
+      expect(testState.agentFinalDrainCalls).toBe(1);
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
     it('REQ-SUB-008 AC1: does NOT stop when Timekeeper /ping returns quotaExceeded=false', async () => {
@@ -2123,8 +2307,20 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
     testState.abortReasons = [];
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
+    testState.agentDrainCalls = 0;
+    testState.agentFinalDrainCalls = 0;
+    testState.agentDrainStatus = 200;
+    testState.agentAckDrainStatus = 200;
+    testState.agentDrainEvents = [];
+    testState.agentDrainRequests = [];
+    sendAgentEventPushesMock.mockReset();
+    sendAgentEventPushesMock.mockImplementation(async ({ events }: { events: Array<{ eventId: string }> }) => ({
+      sentEventIds: events.map((event) => event.eventId),
+    }));
     testState.callOrder = [];
     testState.storageGetFailures.clear();
+    testState.storageStore.clear();
+    testState.storageStore.set('containerAuthToken', 'agent-event-token');
     testState.stopCalls = 0;
     testState.scheduleCalls = [];
     testState.scheduleFailuresRemaining = 0;
@@ -2191,7 +2387,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
   });
 
   describe('idle-stop drains before stop', () => {
-    it('calls final-sync, then stop, in that order', async () => {
+    it('REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2210,8 +2406,51 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       await containerInstance.collectMetrics();
 
       expect(testState.stopCalls).toBe(1);
+      expect(testState.agentFinalDrainCalls).toBe(1);
       expect(testState.finalSyncCalls).toBe(1);
-      expect(testState.callOrder).toEqual(['finalsync', 'stop']);
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
+    });
+
+    it('REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop', async () => {
+      testState.storedSleepAfter = '15m';
+      testState.activityResult = {
+        hasActiveConnections: false,
+        connectedClients: 0,
+        lastInputAt: Date.now() - (30 * 60 * 1000),
+      };
+      testState.agentDrainStatus = 500;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.agentFinalDrainCalls).toBe(1);
+      expect(testState.finalSyncCalls).toBe(1);
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
+    });
+
+    it('REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops', async () => {
+      testState.storedSleepAfter = '15m';
+      testState.activityResult = {
+        hasActiveConnections: false,
+        connectedClients: 0,
+        lastInputAt: Date.now() - (30 * 60 * 1000),
+      };
+      testState.finalSyncStatus = 504;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.agentFinalDrainCalls).toBe(1);
+      expect(testState.finalSyncCalls).toBe(1);
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
   });
 });

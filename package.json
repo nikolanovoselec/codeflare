@@ -26,6 +26,7 @@
     "@cloudflare/containers": "^0.3.7",
     "@streamparser/json": "0.0.25",
     "aws4fetch": "^1.0.20",
+    "edgepush": "0.1.1",
     "hono": "^4.13.0",
     "zod": "^4.4.3"
   },

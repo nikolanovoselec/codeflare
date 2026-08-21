@@ -6,7 +6,7 @@
  */
 import type { Env, Session } from '../types';
 import { resolveBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import { getSessionPrefix, getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -69,6 +69,7 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
   await env.KV.delete(`user:${normalizedEmail}`);
 
   // --- Block B2: Bucket-keyed KV cleanup ---
+  const pushSubscriptionKeys = await listAllKvKeys(env.KV, getPushSubPrefix(bucketName));
   await Promise.all([
     env.KV.delete(`storage-stats:${bucketName}`),
     // Legacy erasure: the removed bookmark/presets feature wrote presets:<bucket>;
@@ -79,6 +80,7 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
     env.KV.delete(getDeployKeysKey(bucketName)),
     env.KV.delete(getTimekeeperKey(bucketName)),
     env.KV.delete(getRegimeStateKey(bucketName)),
+    ...pushSubscriptionKeys.map(({ name }) => env.KV.delete(name)),
   ]);
 }
 

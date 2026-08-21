@@ -15,6 +15,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Vault](#vault)
 - [Browser IDE](#browser-ide)
 - [User Management](#user-management)
+- [Notifications](#notifications)
 - [Auth (SaaS Mode)](#auth-saas-mode)
 - [Usage](#usage)
 - [Admin](#admin)
@@ -173,6 +174,14 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
 
 For `GET /api/user`, current workers return `allowedAgents`. During a rolling upgrade, a successful response from an older worker may omit this optional field; the UI then hydrates the deployment-mode legacy catalog rather than remaining in its pre-hydration state ([REQ-AGENT-124](../../sdd/spec/agents.md#req-agent-124-agent-choice-profile-hydration)).
+
+## Notifications
+
+| Method | Path | Auth | Implements | Description |
+|--------|------|------|------------|-------------|
+| GET | `/api/notifications/config` | Session cookie | [REQ-TERM-025](../../sdd/spec/terminal.md#req-term-025-per-device-notification-enrollment), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries) | Return only the public VAPID enrollment key; `503` when notification delivery is not configured. |
+| POST | `/api/notifications/subscription` | Session cookie | [REQ-TERM-025](../../sdd/spec/terminal.md#req-term-025-per-device-notification-enrollment), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries) | Validate and register one Push subscription for the authenticated user; returns `{ success: true }`. |
+| DELETE | `/api/notifications/subscription` | Session cookie | [REQ-TERM-025](../../sdd/spec/terminal.md#req-term-025-per-device-notification-enrollment), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries) | Validate an endpoint and remove that authenticated user's matching enrollment; returns `{ success: true }`. |
 
 ## Auth (SaaS Mode)
 

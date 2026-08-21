@@ -148,6 +148,12 @@ Session IDs are strict bounded lowercase alphanumeric values before routing. Req
 <a id="body-limit"></a>
 Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
 
+### Push notification capabilities
+
+Authenticated notification routes isolate enrollment to the current user, accept only bounded exact-shape subscriptions for reviewed HTTPS Push providers, and never return or log endpoint or encryption-key capability material. User deletion removes that user's enrollments. The public VAPID key is the only sender configuration returned to the browser; the private key remains deployment-only ([REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)). <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/routes/notifications.ts::parsePushSubscription -->
+
+The DO enriches fixed host events from its trusted Session record, bounds event and subscription fan-out, and sends through a cancellable provider budget. Only processed terminal outcomes are acknowledged; transient and timed-out outcomes remain eligible without exposing provider errors. Browser display accepts fixed payload fields and canonical same-origin session paths only ([REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries)). <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+
 ### Outbound email boundary
 
 Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body.
@@ -275,6 +281,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 | Encryption | [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [AD32](../decisions/README.md#ad32-encryption_key-is-optional), [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | KV crypto, R2 SSE, migration engine | crypto/migration suites |
 | Headers/input/body | [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) | Worker header/input boundaries | header/validation/fuzz suites |
 | Rate limits | [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy), [AD66](../decisions/README.md#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | rate-limit middleware/routes | limiter and stress-bypass suites |
+| Push notification capabilities | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries) | notification routes, Push sender, metric-drain orchestration | route, sender, drain, and service-worker suites |
 | Supply chain | [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [Operations requirements](../../sdd/spec/operations.md) | workflows and exact exception validator | host/workflow contracts, CI receipts |
 | Browser IDE residual boundary | [Browser IDE requirements](../../sdd/spec/browser-ide.md), [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) | package/proxy/config preparation and inline proposal gate | Browser IDE package/image suites; Partial/manual states remain in the linked requirements |
 

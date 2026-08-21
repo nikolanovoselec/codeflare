@@ -5,12 +5,52 @@
  */
 import { WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS } from '../lib/constants';
 
+export type AgentEventKind = 'input-required' | 'task-completed' | 'task-failed';
+
+export type AgentEventControlMessage =
+  | { readonly type: 'agent-event'; readonly eventId: string; readonly kind: AgentEventKind }
+  | { readonly type: 'agent-event-display-granted'; readonly eventId: string; readonly kind: AgentEventKind }
+  | { readonly type: 'agent-event-cancelled'; readonly eventId: string };
+
 // Discriminated result of inspecting a single WebSocket frame.
 // Server control messages always start with {"type": — raw PTY output never does.
 export type ControlMessage =
   | { kind: 'restore'; state: string | undefined }
   | { kind: 'process-name'; processName: string }
+  | { kind: 'agent-event'; message: AgentEventControlMessage | undefined }
   | { kind: 'raw' };
+
+const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const AGENT_EVENT_KINDS = new Set<AgentEventKind>([
+  'input-required',
+  'task-completed',
+  'task-failed',
+]);
+
+function hasOnlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && keys.every((key) => expected.includes(key));
+}
+
+function parseAgentEventControl(value: Record<string, unknown>): AgentEventControlMessage | undefined {
+  if (typeof value.eventId !== 'string' || !AGENT_EVENT_ID_PATTERN.test(value.eventId)) {
+    return undefined;
+  }
+  if (value.type === 'agent-event-cancelled') {
+    return hasOnlyKeys(value, ['type', 'eventId'])
+      ? { type: value.type, eventId: value.eventId }
+      : undefined;
+  }
+  if (
+    (value.type === 'agent-event' || value.type === 'agent-event-display-granted')
+    && hasOnlyKeys(value, ['type', 'eventId', 'kind'])
+    && typeof value.kind === 'string'
+    && AGENT_EVENT_KINDS.has(value.kind as AgentEventKind)
+  ) {
+    return { type: value.type, eventId: value.eventId, kind: value.kind as AgentEventKind };
+  }
+  return undefined;
+}
 
 /**
  * Classify a raw WebSocket frame as a server control message or raw terminal data.
@@ -21,9 +61,11 @@ export type ControlMessage =
  * `restore` frame is always consumed (kind 'restore') even with no/empty
  * state — matching the original handler, which returned early on `type ===
  * 'restore'` and only conditionally rendered when `state` was present. A
- * `process-name` frame requires a non-empty `processName`. Everything else —
- * raw PTY bytes, malformed JSON, or unknown control types — is `raw`, which
- * the caller writes verbatim to the terminal.
+ * `process-name` frame requires a non-empty `processName`. Recognized agent
+ * event types are always consumed, but expose a message only after exact
+ * field, event-ID, and kind validation. Everything else — raw PTY bytes,
+ * malformed JSON, or unknown control types — is `raw`, which the caller
+ * writes verbatim to the terminal.
  */
 export function parseControlMessage(messageData: string): ControlMessage {
   if (!messageData.startsWith('{"type":')) {
@@ -36,6 +78,13 @@ export function parseControlMessage(messageData: string): ControlMessage {
     }
     if (msg.type === 'process-name' && msg.processName) {
       return { kind: 'process-name', processName: msg.processName };
+    }
+    if (
+      msg.type === 'agent-event'
+      || msg.type === 'agent-event-display-granted'
+      || msg.type === 'agent-event-cancelled'
+    ) {
+      return { kind: 'agent-event', message: parseAgentEventControl(msg) };
     }
   } catch {
     // Not JSON, fall through to raw

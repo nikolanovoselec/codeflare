@@ -12,6 +12,8 @@ import { WebSocket, type WebSocketServer } from 'ws';
 import type { SessionManager } from './session-manager.js';
 import type { Logger, WsEventLogger } from './types.js';
 
+const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
 export interface TerminalWsDeps {
   sessionManager: SessionManager;
   log: Logger;
@@ -87,7 +89,7 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
 
       // Try to parse as JSON for known control messages only
       // Length-gated: control messages are small; skip parsing for large terminal input
-      if (str.length < deps.maxControlMsgLength && str.startsWith('{')) {
+      if (str.length <= deps.maxControlMsgLength && str.startsWith('{')) {
         try {
           const msg = JSON.parse(str) as Record<string, unknown>;
 
@@ -106,6 +108,29 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
 
           if (msg.type === 'data' && typeof msg.data === 'string') {
             session.write(msg.data as string);
+            return;
+          }
+
+          if (msg.type === 'agent-event-disposition') {
+            const keys = Object.keys(msg);
+            if (keys.length === 3
+                && keys.every((key) => key === 'type' || key === 'eventId' || key === 'disposition')
+                && typeof msg.eventId === 'string'
+                && AGENT_EVENT_ID_PATTERN.test(msg.eventId)
+                && (msg.disposition === 'suppress' || msg.disposition === 'display-request')) {
+              session.submitAgentEventDisposition(msg.eventId, ws, msg.disposition);
+            }
+            return;
+          }
+
+          if (msg.type === 'agent-event-displayed') {
+            const keys = Object.keys(msg);
+            if (keys.length === 2
+                && keys.every((key) => key === 'type' || key === 'eventId')
+                && typeof msg.eventId === 'string'
+                && AGENT_EVENT_ID_PATTERN.test(msg.eventId)) {
+              session.confirmAgentEventDisplay(msg.eventId, ws);
+            }
             return;
           }
 
