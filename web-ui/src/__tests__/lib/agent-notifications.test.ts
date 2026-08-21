@@ -30,7 +30,7 @@ function browser(overrides: Partial<AgentNotificationBrowser> = {}): AgentNotifi
   const current = subscription();
   return {
     permission: () => 'granted',
-    requestPermission: vi.fn(async () => 'granted'),
+    requestPermission: vi.fn(async () => 'granted' as const),
     currentSubscription: vi.fn(async () => current),
     getVapidPublicKey: vi.fn(async () => 'public-vapid-key'),
     subscribe: vi.fn(async () => current),
@@ -131,7 +131,7 @@ describe('REQ-TERM-023 AC6: one per-device enrollment switch', () => {
     const created = subscription('https://updates.push.services.mozilla.com/wpush/v2/device-a');
     const env = browser({
       permission: () => 'default',
-      requestPermission: vi.fn(async () => 'granted'),
+      requestPermission: vi.fn(async () => 'granted' as const),
       currentSubscription: vi.fn(async () => undefined),
       subscribe: vi.fn(async () => created),
     });
@@ -147,7 +147,7 @@ describe('REQ-TERM-023 AC6: one per-device enrollment switch', () => {
   it('does not subscribe or save after permission denial', async () => {
     const env = browser({
       permission: () => 'default',
-      requestPermission: vi.fn(async () => 'denied'),
+      requestPermission: vi.fn(async () => 'denied' as const),
     });
     await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('denied');
     expect(env.getVapidPublicKey).not.toHaveBeenCalled();

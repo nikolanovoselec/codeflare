@@ -1,9 +1,10 @@
+import { sendNotification } from 'edgepush';
 import type { Session } from '../types';
 
 export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 export const MAX_AGENT_EVENTS_PER_SEND = 8;
 
-export type AgentEventKind = 'input-required' | 'task-completed' | 'task-failed';
+type AgentEventKind = 'input-required' | 'task-completed' | 'task-failed';
 
 export interface AgentEventForPush {
   readonly schemaVersion: 1;
@@ -21,7 +22,7 @@ export interface PushSubscriptionRecord {
   readonly createdAt: number;
 }
 
-export interface VapidConfiguration {
+interface VapidConfiguration {
   readonly subject: string;
   readonly publicKey: string;
   readonly privateKey: string;
@@ -46,5 +47,8 @@ export interface SendAgentEventPushesResult {
 export async function sendAgentEventPushes(
   _options: SendAgentEventPushesOptions,
 ): Promise<SendAgentEventPushesResult> {
+  // Keep the selected modern Web Push dependency in the compile seam while the
+  // red checkpoint proves the sender contract before behavior is added.
+  void sendNotification;
   return { sentEventIds: [] };
 }
