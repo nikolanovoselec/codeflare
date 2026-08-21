@@ -373,15 +373,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
 4. The service user is seeded only when a service-auth secret is configured. <!-- @impl: scripts/ci/seed-service-user.sh::CF_ACCESS_CLIENT_SECRET --> <!-- @test: host/__tests__/seed-service-user.test.js (does nothing when neither service-auth secret is configured) --> <!-- @test: host/__tests__/seed-service-user.test.js (writes the fixed admin identity once when the first attempt succeeds) -->
 5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh::attempt --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
-6. Notification-enabled deployments require a stable VAPID public/private pair: the public key reaches the Worker as runtime configuration, the private key is uploaded only through the bulk secret file, neither value is printed, and a missing value fails before the deployment is reported successful. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/types.ts::Env --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-013 AC6: VAPID config and secret are fail-closed and non-printing) -->
+6. Notification-enabled deployments require non-empty `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY`. The subject is a Worker runtime variable; the public value is sourced from an environment variable but uploaded with the secret bulk file; the private value exists only as an environment-scoped GitHub secret and Worker secret. Deployment prints key names, never values, and fails before Worker promotion when any member is missing. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/types.ts::Env --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-013 AC6: VAPID config and secret are fail-closed and non-printing) -->
 
-**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed. VAPID keys are stable per deployment environment; rotation is an operator procedure that invalidates old subscriptions and requires user re-enrollment, not an automatic runtime state machine.
+**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed. VAPID keys are stable per deployment environment. Rotating the pair makes registrations created with the former public key unusable; the application does not migrate them. Each user must switch notifications off and on to delete the old server record, unsubscribe locally, and register against the new public key. Rotation does not recall a push a provider already accepted.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated tests ([seed-service-user](../../host/__tests__/seed-service-user.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js)); deployment evidence
+**Verification:** Automated tests ([seed-service-user](../../host/__tests__/seed-service-user.test.js), [notification deployment contract](../../host/__tests__/deploy-requires-tests.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js)); deployment evidence
+
+**Outstanding acceptance:** A successful environment deployment must still record the non-empty subject/public/private configuration, public-only authenticated config response, secret-value absence from logs, and user off/on re-enrollment after a controlled key rotation. The requirement's other deployment hooks retain their existing acceptance state.
 
 **Status:** Partial
 

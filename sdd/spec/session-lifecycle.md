@@ -347,16 +347,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - The container's final-sync endpoint internal timeout MUST exceed the DO's drain budget (120s), so the DO's `AbortSignal` not the endpoint is the authoritative ceiling.
 - A failed or timed-out notification or sync drain proceeds to stop (135s hard force-kill ceiling).
 - Event drain order is fixed: final agent-event drain, final R2 sync, then stop.
-- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is.
+- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is not accepted.
 - The container image still declares a trappable stop signal so the backstop trap stays reachable.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated test ([Drain-before-stop ordering + best-effort](../../src/__tests__/container/index.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js))
+**Verification:** Automated test ([destroy-path notification and sync ordering](../../src/__tests__/container/lifecycle.test.ts), [idle/quota notification and sync ordering](../../src/__tests__/container-metrics.test.ts), [drainFinalSync + idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint + completion signal](../../host/__tests__/final-sync-endpoint.test.js))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

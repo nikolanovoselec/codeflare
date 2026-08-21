@@ -79,6 +79,9 @@ vi.mock('../../stores/terminal', () => ({
     resize: vi.fn(),
     claimResizeAuthority: vi.fn(),
     clearPendingResizeAuthority: vi.fn(),
+    registerAgentEventCallback: vi.fn(() => vi.fn()),
+    submitAgentEventDisposition: vi.fn(),
+    confirmAgentEventDisplay: vi.fn(),
     // FitAddon management for layout changes
     registerFitAddon: vi.fn(),
     unregisterFitAddon: vi.fn(),

@@ -289,13 +289,15 @@ export async function showGrantedAgentEvent(
   }
 }
 
-function decodeVapidPublicKey(value: string): Uint8Array {
+function decodeVapidPublicKey(value: string): ArrayBuffer {
   if (!/^[A-Za-z0-9_-]{87}$/.test(value)) throw new Error('Invalid VAPID public key');
   const padding = '='.repeat((4 - value.length % 4) % 4);
   const decoded = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
   const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
   if (bytes.length !== 65 || bytes[0] !== 0x04) throw new Error('Invalid VAPID public key');
-  return bytes;
+  const output = new ArrayBuffer(bytes.length);
+  new Uint8Array(output).set(bytes);
+  return output;
 }
 
 function serializedSubscription(

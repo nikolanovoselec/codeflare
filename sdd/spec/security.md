@@ -398,7 +398,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. The container's terminal server validates the bearer credential on every non-exempt HTTP path. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC2: protected paths require a matching Bearer token) -->
 3. Only the health and activity paths are auth-exempt; both expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC3: only /health and /activity are auth-exempt) -->
 4. The terminal server validates the bearer credential before routing every WebSocket upgrade. <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-SEC-022 AC4: rejects a missing container bearer before opening a code-server socket) -->
-5. Raw-port notification drains set the stored lifecycle token as an explicit Bearer header; a missing or wrong header is rejected before the body is parsed, and the drain path never joins the auth-exempt set. <!-- @impl: src/container/container-metrics.ts::drainAgentEvents --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (REQ-SEC-022 AC5: raw agent-event drain sets the stored Bearer token) --> <!-- @test: host/__tests__/request-router.test.js (REQ-SEC-022 AC5: headerless event drain returns 401 before dispatch) -->
+5. Raw-port notification drains set the stored lifecycle token as an explicit Bearer header; a missing or wrong header is rejected before the body is parsed, and the drain path never joins the auth-exempt set. <!-- @impl: src/container/container-metrics.ts::drainAgentEvents --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (REQ-SEC-022 AC5: raw agent-event drain sets the stored Bearer token) --> <!-- @test: host/__tests__/request-router.test.js (REQ-SEC-022 AC5: headerless event drain returns 401 before dispatch) --> <!-- @manual: On a deployed live container, submit a headerless drain and confirm 401 occurs before body parsing, then confirm the DO-issued Bearer reaches the same route. -->
 
 **Constraints:**
 
@@ -409,7 +409,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-012](#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated container and host authentication tests; deployed raw-port rejection and authenticated-drain acceptance.
+
+**Outstanding acceptance:** A deployed live-container probe must still record headerless and wrong-Bearer `401` responses before body parsing, plus successful access with that lifecycle's DO-issued Bearer.
 
 **Status:** Partial
 
@@ -428,13 +430,14 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Subscription input accepts a bounded HTTPS endpoint only for the reviewed FCM, Mozilla autopush, or Apple Web Push services, plus exact base64url P-256 and auth key shapes; malformed, oversized, unknown-provider, or extra-field input is rejected before persistence or outbound fetch. <!-- @impl: src/routes/notifications.ts::parsePushSubscription --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-SEC-023 AC2: bounded provider and key validation blocks outbound-fetch abuse) -->
 3. Push endpoints and encryption keys are capability material: application logs, analytics, response bodies, and thrown route errors never contain them, and user deletion removes the entire paginated subscription prefix. <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-SEC-023 AC3: capability material is absent from responses and logs) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-SEC-023 AC3: cleanup deletes every push subscription page) -->
 4. The DO validates drained schema version, kind, count, and age against host-supplied `hostNow`; it rejects recipient, name, path, URL, text, or other display-shaped fields and enriches valid events only from its own session ID and KV Session record. <!-- @impl: src/container/container-metrics.ts::validateAgentEvents --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SEC-023 AC4: drain validation rejects display and recipient injection) -->
-5. The VAPID private key exists only as a deployment secret; the authenticated config route returns only the public key; the sender uses exact-pinned integrity-backed `edgepush@0.1.1` and Codeflare's wrapper never logs library errors containing capability material. <!-- @impl: src/types.ts::Env --> <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/lib/push-sender.test.ts (REQ-SEC-023 AC5: VAPID and sender error boundary) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-SEC-023 AC5: deploy provisions VAPID without printing private material) -->
+5. The VAPID private key exists only as a deployment secret; the authenticated config route returns only the public key; the sender uses exact-pinned integrity-backed `edgepush@0.1.1` and Codeflare's wrapper never logs library errors containing capability material. <!-- @impl: src/types.ts::Env --> <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @impl: package-lock.json::node_modules/edgepush --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/lib/push-sender.test.ts (REQ-SEC-023 AC5: VAPID and sender error boundary) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-SEC-023 AC5: deploy provisions VAPID without printing private material) -->
 6. Push payload and notification-click targets must carry a canonical relative `/app/session/:sessionId` path that resolves to the service worker's own origin; malformed, absolute, cross-origin, or unknown-version payloads produce no display or navigation. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-SEC-023 AC6: hostile push and click targets are rejected) -->
 7. Queue, drain, subscription, payload, and fan-out bounds cap a compromised container at its own user's fixed notifications; no timed rate ledger, arbitrary webhook, direct container-to-Worker endpoint, or container-held Worker/user credential is introduced. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_LIMITS --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: host/__tests__/agent-events.test.js (REQ-SEC-023 AC7: queue and drain bounds) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (REQ-SEC-023 AC7: subscription and event fan-out bounds) -->
 
 **Constraints:**
 
 - The container's only cross-boundary credential remains the existing DO-issued lifecycle token in the DO-to-host direction.
+- The host queue remains the event source of truth until an ACK drain succeeds. The DO keeps only instance-local pending-ACK residue, never a durable inbox or delivery ledger.
 - Terminal OSC is configuration provenance, not cryptographic provenance. Exact frame matching does not authorize arbitrary content.
 - Push delivery uses standard WebCrypto and outbound HTTPS fetch only. No Node compatibility flag or custom protocol cryptography is permitted.
 
@@ -443,6 +446,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-AUTH-018](authentication.md#req-auth-018-user-management-admin-panel)
 
 **Verification:** Automated host, Worker, route, cleanup, sender, service-worker, and workflow tests; deployed headerless-drain and physical-device acceptance.
+
+**Outstanding acceptance:** The deployed headerless/wrong-Bearer drain rejection remains unrecorded, as do desktop, Android-class, and installed iOS PWA observations for subscription isolation, fixed-content delivery, canonical same-origin click handling, global suppression, bounded pickup residue, and no wake or idle extension.
 
 **Status:** Partial
 

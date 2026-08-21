@@ -510,7 +510,7 @@ None.
 
 1. `/admin/users` shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with users in multiple tiers and confirm every user appears under the correct tier heading. -->
 2. An admin can search displayed users, approve pending users, change tiers, and request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-3. Deleting a user triggers full cleanup of fixed KV state, every paginated session and Push-subscription prefix, R2 data, sessions, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: account deletion removes every paginated push subscription) -->
+3. Deleting a user triggers full cleanup of fixed KV state, every paginated session prefix, the complete `pushsub:<bucket>:` subscription prefix, R2 data, sessions, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @impl: src/lib/kv-keys.ts::getPushSubPrefix --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: account deletion removes every paginated push subscription) -->
 4. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
 5. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
@@ -523,7 +523,9 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/users.test.ts))
+**Verification:** Automated route and cleanup tests; manual admin-panel acceptance.
+
+**Outstanding acceptance:** The admin page still needs manual SaaS/onboarding coverage for grouping, search, approval, tier/session-mode changes, capacity display, deletion presentation, and mode-specific bulk approval. Push-subscription prefix cleanup is covered by the automated account-deletion boundary and does not close those UI criteria.
 
 **Status:** Partial
 
