@@ -32,6 +32,10 @@ const mockAgentNotificationPermission = vi.hoisted(() => vi.fn<() => Notificatio
 const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
   async (): Promise<'granted' | 'unavailable'> => 'granted',
 ));
+const mockAgentNotificationsEnabled = vi.hoisted(() => vi.fn(async () => false));
+const mockSetAgentNotificationsEnabled = vi.hoisted(() => vi.fn(
+  async (_enabled: boolean): Promise<'on' | 'off' | 'denied' | 'unavailable'> => 'on',
+));
 
 // Defaults
 mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
@@ -61,6 +65,8 @@ vi.mock('../../api/storage', () => ({
 vi.mock('../../lib/agent-notifications', () => ({
   agentNotificationPermission: mockAgentNotificationPermission,
   enableAgentNotifications: mockEnableAgentNotifications,
+  agentNotificationsEnabled: mockAgentNotificationsEnabled,
+  setAgentNotificationsEnabled: mockSetAgentNotificationsEnabled,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -118,6 +124,8 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     mockUpdateLlmKeys.mockResolvedValue({});
     mockAgentNotificationPermission.mockReturnValue('default');
     mockEnableAgentNotifications.mockResolvedValue('granted');
+    mockAgentNotificationsEnabled.mockResolvedValue(false);
+    mockSetAgentNotificationsEnabled.mockResolvedValue('on');
   });
 
   afterEach(() => {
@@ -254,41 +262,74 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
   });
 
-  describe('Agent notifications / REQ-TERM-023', () => {
-    it('requests browser permission only after the user clicks the session-settings action', async () => {
+  describe('Agent notifications / REQ-TERM-025 AC1-AC5', () => {
+    it('renders one off switch when no valid Push subscription exists', async () => {
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      expect(mockEnableAgentNotifications).not.toHaveBeenCalled();
-      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
-
-      expect(mockEnableAgentNotifications).toHaveBeenCalledOnce();
-      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Enabled');
+      const control = await screen.findByTestId('settings-agent-notifications');
+      expect(control).toHaveAttribute('role', 'switch');
+      expect(control).toHaveAttribute('aria-checked', 'false');
+      expect(mockSetAgentNotificationsEnabled).not.toHaveBeenCalled();
     });
 
-    it('reports unavailable browser setup before and after the enable action', async () => {
-      mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
-      mockEnableAgentNotifications.mockResolvedValueOnce('unavailable');
+    it('requests permission and subscribes only after the user turns the switch on', async () => {
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
+      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('on');
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
-        'Unavailable in this browser',
-      );
-      await fireEvent.click(screen.getByTestId('settings-agent-notifications'));
-      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent(
-        'Unavailable in this browser',
-      );
-      expect(screen.getByTestId('settings-agent-notifications-status')).not.toHaveAttribute('data-guidance');
+      const control = await screen.findByTestId('settings-agent-notifications');
+      expect(mockSetAgentNotificationsEnabled).not.toHaveBeenCalled();
+      await fireEvent.click(control);
+
+      expect(mockSetAgentNotificationsEnabled).toHaveBeenCalledWith(true);
+      expect(control).toHaveAttribute('aria-checked', 'true');
     });
 
-    it('marks the unavailable state with Home Screen install guidance on iOS browser tabs', () => {
+    it('turning the switch off unsubscribes locally and deletes server registration', async () => {
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(true);
+      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('off');
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      const control = await screen.findByTestId('settings-agent-notifications');
+      expect(control).toHaveAttribute('aria-checked', 'true');
+      await fireEvent.click(control);
+
+      expect(mockSetAgentNotificationsEnabled).toHaveBeenCalledWith(false);
+      expect(control).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('legacy granted permission without a valid subscription still reads off', async () => {
+      mockAgentNotificationPermission.mockReturnValueOnce('granted');
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      expect(await screen.findByTestId('settings-agent-notifications'))
+        .toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('keeps the switch off after denial and does not report successful enrollment', async () => {
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
+      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('denied');
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const control = await screen.findByTestId('settings-agent-notifications');
+      await fireEvent.click(control);
+      expect(control).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('marks unavailable iOS browser tabs with Home Screen install guidance', async () => {
       mobileState.iosInstall = true;
       try {
-        mockAgentNotificationPermission.mockReturnValueOnce('unavailable');
+        mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
+        mockSetAgentNotificationsEnabled.mockResolvedValueOnce('unavailable');
         render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
         fireEvent.click(screen.getByTestId('accordion-header-session'));
-
+        const control = await screen.findByTestId('settings-agent-notifications');
+        await fireEvent.click(control);
         expect(screen.getByTestId('settings-agent-notifications-status'))
           .toHaveAttribute('data-guidance', 'ios-install');
       } finally {

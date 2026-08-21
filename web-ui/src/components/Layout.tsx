@@ -19,6 +19,7 @@ import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmS
 import { checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
+import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -345,13 +346,31 @@ const Layout: Component<LayoutProps> = (props) => {
     });
   });
 
-  // Load sessions and preferences on mount
+  // Load the authenticated user's sessions before resolving a deep link. The
+  // store is the ownership boundary: a syntactically valid ID is not selectable
+  // until it appears in this loaded list.
   onMount(() => {
-    sessionStore.loadSessions();
+    let disposed = false;
+    let routeReady = false;
+    const handlePopState = () => {
+      if (routeReady) reconcileLocation(true);
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    void Promise.resolve(sessionStore.loadSessions()).then(() => {
+      if (disposed) return;
+      routeReady = true;
+      reconcileLocation(false);
+    });
     sessionStore.loadPreferences();
     // Apply saved accent color
     const savedSettings = loadSettings();
     applyAccentColor(savedSettings.accentColor);
+
+    onCleanup(() => {
+      disposed = true;
+      window.removeEventListener('popstate', handlePopState);
+    });
   });
 
   // Poll session statuses (metrics, status changes) regardless of view state
@@ -481,11 +500,30 @@ const Layout: Component<LayoutProps> = (props) => {
     }, VIEW_TRANSITION_DURATION_MS);
   };
 
-  const openSessionWorkspace = (id: string, shouldStart = false) => {
+  const writeHistoryPath = (pathname: string, mode: 'push' | 'replace') => {
+    if (window.location.pathname === pathname && !window.location.search && !window.location.hash) return;
+    if (mode === 'replace') {
+      window.history.replaceState(null, '', pathname);
+    } else {
+      window.history.pushState(null, '', pathname);
+    }
+  };
+
+  const writeSessionHistoryPath = (id: string, mode: 'push' | 'replace') => {
+    try {
+      writeHistoryPath(sessionPath(id), mode);
+    } catch {
+      // A malformed store entry can remain usable through existing workspace
+      // controls, but it must never become a canonical deep link.
+    }
+  };
+
+  const openSessionWorkspace = (id: string, shouldStart = false, updateHistory = true) => {
     const terminalId = shouldStart ? '1' : sessionStore.getTerminalsForSession(id)?.activeTabId || '1';
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId);
     enterTerminalView();
+    if (updateHistory) writeSessionHistoryPath(id, 'push');
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
   };
 
@@ -502,6 +540,7 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     enterTerminalView();
+    writeSessionHistoryPath(id, 'push');
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -523,6 +562,7 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.setActiveSession(session.id);
       terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
       enterTerminalView();
+      writeSessionHistoryPath(session.id, 'push');
       // Update preferences with last-used agent type
       if (agentType) {
         sessionStore.updatePreferences({ lastAgentType: agentType });
@@ -555,6 +595,49 @@ const Layout: Component<LayoutProps> = (props) => {
     terminalStore.reconnect(sessionId, terminalId, setTerminalError);
   };
 
+  const setDashboardWorkspaceFromLocation = () => {
+    terminalWorkspaceStore.setDashboardWorkspace();
+    setShowTilingOverlay(false);
+    clearViewTransitionTimer();
+    sessionStore.setActiveSession(null);
+    setViewState('dashboard');
+  };
+
+  const reconcileLocation = (fromHistory: boolean) => {
+    const hasExactUrl = !window.location.search && !window.location.hash;
+    if (hasExactUrl && window.location.pathname === dashboardPath()) {
+      if (fromHistory) setDashboardWorkspaceFromLocation();
+      return;
+    }
+
+    const requestedSessionId = hasExactUrl
+      ? parseSessionPath(window.location.pathname)
+      : undefined;
+    const requestedSession = requestedSessionId
+      ? sessionStore.sessions.find((session) => session.id === requestedSessionId)
+      : undefined;
+
+    if (requestedSessionId && requestedSession) {
+      if (requestedSession.status === 'running' || requestedSession.status === 'initializing') {
+        openSessionWorkspace(requestedSessionId, false, false);
+      } else {
+        // A canonical link may identify a session that stopped after the
+        // notification was sent. Keep the trusted selection without waking it.
+        clearViewTransitionTimer();
+        sessionStore.setActiveSession(requestedSessionId);
+        terminalWorkspaceStore.setSingleSessionWorkspace(
+          requestedSessionId,
+          sessionStore.getTerminalsForSession(requestedSessionId)?.activeTabId || '1',
+        );
+        setViewState('dashboard');
+      }
+      return;
+    }
+
+    setDashboardWorkspaceFromLocation();
+    writeHistoryPath(dashboardPath(), 'replace');
+  };
+
   const handleOpenDashboard = () => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
@@ -563,6 +646,7 @@ const Layout: Component<LayoutProps> = (props) => {
     clearViewTransitionTimer();
     setViewState('collapsing');
     sessionStore.setActiveSession(null);
+    writeHistoryPath(dashboardPath(), 'push');
     viewTransitionTimer = setTimeout(() => {
       viewTransitionTimer = undefined;
       setViewState('dashboard');

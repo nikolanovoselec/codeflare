@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import nativeNotifications, { isPiRpcMode } from '../../../preseed/agents/pi/extensions/native-notifications';
 
-type Handler = (event?: Record<string, unknown>, context?: { signal?: AbortSignal }) => Promise<void> | void;
+type Handler = (
+  event?: Record<string, unknown>,
+  context?: { signal?: AbortSignal },
+) => Promise<void> | void;
 
 function notificationRuntime(argv: readonly string[] = ['/usr/local/bin/pi']) {
   const handlers = new Map<string, Handler>();
@@ -20,66 +23,122 @@ function notificationRuntime(argv: readonly string[] = ['/usr/local/bin/pi']) {
   return { handlers, channels, write };
 }
 
+function assistant(stopReason: 'stop' | 'error' | 'aborted') {
+  return {
+    role: 'assistant',
+    content: [],
+    stopReason,
+    errorMessage: stopReason === 'error' ? 'provider failed' : undefined,
+  };
+}
+
+async function settle(
+  runtime: ReturnType<typeof notificationRuntime>,
+  stopReason: 'stop' | 'error' | 'aborted' = 'stop',
+) {
+  await runtime.handlers.get('agent_end')?.({ messages: [assistant(stopReason)] });
+  await runtime.handlers.get('agent_settled')?.();
+}
+
 describe('Pi native terminal notifications / REQ-TERM-024', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('registers no notification behavior and writes no terminal bytes in RPC mode', () => {
+  it('REQ-TERM-024 AC5: registers nothing and writes no bytes in RPC mode', () => {
     expect(isPiRpcMode(['/usr/local/bin/pi', '--mode', 'rpc', '--no-session'])).toBe(true);
     expect(isPiRpcMode(['/usr/local/bin/pi'])).toBe(false);
 
-    const { handlers, channels, write } = notificationRuntime([
-      '/usr/local/bin/pi',
-      '--mode',
-      'rpc',
-      '--no-session',
-    ]);
-
-    expect(handlers.size).toBe(0);
-    expect(channels.size).toBe(0);
-    expect(write).not.toHaveBeenCalled();
+    const runtime = notificationRuntime(['/usr/local/bin/pi', '--mode', 'rpc', '--no-session']);
+    expect(runtime.handlers.size).toBe(0);
+    expect(runtime.channels.size).toBe(0);
+    expect(runtime.write).not.toHaveBeenCalled();
   });
 
-  it('emits fixed OSC 777 attention and settled notifications without prompt content', async () => {
-    const { handlers, channels, write } = notificationRuntime();
-
-    channels.get('rpiv:ask-user:prompt')?.({
+  it('REQ-TERM-024 AC1: emits one fixed input-required frame without question content', () => {
+    const runtime = notificationRuntime();
+    runtime.channels.get('rpiv:ask-user:prompt')?.({
       questions: [{ question: 'Include this secret?' }],
     });
-    expect(write).toHaveBeenLastCalledWith(
+
+    expect(runtime.write).toHaveBeenCalledOnce();
+    expect(runtime.write).toHaveBeenCalledWith(
       '\u001b]777;notify;Pi;Agent needs your input\u0007',
     );
-    expect(String(write.mock.calls[0]?.[0])).not.toContain('Include this secret?');
-    expect(handlers.has('agent_end')).toBe(false);
-    expect(handlers.has('tool_call')).toBe(false);
-
-    await handlers.get('agent_settled')?.();
-
-    expect(write).toHaveBeenCalledTimes(2);
-    expect(write).toHaveBeenLastCalledWith('\u001b]777;notify;Pi;Ready for input\u0007');
+    expect(String(runtime.write.mock.calls[0]?.[0])).not.toContain('Include this secret?');
   });
 
-  it('suppresses stale completion after a cancelled question or aborted run', async () => {
-    const cancelled = notificationRuntime();
+  it('REQ-TERM-024 AC2: completion requires interactive provenance and settled structured success', async () => {
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
 
-    cancelled.channels.get('rpiv:ask-user:prompt')?.({ questions: [] });
+    expect(runtime.write).toHaveBeenCalledOnce();
+    expect(runtime.write).toHaveBeenCalledWith(
+      '\u001b]777;notify;Pi;Ready for input\u0007',
+    );
+  });
+
+  it('REQ-TERM-024 AC3: final structured error emits task-failed, not completion or provider prose', async () => {
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'error');
+
+    expect(runtime.write).toHaveBeenCalledOnce();
+    expect(runtime.write).toHaveBeenCalledWith(
+      '\u001b]777;notify;Pi;Task failed\u0007',
+    );
+    expect(String(runtime.write.mock.calls[0]?.[0])).not.toContain('provider failed');
+  });
+
+  it.each([
+    ['no input provenance', undefined],
+    ['RPC-origin input', { source: 'rpc' }],
+    ['extension-origin input', { source: 'extension' }],
+  ])('REQ-TERM-024 AC4: suppresses settled output for %s', async (_name, input) => {
+    const runtime = notificationRuntime();
+    if (input) await runtime.handlers.get('input')?.(input);
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    expect(runtime.write).not.toHaveBeenCalled();
+  });
+
+  it('REQ-TERM-024 AC4: extension-origin continuation suppresses an otherwise interactive completion', async () => {
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await settle(runtime, 'stop');
+    expect(runtime.write).not.toHaveBeenCalled();
+  });
+
+  it('REQ-TERM-024 AC4: cancellation and abort emit neither completion nor failure', async () => {
+    const cancelled = notificationRuntime();
+    await cancelled.handlers.get('input')?.({ source: 'interactive' });
+    await cancelled.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
     await cancelled.handlers.get('tool_result')?.({
       toolName: 'ask_user_question',
       details: { cancelled: true },
     });
-    await cancelled.handlers.get('agent_settled')?.();
-
-    expect(cancelled.write).toHaveBeenCalledOnce();
-    expect(cancelled.write).toHaveBeenCalledWith(
-      '\u001b]777;notify;Pi;Agent needs your input\u0007',
-    );
+    await settle(cancelled, 'stop');
+    expect(cancelled.write).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
     const aborted = notificationRuntime();
     const controller = new AbortController();
+    await aborted.handlers.get('input')?.({ source: 'interactive' });
     await aborted.handlers.get('agent_start')?.({}, { signal: controller.signal });
     controller.abort();
-    await aborted.handlers.get('agent_settled')?.();
-
+    await settle(aborted, 'aborted');
     expect(aborted.write).not.toHaveBeenCalled();
+  });
+
+  it('does not settle twice when agent_settled repeats without a new interactive run', async () => {
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await runtime.handlers.get('agent_settled')?.();
+    expect(runtime.write).toHaveBeenCalledOnce();
   });
 });

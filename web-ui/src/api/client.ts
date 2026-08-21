@@ -45,6 +45,40 @@ export async function getUser(): Promise<UserInfo> {
   return fetchApi('/user', {}, UserResponseSchema);
 }
 
+// Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
+const AgentNotificationConfigSchema = z.object({
+  vapidPublicKey: z.string().min(1),
+});
+
+export interface AgentNotificationSubscriptionRegistration {
+  readonly endpoint: string;
+  readonly keys: {
+    readonly p256dh: string;
+    readonly auth: string;
+  };
+}
+
+export async function getAgentNotificationVapidPublicKey(): Promise<string> {
+  const config = await fetchApi('/notifications/config', {}, AgentNotificationConfigSchema);
+  return config.vapidPublicKey;
+}
+
+export async function saveAgentNotificationSubscription(
+  subscription: AgentNotificationSubscriptionRegistration,
+): Promise<void> {
+  await fetchApi('/notifications/subscription', {
+    method: 'POST',
+    body: JSON.stringify(subscription),
+  });
+}
+
+export async function deleteAgentNotificationSubscription(endpoint: string): Promise<void> {
+  await fetchApi('/notifications/subscription', {
+    method: 'DELETE',
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
 // Session API
 export async function getSessions(): Promise<Session[]> {
   const response = await fetchApi('/sessions', {}, SessionsResponseSchema);

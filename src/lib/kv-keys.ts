@@ -134,6 +134,16 @@ export function getSessionPrefix(bucketName: string): string {
   return `session:${bucketName}:`;
 }
 
+/** KV key for one user-owned Web Push subscription endpoint digest. */
+export function getPushSubKey(bucketName: string, endpointDigest: string): string {
+  return `pushsub:${bucketName}:${endpointDigest}`;
+}
+
+/** Prefix for listing and deleting every Web Push subscription for one user. */
+export function getPushSubPrefix(bucketName: string): string {
+  return `pushsub:${bucketName}:`;
+}
+
 /**
  * Generate a cryptographically secure random session ID.
  *
@@ -423,7 +433,7 @@ export async function listAllKvKeys(kv: KVNamespace, prefix: string): Promise<KV
   let cursor: string | undefined;
   let iterations = 0;
   do {
-    const result = await kv.list({ prefix, cursor });
+    const result = await kv.list(cursor ? { prefix, cursor } : { prefix });
     keys.push(...result.keys);
     cursor = result.list_complete ? undefined : result.cursor;
     iterations++;

@@ -14,7 +14,7 @@ import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
-import { showAgentNotification } from '../lib/agent-notifications';
+import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -63,10 +63,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let notificationDisposable: { dispose: () => void } | undefined;
+  let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let disposed = false;
+  const cancelledAgentEventIds = new Set<string>();
+  const MAX_CANCELLED_AGENT_EVENT_IDS = 16;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -384,20 +387,94 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    // Registered unconditionally: the sessions store may still be loading when
-    // the terminal mounts (initial page load lands directly in a session), so a
-    // mount-time agent check would leave the handler unregistered for the life
-    // of the terminal. The agent/tab-1 gate runs in parseAgentNotification at
-    // event time instead, against the store's current session record.
-    notificationDisposable = t.parser.registerOscHandler(777, (data) => {
-      const session = sessionStore.sessions?.find((candidate) => candidate.id === props.sessionId);
-      void showAgentNotification(data, {
-        agentType: session?.agentType,
-        terminalId: props.terminalId,
-        sessionName: props.sessionName ?? session?.name ?? '',
+    // OSC 777 is consumed as terminal control output only. Browser notification
+    // delivery is driven exclusively by validated host agent-event controls.
+    notificationDisposable = t.parser.registerOscHandler(777, () => true);
+
+    const currentAgentEventDisposition = () => {
+      const sessionExists = sessionStore.sessions?.some(
+        (candidate) => candidate.id === props.sessionId,
+      ) ?? false;
+      return agentEventDisposition({
+        documentVisible: document.visibilityState === 'visible',
+        windowFocused: typeof document.hasFocus === 'function' && document.hasFocus(),
+        terminalView: isVisible(),
+        activeSessionMatches: props.active && sessionExists,
+        terminalOnePaneFocused: props.terminalId === '1' && isFocused(),
       });
-      return true;
-    });
+    };
+
+    agentEventDisposable = terminalStore.registerAgentEventCallback(
+      props.sessionId,
+      props.terminalId,
+      async (message) => {
+        if (message.type === 'agent-event') {
+          terminalStore.submitAgentEventDisposition(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+            currentAgentEventDisposition(),
+          );
+          return;
+        }
+
+        if (message.type === 'agent-event-cancelled') {
+          cancelledAgentEventIds.delete(message.eventId);
+          cancelledAgentEventIds.add(message.eventId);
+          if (cancelledAgentEventIds.size > MAX_CANCELLED_AGENT_EVENT_IDS) {
+            const oldestEventId = cancelledAgentEventIds.values().next().value;
+            if (oldestEventId !== undefined) cancelledAgentEventIds.delete(oldestEventId);
+          }
+          return;
+        }
+
+        if (
+          message.type !== 'agent-event-display-granted'
+          || cancelledAgentEventIds.has(message.eventId)
+        ) return;
+        const session = sessionStore.sessions?.find(
+          (candidate) => candidate.id === props.sessionId,
+        );
+        const agent = session?.agentType === 'pi'
+          ? 'Pi'
+          : session?.agentType === 'claude-code'
+            ? 'Claude Code'
+            : undefined;
+        if (!session || !agent) return;
+        if (currentAgentEventDisposition() === 'suppress') {
+          terminalStore.submitAgentEventDisposition(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+            'suppress',
+          );
+          return;
+        }
+
+        const displayed = await showGrantedAgentEvent({
+          eventId: message.eventId,
+          kind: message.kind,
+          agent,
+          sessionName: session.name,
+          sessionPath: `/app/session/${props.sessionId}`,
+        });
+        if (!displayed || cancelledAgentEventIds.has(message.eventId)) return;
+        if (currentAgentEventDisposition() === 'suppress') {
+          terminalStore.submitAgentEventDisposition(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+            'suppress',
+          );
+          return;
+        }
+        terminalStore.confirmAgentEventDisplay(
+          props.sessionId,
+          props.terminalId,
+          message.eventId,
+        );
+      },
+    );
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
@@ -663,6 +740,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     notificationDisposable?.dispose();
+    agentEventDisposable?.();
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);

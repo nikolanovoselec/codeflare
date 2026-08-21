@@ -21,6 +21,8 @@ import {
   TRANSPORT_FAILURE_STREAK_KEY,
   TRANSPORT_RECOVERY_KEY,
   FINAL_SYNC_BUDGET_MS,
+  CONTAINER_POLL_BUDGET_MS,
+  drainAgentEventsBeforeStop,
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
@@ -200,6 +202,24 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // session the user is deliberately stopping back to running (REQ-SESSION-018
   // AC4). onStart() clears the marker on the next fresh start.
   try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now())); } catch { /* storage racing teardown */ }
+
+  // REQ-SESSION-027 AC1: give pending away notifications one final,
+  // independently bounded delivery attempt before final sync or destructive
+  // storage cleanup. The captured Bearer token avoids re-reading credentials
+  // after teardown has started deleting them. Failure is best-effort and cannot
+  // suppress the later sync, cleanup, or stop.
+  try {
+    await withinDeadline(drainAgentEventsBeforeStop(
+      host,
+      host.ctx,
+      host.env,
+      Math.max(0, Math.min(CONTAINER_POLL_BUDGET_MS, hardKillMs - (Date.now() - start))),
+      auditAuthToken,
+    ));
+  } catch (err) {
+    host.logger.warn('Final agent event drain exceeded teardown deadline', { error: toError(err).message });
+  }
+
   // Record the stop while the identifiers that write still needs are in hand.
   // onStop() cannot: the clear below nulls _bucketName, so its updateKvStatus
   // hits the missing-identifiers guard and writes nothing, leaving a torn-down

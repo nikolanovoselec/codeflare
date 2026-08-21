@@ -74,6 +74,9 @@ vi.mock('../../api/client', () => ({
   getDeployKeys: vi.fn(async () => ({})),
   updateDeployKeys: vi.fn(async () => ({})),
   deleteDeployKeys: vi.fn(async () => undefined),
+  getAgentNotificationVapidPublicKey: vi.fn(async () => 'public-vapid-key'),
+  saveAgentNotificationSubscription: vi.fn(async () => undefined),
+  deleteAgentNotificationSubscription: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../api/storage', () => ({

@@ -13,6 +13,19 @@ const mockFocus = vi.fn();
 const mockRegisterOscHandler = vi.fn(
   (_identifier: number, _handler: (data: string) => boolean) => ({ dispose: vi.fn() }),
 );
+const agentEventCallbackState = vi.hoisted(() => ({
+  handler: undefined as ((message: any) => void | Promise<void>) | undefined,
+}));
+const mockRegisterAgentEventCallback = vi.hoisted(() => vi.fn(
+  (_sessionId: string, _terminalId: string, handler: (message: any) => void) => {
+    agentEventCallbackState.handler = handler;
+    return vi.fn();
+  },
+));
+const mockAgentEventDisposition = vi.hoisted(() => vi.fn(
+  (_presence?: { activeSessionMatches: boolean }) => 'suppress' as 'suppress' | 'display-request',
+));
+const mockShowGrantedAgentEvent = vi.hoisted(() => vi.fn(async () => true));
 
 const mockTerminalInstance = {
   loadAddon: mockLoadAddon,
@@ -80,6 +93,9 @@ vi.mock('../../stores/terminal', () => ({
     connect: vi.fn(() => vi.fn()),
     claimResizeAuthority: vi.fn(),
     clearPendingResizeAuthority: vi.fn(),
+    registerAgentEventCallback: mockRegisterAgentEventCallback,
+    submitAgentEventDisposition: vi.fn(),
+    confirmAgentEventDisplay: vi.fn(),
     resize: vi.fn(),
     getConnectionState: vi.fn(() => 'disconnected'),
     getRetryMessage: vi.fn(() => null),
@@ -139,6 +155,8 @@ vi.mock('../../lib/settings', () => ({
 
 vi.mock('../../lib/agent-notifications', () => ({
   showAgentNotification: vi.fn(async () => undefined),
+  agentEventDisposition: mockAgentEventDisposition,
+  showGrantedAgentEvent: mockShowGrantedAgentEvent,
 }));
 
 import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
@@ -148,7 +166,7 @@ import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
-import { showAgentNotification } from '../../lib/agent-notifications';
+import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 // REQ-MOB-010: FitAddon fit calls are coordinated
@@ -300,58 +318,218 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('native agent notifications / REQ-TERM-023', () => {
+  describe('native agent notifications / REQ-TERM-023 AC2/AC3', () => {
     beforeEach(() => {
       sessionState.sessions = [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }];
+      agentEventCallbackState.handler = undefined;
+      mockAgentEventDisposition.mockReturnValue('suppress');
+      mockShowGrantedAgentEvent.mockResolvedValue(true);
     });
 
-    it('registers OSC 777 on mount and disposes it on unmount', () => {
+    it('consumes OSC 777 without displaying or requesting permission from terminal output', () => {
       const oscDispose = vi.fn();
       mockRegisterOscHandler.mockReturnValueOnce({ dispose: oscDispose });
-
       const dispose = createRoot((dispose) => {
         const result = useTerminal({ ...defaultProps, sessionName: 'Test session' });
         result.containerRef(containerEl);
         return dispose;
       });
 
-      expect(mockRegisterOscHandler).toHaveBeenCalledWith(777, expect.any(Function));
       const handler = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 777)?.[1];
       expect(handler?.('notify;Pi;Ready for input')).toBe(true);
-      expect(showAgentNotification).toHaveBeenCalledWith(
-        'notify;Pi;Ready for input',
-        { agentType: 'pi', terminalId: '1', sessionName: 'Test session' },
-      );
+      expect(showAgentNotification).not.toHaveBeenCalled();
+      expect(showGrantedAgentEvent).not.toHaveBeenCalled();
 
       dispose();
       expect(oscDispose).toHaveBeenCalledOnce();
     });
 
-    it('resolves the session at event time, so a terminal mounted before the store loads still notifies', () => {
-      sessionState.sessions = []; // store not yet populated when the terminal mounts
+    it('submits suppress for an active originating terminal', () => {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: true, visible: true, focused: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
 
+      agentEventCallbackState.handler?.({ type: 'agent-event', eventId: 'event-a', kind: 'input-required' });
+
+      expect(mockAgentEventDisposition).toHaveBeenCalledWith(expect.objectContaining({
+        documentVisible: true,
+        windowFocused: expect.any(Boolean),
+        terminalView: true,
+        activeSessionMatches: true,
+        terminalOnePaneFocused: true,
+      }));
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenCalledWith(
+        'test-session-123', '1', 'event-a', 'suppress',
+      );
+      dispose();
+    });
+
+    it('submits display-request when the originating pane is away', () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: false, visible: false, focused: false, connect: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      agentEventCallbackState.handler?.({ type: 'agent-event', eventId: 'event-a', kind: 'input-required' });
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenCalledWith(
+        'test-session-123', '1', 'event-a', 'display-request',
+      );
+      dispose();
+    });
+
+    it('displays and confirms only a host-granted event with current store-owned identity', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      const notificationSessionId = 'abcdef0123456789';
+      sessionState.sessions = [{ id: notificationSessionId, agentType: 'pi', name: 'Test session' }];
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, sessionId: notificationSessionId, sessionName: 'Test session' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      sessionState.sessions = [{ id: notificationSessionId, agentType: 'pi', name: 'Renamed session' }];
+
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+
+      expect(showGrantedAgentEvent).toHaveBeenCalledWith({
+        eventId: 'event-a',
+        kind: 'input-required',
+        agent: 'Pi',
+        sessionName: 'Renamed session',
+        sessionPath: '/app/session/abcdef0123456789',
+      });
+      expect(terminalStore.confirmAgentEventDisplay).toHaveBeenCalledWith(
+        'abcdef0123456789', '1', 'event-a',
+      );
+      dispose();
+    });
+
+    it('does not confirm a grant when local display fails', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      mockShowGrantedAgentEvent.mockResolvedValue(false);
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('does not display a grant that the host already cancelled', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
       const dispose = createRoot((dispose) => {
         const result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
 
-      const handler = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 777)?.[1];
-      expect(handler).toBeTypeOf('function');
+      await agentEventCallbackState.handler?.({ type: 'agent-event-cancelled', eventId: 'event-a' });
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
 
-      handler?.('notify;Pi;Ready for input');
-      expect(showAgentNotification).toHaveBeenLastCalledWith(
-        'notify;Pi;Ready for input',
-        expect.objectContaining({ agentType: undefined }),
+      expect(showGrantedAgentEvent).not.toHaveBeenCalled();
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('rechecks presence and does not display when the granted pane is now active', async () => {
+      mockAgentEventDisposition
+        .mockReturnValueOnce('display-request')
+        .mockReturnValueOnce('suppress');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: false, visible: false, focused: false });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      await agentEventCallbackState.handler?.({ type: 'agent-event', eventId: 'event-a', kind: 'input-required' });
+      await agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+
+      expect(mockAgentEventDisposition).toHaveBeenCalledTimes(2);
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenLastCalledWith(
+        'test-session-123', '1', 'event-a', 'suppress',
       );
+      expect(showGrantedAgentEvent).not.toHaveBeenCalled();
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
 
-      sessionState.sessions = [{ id: 'test-session-123', agentType: 'pi', name: 'Test session' }];
-      handler?.('notify;Pi;Ready for input');
-      expect(showAgentNotification).toHaveBeenLastCalledWith(
-        'notify;Pi;Ready for input',
-        { agentType: 'pi', terminalId: '1', sessionName: 'Test session' },
+    it('REQ-TERM-023 AC2: submits late suppression when presence changes during display', async () => {
+      mockAgentEventDisposition.mockImplementation(
+        (presence) => presence?.activeSessionMatches ? 'suppress' : 'display-request',
       );
+      let setActive!: (active: boolean) => void;
+      let resolveDisplay: ((displayed: boolean) => void) | undefined;
+      mockShowGrantedAgentEvent.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveDisplay = resolve;
+      }));
+      const dispose = createRoot((dispose) => {
+        const [active, updateActive] = createSignal(false);
+        setActive = updateActive;
+        const result = useTerminal({
+          ...defaultProps,
+          get active() { return active(); },
+          visible: true,
+          focused: true,
+        });
+        result.containerRef(containerEl);
+        return dispose;
+      });
 
+      const grant = agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+      await vi.waitFor(() => expect(showGrantedAgentEvent).toHaveBeenCalledOnce());
+      setActive(true);
+      resolveDisplay?.(true);
+      await grant;
+
+      expect(mockAgentEventDisposition).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        activeSessionMatches: false,
+      }));
+      expect(mockAgentEventDisposition).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        activeSessionMatches: true,
+      }));
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenLastCalledWith(
+        'test-session-123', '1', 'event-a', 'suppress',
+      );
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('never confirms a display cancelled while the browser call is pending', async () => {
+      mockAgentEventDisposition.mockReturnValue('display-request');
+      let resolveDisplay: ((displayed: boolean) => void) | undefined;
+      mockShowGrantedAgentEvent.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveDisplay = resolve;
+      }));
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const grant = agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+      await vi.waitFor(() => expect(showGrantedAgentEvent).toHaveBeenCalledOnce());
+      await agentEventCallbackState.handler?.({ type: 'agent-event-cancelled', eventId: 'event-a' });
+      resolveDisplay?.(true);
+      await grant;
+
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
       dispose();
     });
   });

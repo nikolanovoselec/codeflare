@@ -11,7 +11,11 @@ import {
   WS_RETRYABLE_CLOSE_CODES,
   WS_CONTAINER_STOPPED_CODE,
 } from '../lib/constants';
-import { parseControlMessage, reconnectBackoffMs } from './terminal-protocol';
+import {
+  parseControlMessage,
+  reconnectBackoffMs,
+  type AgentEventControlMessage,
+} from './terminal-protocol';
 import {
   scheduleWrite,
   cancelPendingFlush,
@@ -53,6 +57,26 @@ export function registerProcessNameCallback(
   cb: (sessionId: string, terminalId: string, processName: string) => void
 ): void {
   onProcessName = cb;
+}
+
+export type { AgentEventControlMessage } from './terminal-protocol';
+
+const agentEventCallbacks = new Map<string, Set<(message: AgentEventControlMessage) => void>>();
+
+/** Register a handler for validated agent-event controls on one terminal socket. */
+export function registerAgentEventCallback(
+  sessionId: string,
+  terminalId: string,
+  callback: (message: AgentEventControlMessage) => void,
+): () => void {
+  const key = makeKey(sessionId, terminalId);
+  const callbacks = agentEventCallbacks.get(key) ?? new Set();
+  callbacks.add(callback);
+  agentEventCallbacks.set(key, callbacks);
+  return () => {
+    callbacks.delete(callback);
+    if (callbacks.size === 0) agentEventCallbacks.delete(key);
+  };
 }
 
 // Helper to create compound key from sessionId and terminalId
@@ -350,6 +374,14 @@ function connect(
         onProcessName?.(sessionId, terminalId, control.processName);
         return;
       }
+      if (control.kind === 'agent-event') {
+        if (control.message) {
+          for (const callback of agentEventCallbacks.get(key) ?? []) {
+            callback(control.message);
+          }
+        }
+        return;
+      }
 
       scheduleWrite(key, terminal, messageData);
     }
@@ -526,6 +558,31 @@ function disconnect(sessionId: string, terminalId: string): void {
   pendingFocusClaims.delete(key);
   desiredFocusClaims.delete(key);
   setConnectionState(sessionId, terminalId, 'disconnected');
+}
+
+const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+function submitAgentEventDisposition(
+  sessionId: string,
+  terminalId: string,
+  eventId: string,
+  disposition: 'suppress' | 'display-request',
+): boolean {
+  const ws = connections.get(makeKey(sessionId, terminalId));
+  if (ws?.readyState !== WebSocket.OPEN || !AGENT_EVENT_ID_PATTERN.test(eventId)) return false;
+  ws.send(JSON.stringify({ type: 'agent-event-disposition', eventId, disposition }));
+  return true;
+}
+
+function confirmAgentEventDisplay(
+  sessionId: string,
+  terminalId: string,
+  eventId: string,
+): boolean {
+  const ws = connections.get(makeKey(sessionId, terminalId));
+  if (ws?.readyState !== WebSocket.OPEN || !AGENT_EVENT_ID_PATTERN.test(eventId)) return false;
+  ws.send(JSON.stringify({ type: 'agent-event-displayed', eventId }));
+  return true;
 }
 
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
@@ -874,6 +931,9 @@ export const terminalStore = {
   reconnect,
   disposeLocalTerminal,
   claimResizeAuthority,
+  registerAgentEventCallback,
+  submitAgentEventDisposition,
+  confirmAgentEventDisplay,
   clearPendingResizeAuthority,
   resize,
   dispose,

@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
+import { AGENT_EVENT_LIMITS, type AgentEventDrainResult } from './agent-events.js';
 import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
@@ -42,6 +43,17 @@ let vscodeWarmingSince: number | undefined;
 const GIT_CLONE_TIMEOUT_MS = 120_000;
 export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
 const FINAL_SYNC_POLL_MS = 500;
+const AGENT_EVENT_DRAIN_BODY_MAX_BYTES = 4 * 1024;
+const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+export interface AgentEventDrainRequest {
+  readonly ackEventIds: readonly string[];
+  readonly final?: true;
+}
+
+export interface AgentEventDrainer {
+  drainAgentEvents(request: AgentEventDrainRequest): AgentEventDrainResult;
+}
 
 /** A localhost upstream the host proxies to (SilverBullet / code-server). */
 export interface ProxyTarget {
@@ -66,6 +78,8 @@ export interface RequestRouterDeps {
   readiness(): ReadinessFlags;
   silverbullet: ProxyTarget;
   openvscode: ProxyTarget;
+  /** Production composition and focused router tests can provide the queue owner directly. */
+  drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
     now(): number;
@@ -293,6 +307,74 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Session not found' }));
       }
+      return;
+    }
+
+    if (pathname === '/internal/agent-events/drain' && method === 'POST') {
+      let body = '';
+      let bodySize = 0;
+      let tooLarge = false;
+      req.on('data', (chunk: Buffer) => {
+        if (tooLarge) return;
+        bodySize += chunk.length;
+        if (bodySize > AGENT_EVENT_DRAIN_BODY_MAX_BYTES) {
+          tooLarge = true;
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooLarge) return;
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+          return;
+        }
+
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid agent event drain request' }));
+          return;
+        }
+
+        const candidate = parsed as Record<string, unknown>;
+        const keys = Object.keys(candidate);
+        const ackEventIds = candidate.ackEventIds;
+        const valid = keys.every((key) => key === 'ackEventIds' || key === 'final')
+          && Array.isArray(ackEventIds)
+          && ackEventIds.length <= AGENT_EVENT_LIMITS.drainMax
+          && ackEventIds.every((eventId) => typeof eventId === 'string'
+            && AGENT_EVENT_ID_PATTERN.test(eventId))
+          && new Set(ackEventIds).size === ackEventIds.length
+          && (candidate.final === undefined || candidate.final === true);
+        if (!valid) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid agent event drain request' }));
+          return;
+        }
+
+        const managerDrainer = sessionManager as SessionManager & Partial<AgentEventDrainer>;
+        const drainAgentEvents = deps.drainAgentEvents
+          ?? managerDrainer.drainAgentEvents?.bind(sessionManager);
+        if (!drainAgentEvents) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Agent event drain unavailable' }));
+          return;
+        }
+
+        const request: AgentEventDrainRequest = candidate.final === true
+          ? { ackEventIds: [...ackEventIds], final: true }
+          : { ackEventIds: [...ackEventIds] };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(drainAgentEvents(request)));
+      });
       return;
     }
 
