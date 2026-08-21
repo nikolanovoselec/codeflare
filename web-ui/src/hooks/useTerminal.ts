@@ -68,6 +68,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let disposed = false;
+  const cancelledAgentEventIds = new Set<string>();
+  const MAX_CANCELLED_AGENT_EVENT_IDS = 16;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -389,31 +391,47 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // delivery is driven exclusively by validated host agent-event controls.
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
 
+    const currentAgentEventDisposition = () => {
+      const sessionExists = sessionStore.sessions?.some(
+        (candidate) => candidate.id === props.sessionId,
+      ) ?? false;
+      return agentEventDisposition({
+        documentVisible: document.visibilityState === 'visible',
+        windowFocused: typeof document.hasFocus === 'function' && document.hasFocus(),
+        terminalView: isVisible(),
+        activeSessionMatches: props.active && sessionExists,
+        terminalOnePaneFocused: props.terminalId === '1' && isFocused(),
+      });
+    };
+
     agentEventDisposable = terminalStore.registerAgentEventCallback(
       props.sessionId,
       props.terminalId,
       async (message) => {
         if (message.type === 'agent-event') {
-          const sessionExists = sessionStore.sessions?.some(
-            (candidate) => candidate.id === props.sessionId,
-          ) ?? false;
-          const disposition = agentEventDisposition({
-            documentVisible: document.visibilityState === 'visible',
-            windowFocused: typeof document.hasFocus === 'function' && document.hasFocus(),
-            terminalView: isVisible(),
-            activeSessionMatches: props.active && sessionExists,
-            terminalOnePaneFocused: props.terminalId === '1' && isFocused(),
-          });
           terminalStore.submitAgentEventDisposition(
             props.sessionId,
             props.terminalId,
             message.eventId,
-            disposition,
+            currentAgentEventDisposition(),
           );
           return;
         }
 
-        if (message.type !== 'agent-event-display-granted') return;
+        if (message.type === 'agent-event-cancelled') {
+          cancelledAgentEventIds.delete(message.eventId);
+          cancelledAgentEventIds.add(message.eventId);
+          if (cancelledAgentEventIds.size > MAX_CANCELLED_AGENT_EVENT_IDS) {
+            const oldestEventId = cancelledAgentEventIds.values().next().value;
+            if (oldestEventId !== undefined) cancelledAgentEventIds.delete(oldestEventId);
+          }
+          return;
+        }
+
+        if (
+          message.type !== 'agent-event-display-granted'
+          || cancelledAgentEventIds.has(message.eventId)
+        ) return;
         const session = sessionStore.sessions?.find(
           (candidate) => candidate.id === props.sessionId,
         );
@@ -422,7 +440,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           : session?.agentType === 'claude-code'
             ? 'Claude Code'
             : undefined;
-        if (!session || !agent) return;
+        if (!session || !agent || currentAgentEventDisposition() !== 'display-request') return;
 
         const displayed = await showGrantedAgentEvent({
           eventId: message.eventId,
@@ -431,7 +449,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           sessionName: session.name,
           sessionPath: `/app/session/${props.sessionId}`,
         });
-        if (displayed) {
+        if (
+          displayed
+          && !cancelledAgentEventIds.has(message.eventId)
+          && currentAgentEventDisposition() === 'display-request'
+        ) {
           terminalStore.confirmAgentEventDisplay(
             props.sessionId,
             props.terminalId,

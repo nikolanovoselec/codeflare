@@ -42,6 +42,9 @@ export interface AgentNotificationWorker {
 
 export interface AgentNotificationSubscription {
   readonly endpoint: string;
+  readonly options?: {
+    readonly applicationServerKey?: ArrayBuffer | null;
+  };
   toJSON(): {
     endpoint?: string;
     keys?: { p256dh?: string; auth?: string };
@@ -175,6 +178,41 @@ function validSubscription(subscription: AgentNotificationSubscription | undefin
   }
 }
 
+function applicationServerKeysMatch(
+  subscription: AgentNotificationSubscription,
+  expectedKey: ArrayBuffer,
+): boolean {
+  const actualKey = subscription.options?.applicationServerKey;
+  if (!actualKey) return false;
+  try {
+    const actualBytes = new Uint8Array(actualKey);
+    const expectedBytes = new Uint8Array(expectedKey);
+    if (actualBytes.byteLength !== expectedBytes.byteLength) return false;
+    return actualBytes.every((value, index) => value === expectedBytes[index]);
+  } catch {
+    return false;
+  }
+}
+
+async function removeLocalSubscription(
+  subscription: AgentNotificationSubscription,
+  browser: AgentNotificationBrowser,
+): Promise<boolean> {
+  if (subscription.endpoint && browser.deleteSubscription) {
+    try {
+      await browser.deleteSubscription(subscription.endpoint);
+    } catch {
+      // Server cleanup is best-effort; local removal is required before replacement.
+    }
+  }
+  if (!browser.unsubscribe) return false;
+  try {
+    return await browser.unsubscribe(subscription);
+  } catch {
+    return false;
+  }
+}
+
 export async function agentNotificationsEnabled(browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
   try {
     if (browser.permission() !== 'granted' || !browser.currentSubscription) return false;
@@ -213,14 +251,25 @@ export async function setAgentNotificationsEnabled(
       if (permission !== 'granted') return 'unavailable';
     }
 
-    const existingSubscription = await browser.currentSubscription?.();
-    if (validSubscription(existingSubscription)) return 'on';
     if (!browser.getVapidPublicKey || !browser.subscribe || !browser.saveSubscription) {
+      return 'unavailable';
+    }
+    const publicKey = await browser.getVapidPublicKey();
+    const decodedPublicKey = decodeVapidPublicKey(publicKey);
+    const existingSubscription = await browser.currentSubscription?.();
+    if (
+      existingSubscription
+      && validSubscription(existingSubscription)
+      && applicationServerKeysMatch(existingSubscription, decodedPublicKey)
+    ) {
+      await browser.saveSubscription(existingSubscription.toJSON());
+      return 'on';
+    }
+    if (existingSubscription && !(await removeLocalSubscription(existingSubscription, browser))) {
       return 'unavailable';
     }
 
     if (browser.registerWorker && !(await browser.registerWorker())) return 'unavailable';
-    const publicKey = await browser.getVapidPublicKey();
     createdSubscription = await browser.subscribe(publicKey);
     if (!validSubscription(createdSubscription)) throw new Error('Invalid Push subscription');
     await browser.saveSubscription(createdSubscription.toJSON());

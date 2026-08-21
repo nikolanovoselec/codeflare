@@ -4,6 +4,7 @@ import type { Session } from '../types';
 
 export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 export const MAX_AGENT_EVENTS_PER_SEND = 8;
+export const AGENT_EVENT_PUSH_BUDGET_MS = 4_000;
 
 const PUSH_TTL_SECONDS = 3_600;
 const MAX_SESSION_NAME_BYTES = 64;
@@ -48,6 +49,7 @@ export interface SendAgentEventPushesOptions {
   readonly session: Session;
   readonly events: readonly AgentEventForPush[];
   readonly vapid: VapidConfiguration;
+  readonly budgetMs?: number;
 }
 
 export interface SendAgentEventPushesResult {
@@ -201,14 +203,17 @@ async function processSubscription(
   payload: string,
   event: AgentEventForPush,
   vapid: VapidConfiguration,
+  signal: AbortSignal,
+  transport: typeof fetch,
 ): Promise<'processed' | 'expired' | 'transient'> {
-  if (!subscription.record) return 'transient';
+  if (!subscription.record || signal.aborted) return 'transient';
 
   try {
     const result = await sendNotification(subscription.record, payload, {
       vapid,
       ttl: PUSH_TTL_SECONDS,
       urgency: event.kind === 'input-required' ? 'high' : 'normal',
+      fetch: transport,
     });
     if (result.expired || result.status === 404 || result.status === 410) {
       try {
@@ -234,35 +239,51 @@ export async function sendAgentEventPushes(
   const events = selectEvents(options.events);
   if (!identity || events.length === 0) return { sentEventIds: [] };
 
-  const subscriptions = await readSelectedSubscriptions(options.kv, options.bucketName);
-  if (subscriptions.length === 0) return { sentEventIds: [] };
+  const requestedBudget = options.budgetMs ?? AGENT_EVENT_PUSH_BUDGET_MS;
+  if (!Number.isFinite(requestedBudget) || requestedBudget <= 0) return { sentEventIds: [] };
+  const budgetMs = Math.min(requestedBudget, AGENT_EVENT_PUSH_BUDGET_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), budgetMs);
+  const transport: typeof fetch = (input, init) => globalThis.fetch(input, {
+    ...init,
+    signal: controller.signal,
+  });
 
-  const sentEventIds: string[] = [];
-  const expiredSubscriptionKeys = new Set<string>();
-  for (const event of events) {
-    const payload = JSON.stringify({
-      v: 1,
-      eventId: event.eventId,
-      kind: event.kind,
-      sessionPath: identity.sessionPath,
-      sessionName: identity.sessionName,
-      agent: identity.agent,
-      createdAt: event.createdAt,
-    });
-    let fullyProcessed = true;
-    for (const subscription of subscriptions) {
-      if (expiredSubscriptionKeys.has(subscription.key)) continue;
-      const outcome = await processSubscription(
-        options.kv,
-        subscription,
-        payload,
-        event,
-        options.vapid,
-      );
-      if (outcome === 'expired') expiredSubscriptionKeys.add(subscription.key);
-      if (outcome === 'transient') fullyProcessed = false;
+  try {
+    const subscriptions = await readSelectedSubscriptions(options.kv, options.bucketName);
+    if (subscriptions.length === 0) return { sentEventIds: [] };
+
+    const sentEventIds: string[] = [];
+    const expiredSubscriptionKeys = new Set<string>();
+    for (const event of events) {
+      const payload = JSON.stringify({
+        v: 1,
+        eventId: event.eventId,
+        kind: event.kind,
+        sessionPath: identity.sessionPath,
+        sessionName: identity.sessionName,
+        agent: identity.agent,
+        createdAt: event.createdAt,
+      });
+      let fullyProcessed = true;
+      for (const subscription of subscriptions) {
+        if (expiredSubscriptionKeys.has(subscription.key)) continue;
+        const outcome = await processSubscription(
+          options.kv,
+          subscription,
+          payload,
+          event,
+          options.vapid,
+          controller.signal,
+          transport,
+        );
+        if (outcome === 'expired') expiredSubscriptionKeys.add(subscription.key);
+        if (outcome === 'transient') fullyProcessed = false;
+      }
+      if (fullyProcessed) sentEventIds.push(event.eventId);
     }
-    if (fullyProcessed) sentEventIds.push(event.eventId);
+    return { sentEventIds };
+  } finally {
+    clearTimeout(timeout);
   }
-  return { sentEventIds };
 }

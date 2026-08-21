@@ -570,16 +570,7 @@ jobs:
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in VAPID_SUBJECT VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY; do
-            [ -n "${!name}" ] || missing+=("$name")
-          done
-          if [ "${#missing[@]}" -ne 0 ]; then
-            printf '::error::Missing notification deployment configuration: %s\n' "$(IFS=', '; printf '%s' "${missing[*]}")"
-            exit 1
-          fi
+        run: node scripts/ci/validate-vapid-config.mjs
 
       - name: Deploy to Cloudflare
         env:

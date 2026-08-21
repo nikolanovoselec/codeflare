@@ -12,6 +12,7 @@ import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
+  AGENT_EVENT_PUSH_BUDGET_MS,
   sendAgentEventPushes,
   type AgentEventForPush,
 } from '../lib/push-sender';
@@ -537,7 +538,7 @@ async function deliverRunningAgentEvents(
     return;
   }
 
-  const result = await sendAgentEventPushes({
+  const result = await raceBudget(sendAgentEventPushes({
     kv: env.KV,
     bucketName: trusted.bucketName,
     // The path identity is owned by this DO; display name and agent identity
@@ -549,7 +550,9 @@ async function deliverRunningAgentEvents(
       publicKey: env.VAPID_PUBLIC_KEY,
       privateKey: env.VAPID_PRIVATE_KEY,
     },
-  });
+    budgetMs: AGENT_EVENT_PUSH_BUDGET_MS,
+  }), AGENT_EVENT_PUSH_BUDGET_MS);
+  if (!result) return;
 
   const offeredIds = new Set(events.map((event) => event.eventId));
   for (const eventId of result.sentEventIds) {
@@ -612,7 +615,7 @@ export async function drainAgentEventsBeforeStop(
       return;
     }
 
-    const pushBudgetMs = remainingBudget();
+    const pushBudgetMs = Math.min(remainingBudget(), AGENT_EVENT_PUSH_BUDGET_MS);
     if (pushBudgetMs <= 0) return;
     const result = await raceBudget(sendAgentEventPushes({
       kv: env.KV,
@@ -624,6 +627,7 @@ export async function drainAgentEventsBeforeStop(
         publicKey: env.VAPID_PUBLIC_KEY,
         privateKey: env.VAPID_PRIVATE_KEY,
       },
+      budgetMs: pushBudgetMs,
     }), pushBudgetMs);
     if (!result) return;
 
