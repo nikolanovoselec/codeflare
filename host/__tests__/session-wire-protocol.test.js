@@ -39,9 +39,10 @@ function makeFakePty() {
     process: 'bash',
     _dataListeners: [],
     _exitListeners: [],
+    _writes: [],
     onData(fn) { pty._dataListeners.push(fn); return { dispose() {} }; },
     onExit(fn) { pty._exitListeners.push(fn); return { dispose() {} }; },
-    write() {},
+    write(data) { pty._writes.push(data); },
     resize() {},
     kill() {},
     emitData(data) { for (const fn of pty._dataListeners) fn(data); },
@@ -121,6 +122,21 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
       'configured terminalArgs must be split on whitespace and forwarded to spawn');
 
     session.kill();
+  });
+});
+
+describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
+  it('preserves focus bytes and does not synthesize focus-out on detach', () => {
+    const session = new Session('claude-focus', 'Terminal');
+    const ws = createWs();
+    session.attach(ws);
+    const pty = lastSpawn.pty;
+
+    session.write('\x1b[I\x1b[O');
+    assert.deepEqual(pty._writes, ['\x1b[I\x1b[O']);
+
+    session.detach(ws);
+    assert.deepEqual(pty._writes, ['\x1b[I\x1b[O']);
   });
 });
 
