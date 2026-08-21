@@ -238,8 +238,8 @@ describe('REQ-TERM-023 AC1/AC7: Session owns primary-terminal event coordination
     session.kill();
   });
 
-  it('a new attachment cancels a pending event on the originating Session only', (t) => {
-    const session = new Session('attach-cancel-1', 'Terminal');
+  it('a new attachment reconciles the pending event before active presence can suppress it', (t) => {
+    const session = new Session('attach-reconcile-1', 'Terminal');
     t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const first = createWs();
     session.attach(first);
@@ -251,10 +251,24 @@ describe('REQ-TERM-023 AC1/AC7: Session owns primary-terminal event coordination
 
     const second = createWs();
     session.attach(second);
+    const replayed = second.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event' && message.eventId === event.eventId);
+    assert.ok(replayed, 'the reconnecting client receives each unresolved event');
+    assert.equal(first.sent.some((frame) => {
+      try {
+        const message = JSON.parse(frame);
+        return message.type === 'agent-event-cancelled' && message.eventId === event.eventId;
+      } catch {
+        return false;
+      }
+    }), false, 'attachment alone does not discard an away notification');
+
+    assert.equal(session.submitAgentEventDisposition(event.eventId, second, 'suppress'), true);
     const cancellation = first.sent
       .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
       .find((message) => message?.type === 'agent-event-cancelled' && message.eventId === event.eventId);
-    assert.ok(cancellation, 'returning through another attachment cancels the pending event');
+    assert.ok(cancellation, 'explicit active presence still suppresses every client');
 
     session.kill();
   });

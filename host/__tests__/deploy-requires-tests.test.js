@@ -373,14 +373,18 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
     });
     assert.equal(valid.status, 0, valid.stderr);
 
-    const deploy = jobBlock('deploy');
-    const validation = deploy.indexOf('node scripts/ci/validate-vapid-config.mjs');
-    const promotion = deploy.indexOf('npx wrangler deploy');
+    const steps = deployWorkflow.jobs.deploy.steps;
+    const validation = steps.findIndex((step) => step.name === 'Validate notification deployment configuration');
+    const promotion = steps.findIndex((step) => step.name === 'Deploy to Cloudflare');
     assert.ok(validation >= 0, 'deploy job does not run the VAPID validator');
-    assert.ok(promotion > validation, 'VAPID validation must happen before Worker promotion');
+    assert.match(steps[validation].run, /node scripts\/ci\/validate-vapid-config\.mjs/);
+    assert.equal(steps[validation]['continue-on-error'], undefined,
+      'VAPID validation must fail the deploy job closed');
+    assert.ok(promotion > validation, 'VAPID validation must run before Worker promotion in the deploy job');
+    assert.match(steps[promotion].run, /npx wrangler deploy/);
   });
 
-  it('sources every VAPID field from environment secrets so Actions masks step metadata', () => {
+  it('sources every VAPID field from Actions secret context so step metadata stays masked', () => {
     const expectedByStep = new Map([
       ['Validate notification deployment configuration', {
         VAPID_SUBJECT: '${{ secrets.VAPID_SUBJECT }}',
@@ -400,7 +404,7 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
       const step = deployWorkflow.jobs.deploy.steps.find((candidate) => candidate.name === stepName);
       assert.ok(step, `deploy job is missing the ${stepName} step`);
       for (const [name, expression] of Object.entries(expectedEnv)) {
-        assert.equal(step.env?.[name], expression, `${stepName} must source ${name} from its environment secret`);
+        assert.equal(step.env?.[name], expression, `${stepName} must source ${name} from Actions secret context`);
       }
     }
   });

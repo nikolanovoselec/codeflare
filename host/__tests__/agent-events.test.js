@@ -179,7 +179,39 @@ describe('REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination', () => {
 });
 
 describe('REQ-TERM-023 AC7 / H4 and queue lifecycle bounds', () => {
-  it('attach or classified input cancels pending, eligible, and drained-unacknowledged events', () => {
+  it('reconciles a newly attached away client without discarding unresolved fallback', () => {
+    const { queue } = queueAt();
+    const hiddenReconnect = client('hidden-reconnect');
+    queue.enqueue('input-required', []);
+    queue.drain({ ackEventIds: [] });
+
+    const reconciled = queue.reconcileClient(hiddenReconnect);
+    const announcements = eventActions(reconciled, 'announce');
+    assert.equal(announcements.length, 1);
+    assert.equal(announcements[0].event.eventId, 'event-1');
+    assert.deepEqual(announcements[0].clients, [hiddenReconnect]);
+
+    const away = queue.submitDisposition('event-1', hiddenReconnect, 'display-request');
+    assert.equal(away.accepted, true);
+    assert.equal(queue.get('event-1').state, 'drained');
+    assert.deepEqual(queue.drain({ ackEventIds: [] }).events.map((event) => event.eventId), ['event-1']);
+  });
+
+  it('lets a newly attached active client suppress an unresolved fallback event', () => {
+    const { queue } = queueAt();
+    const activeReconnect = client('active-reconnect');
+    queue.enqueue('input-required', []);
+    queue.drain({ ackEventIds: [] });
+    queue.reconcileClient(activeReconnect);
+
+    const suppressed = queue.submitDisposition('event-1', activeReconnect, 'suppress');
+    assert.equal(suppressed.accepted, true);
+    assert.equal(queue.get('event-1').state, 'cancelled');
+    assert.equal(eventActions(suppressed, 'cancel-display').length, 1);
+    assert.deepEqual(queue.drain({ ackEventIds: [] }).events, []);
+  });
+
+  it('classified input cancels pending, eligible, and drained-unacknowledged events', () => {
     const { queue } = queueAt();
     const attached = client('attached');
     queue.enqueue('input-required', [attached]);
