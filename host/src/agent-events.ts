@@ -140,7 +140,7 @@ export interface AgentEventQueueOptions {
 
 interface AgentEventRecord {
   readonly event: QueuedAgentEvent;
-  readonly clients: readonly AgentEventClient[];
+  readonly clients: AgentEventClient[];
   readonly dispositions: Map<AgentEventClient, AgentEventDisposition>;
   confirmationDeadline?: number;
   grantedClient?: AgentEventClient;
@@ -208,6 +208,24 @@ export class AgentEventQueue {
     return { event, actions };
   }
 
+  reconcileClient(client: AgentEventClient): AgentEventResult {
+    const actions = [...this.advance(this.now())];
+    let accepted = false;
+
+    for (const record of this.events.values()) {
+      if (record.event.state === 'cancelled' || record.clients.includes(client)) continue;
+      record.clients.push(client);
+      accepted = true;
+      actions.push({
+        type: 'announce',
+        event: this.hostEvent(record.event),
+        clients: [client],
+      });
+    }
+
+    return { accepted, actions };
+  }
+
   submitDisposition(
     eventId: string,
     client: AgentEventClient,
@@ -218,25 +236,11 @@ export class AgentEventQueue {
     const record = this.events.get(eventId);
     if ((disposition !== 'suppress' && disposition !== 'display-request')
         || record === undefined
-        || !record.clients.includes(client)) {
+        || !record.clients.includes(client)
+        || record.event.state === 'cancelled') {
       return { accepted: false, actions };
     }
 
-    const isLateGrantedSuppression = disposition === 'suppress'
-      && record.event.state === 'awaiting-display-confirmation'
-      && record.grantedClient === client;
-    if (isLateGrantedSuppression) {
-      record.event.state = 'cancelled';
-      const cancellation = this.cancelAction(record);
-      if (cancellation !== undefined) actions.push(cancellation);
-      return { accepted: true, actions };
-    }
-
-    if (record.event.state !== 'pending' || record.dispositions.has(client)) {
-      return { accepted: false, actions };
-    }
-
-    record.dispositions.set(client, disposition);
     if (disposition === 'suppress') {
       record.event.state = 'cancelled';
       const cancellation = this.cancelAction(record);
@@ -244,6 +248,16 @@ export class AgentEventQueue {
       return { accepted: true, actions };
     }
 
+    if (record.event.state !== 'pending') {
+      if (!record.dispositions.has(client)) record.dispositions.set(client, disposition);
+      return { accepted: true, actions };
+    }
+
+    if (record.dispositions.has(client)) {
+      return { accepted: false, actions };
+    }
+
+    record.dispositions.set(client, disposition);
     if (record.dispositions.size === record.clients.length) {
       const grantedClient = record.clients.find(
         (candidate) => record.dispositions.get(candidate) === 'display-request',

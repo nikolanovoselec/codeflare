@@ -306,7 +306,7 @@ export class Session {
    */
   attach(ws: WebSocket): void {
     this.clients.add(ws);
-    this.applyAgentEventActions(this.agentEventQueue.cancelForPresence().actions);
+    this.applyAgentEventActions(this.agentEventQueue.reconcileClient(ws).actions);
     if (!this.resizeAuthorityClient) {
       this.resizeAuthorityClient = ws;
     }
