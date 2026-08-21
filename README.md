@@ -69,6 +69,8 @@ The customer chooses the identity provider, GitHub organization, storage regime,
 
 Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Copilot, Pi, Google Antigravity, OpenCode, and Bash. Enterprise administrators choose from gateway-capable Pi and GitHub Copilot agents, with Bash always available.
 
+Enterprise sessions send native notifications from validated lifecycle signals, only when you’re away.
+
 Hosted model providers remain first-class. Supported enterprise traffic can be routed through Cloudflare AI Gateway in the customer's account, with route catalogs, model policy, context limits, and user attribution controlled there. [Codeflare Inference Mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh) is an optional, separately deployed source for open models on customer-controlled GPU or CPU capacity.
 
 <p align="center">
