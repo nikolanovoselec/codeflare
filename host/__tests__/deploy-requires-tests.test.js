@@ -380,6 +380,19 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
     assert.ok(promotion > validation, 'VAPID validation must happen before Worker promotion');
   });
 
+  it('sources every VAPID field from environment secrets so Actions masks step metadata', () => {
+    for (const name of ['VAPID_SUBJECT', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']) {
+      assert.ok(
+        deployYml.includes(`${name}: \${{ secrets.${name} }}`),
+        `${name} must come from the environment secret context`,
+      );
+      assert.ok(
+        !deployYml.includes(`${name}: \${{ vars.${name} }}`),
+        `${name} must not use an unmasked Actions variable`,
+      );
+    }
+  });
+
   it('rejects whitespace, bad subjects, malformed keys, and mismatched pairs without printing key values', () => {
     const pair = keyPair();
     const other = keyPair();
