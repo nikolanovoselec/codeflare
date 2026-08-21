@@ -567,8 +567,8 @@ jobs:
 
       - name: Validate notification deployment configuration
         env:
-          VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
-          VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
         run: node scripts/ci/validate-vapid-config.mjs
 
@@ -577,7 +577,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VAR_ONBOARDING: ${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }}
-          VAR_VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+          VAR_VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           VAR_MAX_SESSIONS_USER: ${{ vars.MAX_SESSIONS_USER }}
           VAR_MAX_SESSIONS_ADMIN: ${{ vars.MAX_SESSIONS_ADMIN }}
           VAR_STRESS_TEST_MODE: ${{ vars.STRESS_TEST_MODE }}
@@ -696,7 +696,7 @@ jobs:
           ENC_KEY: ${{ secrets.ENCRYPTION_KEY }}
           AIG_GATEWAY_URL: ${{ secrets.AIG_GATEWAY_URL }}
           AIG_TOKEN: ${{ secrets.AIG_TOKEN }}
-          VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           ONBOARDING_MODE: ${{ vars.ONBOARDING_LANDING_PAGE }}
           SAAS_MODE_VAR: ${{ vars.SAAS_MODE }}

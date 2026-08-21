@@ -381,15 +381,27 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
   });
 
   it('sources every VAPID field from environment secrets so Actions masks step metadata', () => {
-    for (const name of ['VAPID_SUBJECT', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']) {
-      assert.ok(
-        deployYml.includes(`${name}: \${{ secrets.${name} }}`),
-        `${name} must come from the environment secret context`,
-      );
-      assert.ok(
-        !deployYml.includes(`${name}: \${{ vars.${name} }}`),
-        `${name} must not use an unmasked Actions variable`,
-      );
+    const expectedByStep = new Map([
+      ['Validate notification deployment configuration', {
+        VAPID_SUBJECT: '${{ secrets.VAPID_SUBJECT }}',
+        VAPID_PUBLIC_KEY: '${{ secrets.VAPID_PUBLIC_KEY }}',
+        VAPID_PRIVATE_KEY: '${{ secrets.VAPID_PRIVATE_KEY }}',
+      }],
+      ['Deploy to Cloudflare', {
+        VAR_VAPID_SUBJECT: '${{ secrets.VAPID_SUBJECT }}',
+      }],
+      ['Set worker secrets (bulk)', {
+        VAPID_PUBLIC_KEY: '${{ secrets.VAPID_PUBLIC_KEY }}',
+        VAPID_PRIVATE_KEY: '${{ secrets.VAPID_PRIVATE_KEY }}',
+      }],
+    ]);
+
+    for (const [stepName, expectedEnv] of expectedByStep) {
+      const step = deployWorkflow.jobs.deploy.steps.find((candidate) => candidate.name === stepName);
+      assert.ok(step, `deploy job is missing the ${stepName} step`);
+      for (const [name, expression] of Object.entries(expectedEnv)) {
+        assert.equal(step.env?.[name], expression, `${stepName} must source ${name} from its environment secret`);
+      }
     }
   });
 
