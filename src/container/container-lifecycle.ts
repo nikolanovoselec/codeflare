@@ -203,7 +203,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // AC4). onStart() clears the marker on the next fresh start.
   try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now())); } catch { /* storage racing teardown */ }
 
-  // REQ-SESSION-011 AC8-AC10: give pending away notifications one final,
+  // REQ-SESSION-027 AC1-AC3: give pending away notifications one final,
   // independently bounded delivery attempt before final sync or destructive
   // storage cleanup. The captured Bearer token avoids re-reading credentials
   // after teardown has started deleting them. Failure is best-effort and cannot

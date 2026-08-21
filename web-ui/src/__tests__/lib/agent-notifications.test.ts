@@ -128,7 +128,7 @@ describe('REQ-TERM-023 AC3/AC5: granted local display', () => {
   });
 });
 
-describe('REQ-TERM-023 AC6: one per-device enrollment switch', () => {
+describe('REQ-TERM-025 AC1-AC5: one per-device enrollment switch', () => {
   it('reads on only when permission is granted and a valid subscription exists', async () => {
     await expect(agentNotificationsEnabled(browser())).resolves.toBe(true);
     await expect(agentNotificationsEnabled(browser({

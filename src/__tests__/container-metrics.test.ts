@@ -420,7 +420,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.agentDrainRequests[1]?.body).toEqual({ ackEventIds: ['event-a'] });
     });
 
-    it('REQ-SEC-023 AC4 / D3: rejects invalid version, kind, age, count, and display-shaped fields', async () => {
+    it('REQ-SEC-024 AC1 / D3: rejects invalid version, kind, age, count, and display-shaped fields', async () => {
       setNotificationSession();
       testState.agentDrainEvents = [
         { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
@@ -1862,7 +1862,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-011 AC8-AC10: quota-stop drains final agent events, then final sync, then stop', async () => {
+    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1-AC3: quota-stop drains final agent events, then final sync, then stop', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
       // setup and assert the order via callOrder rather than just that stop ran.
@@ -2411,7 +2411,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-011 AC10: an event-drain failure still runs final sync and stop', async () => {
+    it('REQ-SESSION-027 AC3: an event-drain failure still runs final sync and stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,

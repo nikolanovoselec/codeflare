@@ -638,75 +638,128 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-023: Away-only agent notification delivery
 
-**Intent:** When an agent needs attention, Codeflare notifies the user's enrolled devices only if no connected device is actively viewing the originating terminal, without waking or extending the session container.
+**Intent:** Agent attention events are delivered only while every connected view of the originating terminal is away, without waking or extending the session container.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Only exact reviewed Pi or Claude OSC 777 frames observed in terminal 1 create a four-field event `{schemaVersion,eventId,kind,createdAt}`; malformed, oversized, unknown, near-match, or non-primary-terminal frames create no event and never alter PTY bytes. The frame is a fixed signal, not proof that the emitting process is trusted. <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC1: bounded live OSC parsing and primary-terminal isolation) -->
-2. For each pending event, every connection attached to the originating Session receives only its opaque ID and kind and submits one presence disposition; any active-client `suppress` disposition cancels all local display and Web Push delivery for that event. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::createTerminalWebSocketHandler --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2: one active client suppresses delivery globally) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC2: event dispositions remain bound to the attached Session) -->
-3. If every connection in the event's attachment snapshot reports away, the host grants display to exactly one requesting connection; only that connection displays and confirms, while a missing confirmation makes the event eligible for Web Push. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC3: all-away coordination grants exactly one display) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3: only a granted event displays and confirms) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-023 AC3: cancelled or newly active grants never confirm local display) -->
-4. With zero attached clients, or no completed client disposition inside the five-second window, the event becomes eligible for a bearer-authenticated DO drain. While the container remains running, an unacknowledged event is re-offered on later metrics drains until delivery is fully processed or its 15-minute host lifetime expires. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC4: zero-client and window-expiry eligibility) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4: two-phase delivery acknowledges only sent event IDs) -->
-5. Local and push notifications contain one fixed reason string plus the trusted session display name and configured agent identity; agent prose, terminal-supplied names or paths, prompts, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC5: fixed local notification mapping uses store-owned identity) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (REQ-TERM-023 AC5: push payload uses DO-owned identity only) -->
-6. One Settings switch per device is the only permission-request path. Enabling returns on only after an existing valid subscription with the current application-server key is re-registered, otherwise replaces stale local capability state and performs permission, service-worker readiness, Push subscription, and authenticated registration in one gesture. Disabling deletes the server registration before unsubscribing locally. Denied permission reads denied, and granted permission without a valid subscription reads off. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-TERM-023 AC6: one-gesture enrollment and off-state recovery) --> <!-- @manual: On deployed integration, confirm enrollment, denial, off, and re-enrollment on desktop, Android-class, and installed iOS PWA devices. -->
-7. The service worker rejects malformed, unknown-kind/version, unbounded, or non-relative push payloads; valid pushes show one user-visible notification tagged per canonical session path, and an at-least-once duplicate event ID is re-shown with `renotify:false` rather than silently consumed. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-023 AC7: validated visible push and event-ID dedupe) -->
-8. The canonical notification target is `/app/session/:sessionId`; the SPA accepts only a session present in the authenticated user's loaded store, and a click focuses the same-origin client at that exact pathname or opens it when absent. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-023 AC8: canonical session deep link selects only a user-owned session) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-023 AC8: notification click matches exact same-origin session path) --> <!-- @manual: On deployed integration with two sessions, prove each notification focuses or opens only its intended session. -->
-9. Notification collection, client coordination, DO polling, Web Push delivery, and service-worker handling never update user-input activity, extend idle time, wake a stopped container, or create a notification history/inbox. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC9: notification drain leaves idle and usage state unchanged and provider stalls cannot stop alarm re-arming) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-023 AC9: worker adds no fetch, cache, or sync behavior) --> <!-- @manual: On deployed integration, prove push receipt does not start or extend the target container. -->
-10. Attaching to or entering classified user input on the originating terminal cancels every host-owned pending, eligible, or re-offered drained event. A drain already copied into the DO, or a push already accepted by a vendor, can still complete as bounded pickup residue; cancellation introduces no recall channel or notification ledger. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC10: attach and classified input cancel undelivered events) -->
+1. Exact reviewed Pi or Claude OSC 777 frames from terminal one create fixed four-field events; malformed, oversized, unknown, near-match, and non-primary-terminal frames create no event and never alter PTY bytes. <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC1/AC7: Session owns primary-terminal event coordination) -->
+2. Every attached client submits one event-specific disposition; any initial or granted-client late `suppress` cancels local display and undelivered fallback for that event. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (lets one active client suppress every device before any display grant) --> <!-- @test: host/__tests__/agent-events.test.js (accepts a late suppress from the granted client and never makes the event drain-eligible) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (cannot use a socket attached to another Session to affect the originating queue) -->
+3. When every snapshotted client reports away, the host grants one local display; only the grantee displays and confirms, and absent confirmation enables fallback. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (grants exactly one display only after every snapshotted client reports away) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023 AC2/AC3) -->
+4. Zero-client and timed-out events enter the authenticated DO drain and remain re-offered until fully processed, acknowledged, or expired after 15 minutes. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick) -->
+5. Every notification contains fixed reason text plus trusted Session identity; terminal or agent prose, names, paths, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (sends only the fixed seven-field payload enriched from the DO-owned Session) -->
+6. Notification coordination, polling, delivery, and worker handling never mutate user activity, extend idle time, wake a stopped container, or create notification history. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming) --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: notification polling never mutates activity or usage inputs) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (registers no fetch, cache, or sync handlers) -->
+7. Attach or classified input cancels host-owned pending, eligible, or drained events; already copied or provider-accepted delivery remains bounded pickup residue. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (attach or classified input cancels pending, eligible, and drained-unacknowledged events) -->
+
+**Notes:** Partial pending deployed one-active-client suppression, all-away single local display, no-client Push fallback, bounded pickup residue, and no-wake/no-idle-extension evidence.
 
 **Constraints:**
 
-- Browser permission is per origin and browser profile; Codeflare stores only the vendor Push subscription, not a duplicate permission preference.
-- Queue, drain, and per-user subscription counts are bounded at 16, 8, and 10 respectively; events expire after 15 minutes and provider pickup TTL is one hour.
-- Delivery is at least once until the host receives an acknowledgement. If one selected subscription is transient after another accepts, a later attempt can repeat the accepted delivery; the service worker keeps it visible with `renotify:false` when it can identify the duplicate event ID.
-- Terminal control bytes are hostile input and do not prove cryptographic provenance; trusted session records determine every display-facing identity and path.
-- Client coordination is event-specific and Session-closure-bound. It is not a cross-session relay or general event bus.
-- Push is best effort. OS focus modes, browser revocation, offline duration, battery policy, and killed PWAs may prevent display.
-- The service worker adds no fetch, cache, or sync handler. Only an explicit same-origin notification click may follow normal authenticated navigation that can wake a session.
+- Queue, drain, and per-user subscription counts are bounded at 16, 8, and 10; events expire after 15 minutes and provider pickup TTL is one hour.
+- Delivery is at least once until the host receives an acknowledgement.
+- Trusted session records determine every display-facing identity and path; terminal bytes do not.
+- Client coordination is event-specific and Session-bound.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-023](security.md#req-sec-023-agent-notification-trust-boundaries)
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated host, Worker, frontend, and service-worker behavior tests; deployed desktop, Android-class, and installed iOS PWA acceptance with pickup-latency and no-wake evidence.
-
-**Outstanding acceptance:** Deployed evidence is still required for desktop, Android-class, and installed iOS PWA enrollment/denial/off/re-enrollment; one-active-client global suppression; all-away single local display and no-client Push fallback; bounded pickup residue after presence returns; exact two-session click routing; and proof that receipt neither wakes nor extends the container.
+**Verification:** Automated host, Worker, frontend, and service-worker tests plus deployed suppression, pickup, and no-wake checks.
 
 **Status:** Partial
 
 ---
 
-### REQ-TERM-024: Native agent terminal notification producers
+### REQ-TERM-025: Per-device notification enrollment and browser delivery
 
-**Intent:** Pi and Claude emit only fixed, reviewed terminal signals backed by native lifecycle or permission state; Codeflare never infers notification kinds from prompts or model prose.
+**Intent:** One explicit per-device switch owns browser Push enrollment, and browser delivery remains bounded to canonical session navigation.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi emits one fixed `input-required` signal for the validated `rpiv:ask-user:prompt` event and ignores its question and option content. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC1: Pi input-required is fixed and content-free) -->
-2. Pi emits `task-completed` only when pinned 0.84.1 recorded interactive input provenance, no extension-origin continuation, a fully settled run, and a final structured status other than `error` or `aborted`. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: Pi completion requires interactive provenance and settled success) -->
-3. Pi emits `task-failed` only for an interactive-origin settled run whose final assistant `stopReason` is `error`. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: Pi failure requires structured final error) -->
-4. Cancellation, abort, extension-origin input/continuation, or absent positive provenance emits neither Pi completion nor failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: Pi suppresses stale or non-user terminal signals) -->
-5. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC5: Pi RPC mode is byte-inert) -->
-6. Both Claude session modes retain pinned Claude 2.1.224's native `preferredNotifChannel: "ghostty"`, with no managed Notification or notification-producing Stop hook and no modified Claude extension. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-024 AC6: both Claude modes retain the native channel without managed hooks) -->
-7. The exact Claude Ghostty frame with title `Claude Code` and body `Claude needs your permission` maps to `input-required`; idle, completion, background-agent, authentication, MCP, computer-use, unknown, and near-match frames emit nothing. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_FRAMES --> <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-024 AC7: Claude permission-only mapping rejects every unreviewed frame) -->
-8. Claude notification emission remains independent of CSI focus reports, so Codeflare neither strips focus-in/out nor synthesizes focus-out on detach. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-024 AC8: focus bytes remain unchanged while Claude permission maps) -->
+1. One Settings switch per device is the only permission-request path. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC5) -->
+2. Enabling reports on only after re-registering an existing valid subscription with the current application-server key. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (re-registers an existing matching subscription before reporting enrollment on) -->
+3. Otherwise enabling replaces stale capability state and completes permission, worker readiness, subscription, and authenticated registration in one gesture. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (enables in one gesture: permission, public config, subscribe, then authenticated save) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (replaces an existing subscription whose application server key cannot match current config) -->
+4. Disabling deletes the server registration before unsubscribing locally. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (disables by deleting server capability then unsubscribing locally) -->
+5. Denied permission reads denied, while granted permission without a valid subscription reads off. <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (reads on only when permission is granted and a valid subscription exists) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (does not subscribe or save after permission denial) -->
+6. The worker rejects invalid payloads and visibly re-shows an identifiable duplicate with `renotify:false`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-025 AC6 / REQ-SEC-024 AC4: agent notification service worker push) -->
+7. Notification clicks select only a loaded user-owned session at the canonical same-origin session path. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-025 AC7: canonical session deep links) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-025 AC7: canonical notification click navigation) -->
+
+**Notes:** Partial pending desktop, Android-class, and installed iOS PWA enrollment/denial/off/re-enrollment and exact two-session click routing.
 
 **Constraints:**
 
-- Producer frames contain fixed inert text only. Session names, prompts, model output, tool data, commands, file content, and credentials never enter a producer payload.
-- The official Claude IDE extension remains checksum-pinned and unmodified; its panel retains upstream in-product notifications.
-- Unsupported producer kinds remain disabled rather than approximated with text matching.
+- Browser permission is per origin and browser profile; Codeflare stores only the vendor Push subscription.
+- Push display is best effort.
+- The service worker adds no fetch, cache, or sync handler; only an explicit same-origin notification click follows normal authenticated navigation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
+
+**Verification:** Automated enrollment, worker, and navigation tests plus deployed desktop/mobile acceptance.
+
+**Status:** Partial
+
+---
+
+### REQ-TERM-024: Pi native terminal notification producer
+
+**Intent:** Pi emits only fixed attention signals backed by native interactive provenance and structured lifecycle state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi emits one fixed `input-required` signal for the validated ask-user event and ignores question content. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC1: emits one fixed input-required frame without question content) -->
+2. Pi completion requires interactive provenance, no extension-origin continuation, a settled run, and structured non-error, non-aborted status. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: completion requires interactive provenance and settled structured success) -->
+3. Pi failure requires an interactive-origin settled run whose final assistant stop reason is structured error. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: final structured error emits task-failed, not completion or provider prose) -->
+4. Cancellation, abort, extension-origin continuation, and absent positive provenance emit neither completion nor failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: extension-origin continuation suppresses an otherwise interactive completion) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: cancellation and abort emit neither completion nor failure) -->
+5. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC5: registers nothing and writes no bytes in RPC mode) -->
+
+**Notes:** Partial pending a fresh terminal-one record of Pi input-required, structured completion/failure, and silence for abort or continuation residue.
+
+**Constraints:**
+
+- Producer frames contain fixed inert text only.
+- Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery)
 
-**Verification:** Automated Pi extension, host parser, Session input, and entrypoint settings tests; deployed Pi and Claude permission verification, plus Pi completion/failure verification.
+**Verification:** Automated Pi extension tests plus deployed interactive-run verification.
 
-**Outstanding acceptance:** A fresh deployed terminal-1 session must record Pi input-required, structured completion, and structured failure from real interactive runs, plus Claude's native permission frame. The same run must show that Pi abort/continuation residue and Claude's unsupported notification kinds remain silent.
+**Status:** Partial
+
+---
+
+### REQ-TERM-026: Claude native terminal notification producer
+
+**Intent:** Claude contributes only its exact native permission signal without Codeflare focus synthesis or text inference.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Claude session modes retain the pinned native Ghostty notification channel without managed notification hooks or extension modification. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: both Claude session modes apply the native channel without managed notification hooks) -->
+2. Only the exact reviewed Claude permission frame maps to `input-required`; every other Claude or near-match frame emits nothing. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_FRAMES --> <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-026 AC2: maps only reviewed Pi and Claude frames and ignores every near-match) -->
+3. Claude notification handling preserves focus-in and focus-out bytes and never synthesizes focus-out on detach. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-026 AC3: Claude notification focus independence) -->
+
+**Notes:** Partial pending a fresh terminal-one record of Claude's native permission frame and silence for unsupported notification kinds.
+
+**Constraints:**
+
+- The official Claude IDE extension remains checksum-pinned and unmodified.
+- Unsupported producer kinds remain disabled rather than inferred from text.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery)
+
+**Verification:** Automated host parser, Session input, and entrypoint settings tests plus deployed permission verification.
 
 **Status:** Partial
 

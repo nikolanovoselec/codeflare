@@ -62,7 +62,7 @@ The managed Pi extension packages are installed in the settings `required` set, 
 
 The repository-owned `native-notifications.ts` extension is seeded in both modes. It emits fixed OSC 777 text when `ask_user_question` needs attention — subscribed via the package's stable `rpiv:ask-user:prompt` notifier channel (immutable channel names, append-only payloads), so the signal survives package major upgrades and fires only when a questionnaire actually opens — and emits completion only at `agent_settled`, avoiding premature completion during retry, compaction, or queued continuation. Cancellation and abort suppress stale completion. It registers nothing under `--mode rpc`, whose stdout is strict JSONL; code-server native Chat instead uses Code OSS's browser-notification lifecycle. No reviewed third-party notifier met both Codeflare's transport contract and the required maintenance/adoption threshold.
 
-Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
+Claude needs no notification hook: both session-mode settings select Claude's built-in `ghostty` notification channel ([REQ-TERM-026](../../sdd/spec/terminal.md#req-term-026-claude-native-terminal-notification-producer)).
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 

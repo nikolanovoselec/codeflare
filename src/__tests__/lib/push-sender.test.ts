@@ -62,7 +62,7 @@ async function storeSubscription(
   return key;
 }
 
-describe('REQ-TERM-023 AC5 / REQ-SEC-023 AC4-AC7: Web Push sender', () => {
+describe('REQ-TERM-023 AC5 / REQ-SEC-024 AC1-AC5: Web Push sender', () => {
   let kv: ReturnType<typeof createMockKV>;
   const bucketName = 'codeflare-user-example-com';
 

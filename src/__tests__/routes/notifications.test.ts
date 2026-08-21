@@ -61,7 +61,7 @@ async function postSubscription(app: ReturnType<typeof createTestApp>, endpoint:
   });
 }
 
-describe('REQ-TERM-023 AC6 / REQ-SEC-023 AC1-AC3: notification routes', () => {
+describe('REQ-TERM-025 AC1-AC5 / REQ-SEC-023 AC1-AC3/AC6: notification routes', () => {
   let kv: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

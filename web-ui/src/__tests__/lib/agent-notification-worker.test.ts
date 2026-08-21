@@ -43,7 +43,7 @@ const VALID_PUSH = Object.freeze({
   createdAt: 1_700_000_000_000,
 });
 
-describe('REQ-TERM-023 AC7 / REQ-SEC-023 AC6: agent notification service worker push', () => {
+describe('REQ-TERM-025 AC6 / REQ-SEC-024 AC4: agent notification service worker push', () => {
   it('shows one fixed, tagged, user-visible notification for a valid payload', async () => {
     const { listeners, registration } = loadWorker();
     const work = dispatchPush(listeners.get('push'), VALID_PUSH);
@@ -97,7 +97,7 @@ describe('REQ-TERM-023 AC7 / REQ-SEC-023 AC6: agent notification service worker 
   });
 });
 
-describe('REQ-TERM-023 AC8: canonical notification click navigation', () => {
+describe('REQ-TERM-025 AC7: canonical notification click navigation', () => {
   it('focuses only the existing client at the exact canonical session pathname', async () => {
     const otherFocus = vi.fn(async () => undefined);
     const focus = vi.fn(async () => undefined);

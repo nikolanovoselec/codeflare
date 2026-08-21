@@ -44,7 +44,7 @@ describe('REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser', () => {
     assert.deepEqual(parser.push(frame.slice(cutB)), ['input-required']);
   });
 
-  it('maps only reviewed Pi and Claude frames and ignores every near-match', () => {
+  it('REQ-TERM-026 AC2: maps only reviewed Pi and Claude frames and ignores every near-match', () => {
     const parser = new OscAgentEventParser();
     const frames = [
       [AGENT_EVENT_FRAMES.piInputRequired, 'input-required'],
@@ -178,7 +178,7 @@ describe('REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination', () => {
   });
 });
 
-describe('REQ-TERM-023 AC10 / H4 and queue lifecycle bounds', () => {
+describe('REQ-TERM-023 AC7 / H4 and queue lifecycle bounds', () => {
   it('attach or classified input cancels pending, eligible, and drained-unacknowledged events', () => {
     const { queue } = queueAt();
     const attached = client('attached');

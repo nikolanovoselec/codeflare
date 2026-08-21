@@ -45,7 +45,7 @@ export async function getUser(): Promise<UserInfo> {
   return fetchApi('/user', {}, UserResponseSchema);
 }
 
-// Per-device agent notification enrollment (REQ-TERM-023 AC6)
+// Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
 const AgentNotificationConfigSchema = z.object({
   vapidPublicKey: z.string().min(1),
 });

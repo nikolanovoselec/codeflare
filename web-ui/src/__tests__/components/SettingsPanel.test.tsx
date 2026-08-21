@@ -262,7 +262,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
   });
 
-  describe('Agent notifications / REQ-TERM-023 AC6', () => {
+  describe('Agent notifications / REQ-TERM-025 AC1-AC5', () => {
     it('renders one off switch when no valid Push subscription exists', async () => {
       mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);

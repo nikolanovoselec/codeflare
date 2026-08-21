@@ -127,7 +127,7 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`presets:${bucketName}`);
   });
 
-  it('REQ-AUTH-018 AC3 / REQ-SEC-023 AC3: deletes every push-subscription prefix entry and preserves other users', async () => {
+  it('REQ-AUTH-018 AC3 / REQ-SEC-023 AC4: deletes every push-subscription prefix entry and preserves other users', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     mockKV._set(`pushsub:${bucketName}:digest-a`, { endpoint: 'https://fcm.googleapis.com/fcm/send/a' });
     mockKV._set(`pushsub:${bucketName}:digest-b`, { endpoint: 'https://web.push.apple.com/b' });
