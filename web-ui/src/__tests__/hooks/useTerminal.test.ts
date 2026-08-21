@@ -22,7 +22,9 @@ const mockRegisterAgentEventCallback = vi.hoisted(() => vi.fn(
     return vi.fn();
   },
 ));
-const mockAgentEventDisposition = vi.hoisted(() => vi.fn(() => 'suppress' as 'suppress' | 'display-request'));
+const mockAgentEventDisposition = vi.hoisted(() => vi.fn(
+  (_presence?: { activeSessionMatches: boolean }) => 'suppress' as 'suppress' | 'display-request',
+));
 const mockShowGrantedAgentEvent = vi.hoisted(() => vi.fn(async () => true));
 
 const mockTerminalInstance = {
@@ -465,15 +467,23 @@ describe('useTerminal hook', () => {
     });
 
     it('REQ-TERM-023 AC2: submits late suppression when presence changes during display', async () => {
-      mockAgentEventDisposition
-        .mockReturnValueOnce('display-request')
-        .mockReturnValueOnce('suppress');
+      mockAgentEventDisposition.mockImplementation(
+        (presence) => presence?.activeSessionMatches ? 'suppress' : 'display-request',
+      );
+      let setActive!: (active: boolean) => void;
       let resolveDisplay: ((displayed: boolean) => void) | undefined;
       mockShowGrantedAgentEvent.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
         resolveDisplay = resolve;
       }));
       const dispose = createRoot((dispose) => {
-        const result = useTerminal({ ...defaultProps, active: false, visible: false, focused: false });
+        const [active, updateActive] = createSignal(false);
+        setActive = updateActive;
+        const result = useTerminal({
+          ...defaultProps,
+          get active() { return active(); },
+          visible: true,
+          focused: true,
+        });
         result.containerRef(containerEl);
         return dispose;
       });
@@ -482,10 +492,16 @@ describe('useTerminal hook', () => {
         type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
       });
       await vi.waitFor(() => expect(showGrantedAgentEvent).toHaveBeenCalledOnce());
+      setActive(true);
       resolveDisplay?.(true);
       await grant;
 
-      expect(mockAgentEventDisposition).toHaveBeenCalledTimes(2);
+      expect(mockAgentEventDisposition).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        activeSessionMatches: false,
+      }));
+      expect(mockAgentEventDisposition).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        activeSessionMatches: true,
+      }));
       expect(terminalStore.submitAgentEventDisposition).toHaveBeenLastCalledWith(
         'test-session-123', '1', 'event-a', 'suppress',
       );
