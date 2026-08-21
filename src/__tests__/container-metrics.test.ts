@@ -216,6 +216,7 @@ vi.mock('../lib/logger', () => ({
   createLogger: () => mockLogger,
 }));
 vi.mock('../lib/push-sender', () => ({
+  AGENT_EVENT_PUSH_BUDGET_MS: 4_000,
   sendAgentEventPushes: sendAgentEventPushesMock,
 }));
 
