@@ -565,11 +565,28 @@ jobs:
           done
           echo "--- strict-egress VPC binding enabled for enterprise deploy ---"
 
+      - name: Validate notification deployment configuration
+        env:
+          VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+          VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in VAPID_SUBJECT VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf '::error::Missing notification deployment configuration: %s\n' "$(IFS=', '; printf '%s' "${missing[*]}")"
+            exit 1
+          fi
+
       - name: Deploy to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VAR_ONBOARDING: ${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }}
+          VAR_VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           VAR_MAX_SESSIONS_USER: ${{ vars.MAX_SESSIONS_USER }}
           VAR_MAX_SESSIONS_ADMIN: ${{ vars.MAX_SESSIONS_ADMIN }}
           VAR_STRESS_TEST_MODE: ${{ vars.STRESS_TEST_MODE }}
@@ -590,6 +607,7 @@ jobs:
             [ -n "$VAR_SAAS_EXTRA_IDPS" ] && args+=(--var "SAAS_EXTRA_IDPS:${VAR_SAAS_EXTRA_IDPS}")
             [ -n "$VAR_ENTERPRISE_MODE" ] && args+=(--var "ENTERPRISE_MODE:${VAR_ENTERPRISE_MODE}")
             args+=(--var "CODING_AGENTS:${VAR_CODING_AGENTS}")
+            args+=(--var "VAPID_SUBJECT:${VAR_VAPID_SUBJECT}")
             [ -n "$VAR_OAUTH_CLIENT_ID" ] && args+=(--var "OAUTH_CLIENT_ID:${VAR_OAUTH_CLIENT_ID}")
             npx wrangler deploy --name "${WORKER_NAME}" "${args[@]}"
           }
@@ -665,6 +683,11 @@ jobs:
           if [ -n "$AIG_GATEWAY_URL" ]; then add AIG_GATEWAY_URL "$AIG_GATEWAY_URL"; else echo "No AIG_GATEWAY_URL — enterprise LLM routing disabled"; fi
           if [ -n "$AIG_TOKEN" ]; then add AIG_TOKEN "$AIG_TOKEN"; fi
 
+          # Upload both keys through the temporary bulk file so Wrangler never
+          # prints key values as plaintext variable bindings during deploy.
+          add VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
+          add VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
+
           printf '%s' "$SECRETS" > "$FILE"
           echo "Uploading secrets: $(printf '%s' "$SECRETS" | jq -r 'keys | join(", ")')"
           npx wrangler secret bulk "$FILE" --name "${WORKER_NAME}"
@@ -682,6 +705,8 @@ jobs:
           ENC_KEY: ${{ secrets.ENCRYPTION_KEY }}
           AIG_GATEWAY_URL: ${{ secrets.AIG_GATEWAY_URL }}
           AIG_TOKEN: ${{ secrets.AIG_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           ONBOARDING_MODE: ${{ vars.ONBOARDING_LANDING_PAGE }}
           SAAS_MODE_VAR: ${{ vars.SAAS_MODE }}
 

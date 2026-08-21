@@ -433,7 +433,7 @@ export async function listAllKvKeys(kv: KVNamespace, prefix: string): Promise<KV
   let cursor: string | undefined;
   let iterations = 0;
   do {
-    const result = await kv.list({ prefix, cursor });
+    const result = await kv.list(cursor ? { prefix, cursor } : { prefix });
     keys.push(...result.keys);
     cursor = result.list_complete ? undefined : result.cursor;
     iterations++;

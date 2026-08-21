@@ -55,8 +55,8 @@ interface CoreEnv {
   // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
   CLOUDFLARE_WORKER_NAME?: string;
 
-  // Web Push VAPID configuration. Public key and subject are deployment vars;
-  // private key is uploaded as a Worker secret and never exposed to clients.
+  // Web Push VAPID runtime configuration. The private key is uploaded only as
+  // a Worker secret and never exposed to clients.
   VAPID_SUBJECT?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
