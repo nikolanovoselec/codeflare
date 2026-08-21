@@ -178,7 +178,7 @@ describe('REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination', () => {
   });
 });
 
-describe('REQ-TERM-023 AC7 / H4 and queue lifecycle bounds', () => {
+describe('REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds', () => {
   it('reconciles a newly attached away client without discarding unresolved fallback', () => {
     const { queue } = queueAt();
     const hiddenReconnect = client('hidden-reconnect');

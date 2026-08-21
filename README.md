@@ -149,7 +149,7 @@ Retain the successful Deploy run and commit, confirm public health and provider 
 
 ### Enterprise deployment
 
-Enterprise rollout uses private environment configuration in addition to the five shared repository secrets. Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy.
+Enterprise rollout uses private environment configuration in addition to the five shared repository secrets documented by the [Web Push configuration contract](documentation/lanes/configuration.md#secrets). Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy ([Enterprise requirements](sdd/spec/enterprise-mode.md), [private operations](https://github.com/nikolanovoselec/codeflare-private)).
 
 Exact enterprise secrets, token scopes, environment layouts, promotion checks, and rollback procedures live in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) (access required). They are intentionally not copied into the public repository.
 

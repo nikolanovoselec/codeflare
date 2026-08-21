@@ -184,7 +184,7 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
 
 // ── REQ-TERM-023: live terminal-1 event coordination ───────────────────────
 
-describe('REQ-TERM-023 AC1/AC7: Session owns primary-terminal event coordination', () => {
+describe('REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination', () => {
   it('announces one opaque event for an exact live terminal-1 frame while preserving raw bytes', (t) => {
     const session = new Session('origin-session-1', 'Terminal');
     t.after(() => { if (session.isPtyAlive()) session.kill(); });
