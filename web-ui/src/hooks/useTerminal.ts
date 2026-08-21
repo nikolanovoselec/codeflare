@@ -14,7 +14,7 @@ import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
-import { showAgentNotification } from '../lib/agent-notifications';
+import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -63,6 +63,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let notificationDisposable: { dispose: () => void } | undefined;
+  let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
@@ -384,20 +385,61 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    // Registered unconditionally: the sessions store may still be loading when
-    // the terminal mounts (initial page load lands directly in a session), so a
-    // mount-time agent check would leave the handler unregistered for the life
-    // of the terminal. The agent/tab-1 gate runs in parseAgentNotification at
-    // event time instead, against the store's current session record.
-    notificationDisposable = t.parser.registerOscHandler(777, (data) => {
-      const session = sessionStore.sessions?.find((candidate) => candidate.id === props.sessionId);
-      void showAgentNotification(data, {
-        agentType: session?.agentType,
-        terminalId: props.terminalId,
-        sessionName: props.sessionName ?? session?.name ?? '',
-      });
-      return true;
-    });
+    // OSC 777 is consumed as terminal control output only. Browser notification
+    // delivery is driven exclusively by validated host agent-event controls.
+    notificationDisposable = t.parser.registerOscHandler(777, () => true);
+
+    agentEventDisposable = terminalStore.registerAgentEventCallback(
+      props.sessionId,
+      props.terminalId,
+      async (message) => {
+        if (message.type === 'agent-event') {
+          const sessionExists = sessionStore.sessions?.some(
+            (candidate) => candidate.id === props.sessionId,
+          ) ?? false;
+          const disposition = agentEventDisposition({
+            documentVisible: document.visibilityState === 'visible',
+            windowFocused: typeof document.hasFocus === 'function' && document.hasFocus(),
+            terminalView: isVisible(),
+            activeSessionMatches: props.active && sessionExists,
+            terminalOnePaneFocused: props.terminalId === '1' && isFocused(),
+          });
+          terminalStore.submitAgentEventDisposition(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+            disposition,
+          );
+          return;
+        }
+
+        if (message.type !== 'agent-event-display-granted') return;
+        const session = sessionStore.sessions?.find(
+          (candidate) => candidate.id === props.sessionId,
+        );
+        const agent = session?.agentType === 'pi'
+          ? 'Pi'
+          : session?.agentType === 'claude-code'
+            ? 'Claude Code'
+            : undefined;
+        if (!session || !agent) return;
+
+        const displayed = await showGrantedAgentEvent({
+          eventId: message.eventId,
+          kind: message.kind,
+          agent,
+          sessionName: session.name,
+          sessionPath: `/app/session/${props.sessionId}`,
+        });
+        if (displayed) {
+          terminalStore.confirmAgentEventDisplay(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+          );
+        }
+      },
+    );
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
@@ -663,6 +705,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     notificationDisposable?.dispose();
+    agentEventDisposable?.();
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);

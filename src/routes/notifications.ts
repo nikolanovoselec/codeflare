@@ -84,7 +84,7 @@ async function parseBoundedJson(c: NotificationContext): Promise<unknown> {
 }
 
 /** Validate a registration without including capability material in any error. */
-export async function parsePushSubscription(c: NotificationContext): Promise<PushSubscriptionRecord> {
+async function parsePushSubscription(c: NotificationContext): Promise<PushSubscriptionRecord> {
   const body = await parseBoundedJson(c);
   if (!isRecord(body) || !hasExactKeys(body, ['endpoint', 'keys'])) throw invalidRequest();
   if (typeof body.endpoint !== 'string' || !isAllowedEndpoint(body.endpoint)) throw invalidRequest();

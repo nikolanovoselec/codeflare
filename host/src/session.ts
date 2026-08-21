@@ -11,6 +11,13 @@ import { WebSocket } from 'ws';
 import HeadlessPkg from '@xterm/headless';
 const { Terminal: HeadlessTerminal } = HeadlessPkg;
 import { SerializeAddon } from '@xterm/addon-serialize';
+import {
+  AgentEventQueue,
+  OscAgentEventParser,
+  type AgentEventAction,
+  type AgentEventDisposition,
+  type AgentEventDrainResult,
+} from './agent-events.js';
 
 import type {
   SessionOptions,
@@ -110,6 +117,8 @@ export class Session {
   processNameInterval: ReturnType<typeof setInterval> | null;
   orphanTimeout: ReturnType<typeof setTimeout> | null;
   resizeAuthorityClient: WebSocket | null;
+  private readonly agentEventParser: OscAgentEventParser;
+  private readonly agentEventQueue: AgentEventQueue;
 
   // Injected dependencies
   private readonly _tabConfigMap: TabConfigMap;
@@ -138,6 +147,8 @@ export class Session {
     this.processNameInterval = null;
     this.orphanTimeout = null;
     this.resizeAuthorityClient = null;
+    this.agentEventParser = new OscAgentEventParser();
+    this.agentEventQueue = new AgentEventQueue();
 
     // Injected dependencies
     this._tabConfigMap = options.tabConfigMap ?? {};
@@ -247,6 +258,13 @@ export class Session {
     this.ptyProcess.onData((data: string) => {
       this.headlessTerminal.write(data);
 
+      if (this.terminalId === '1') {
+        for (const kind of this.agentEventParser.push(data)) {
+          const clients = [...this.clients].filter((client) => client.readyState === WebSocket.OPEN);
+          this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
+        }
+      }
+
       for (const client of this.clients) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(data);
@@ -288,6 +306,7 @@ export class Session {
    */
   attach(ws: WebSocket): void {
     this.clients.add(ws);
+    this.applyAgentEventActions(this.agentEventQueue.cancelForPresence().actions);
     if (!this.resizeAuthorityClient) {
       this.resizeAuthorityClient = ws;
     }
@@ -360,10 +379,69 @@ export class Session {
     if (this.ptyProcess) {
       const filtered = stripTerminalResponses(data);
       if (filtered) {
+        const isUserInput = containsUserInput(data);
+        if (isUserInput) {
+          this.applyAgentEventActions(this.agentEventQueue.cancelForPresence().actions);
+        }
         this.ptyProcess.write(filtered);
-        if (this._activityTracker && containsUserInput(data)) {
+        if (this._activityTracker && isUserInput) {
           this._activityTracker.recordInput();
         }
+      }
+    }
+  }
+
+  submitAgentEventDisposition(
+    eventId: string,
+    ws: WebSocket,
+    disposition: AgentEventDisposition,
+  ): boolean {
+    if (!this.clients.has(ws)) return false;
+    const result = this.agentEventQueue.submitDisposition(eventId, ws, disposition);
+    this.applyAgentEventActions(result.actions);
+    return result.accepted;
+  }
+
+  confirmAgentEventDisplay(eventId: string, ws: WebSocket): boolean {
+    if (!this.clients.has(ws)) return false;
+    const result = this.agentEventQueue.confirmDisplay(eventId, ws);
+    this.applyAgentEventActions(result.actions);
+    return result.accepted;
+  }
+
+  drainAgentEvents(request: { readonly ackEventIds: readonly string[]; readonly final?: true }): AgentEventDrainResult {
+    return this.agentEventQueue.drain(request);
+  }
+
+  private applyAgentEventActions(actions: readonly AgentEventAction[]): void {
+    for (const action of actions) {
+      if (action.type === 'announce') {
+        const message = JSON.stringify({
+          type: 'agent-event',
+          eventId: action.event.eventId,
+          kind: action.event.kind,
+        });
+        this.sendAgentEventControl(action.clients, message);
+      } else if (action.type === 'grant-display') {
+        this.sendAgentEventControl([action.client], JSON.stringify({
+          type: 'agent-event-display-granted',
+          eventId: action.eventId,
+          kind: action.kind,
+        }));
+      } else {
+        this.sendAgentEventControl(action.clients, JSON.stringify({
+          type: 'agent-event-cancelled',
+          eventId: action.eventId,
+        }));
+      }
+    }
+  }
+
+  private sendAgentEventControl(clients: readonly object[], message: string): void {
+    for (const client of clients) {
+      const ws = client as WebSocket;
+      if (this.clients.has(ws) && ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
       }
     }
   }

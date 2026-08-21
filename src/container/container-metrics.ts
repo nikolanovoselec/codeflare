@@ -11,6 +11,10 @@ import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
+import {
+  sendAgentEventPushes,
+  type AgentEventForPush,
+} from '../lib/push-sender';
 
 const SESSION_ID_KEY = '_sessionId';
 const logger = createLogger('container-metrics');
@@ -308,21 +312,338 @@ export interface AgentEventDrainRequest {
 
 export interface AgentEventDrainResponse {
   readonly hostNow: number;
-  readonly events: readonly {
-    readonly schemaVersion: 1;
-    readonly eventId: string;
-    readonly kind: 'input-required' | 'task-completed' | 'task-failed';
-    readonly createdAt: number;
-  }[];
+  readonly events: readonly AgentEventForPush[];
 }
 
-/** Compile-only Phase 1 seam. Behavior follows the red CI receipt. */
+const AGENT_EVENT_DRAIN_MAX = 8;
+const AGENT_EVENT_MAX_AGE_MS = 15 * 60_000;
+const AGENT_EVENT_DRAIN_RESPONSE_MAX_BYTES = 4 * 1024;
+const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const AGENT_EVENT_KINDS = new Set<AgentEventForPush['kind']>([
+  'input-required',
+  'task-completed',
+  'task-failed',
+]);
+
+type TrustedTickSession = {
+  readonly sessionId: string | undefined;
+  readonly bucketName: string | null;
+  readonly session: Session | null;
+  readonly error?: unknown;
+};
+
+type AgentEventDeliveryState = {
+  readonly pendingAckIds: Set<string>;
+};
+
+// Delivery state is deliberately instance-local and non-durable. The host
+// remains the source of truth until its ACK drain succeeds; this cache only
+// prevents the same live DO instance from sending an event again while that
+// ACK is being retried.
+const agentEventDeliveryStates = new WeakMap<MetricsState, AgentEventDeliveryState>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && keys.every((key) => expected.includes(key));
+}
+
+/**
+ * Validate the complete host response before any event reaches display-facing
+ * code. One invalid or over-cap event rejects the whole batch rather than
+ * truncating attacker-controlled input into an apparently valid prefix.
+ */
+export function validateAgentEvents(value: unknown): AgentEventDrainResponse | null {
+  if (!isRecord(value)
+      || !hasExactKeys(value, ['hostNow', 'events'])
+      || typeof value.hostNow !== 'number'
+      || !Number.isSafeInteger(value.hostNow)
+      || value.hostNow < 0
+      || !Array.isArray(value.events)
+      || value.events.length > AGENT_EVENT_DRAIN_MAX) {
+    return null;
+  }
+
+  const hostNow = value.hostNow;
+  const events: AgentEventForPush[] = [];
+  const eventIds = new Set<string>();
+  for (const item of value.events) {
+    if (!isRecord(item)
+        || !hasExactKeys(item, ['schemaVersion', 'eventId', 'kind', 'createdAt'])
+        || item.schemaVersion !== 1
+        || typeof item.eventId !== 'string'
+        || !AGENT_EVENT_ID_PATTERN.test(item.eventId)
+        || eventIds.has(item.eventId)
+        || typeof item.kind !== 'string'
+        || !AGENT_EVENT_KINDS.has(item.kind as AgentEventForPush['kind'])
+        || typeof item.createdAt !== 'number'
+        || !Number.isSafeInteger(item.createdAt)) {
+      return null;
+    }
+    const ageMs = hostNow - item.createdAt;
+    if (ageMs < 0 || ageMs > AGENT_EVENT_MAX_AGE_MS) return null;
+
+    eventIds.add(item.eventId);
+    events.push({
+      schemaVersion: 1,
+      eventId: item.eventId,
+      kind: item.kind as AgentEventForPush['kind'],
+      createdAt: item.createdAt,
+    });
+  }
+
+  return { hostNow, events };
+}
+
+async function readBoundedDrainResponse(response: Response): Promise<unknown | null> {
+  const declaredLength = response.headers.get('Content-Length');
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength)
+        || parsedLength < 0
+        || parsedLength > AGENT_EVENT_DRAIN_RESPONSE_MAX_BYTES) {
+      return null;
+    }
+  }
+
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let byteLength = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > AGENT_EVENT_DRAIN_RESPONSE_MAX_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** Bearer-authenticated, bounded raw-port drain from the running host. */
 export async function drainAgentEvents(
-  _ctx: DurableObjectState,
-  _budgetMs: number,
-  _request: AgentEventDrainRequest,
+  ctx: DurableObjectState,
+  budgetMs: number,
+  request: AgentEventDrainRequest,
+  capturedAuthToken?: string | null,
 ): Promise<AgentEventDrainResponse | null> {
-  return null;
+  const container = ctx.container;
+  if (!container || budgetMs <= 0) return null;
+
+  const startedAt = Date.now();
+  const remainingBudget = (): number => Math.max(0, budgetMs - (Date.now() - startedAt));
+  let authToken = capturedAuthToken ?? null;
+  if (capturedAuthToken === undefined) {
+    const credentialBudgetMs = remainingBudget();
+    if (credentialBudgetMs <= 0) return null;
+    try {
+      authToken = (await raceBudget(
+        ctx.storage.get<string>('containerAuthToken'),
+        credentialBudgetMs,
+      )) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  if (!authToken) return null;
+
+  try {
+    const fetchBudgetMs = remainingBudget();
+    if (fetchBudgetMs <= 0) return null;
+    const port = container.getTcpPort(TERMINAL_SERVER_PORT);
+    const response = await raceBudget(port.fetch('http://localhost/internal/agent-events/drain', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(fetchBudgetMs),
+    }), fetchBudgetMs);
+    if (!response?.ok) return null;
+    const bodyBudgetMs = remainingBudget();
+    if (bodyBudgetMs <= 0) return null;
+    const parsed = await raceBudget(readBoundedDrainResponse(response), bodyBudgetMs);
+    return validateAgentEvents(parsed);
+  } catch {
+    return null;
+  }
+}
+
+async function loadTrustedTickSession(
+  state: MetricsState,
+  ctx: DurableObjectState,
+  env: Env,
+): Promise<TrustedTickSession> {
+  try {
+    const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
+    const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+    const session = sessionId && bucketName
+      ? await env.KV.get<Session>(getSessionKey(bucketName, sessionId), 'json')
+      : null;
+    return { sessionId, bucketName, session };
+  } catch (error) {
+    return { sessionId: undefined, bucketName: state._bucketName, session: null, error };
+  }
+}
+
+function deliveryStateFor(state: MetricsState): AgentEventDeliveryState {
+  const existing = agentEventDeliveryStates.get(state);
+  if (existing) return existing;
+  const created: AgentEventDeliveryState = { pendingAckIds: new Set() };
+  agentEventDeliveryStates.set(state, created);
+  return created;
+}
+
+async function deliverRunningAgentEvents(
+  state: MetricsState,
+  ctx: DurableObjectState,
+  env: Env,
+  trusted: TrustedTickSession,
+): Promise<void> {
+  const deliveryState = deliveryStateFor(state);
+  const priorAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
+  const drained = await drainAgentEvents(ctx, CONTAINER_POLL_BUDGET_MS, {
+    ackEventIds: priorAckIds,
+  });
+  if (!drained) return;
+
+  // A valid 2xx response means the host applied the ACK request. Keep the IDs
+  // in this tick's filter as defense in depth if a compromised host re-offers
+  // them in the same response.
+  for (const eventId of priorAckIds) deliveryState.pendingAckIds.delete(eventId);
+  const priorAckSet = new Set(priorAckIds);
+  const events = drained.events.filter((event) => !priorAckSet.has(event.eventId));
+  if (events.length === 0
+      || trusted.error !== undefined
+      || !trusted.sessionId
+      || !trusted.bucketName
+      || !trusted.session
+      || !env.VAPID_SUBJECT
+      || !env.VAPID_PUBLIC_KEY
+      || !env.VAPID_PRIVATE_KEY) {
+    return;
+  }
+
+  const result = await sendAgentEventPushes({
+    kv: env.KV,
+    bucketName: trusted.bucketName,
+    // The path identity is owned by this DO; display name and agent identity
+    // come only from the trusted KV Session record.
+    session: { ...trusted.session, id: trusted.sessionId },
+    events,
+    vapid: {
+      subject: env.VAPID_SUBJECT,
+      publicKey: env.VAPID_PUBLIC_KEY,
+      privateKey: env.VAPID_PRIVATE_KEY,
+    },
+  });
+
+  const offeredIds = new Set(events.map((event) => event.eventId));
+  for (const eventId of result.sentEventIds) {
+    if (offeredIds.has(eventId)) deliveryState.pendingAckIds.add(eventId);
+  }
+  if (deliveryState.pendingAckIds.size === 0) return;
+
+  const nextAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
+  const acknowledged = await drainAgentEvents(ctx, CONTAINER_POLL_BUDGET_MS, {
+    ackEventIds: nextAckIds,
+  });
+  if (!acknowledged) return;
+  for (const eventId of nextAckIds) deliveryState.pendingAckIds.delete(eventId);
+}
+
+/**
+ * Give shutdown-eligible events one final, bounded push attempt before sync and
+ * stop. The host atomically promotes pending client decisions on `final:true`;
+ * only pushes accepted for every selected subscription are ACKed.
+ */
+export async function drainAgentEventsBeforeStop(
+  state: MetricsState,
+  ctx: DurableObjectState,
+  env: Env,
+  budgetMs: number,
+  capturedAuthToken?: string | null,
+): Promise<void> {
+  if (budgetMs <= 0) return;
+
+  const startedAt = Date.now();
+  const remainingBudget = (): number => Math.max(0, budgetMs - (Date.now() - startedAt));
+  try {
+    const deliveryState = deliveryStateFor(state);
+    const priorAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
+    const drained = await drainAgentEvents(ctx, remainingBudget(), {
+      ackEventIds: priorAckIds,
+      final: true,
+    }, capturedAuthToken);
+    if (!drained) return;
+
+    for (const eventId of priorAckIds) deliveryState.pendingAckIds.delete(eventId);
+    const priorAckSet = new Set(priorAckIds);
+    const events = drained.events.filter((event) => !priorAckSet.has(event.eventId));
+    if (events.length === 0) return;
+
+    const trustedBudgetMs = remainingBudget();
+    if (trustedBudgetMs <= 0) return;
+    const trusted = await raceBudget(
+      loadTrustedTickSession(state, ctx, env),
+      trustedBudgetMs,
+    );
+    if (!trusted
+        || trusted.error !== undefined
+        || !trusted.sessionId
+        || !trusted.bucketName
+        || !trusted.session
+        || !env.VAPID_SUBJECT
+        || !env.VAPID_PUBLIC_KEY
+        || !env.VAPID_PRIVATE_KEY) {
+      return;
+    }
+
+    const pushBudgetMs = remainingBudget();
+    if (pushBudgetMs <= 0) return;
+    const result = await raceBudget(sendAgentEventPushes({
+      kv: env.KV,
+      bucketName: trusted.bucketName,
+      session: { ...trusted.session, id: trusted.sessionId },
+      events,
+      vapid: {
+        subject: env.VAPID_SUBJECT,
+        publicKey: env.VAPID_PUBLIC_KEY,
+        privateKey: env.VAPID_PRIVATE_KEY,
+      },
+    }), pushBudgetMs);
+    if (!result) return;
+
+    const offeredIds = new Set(events.map((event) => event.eventId));
+    for (const eventId of result.sentEventIds) {
+      if (offeredIds.has(eventId)) deliveryState.pendingAckIds.add(eventId);
+    }
+    if (deliveryState.pendingAckIds.size === 0) return;
+
+    const nextAckIds = [...deliveryState.pendingAckIds].slice(0, AGENT_EVENT_DRAIN_MAX);
+    const ackBudgetMs = remainingBudget();
+    if (ackBudgetMs <= 0) return;
+    const acknowledged = await drainAgentEvents(ctx, ackBudgetMs, {
+      ackEventIds: nextAckIds,
+    }, capturedAuthToken);
+    if (!acknowledged) return;
+    for (const eventId of nextAckIds) deliveryState.pendingAckIds.delete(eventId);
+  } catch {
+    logger.warn('drainAgentEventsBeforeStop: final agent event delivery failed');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,6 +1407,18 @@ export async function collectMetrics(
   // a future transient blip starts a fresh streak.
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
+  // Resolve the tick's trusted session once, before either host probe. Agent
+  // delivery reuses this identity and the metrics write below reuses the same
+  // KV record, so a host response can never supply recipient or display data.
+  const trustedTickSession = await loadTrustedTickSession(state, ctx, env);
+  try {
+    await deliverRunningAgentEvents(state, ctx, env, trustedTickSession);
+  } catch {
+    // Notification delivery is best-effort and independent from idle, health,
+    // usage accounting, and the one-shot schedule re-arm below.
+    logger.warn('collectMetrics: agent event delivery failed');
+  }
+
   // User-input-based idle detection. The SDK's sleepAfter timer is pinned to
   // 24h and refreshes on every WebSocket message in both directions, so it
   // would keep a container alive as long as any bytes flow — including
@@ -1149,9 +1482,14 @@ export async function collectMetrics(
         });
         // Write KV status before stop — DO state can be lost during shutdown
         await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
-        // Drain a final R2 sync while the container is still alive, before the
-        // SIGTERM that the platform would otherwise cut off ~3s in
-        // (REQ-SESSION-011). Best-effort, bounded to the 120s sync budget.
+        // Final notification delivery and R2 sync are independent best-effort
+        // drains. Both run while the host is alive and before SIGTERM.
+        await drainAgentEventsBeforeStop(
+          state,
+          ctx,
+          env,
+          CONTAINER_POLL_BUDGET_MS,
+        );
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
         await callbacks.stop('SIGTERM');
         return;
@@ -1199,9 +1537,8 @@ export async function collectMetrics(
         logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: health.syncStatus });
       }
 
-      const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
-      // Fallback: if _bucketName isn't set on the instance, try loading from storage
-      const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
+      if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
+      const { sessionId, bucketName, session } = trustedTickSession;
 
       if (!sessionId || !bucketName) {
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
@@ -1211,7 +1548,6 @@ export async function collectMetrics(
         // branch, after a successful /health fetch). The normal write touches
         // .metrics and mirrors lastActiveAt; .status is normally left alone.
         const key = getSessionKey(bucketName, sessionId);
-        const session = await env.KV.get<Session>(key, 'json');
         if (session) {
           const metrics = {
             cpu: health.cpu,
@@ -1332,8 +1668,14 @@ export async function collectMetrics(
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
         if (quotaExceeded && isSaasModeActive(env.SAAS_MODE)) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });
-          // Drain a final R2 sync while the container is still alive
-          // (REQ-SESSION-011), then stop. Best-effort, bounded.
+          // Final notification delivery and R2 sync are independent
+          // best-effort drains, both completed before SIGTERM.
+          await drainAgentEventsBeforeStop(
+            state,
+            ctx,
+            env,
+            CONTAINER_POLL_BUDGET_MS,
+          );
           await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
           await callbacks.stop('SIGTERM');
           return; // Don't re-arm after stop

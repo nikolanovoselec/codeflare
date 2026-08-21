@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
+import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
@@ -73,7 +74,7 @@ const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS ?? 
 
 // Named constants for magic numbers
 const WS_MAX_PAYLOAD = 64 * 1024;        // 64KB WebSocket max payload
-const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message detection
+const MAX_CONTROL_MSG_LENGTH = AGENT_EVENT_LIMITS.maxFrameBytes;
 
 // SilverBullet supervisor binds on 127.0.0.1:3030 inside the container
 // (see entrypoint.sh:start_silverbullet_supervisor). The vault HTTP + WS
@@ -228,6 +229,11 @@ const server = http.createServer(createRequestHandler({
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,
+  drainAgentEvents: (request) => {
+    const primarySession = [...sessionManager.sessions.values()]
+      .find((session) => session.terminalId === '1');
+    return primarySession?.drainAgentEvents(request) ?? { hostNow: Date.now(), events: [] };
+  },
 }));
 
 // Create WebSocket server.

@@ -23,6 +23,7 @@ interface SessionSectionProps {
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
   notificationPermission: Accessor<AgentNotificationEnablement>;
+  notificationEnabled?: Accessor<boolean>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
   isFreeUser: Accessor<boolean>;
@@ -43,6 +44,9 @@ interface SessionSectionProps {
 }
 
 const SessionSection: Component<SessionSectionProps> = (props) => {
+  const notificationEnabled = () => props.notificationEnabled?.()
+    ?? props.notificationPermission() === 'granted';
+
   return (
     <>
       {/* Session Mode — REQ-ENTERPRISE-008 AC3: the Standard/Pro selector is SaaS-tier
@@ -135,23 +139,29 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           <Icon path={mdiBellOutline} size={16} />
           <h3 class="settings-section-title type-section-header">Agent Notifications</h3>
         </div>
-        <div class="settings-admin-actions">
-          <AdminActionButton
-            tone="--color-action-agents"
-            icon={mdiBellOutline}
-            label={props.notificationPermission() === 'granted' ? 'Enabled' : 'Enable browser notifications'}
+        <div class="setting-row">
+          <label class="type-label" for="settings-agent-notifications">Notify this device</label>
+          <button
+            type="button"
+            id="settings-agent-notifications"
+            class={`toggle ${notificationEnabled() ? 'toggle-on' : ''}`}
             onClick={props.onEnableAgentNotifications}
-            disabled={props.notificationPermission() === 'granted'}
-            testId="settings-agent-notifications"
-          />
+            role="switch"
+            aria-checked={notificationEnabled()}
+            data-testid="settings-agent-notifications"
+          >
+            <span class="toggle-thumb" />
+          </button>
+        </div>
+        <div class="setting-row setting-row--column-gap">
           <span
             class="settings-hint type-hint"
             data-testid="settings-agent-notifications-status"
             data-guidance={props.notificationPermission() === 'unavailable'
               && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
           >
-            {props.notificationPermission() === 'granted'
-              ? 'Enabled'
+            {notificationEnabled()
+              ? 'Enabled for this device'
               : props.notificationPermission() === 'denied'
                 ? 'Blocked in browser site settings'
                 : props.notificationPermission() === 'unavailable'

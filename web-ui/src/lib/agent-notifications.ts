@@ -1,4 +1,9 @@
 import type { AgentType } from '../types';
+import {
+  deleteAgentNotificationSubscription,
+  getAgentNotificationVapidPublicKey,
+  saveAgentNotificationSubscription,
+} from '../api/client';
 
 const AGENT_TITLES = new Map<AgentType, string>([
   ['pi', 'Pi'],
@@ -101,18 +106,6 @@ export function agentNotificationPermission(
   return browser.permission();
 }
 
-export async function enableAgentNotifications(
-  browser: AgentNotificationBrowser = defaultBrowser,
-): Promise<AgentNotificationEnablement> {
-  try {
-    const permission = await browser.requestPermission();
-    if (permission !== 'granted') return permission;
-    return await browser.registerWorker?.() ? 'granted' : 'unavailable';
-  } catch {
-    return 'unavailable';
-  }
-}
-
 export async function showAgentNotification(
   data: string,
   context: AgentNotificationContext,
@@ -158,27 +151,176 @@ export interface GrantedAgentEvent {
   readonly sessionPath: string;
 }
 
-/** Compile-only Phase 1 seams. Behavior follows the red CI receipt. */
-export function agentEventDisposition(_presence: AgentPresence): AgentEventDisposition {
-  return 'suppress';
+export function agentEventDisposition(presence: AgentPresence): AgentEventDisposition {
+  return presence.documentVisible
+    && presence.windowFocused
+    && presence.terminalView
+    && presence.activeSessionMatches
+    && presence.terminalOnePaneFocused
+    ? 'suppress'
+    : 'display-request';
 }
 
-export async function agentNotificationsEnabled(_browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
-  return false;
+function validSubscription(subscription: AgentNotificationSubscription | undefined): subscription is AgentNotificationSubscription {
+  if (!subscription?.endpoint) return false;
+  try {
+    const serialized = subscription.toJSON();
+    return serialized.endpoint === subscription.endpoint
+      && typeof serialized.keys?.p256dh === 'string'
+      && serialized.keys.p256dh.length > 0
+      && typeof serialized.keys.auth === 'string'
+      && serialized.keys.auth.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function agentNotificationsEnabled(browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
+  try {
+    if (browser.permission() !== 'granted' || !browser.currentSubscription) return false;
+    return validSubscription(await browser.currentSubscription());
+  } catch {
+    return false;
+  }
 }
 
 export async function setAgentNotificationsEnabled(
-  _enabled: boolean,
-  _browser: AgentNotificationBrowser = defaultBrowser,
+  enabled: boolean,
+  browser: AgentNotificationBrowser = defaultBrowser,
 ): Promise<AgentNotificationSwitchState> {
-  return 'unavailable';
+  if (!enabled) {
+    try {
+      const subscription = await browser.currentSubscription?.();
+      if (!subscription) return 'off';
+      if (!validSubscription(subscription) || !browser.deleteSubscription || !browser.unsubscribe) {
+        return 'unavailable';
+      }
+      await browser.deleteSubscription(subscription.endpoint);
+      return await browser.unsubscribe(subscription) ? 'off' : 'unavailable';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  let createdSubscription: AgentNotificationSubscription | undefined;
+  try {
+    let permission = browser.permission();
+    if (permission === 'denied') return 'denied';
+    if (permission === 'unavailable') return 'unavailable';
+    if (permission !== 'granted') {
+      permission = await browser.requestPermission();
+      if (permission === 'denied') return 'denied';
+      if (permission !== 'granted') return 'unavailable';
+    }
+
+    const existingSubscription = await browser.currentSubscription?.();
+    if (validSubscription(existingSubscription)) return 'on';
+    if (!browser.getVapidPublicKey || !browser.subscribe || !browser.saveSubscription) {
+      return 'unavailable';
+    }
+
+    if (browser.registerWorker && !(await browser.registerWorker())) return 'unavailable';
+    const publicKey = await browser.getVapidPublicKey();
+    createdSubscription = await browser.subscribe(publicKey);
+    if (!validSubscription(createdSubscription)) throw new Error('Invalid Push subscription');
+    await browser.saveSubscription(createdSubscription.toJSON());
+    return 'on';
+  } catch {
+    if (createdSubscription) {
+      try {
+        await browser.deleteSubscription?.(createdSubscription.endpoint);
+      } catch {
+        // A failed registration may not have created a server record.
+      }
+      try {
+        await browser.unsubscribe?.(createdSubscription);
+      } catch {
+        // Preserve the original unavailable result after best-effort rollback.
+      }
+    }
+    return 'unavailable';
+  }
 }
 
 export async function showGrantedAgentEvent(
-  _event: GrantedAgentEvent,
-  _browser: AgentNotificationBrowser = defaultBrowser,
+  event: GrantedAgentEvent,
+  browser: AgentNotificationBrowser = defaultBrowser,
 ): Promise<boolean> {
-  return false;
+  const bodies: Readonly<Record<GrantedAgentEvent['kind'], string>> = Object.freeze({
+    'input-required': 'Needs your input',
+    'task-completed': 'Task completed',
+    'task-failed': 'Task failed',
+  });
+  const body = bodies[event.kind];
+  const title = `${event.agent} · ${event.sessionName}`;
+  if (
+    browser.permission() !== 'granted'
+    || !/^[A-Za-z0-9_-]{1,128}$/.test(event.eventId)
+    || !body
+    || (event.agent !== 'Pi' && event.agent !== 'Claude Code')
+    || !boundedPlainText(event.sessionName, MAX_SESSION_BYTES)
+    || !boundedPlainText(title, MAX_TITLE_BYTES)
+    || !/^\/app\/session\/[a-z0-9]{8,24}$/.test(event.sessionPath)
+  ) {
+    return false;
+  }
+
+  const options: NotificationOptions & { renotify?: boolean } = {
+    body,
+    tag: `codeflare-agent:${event.sessionPath}`,
+    renotify: true,
+    data: {
+      eventId: event.eventId,
+      sessionUrl: `${window.location.origin}${event.sessionPath}`,
+    },
+  };
+
+  try {
+    if (browser.showNotification) {
+      await browser.showNotification(title, options);
+    } else {
+      const worker = await browser.getWorker?.();
+      if (!worker) return false;
+      await worker.showNotification(title, options);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function decodeVapidPublicKey(value: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]{87}$/.test(value)) throw new Error('Invalid VAPID public key');
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const decoded = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  if (bytes.length !== 65 || bytes[0] !== 0x04) throw new Error('Invalid VAPID public key');
+  return bytes;
+}
+
+function serializedSubscription(
+  subscription: ReturnType<AgentNotificationSubscription['toJSON']>,
+) {
+  if (
+    typeof subscription.endpoint !== 'string'
+    || typeof subscription.keys?.p256dh !== 'string'
+    || typeof subscription.keys.auth !== 'string'
+  ) {
+    throw new Error('Invalid Push subscription');
+  }
+  return {
+    endpoint: subscription.endpoint,
+    keys: {
+      p256dh: subscription.keys.p256dh,
+      auth: subscription.keys.auth,
+    },
+  };
+}
+
+async function readyNotificationWorker(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!('serviceWorker' in navigator)) return undefined;
+  await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
+  return navigator.serviceWorker.ready;
 }
 
 const defaultBrowser: AgentNotificationBrowser = {
@@ -187,18 +329,36 @@ const defaultBrowser: AgentNotificationBrowser = {
     if (typeof Notification === 'undefined') return 'unavailable';
     return Notification.requestPermission();
   },
-  registerWorker: async () => {
-    if (!('serviceWorker' in navigator)) return undefined;
-    await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
-    // showNotification rejects on a registration with no active worker, so the
-    // enable action resolves only once the worker has activated — otherwise the
-    // first notification after enabling is silently dropped.
-    return navigator.serviceWorker.ready;
-  },
+  registerWorker: readyNotificationWorker,
   getWorker: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
     const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
     if (!registration) return undefined;
     return registration.active ? registration : navigator.serviceWorker.ready;
+  },
+  currentSubscription: async () => {
+    if (!('serviceWorker' in navigator)) return undefined;
+    const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
+    if (!registration) return undefined;
+    const readyRegistration = registration.active ? registration : await navigator.serviceWorker.ready;
+    return (await readyRegistration.pushManager.getSubscription()) ?? undefined;
+  },
+  getVapidPublicKey: getAgentNotificationVapidPublicKey,
+  subscribe: async (publicKey) => {
+    const registration = await readyNotificationWorker();
+    if (!registration) throw new Error('Push notifications unavailable');
+    return registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeVapidPublicKey(publicKey),
+    });
+  },
+  saveSubscription: async (subscription) => {
+    await saveAgentNotificationSubscription(serializedSubscription(subscription));
+  },
+  deleteSubscription: deleteAgentNotificationSubscription,
+  unsubscribe: async (subscription) => {
+    const nativeSubscription = subscription as PushSubscription;
+    if (typeof nativeSubscription.unsubscribe !== 'function') return false;
+    return nativeSubscription.unsubscribe();
   },
 };
