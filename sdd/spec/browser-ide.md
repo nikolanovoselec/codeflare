@@ -557,12 +557,12 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Code OSS owns permission requests, focus policy, notification lifetime, and click-to-focus behavior for native Chat.
-- The terminal OSC bridge under [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notification-delivery) does not duplicate Pi native Chat events.
+- The terminal OSC bridge under [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery) does not duplicate Pi native Chat events.
 - The official Claude package remains checksum-pinned during the image build; no extension patch, DOM observer, or private relay is introduced.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-TERM-023](terminal.md#req-term-023-native-agent-browser-notification-delivery)
+**Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery)
 
 **Verification:** Automated test (managed-settings and fixed-inventory tests); deployed Pi native Chat and Claude panel verification.
 

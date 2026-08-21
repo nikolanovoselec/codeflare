@@ -70,10 +70,11 @@ function connect(wss, sessionId) {
 }
 
 describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => {
-  it('routes a validated suppress disposition through the connection-bound Session', () => {
+  it('routes a validated suppress disposition through the connection-bound Session', (t) => {
     const session = fakeSession('session-a-1', new Set(['event-a']));
     const { wss } = harness({ 'session-a-1': session });
     const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
 
     ws.emit('message', Buffer.from(JSON.stringify({
       type: 'agent-event-disposition',
@@ -90,12 +91,13 @@ describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => 
     ws.emit('close', 1000, Buffer.alloc(0));
   });
 
-  it('routes display requests and confirmations without writing either message to the PTY', () => {
+  it('routes display requests and confirmations without writing either message to the PTY', (t) => {
     const session = fakeSession('session-a-1', new Set(['event-a']));
     const writes = [];
     session.write = (value) => writes.push(value);
     const { wss } = harness({ 'session-a-1': session });
     const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
 
     ws.emit('message', Buffer.from(JSON.stringify({
       type: 'agent-event-disposition',
@@ -115,11 +117,12 @@ describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => 
     ws.emit('close', 1000, Buffer.alloc(0));
   });
 
-  it('cannot use a socket attached to another Session to affect the originating queue', () => {
+  it('cannot use a socket attached to another Session to affect the originating queue', (t) => {
     const sessionA = fakeSession('session-a-1', new Set(['event-a']));
     const sessionB = fakeSession('session-b-1', new Set(['event-b']));
     const { wss } = harness({ 'session-a-1': sessionA, 'session-b-1': sessionB });
     const socketB = connect(wss, 'session-b-1');
+    t.after(() => socketB.emit('close', 1000, Buffer.alloc(0)));
 
     socketB.emit('message', Buffer.from(JSON.stringify({
       type: 'agent-event-disposition',
@@ -134,12 +137,13 @@ describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => 
     socketB.emit('close', 1000, Buffer.alloc(0));
   });
 
-  it('drops malformed kinds, IDs, and dispositions as control messages rather than PTY input', () => {
+  it('drops malformed kinds, IDs, and dispositions as control messages rather than PTY input', (t) => {
     const session = fakeSession('session-a-1');
     const writes = [];
     session.write = (value) => writes.push(value);
     const { wss } = harness({ 'session-a-1': session });
     const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
 
     for (const message of [
       { type: 'agent-event-disposition', eventId: '', disposition: 'suppress' },

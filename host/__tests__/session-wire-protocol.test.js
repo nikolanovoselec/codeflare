@@ -168,8 +168,9 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
 // ── REQ-TERM-023: live terminal-1 event coordination ───────────────────────
 
 describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordination', () => {
-  it('announces one opaque event for an exact live terminal-1 frame while preserving raw bytes', () => {
+  it('announces one opaque event for an exact live terminal-1 frame while preserving raw bytes', (t) => {
     const session = new Session('origin-session-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const ws = createWs();
     session.attach(ws);
     const before = ws.sent.length;
@@ -190,8 +191,9 @@ describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordinatio
     session.kill();
   });
 
-  it('does not queue or announce an otherwise valid frame from a non-primary terminal', () => {
+  it('does not queue or announce an otherwise valid frame from a non-primary terminal', (t) => {
     const session = new Session('origin-session-2', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const ws = createWs();
     session.attach(ws);
     const before = ws.sent.length;
@@ -204,8 +206,9 @@ describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordinatio
     session.kill();
   });
 
-  it('forwards malformed parser input unchanged and emits no event control message', () => {
+  it('forwards malformed parser input unchanged and emits no event control message', (t) => {
     const session = new Session('malformed-session-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const ws = createWs();
     session.attach(ws);
     const before = ws.sent.length;
@@ -218,8 +221,9 @@ describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordinatio
     session.kill();
   });
 
-  it('a new attachment cancels a pending event on the originating Session only', () => {
+  it('a new attachment cancels a pending event on the originating Session only', (t) => {
     const session = new Session('attach-cancel-1', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const first = createWs();
     session.attach(first);
     lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
@@ -238,9 +242,10 @@ describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordinatio
     session.kill();
   });
 
-  it('classified user input cancels pending and drained-unacknowledged events', () => {
+  it('classified user input cancels pending and drained-unacknowledged events', (t) => {
     const activity = { recordClientConnected() {}, recordAllClientsDisconnected() {}, recordInput() {} };
     const session = new Session('input-cancel-1', 'Terminal', false, { activityTracker: activity });
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const ws = createWs();
     session.attach(ws);
     lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);

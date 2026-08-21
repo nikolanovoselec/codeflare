@@ -309,7 +309,7 @@ Every scroll route is buffer-authoritative — touch gestures, mouse wheel (capt
 
 ### Agent Browser Notifications Never Appear
 
-**Symptom:** Enabling notifications in Settings shows no browser permission prompt (mobile), or Pi/Claude terminal activity produces no notification even after the permission is granted ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-native-agent-browser-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
+**Symptom:** Enabling notifications in Settings shows no browser permission prompt (mobile), or Pi/Claude terminal activity produces no notification even after the permission is granted ([REQ-TERM-023](../../sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-native-agent-terminal-notification-producers)).
 
 **Cause:** Split by surface. (1) iOS exposes the Notification API only inside an installed Home Screen web app, never in a Safari tab, so a tab can neither prompt nor display. (2) On builds before the event-time session fix, a terminal that mounted before the sessions store populated never registered its OSC 777 handler, so no notification could fire for that terminal's lifetime. (3) Right after enabling, a still-installing service worker rejects `showNotification`, dropping the first notifications.
 
