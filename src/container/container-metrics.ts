@@ -301,6 +301,30 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
   }
 }
 
+export interface AgentEventDrainRequest {
+  readonly ackEventIds: readonly string[];
+  readonly final?: true;
+}
+
+export interface AgentEventDrainResponse {
+  readonly hostNow: number;
+  readonly events: readonly {
+    readonly schemaVersion: 1;
+    readonly eventId: string;
+    readonly kind: 'input-required' | 'task-completed' | 'task-failed';
+    readonly createdAt: number;
+  }[];
+}
+
+/** Compile-only Phase 1 seam. Behavior follows the red CI receipt. */
+export async function drainAgentEvents(
+  _ctx: DurableObjectState,
+  _budgetMs: number,
+  _request: AgentEventDrainRequest,
+): Promise<AgentEventDrainResponse | null> {
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // collectMetrics
 // ---------------------------------------------------------------------------

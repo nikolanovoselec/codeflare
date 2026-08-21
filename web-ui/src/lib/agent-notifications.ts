@@ -35,11 +35,26 @@ export interface AgentNotificationWorker {
   showNotification(title: string, options: NotificationOptions & { renotify?: boolean }): Promise<void>;
 }
 
+export interface AgentNotificationSubscription {
+  readonly endpoint: string;
+  toJSON(): {
+    endpoint?: string;
+    keys?: { p256dh?: string; auth?: string };
+  };
+}
+
 export interface AgentNotificationBrowser {
   permission(): AgentNotificationEnablement;
   requestPermission(): Promise<AgentNotificationEnablement>;
-  registerWorker(): Promise<AgentNotificationWorker | undefined>;
-  getWorker(): Promise<AgentNotificationWorker | undefined>;
+  registerWorker?(): Promise<AgentNotificationWorker | undefined>;
+  getWorker?(): Promise<AgentNotificationWorker | undefined>;
+  currentSubscription?(): Promise<AgentNotificationSubscription | undefined>;
+  getVapidPublicKey?(): Promise<string>;
+  subscribe?(publicKey: string): Promise<AgentNotificationSubscription>;
+  saveSubscription?(subscription: ReturnType<AgentNotificationSubscription['toJSON']>): Promise<void>;
+  deleteSubscription?(endpoint: string): Promise<void>;
+  unsubscribe?(subscription: AgentNotificationSubscription): Promise<boolean>;
+  showNotification?(title: string, options: NotificationOptions & { renotify?: boolean }): Promise<void>;
 }
 
 function boundedPlainText(value: string, maxBytes: number): boolean {
@@ -92,7 +107,7 @@ export async function enableAgentNotifications(
   try {
     const permission = await browser.requestPermission();
     if (permission !== 'granted') return permission;
-    return await browser.registerWorker() ? 'granted' : 'unavailable';
+    return await browser.registerWorker?.() ? 'granted' : 'unavailable';
   } catch {
     return 'unavailable';
   }
@@ -106,7 +121,7 @@ export async function showAgentNotification(
   const payload = parseAgentNotification(data, context);
   if (!payload || browser.permission() !== 'granted') return;
   try {
-    const worker = await browser.getWorker();
+    const worker = await browser.getWorker?.();
     // Tag on origin+pathname — the same stable identity the service worker
     // matches clients by — so history.replaceState query cleanups cannot split
     // one session's notifications into separate stacks.
@@ -122,6 +137,48 @@ export async function showAgentNotification(
   } catch {
     // Notification delivery must never affect terminal or agent execution.
   }
+}
+
+export interface AgentPresence {
+  readonly documentVisible: boolean;
+  readonly windowFocused: boolean;
+  readonly terminalView: boolean;
+  readonly activeSessionMatches: boolean;
+  readonly terminalOnePaneFocused: boolean;
+}
+
+export type AgentEventDisposition = 'suppress' | 'display-request';
+export type AgentNotificationSwitchState = 'on' | 'off' | 'denied' | 'unavailable';
+
+export interface GrantedAgentEvent {
+  readonly eventId: string;
+  readonly kind: 'input-required' | 'task-completed' | 'task-failed';
+  readonly agent: 'Pi' | 'Claude Code';
+  readonly sessionName: string;
+  readonly sessionPath: string;
+}
+
+/** Compile-only Phase 1 seams. Behavior follows the red CI receipt. */
+export function agentEventDisposition(_presence: AgentPresence): AgentEventDisposition {
+  return 'suppress';
+}
+
+export async function agentNotificationsEnabled(_browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
+  return false;
+}
+
+export async function setAgentNotificationsEnabled(
+  _enabled: boolean,
+  _browser: AgentNotificationBrowser = defaultBrowser,
+): Promise<AgentNotificationSwitchState> {
+  return 'unavailable';
+}
+
+export async function showGrantedAgentEvent(
+  _event: GrantedAgentEvent,
+  _browser: AgentNotificationBrowser = defaultBrowser,
+): Promise<boolean> {
+  return false;
 }
 
 const defaultBrowser: AgentNotificationBrowser = {

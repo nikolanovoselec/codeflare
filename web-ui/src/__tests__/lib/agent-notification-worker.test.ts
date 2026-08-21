@@ -5,30 +5,114 @@ import { describe, expect, it, vi } from 'vitest';
 
 const workerSource = readFileSync(resolve(process.cwd(), 'public/agent-notifications-sw.js'), 'utf8');
 
-function loadWorker(clients: Array<{ url: string; focus: () => Promise<void> }>) {
+function loadWorker(
+  clients: Array<{ url: string; focus: () => Promise<void> }> = [],
+  notifications: Array<{ data?: { eventId?: string } }> = [],
+) {
   const listeners = new Map<string, (event: any) => void>();
+  const registration = {
+    showNotification: vi.fn(async () => undefined),
+    getNotifications: vi.fn(async () => notifications),
+  };
   const self = {
     location: { origin: 'https://codeflare.example' },
+    registration,
     clients: { matchAll: vi.fn(async () => clients), openWindow: vi.fn(async () => null) },
     addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
   };
   runInNewContext(workerSource, { self, URL });
-  return { listeners, self };
+  return { listeners, self, registration };
 }
 
-describe('agent notification service worker / REQ-TERM-023', () => {
-  it('focuses only the existing client that originated the notification', async () => {
+function dispatchPush(listener: ((event: any) => void) | undefined, payload: unknown) {
+  let work: Promise<void> | undefined;
+  listener?.({
+    data: { json: () => payload },
+    waitUntil: (promise: Promise<void>) => { work = promise; },
+  });
+  return work;
+}
+
+const VALID_PUSH = Object.freeze({
+  v: 1,
+  eventId: 'event-a',
+  kind: 'input-required',
+  sessionPath: '/app/session/abcdef0123456789',
+  sessionName: 'Pi #1',
+  agent: 'Pi',
+  createdAt: 1_700_000_000_000,
+});
+
+describe('REQ-TERM-023 AC7 / REQ-SEC-023 AC6: agent notification service worker push', () => {
+  it('shows one fixed, tagged, user-visible notification for a valid payload', async () => {
+    const { listeners, registration } = loadWorker();
+    const work = dispatchPush(listeners.get('push'), VALID_PUSH);
+    await work;
+
+    expect(registration.showNotification).toHaveBeenCalledWith('Pi · Pi #1', {
+      body: 'Needs your input',
+      tag: 'codeflare-agent:/app/session/abcdef0123456789',
+      renotify: true,
+      data: {
+        eventId: 'event-a',
+        sessionUrl: 'https://codeflare.example/app/session/abcdef0123456789',
+      },
+    });
+  });
+
+  it('re-shows an at-least-once duplicate visibly with renotify:false', async () => {
+    const { listeners, registration } = loadWorker([], [{ data: { eventId: 'event-a' } }]);
+    await dispatchPush(listeners.get('push'), VALID_PUSH);
+
+    expect(registration.showNotification).toHaveBeenCalledWith(
+      'Pi · Pi #1',
+      expect.objectContaining({ renotify: false }),
+    );
+    expect(registration.showNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['no data', null],
+    ['bad version', { ...VALID_PUSH, v: 2 }],
+    ['bad kind', { ...VALID_PUSH, kind: 'arbitrary' }],
+    ['absolute URL', { ...VALID_PUSH, sessionPath: 'https://attacker.example/app/session/abcdef0123456789' }],
+    ['protocol-relative URL', { ...VALID_PUSH, sessionPath: '//attacker.example/app/session/abcdef0123456789' }],
+    ['noncanonical path', { ...VALID_PUSH, sessionPath: '/app/' }],
+    ['control name', { ...VALID_PUSH, sessionName: 'bad\nname' }],
+    ['unknown agent', { ...VALID_PUSH, agent: 'Attacker' }],
+    ['extra field', { ...VALID_PUSH, url: 'https://attacker.example' }],
+  ])('silently rejects %s', async (_name, payload) => {
+    const { listeners, registration } = loadWorker();
+    await dispatchPush(listeners.get('push'), payload);
+    expect(registration.showNotification).not.toHaveBeenCalled();
+  });
+
+  it('registers no fetch, cache, or sync handlers', () => {
+    const { listeners } = loadWorker();
+    expect(listeners.has('push')).toBe(true);
+    expect(listeners.has('notificationclick')).toBe(true);
+    expect(listeners.has('fetch')).toBe(false);
+    expect(listeners.has('sync')).toBe(false);
+    expect(listeners.has('periodicsync')).toBe(false);
+  });
+});
+
+describe('REQ-TERM-023 AC8: canonical notification click navigation', () => {
+  it('focuses only the existing client at the exact canonical session pathname', async () => {
     const otherFocus = vi.fn(async () => undefined);
     const focus = vi.fn(async () => undefined);
     const { listeners } = loadWorker([
-      { url: 'https://codeflare.example/other-session', focus: otherFocus },
-      { url: 'https://codeflare.example/session#terminal', focus },
+      { url: 'https://codeflare.example/app/session/fedcba9876543210', focus: otherFocus },
+      { url: 'https://codeflare.example/app/session/abcdef0123456789?warm=1', focus },
     ]);
     const close = vi.fn();
     let work: Promise<void> | undefined;
 
     listeners.get('notificationclick')?.({
-      notification: { data: { sessionUrl: 'https://codeflare.example/session#terminal' }, close },
+      notification: {
+        data: { eventId: 'event-a', sessionUrl: 'https://codeflare.example/app/session/abcdef0123456789' },
+        close,
+      },
       waitUntil: (promise: Promise<void>) => { work = promise; },
     });
     await work;
@@ -38,55 +122,46 @@ describe('agent notification service worker / REQ-TERM-023', () => {
     expect(otherFocus).not.toHaveBeenCalled();
   });
 
-  it('does not focus a cross-origin client or open a new window', async () => {
+  it('opens the canonical session path when no exact client exists', async () => {
     const focus = vi.fn(async () => undefined);
     const { listeners, self } = loadWorker([
-      { url: 'https://attacker.example/session', focus },
+      { url: 'https://codeflare.example/app/', focus },
     ]);
     let work: Promise<void> | undefined;
 
     listeners.get('notificationclick')?.({
-      notification: { data: { sessionUrl: 'https://attacker.example/session' }, close: vi.fn() },
+      notification: {
+        data: { eventId: 'event-a', sessionUrl: 'https://codeflare.example/app/session/abcdef0123456789' },
+        close: vi.fn(),
+      },
       waitUntil: (promise: Promise<void>) => { work = promise; },
     });
     await work;
 
     expect(focus).not.toHaveBeenCalled();
-    expect(self.clients.matchAll).not.toHaveBeenCalled();
-    expect(self.clients.openWindow).not.toHaveBeenCalled();
+    expect(self.clients.openWindow).toHaveBeenCalledWith(
+      'https://codeflare.example/app/session/abcdef0123456789',
+    );
   });
 
-  it('opens the session in a new window when no open client matches its path', async () => {
-    const focus = vi.fn(async () => undefined);
-    const { listeners, self } = loadWorker([
-      { url: 'https://codeflare.example/settings', focus },
-    ]);
-    let work: Promise<void> | undefined;
-
-    listeners.get('notificationclick')?.({
-      notification: { data: { sessionUrl: 'https://codeflare.example/session?cf_since=1' }, close: vi.fn() },
-      waitUntil: (promise: Promise<void>) => { work = promise; },
-    });
-    await work;
-
-    expect(focus).not.toHaveBeenCalled();
-    expect(self.clients.openWindow).toHaveBeenCalledWith('https://codeflare.example/session?cf_since=1');
-  });
-
-  it('focuses the session tab across a query-string difference instead of opening a duplicate', async () => {
-    const focus = vi.fn(async () => undefined);
-    const { listeners, self } = loadWorker([
-      { url: 'https://codeflare.example/session', focus },
-    ]);
-    let work: Promise<void> | undefined;
-
-    listeners.get('notificationclick')?.({
-      notification: { data: { sessionUrl: 'https://codeflare.example/session?cf_since=1' }, close: vi.fn() },
-      waitUntil: (promise: Promise<void>) => { work = promise; },
-    });
-    await work;
-
-    expect(focus).toHaveBeenCalledOnce();
-    expect(self.clients.openWindow).not.toHaveBeenCalled();
+  it('does not focus or open malformed or cross-origin targets', async () => {
+    for (const sessionUrl of [
+      'https://attacker.example/app/session/abcdef0123456789',
+      'https://codeflare.example/app/',
+      'not a URL',
+    ]) {
+      const focus = vi.fn(async () => undefined);
+      const { listeners, self } = loadWorker([
+        { url: 'https://codeflare.example/app/session/abcdef0123456789', focus },
+      ]);
+      let work: Promise<void> | undefined;
+      listeners.get('notificationclick')?.({
+        notification: { data: { eventId: 'event-a', sessionUrl }, close: vi.fn() },
+        waitUntil: (promise: Promise<void>) => { work = promise; },
+      });
+      await work;
+      expect(focus).not.toHaveBeenCalled();
+      expect(self.clients.openWindow).not.toHaveBeenCalled();
+    }
   });
 });

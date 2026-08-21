@@ -343,6 +343,94 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
     });
   });
 
+  describe('REQ-TERM-023 AC2/AC3: agent-event control frames', () => {
+    it('sends event-specific dispositions and display confirmations on the originating socket', async () => {
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) { super(url); }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      terminalStore.submitAgentEventDisposition(sessionId, terminalId, 'event-a', 'suppress');
+      terminalStore.submitAgentEventDisposition(sessionId, terminalId, 'event-b', 'display-request');
+      terminalStore.confirmAgentEventDisplay(sessionId, terminalId, 'event-b');
+
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({
+        type: 'agent-event-disposition', eventId: 'event-a', disposition: 'suppress',
+      }));
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({
+        type: 'agent-event-disposition', eventId: 'event-b', disposition: 'display-request',
+      }));
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({
+        type: 'agent-event-displayed', eventId: 'event-b',
+      }));
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('dispatches validated server event/grant/cancel controls without writing them to xterm', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+      let socket: (WebSocket & { _simulateMessage(data: string): void }) | undefined;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          socket = this as unknown as WebSocket & { _simulateMessage(data: string): void };
+        }
+      } as unknown as typeof WebSocket);
+      const callback = vi.fn();
+      const dispose = terminalStore.registerAgentEventCallback(sessionId, terminalId, callback);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      socket?._simulateMessage(JSON.stringify({ type: 'agent-event', eventId: 'event-a', kind: 'input-required' }));
+      socket?._simulateMessage(JSON.stringify({ type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required' }));
+      socket?._simulateMessage(JSON.stringify({ type: 'agent-event-cancelled', eventId: 'event-a' }));
+      await vi.advanceTimersByTimeAsync(40);
+
+      expect(callback.mock.calls.map(([message]) => message)).toEqual([
+        { type: 'agent-event', eventId: 'event-a', kind: 'input-required' },
+        { type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required' },
+        { type: 'agent-event-cancelled', eventId: 'event-a' },
+      ]);
+      expect(terminal.write).not.toHaveBeenCalledWith(expect.stringContaining('agent-event'));
+      dispose();
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('drops malformed agent-event controls instead of dispatching or writing them as terminal output', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+      let socket: (WebSocket & { _simulateMessage(data: string): void }) | undefined;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          socket = this as unknown as WebSocket & { _simulateMessage(data: string): void };
+        }
+      } as unknown as typeof WebSocket);
+      const callback = vi.fn();
+      const dispose = terminalStore.registerAgentEventCallback(sessionId, terminalId, callback);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      for (const message of [
+        { type: 'agent-event', eventId: '', kind: 'input-required' },
+        { type: 'agent-event', eventId: 'event-a', kind: 'unknown' },
+        { type: 'agent-event-display-granted', eventId: 7, kind: 'input-required' },
+        { type: 'agent-event-cancelled', eventId: 'x'.repeat(300) },
+      ]) socket?._simulateMessage(JSON.stringify(message));
+      await vi.advanceTimersByTimeAsync(40);
+
+      expect(callback).not.toHaveBeenCalled();
+      expect(terminal.write).not.toHaveBeenCalled();
+      dispose();
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+  });
+
   describe('resize', () => {
     it('should send resize message when connected', async () => {
       const terminal = createMockTerminal();

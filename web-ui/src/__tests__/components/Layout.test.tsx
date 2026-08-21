@@ -226,6 +226,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultLocalReadinessMock.keyRecoverable.mockClear();
     vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(true);
     localStorage.clear();
+    window.history.replaceState(null, '', '/app/');
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -233,6 +234,43 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  describe('REQ-TERM-023 AC8: canonical session deep links', () => {
+    it('selects a loaded user-owned session from /app/session/:sessionId without implicitly starting it', async () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      window.history.replaceState(null, '', `/app/session/${sessionId}`);
+
+      render(() => <Layout />);
+
+      await waitFor(() => expect(mockActiveSessionId).toBe(sessionId));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith(sessionId, '1');
+      expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
+      expect(window.location.pathname).toBe(`/app/session/${sessionId}`);
+    });
+
+    it('rejects malformed or unknown session paths to the dashboard without starting a container', async () => {
+      mockSessions = [createMockSession({ id: 'abcdef0123456789', status: 'stopped' })];
+      window.history.replaceState(null, '', '/app/session/unknown000000000');
+
+      render(() => <Layout />);
+
+      await waitFor(() => expect(window.location.pathname).toBe('/app/'));
+      expect(mockActiveSessionId).toBeNull();
+      expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
+    });
+
+    it('updates the canonical pathname when dashboard selection opens a session and when logo returns', async () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      render(() => <Layout />);
+
+      (window as any).__terminalAreaProps.onDashboardSessionSelect(sessionId);
+      await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessionId}`));
+      (window as any).__headerProps.onLogoClick();
+      await waitFor(() => expect(window.location.pathname).toBe('/app/'));
+    });
   });
 
   // =========================================================================

@@ -373,8 +373,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
 4. The service user is seeded only when a service-auth secret is configured. <!-- @impl: scripts/ci/seed-service-user.sh::CF_ACCESS_CLIENT_SECRET --> <!-- @test: host/__tests__/seed-service-user.test.js (does nothing when neither service-auth secret is configured) --> <!-- @test: host/__tests__/seed-service-user.test.js (writes the fixed admin identity once when the first attempt succeeds) -->
 5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh::attempt --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
+6. Notification-enabled deployments require a stable VAPID public/private pair: the public key reaches the Worker as runtime configuration, the private key is uploaded only through the bulk secret file, neither value is printed, and a missing value fails before the deployment is reported successful. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/types.ts::Env --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-013 AC6: VAPID config and secret are fail-closed and non-printing) -->
 
-**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed.
+**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed. VAPID keys are stable per deployment environment; rotation is an operator procedure that invalidates old subscriptions and requires user re-enrollment, not an automatic runtime state machine.
 
 **Priority:** P0
 
@@ -382,7 +383,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated tests ([seed-service-user](../../host/__tests__/seed-service-user.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js)); deployment evidence
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 

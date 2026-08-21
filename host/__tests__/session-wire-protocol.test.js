@@ -62,6 +62,7 @@ mock.module('node-pty', {
 
 // Import the REAL compiled Session after the mock is registered.
 const { Session } = await import('../dist/session.js');
+const { AGENT_EVENT_FRAMES } = await import('../dist/agent-events.js');
 
 function createWs(readyState = 1) {
   return {
@@ -159,6 +160,100 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
     assert.equal(open.sent.length, openBefore + 1, 'open client receives the raw frame');
     assert.equal(closed.sent.length, closedBefore, 'closed client receives nothing');
     assert.equal(open.sent[openBefore], 'payload-bytes');
+
+    session.kill();
+  });
+});
+
+// ── REQ-TERM-023: live terminal-1 event coordination ───────────────────────
+
+describe('REQ-TERM-023 AC1/AC10: Session owns primary-terminal event coordination', () => {
+  it('announces one opaque event for an exact live terminal-1 frame while preserving raw bytes', () => {
+    const session = new Session('origin-session-1', 'Terminal');
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+
+    const emitted = ws.sent.slice(before);
+    assert.equal(emitted.at(-1), AGENT_EVENT_FRAMES.piInputRequired,
+      'the original PTY frame remains byte-for-byte visible');
+    const controls = emitted
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .filter((message) => message?.type === 'agent-event');
+    assert.equal(controls.length, 1, 'one event-specific coordination frame is announced');
+    assert.equal(controls[0].kind, 'input-required');
+    assert.match(controls[0].eventId, /^[A-Za-z0-9_-]+$/);
+    assert.deepEqual(Object.keys(controls[0]).sort(), ['eventId', 'kind', 'type']);
+
+    session.kill();
+  });
+
+  it('does not queue or announce an otherwise valid frame from a non-primary terminal', () => {
+    const session = new Session('origin-session-2', 'Terminal');
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+
+    const emitted = ws.sent.slice(before);
+    assert.deepEqual(emitted, [AGENT_EVENT_FRAMES.piInputRequired],
+      'non-primary terminal output is forwarded but never interpreted as an event');
+    session.kill();
+  });
+
+  it('forwards malformed parser input unchanged and emits no event control message', () => {
+    const session = new Session('malformed-session-1', 'Terminal');
+    const ws = createWs();
+    session.attach(ws);
+    const before = ws.sent.length;
+    const malformed = '\x1b]777;notify;Pi;unreviewed body\x07';
+
+    lastSpawn.pty.emitData(malformed);
+
+    const emitted = ws.sent.slice(before);
+    assert.deepEqual(emitted, [malformed]);
+    session.kill();
+  });
+
+  it('a new attachment cancels a pending event on the originating Session only', () => {
+    const session = new Session('attach-cancel-1', 'Terminal');
+    const first = createWs();
+    session.attach(first);
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+    const event = first.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event');
+    assert.ok(event?.eventId);
+
+    const second = createWs();
+    session.attach(second);
+    const cancellation = first.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event-cancelled' && message.eventId === event.eventId);
+    assert.ok(cancellation, 'returning through another attachment cancels the pending event');
+
+    session.kill();
+  });
+
+  it('classified user input cancels pending and drained-unacknowledged events', () => {
+    const activity = { recordClientConnected() {}, recordAllClientsDisconnected() {}, recordInput() {} };
+    const session = new Session('input-cancel-1', 'Terminal', false, { activityTracker: activity });
+    const ws = createWs();
+    session.attach(ws);
+    lastSpawn.pty.emitData(AGENT_EVENT_FRAMES.piInputRequired);
+    const event = ws.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event');
+    assert.ok(event?.eventId);
+
+    session.write('x');
+    const cancellation = ws.sent
+      .map((frame) => { try { return JSON.parse(frame); } catch { return null; } })
+      .find((message) => message?.type === 'agent-event-cancelled' && message.eventId === event.eventId);
+    assert.ok(cancellation);
 
     session.kill();
   });

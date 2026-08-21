@@ -55,6 +55,29 @@ export function registerProcessNameCallback(
   onProcessName = cb;
 }
 
+export type AgentEventControlMessage =
+  | { readonly type: 'agent-event'; readonly eventId: string; readonly kind: 'input-required' | 'task-completed' | 'task-failed' }
+  | { readonly type: 'agent-event-display-granted'; readonly eventId: string; readonly kind: 'input-required' | 'task-completed' | 'task-failed' }
+  | { readonly type: 'agent-event-cancelled'; readonly eventId: string };
+
+const agentEventCallbacks = new Map<string, Set<(message: AgentEventControlMessage) => void>>();
+
+/** Compile-only Phase 1 registration seam. Server dispatch follows the red CI receipt. */
+export function registerAgentEventCallback(
+  sessionId: string,
+  terminalId: string,
+  callback: (message: AgentEventControlMessage) => void,
+): () => void {
+  const key = makeKey(sessionId, terminalId);
+  const callbacks = agentEventCallbacks.get(key) ?? new Set();
+  callbacks.add(callback);
+  agentEventCallbacks.set(key, callbacks);
+  return () => {
+    callbacks.delete(callback);
+    if (callbacks.size === 0) agentEventCallbacks.delete(key);
+  };
+}
+
 // Helper to create compound key from sessionId and terminalId
 function makeKey(sessionId: string, terminalId: string): string {
   return `${sessionId}:${terminalId}`;
@@ -528,6 +551,24 @@ function disconnect(sessionId: string, terminalId: string): void {
   setConnectionState(sessionId, terminalId, 'disconnected');
 }
 
+/** Compile-only Phase 1 seams. Wire sends follow the red CI receipt. */
+function submitAgentEventDisposition(
+  _sessionId: string,
+  _terminalId: string,
+  _eventId: string,
+  _disposition: 'suppress' | 'display-request',
+): boolean {
+  return false;
+}
+
+function confirmAgentEventDisplay(
+  _sessionId: string,
+  _terminalId: string,
+  _eventId: string,
+): boolean {
+  return false;
+}
+
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   desiredFocusClaims.add(key);
@@ -874,6 +915,9 @@ export const terminalStore = {
   reconnect,
   disposeLocalTerminal,
   claimResizeAuthority,
+  registerAgentEventCallback,
+  submitAgentEventDisposition,
+  confirmAgentEventDisplay,
   clearPendingResizeAuthority,
   resize,
   dispose,

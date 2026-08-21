@@ -526,22 +526,40 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('2h');
     });
 
-    it('is cleaned up on destroy (storage key: sleepAfter)', async () => {
+    it('REQ-SESSION-011 AC8-AC10: destroy captures credentials, drains final events before final sync, and clears storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        if (key === 'containerAuthToken') return 'destroy-agent-token';
         return null;
       });
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      mockTcpPortFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (url.includes('/internal/agent-events/drain')) {
+          return new Response(JSON.stringify({ hostNow: Date.now(), events: [] }), { status: 200 });
+        }
+        if (url.includes('/internal/final-sync')) {
+          return new Response(JSON.stringify({ synced: true }), { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      });
       // Ensure destroy()'s SIGTERM polling exits immediately rather than
-      // running the full 135s budget (which exceeds vitest's 30s test
-      // timeout). The graceful-shutdown behaviour itself is covered by
-      // the dedicated tests above. Budget raised from 75s -> 135s alongside
-      // the 15-min cadence change (AD57).
+      // running the full 135s budget (which exceeds vitest's timeout).
       mockContainerRuntime.running = false;
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(mockStorage.get).toHaveBeenCalledWith('containerAuthToken'));
       await instance.destroy();
 
       expect(mockStorage.delete).toHaveBeenCalledWith('sleepAfter');
+      const eventIndex = calls.findIndex((call) => call.url.includes('/internal/agent-events/drain'));
+      const syncIndex = calls.findIndex((call) => call.url.includes('/internal/final-sync'));
+      expect(eventIndex).toBeGreaterThanOrEqual(0);
+      expect(syncIndex).toBeGreaterThan(eventIndex);
+      const eventCall = calls[eventIndex];
+      expect((eventCall.init?.headers as Record<string, string>).Authorization).toBe('Bearer destroy-agent-token');
+      expect(JSON.parse(eventCall.init?.body as string)).toEqual({ ackEventIds: [], final: true });
     });
 
     it('does not persist invalid values from setBucketName', async () => {
