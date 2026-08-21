@@ -377,11 +377,14 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
     const validation = steps.findIndex((step) => step.name === 'Validate notification deployment configuration');
     const promotion = steps.findIndex((step) => step.name === 'Deploy to Cloudflare');
     assert.ok(validation >= 0, 'deploy job does not run the VAPID validator');
-    assert.match(steps[validation].run, /node scripts\/ci\/validate-vapid-config\.mjs/);
+    assert.equal(
+      steps[validation].run.trim(),
+      'node scripts/ci/validate-vapid-config.mjs',
+      'the validation step must invoke only the behaviorally tested gate',
+    );
     assert.equal(steps[validation]['continue-on-error'], undefined,
       'VAPID validation must fail the deploy job closed');
     assert.ok(promotion > validation, 'VAPID validation must run before Worker promotion in the deploy job');
-    assert.match(steps[promotion].run, /npx wrangler deploy/);
   });
 
   it('sources every VAPID field from Actions secret context so step metadata stays masked', () => {

@@ -77,7 +77,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assertCompleteIntegrityTree(wranglerLock);
   });
 
-  it('REQ-SEC-024 AC2: edgepush is exact-pinned with committed integrity', () => {
+  it('REQ-SEC-024 dependency constraint: edgepush is exact-pinned with committed integrity', () => {
     assert.equal(rootPackage.dependencies.edgepush, '0.1.1');
     assert.equal(rootLock.packages[''].dependencies.edgepush, '0.1.1');
     assert.equal(rootLock.packages['node_modules/edgepush'].version, '0.1.1');

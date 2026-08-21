@@ -378,7 +378,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Notes:** Partial pending a successful deployment record showing accepted sender configuration, value-free logs, a public-only config response, and off/on re-enrollment after controlled key rotation.
 
-**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed. Notification sender credentials are stable per deployment environment.
+**Constraints:** Secrets are written after worker creation; absent service auth skips seeding, while configured seeding fails closed. One repository-level notification sender identity is shared across deployment environments without same-name environment overrides.
 
 **Priority:** P0
 
