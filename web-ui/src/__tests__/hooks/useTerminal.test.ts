@@ -464,6 +464,35 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
+    it('REQ-TERM-023 AC2: submits late suppression when presence changes during display', async () => {
+      mockAgentEventDisposition
+        .mockReturnValueOnce('display-request')
+        .mockReturnValueOnce('suppress');
+      let resolveDisplay: ((displayed: boolean) => void) | undefined;
+      mockShowGrantedAgentEvent.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveDisplay = resolve;
+      }));
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: false, visible: false, focused: false });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const grant = agentEventCallbackState.handler?.({
+        type: 'agent-event-display-granted', eventId: 'event-a', kind: 'input-required',
+      });
+      await vi.waitFor(() => expect(showGrantedAgentEvent).toHaveBeenCalledOnce());
+      resolveDisplay?.(true);
+      await grant;
+
+      expect(mockAgentEventDisposition).toHaveBeenCalledTimes(2);
+      expect(terminalStore.submitAgentEventDisposition).toHaveBeenLastCalledWith(
+        'test-session-123', '1', 'event-a', 'suppress',
+      );
+      expect(terminalStore.confirmAgentEventDisplay).not.toHaveBeenCalled();
+      dispose();
+    });
+
     it('never confirms a display cancelled while the browser call is pending', async () => {
       mockAgentEventDisposition.mockReturnValue('display-request');
       let resolveDisplay: ((displayed: boolean) => void) | undefined;

@@ -1862,7 +1862,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1-AC3: quota-stop drains final agent events, then final sync, then stop', async () => {
+    it('REQ-SESSION-011 AC6 / REQ-SESSION-027 AC1: quota-stop drains final agent events, then final sync, then stop', async () => {
       // The quota-eviction path must drain through /internal/final-sync before
       // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
       // setup and assert the order via callOrder rather than just that stop ran.
@@ -2387,7 +2387,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
   });
 
   describe('idle-stop drains before stop', () => {
-    it('calls final agent-event drain, then final sync, then stop, in that order', async () => {
+    it('REQ-SESSION-027 AC1: calls final agent-event drain, then final sync, then stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2411,7 +2411,7 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
     });
 
-    it('REQ-SESSION-027 AC3: an event-drain failure still runs final sync and stop', async () => {
+    it('REQ-SESSION-027 AC6: an event-drain failure still runs final sync and stop', async () => {
       testState.storedSleepAfter = '15m';
       testState.activityResult = {
         hasActiveConnections: false,
@@ -2419,6 +2419,27 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
         lastInputAt: Date.now() - (30 * 60 * 1000),
       };
       testState.agentDrainStatus = 500;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.agentFinalDrainCalls).toBe(1);
+      expect(testState.finalSyncCalls).toBe(1);
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
+    });
+
+    it('REQ-SESSION-027 AC7: final-sync failure preserves the event attempt and still stops', async () => {
+      testState.storedSleepAfter = '15m';
+      testState.activityResult = {
+        hasActiveConnections: false,
+        connectedClients: 0,
+        lastInputAt: Date.now() - (30 * 60 * 1000),
+      };
+      testState.finalSyncStatus = 504;
       mockKV._set('session:test-bucket:testsession123456', {
         id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
         createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',

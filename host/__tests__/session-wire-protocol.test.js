@@ -126,8 +126,9 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
 });
 
 describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
-  it('preserves focus bytes and does not synthesize focus-out on detach', () => {
+  it('preserves focus bytes and does not synthesize focus-out on detach', (t) => {
     const session = new Session('claude-focus', 'Terminal');
+    t.after(() => { if (session.isPtyAlive()) session.kill(); });
     const ws = createWs();
     session.attach(ws);
     const pty = lastSpawn.pty;

@@ -221,7 +221,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     }
   });
 
-  it('REQ-TERM-026 AC1: both Claude session modes apply the native channel without managed notification hooks', () => {
+  it('REQ-TERM-026 AC1: Claude keeps its native notification path without competing Codeflare behavior', () => {
     for (const mode of ['advanced', 'default']) {
       const settings = runSessionModeSettings(mode);
       assert.equal(settings.preferredNotifChannel, 'ghostty');

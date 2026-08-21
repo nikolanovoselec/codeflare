@@ -5,7 +5,7 @@ import {
   sessionPath,
 } from '../../lib/session-path';
 
-describe('REQ-TERM-025 AC7 / REQ-SEC-024 AC4: canonical session paths', () => {
+describe('REQ-TERM-027 AC3 / REQ-SEC-024 AC4: canonical session paths', () => {
   it('builds the one canonical pathname from a valid session ID', () => {
     expect(sessionPath('abcdef0123456789')).toBe('/app/session/abcdef0123456789');
     expect(dashboardPath()).toBe('/app/');

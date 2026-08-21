@@ -236,7 +236,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.useRealTimers();
   });
 
-  describe('REQ-TERM-025 AC7: canonical session deep links', () => {
+  describe('REQ-TERM-027 AC3: canonical session deep links', () => {
     it('selects a loaded user-owned session from /app/session/:sessionId without implicitly starting it', async () => {
       const sessionId = 'abcdef0123456789';
       mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
