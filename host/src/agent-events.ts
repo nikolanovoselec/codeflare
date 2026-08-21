@@ -218,9 +218,21 @@ export class AgentEventQueue {
     const record = this.events.get(eventId);
     if ((disposition !== 'suppress' && disposition !== 'display-request')
         || record === undefined
-        || record.event.state !== 'pending'
-        || !record.clients.includes(client)
-        || record.dispositions.has(client)) {
+        || !record.clients.includes(client)) {
+      return { accepted: false, actions };
+    }
+
+    const isLateGrantedSuppression = disposition === 'suppress'
+      && record.event.state === 'awaiting-display-confirmation'
+      && record.grantedClient === client;
+    if (isLateGrantedSuppression) {
+      record.event.state = 'cancelled';
+      const cancellation = this.cancelAction(record);
+      if (cancellation !== undefined) actions.push(cancellation);
+      return { accepted: true, actions };
+    }
+
+    if (record.event.state !== 'pending' || record.dispositions.has(client)) {
       return { accepted: false, actions };
     }
 

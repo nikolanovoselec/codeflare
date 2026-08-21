@@ -440,7 +440,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           : session?.agentType === 'claude-code'
             ? 'Claude Code'
             : undefined;
-        if (!session || !agent || currentAgentEventDisposition() !== 'display-request') return;
+        if (!session || !agent) return;
+        if (currentAgentEventDisposition() === 'suppress') {
+          terminalStore.submitAgentEventDisposition(
+            props.sessionId,
+            props.terminalId,
+            message.eventId,
+            'suppress',
+          );
+          return;
+        }
 
         const displayed = await showGrantedAgentEvent({
           eventId: message.eventId,
@@ -449,17 +458,21 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           sessionName: session.name,
           sessionPath: `/app/session/${props.sessionId}`,
         });
-        if (
-          displayed
-          && !cancelledAgentEventIds.has(message.eventId)
-          && currentAgentEventDisposition() === 'display-request'
-        ) {
-          terminalStore.confirmAgentEventDisplay(
+        if (!displayed || cancelledAgentEventIds.has(message.eventId)) return;
+        if (currentAgentEventDisposition() === 'suppress') {
+          terminalStore.submitAgentEventDisposition(
             props.sessionId,
             props.terminalId,
             message.eventId,
+            'suppress',
           );
+          return;
         }
+        terminalStore.confirmAgentEventDisplay(
+          props.sessionId,
+          props.terminalId,
+          message.eventId,
+        );
       },
     );
 
