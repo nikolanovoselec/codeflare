@@ -123,7 +123,8 @@ PATTERNS=(
   # the letter `n` (e.g. `--no-install`, `--include-node`). `grep -E`
   # matches per-line, so newlines never appear in the haystack
   # mid-match, making `.*` the correct primitive here.
-  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|biome|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|biome|@biomejs/biome|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(-[^[:space:]]+[[:space:]]+)*(-c|--call)(=|[[:space:]])[\"']?(biome|@biomejs/biome)([[:space:]\"']|$)"
   "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
   "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"

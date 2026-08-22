@@ -167,7 +167,14 @@ describe('block-local-builds.sh — Bash matcher', () => {
     assert.match(r.stdout, /safe-local-checks/);
   });
 
-  for (const command of ['biome check .', 'npx biome check .', 'node --check script.mjs']) {
+  for (const command of [
+    'biome check .',
+    'npx biome check .',
+    'npx @biomejs/biome check .',
+    "npx --call='biome check .'",
+    "npx -c 'biome check .'",
+    'node --check script.mjs',
+  ]) {
     it(`blocks direct managed-check alternative \`${command}\``, () => {
       const r = runHook(bashInvocation(command), { bypassFile: tempBypass() });
       assert.match(r.stdout, /"decision"\s*:\s*"block"/);

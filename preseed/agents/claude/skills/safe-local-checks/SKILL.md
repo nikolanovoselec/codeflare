@@ -7,6 +7,12 @@ description: Run bounded read-only local lint or syntax checks without replacing
 
 Use this skill only when a local static or syntax check would give useful feedback. Builds, tests, type checks, dependency-graph analysis, installs, servers, and watch processes remain CI-only.
 
+## When it is useful
+
+- Run syntax mode after editing JavaScript or module files to catch parser errors quickly.
+- Run a repository-installed analyzer on changed paths, or its full-project read-only scope, before pushing when lint feedback would help.
+- Do not use this capability for unit or integration tests, builds, type checks, Knip, or final verification; those belong to CI.
+
 ## Managed runner
 
 Run the seeded wrapper from the repository being checked. The selected analyzer must already be installed by that repository in `node_modules/.bin`; if it is absent, do not install it locally—report that the check is unavailable and rely on CI. Syntax mode needs no repository dependency.
