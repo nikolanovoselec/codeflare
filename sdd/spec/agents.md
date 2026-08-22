@@ -217,11 +217,14 @@ Multi-agent support, preseed system, and session modes.
 1. Startup assembles `@narumitw/pi-plan-mode` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly) -->
 2. The preseed owns exact version and SHA-512 integrity locks for Plan Mode and its runtime dependency closure. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Plan mode package preseed (REQ-AGENT-152)) -->
 3. Image construction explicitly loads the declared Plan Mode entrypoint and fails when its path-correct JITI artifact is absent. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint) -->
-4. The installed package exposes `/plan`, read-only planning tools, structured planning questions, explicit plan completion, and implementation handoff using its upstream defaults. <!-- @manual: Reload Pi, enter and exit `/plan`, complete a plan, and confirm implementation restores the prior tool set. -->
+4. Every container start atomically replaces Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC4/AC5: overwrites Plan Mode settings with the Codeflare policy on every start) -->
+5. The managed profile excludes general questionnaires, arbitrary command execution, delegation, task mutation, MCP routing, advisor calls, export defaults, and keyboard shortcuts; Plan Mode supplies its own question and completion tools. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC4/AC5: overwrites Plan Mode settings with the Codeflare policy on every start) -->
+6. The installed package exposes `/plan`, read-only planning tools, structured planning questions, explicit plan completion, and implementation handoff. <!-- @manual: Reload Pi, enter and exit `/plan`, complete a plan, and confirm implementation restores the prior tool set. -->
 
 **Constraints:**
 
-- Codeflare carries no Plan Mode fork, source patch, or startup preference override.
+- Codeflare carries no Plan Mode fork, source patch, companion extension, or automatic plan-file writer.
+- Startup deliberately replaces the whole Plan Mode settings document; users select plans through `/plan` and name any Vault export explicitly.
 - Plan Mode 0.52.0 and Goal 0.46.0 have supported standalone behavior, but simultaneous workflow exclusion remains outside Plan Mode's published Goal 0.53.0 coexistence floor until separately reviewed.
 - Package upgrades remain lock-backed and use the existing Pi-extension shadow-pin workflow.
 
@@ -229,7 +232,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Package assembly and JITI cache contract tests; reload smoke test; deployment image build
+**Verification:** Package assembly, startup-policy, and JITI cache contract tests; reload smoke test; deployment image build
 
 **Status:** Implemented
 

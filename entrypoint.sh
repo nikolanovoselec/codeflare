@@ -2431,6 +2431,51 @@ configure();
 NODE
 }
 
+configure_pi_plan_mode() {
+    local plan_config="$USER_HOME/.pi/agent/pi-plan-mode.json"
+    PI_PLAN_MODE_STARTUP_CONFIG="$plan_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_PLAN_MODE_STARTUP_CONFIG;
+const settings = {
+  thinkingLevel: 'inherit',
+  implementationPlanRetention: 'keep',
+  defaultPlanTools: [
+    'bash',
+    'find',
+    'grep',
+    'ls',
+    'read',
+    'browser_content',
+    'browser_markdown',
+    'browser_scrape',
+    'fetch_content',
+    'get_search_content',
+    'source_check',
+    'web_search',
+    'ctx_execute_file',
+    'ctx_fetch_and_index',
+    'ctx_index',
+    'ctx_search',
+    'graphify_explain',
+    'graphify_path',
+    'graphify_query',
+  ],
+};
+
+mkdirSync(dirname(settingsPath), { recursive: true });
+const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+try {
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
+  renameSync(temporaryPath, settingsPath);
+} finally {
+  rmSync(temporaryPath, { force: true });
+} // try
+console.log('[entrypoint] Pi Plan Mode policy configured');
+NODE
+}
+
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2573,6 +2618,7 @@ update_pi_when_fast_start_disabled() {
 # forever and no session can attach. A failed Pi warm-up must degrade, not
 # block startup. Same cold-start discipline as PR #364/#365.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
+configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 

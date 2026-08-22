@@ -39,6 +39,32 @@ function runStartupInvocation(name, env = {}) {
   });
 }
 
+const EXPECTED_PLAN_MODE_SETTINGS = {
+  thinkingLevel: 'inherit',
+  implementationPlanRetention: 'keep',
+  defaultPlanTools: [
+    'bash',
+    'find',
+    'grep',
+    'ls',
+    'read',
+    'browser_content',
+    'browser_markdown',
+    'browser_scrape',
+    'fetch_content',
+    'get_search_content',
+    'source_check',
+    'web_search',
+    'ctx_execute_file',
+    'ctx_fetch_and_index',
+    'ctx_index',
+    'ctx_search',
+    'graphify_explain',
+    'graphify_path',
+    'graphify_query',
+  ],
+};
+
 describe('entrypoint production helpers', () => {
   it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-'));
@@ -115,6 +141,23 @@ describe('entrypoint production helpers', () => {
       assert.equal(result.status, 0, result.stderr);
       assert.equal(readFileSync(configPath, 'utf8'), malformed);
     }
+  });
+
+  it('REQ-AGENT-152 AC4/AC5: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-plan-mode-settings-'));
+    const configPath = join(fixture, '.pi/agent/pi-plan-mode.json');
+    const conflictingPath = join(fixture, 'legacy/pi-plan-mode.json');
+    const env = { USER_HOME: fixture, PI_PLAN_MODE_CONFIG_FILE: conflictingPath };
+
+    const first = runStartupInvocation('configure_pi_plan_mode', env);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    assert.equal(existsSync(conflictingPath), false);
+
+    writeFileSync(configPath, '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n');
+    const second = runStartupInvocation('configure_pi_plan_mode', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {
