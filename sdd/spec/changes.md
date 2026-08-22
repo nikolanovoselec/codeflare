@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-22
 
+- **Automatic Pi delivery remains authoritative throughout asynchronous reconciliation** ([REQ-AGENT-141](agents.md#req-agent-141-authoritative-head-review-launch-continuity) AC2 amended; remains Implemented). Each push or PR-create boundary stays independently pending until its own authoritative lookup completes. Ordinary activity in the same repository cannot open a competing consent choice while any delivery remains unresolved, but stays eligible when delivery proves ineligible.
+
+- **Usage plan labels are limited to metered SaaS plans** ([REQ-SUB-018](subscription.md#req-sub-018-usage-dashboard-page) AC7 added; remains Implemented). Non-SaaS and custom unmetered usage pages show personal time without subscription tier or mode naming. Metered SaaS retains the centered tier-and-mode label.
+
 - **Pi and Claude gain bounded, lazy-loaded local static checks** ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening) AC6-AC7; remains Implemented). A short always-loaded rule keeps builds, tests, type checks, dependency analysis, installs, servers, and direct analyzers CI-only, while directing agents to lazy-load `safe-local-checks` when read-only lint or syntax feedback is useful. Its cross-repository wrapper uses only installed local analyzers at low priority with a three-minute deadline and no file-count limit; mutation and watch flags fail closed. Both runtime guards permit only that wrapper, local results remain supplemental, and the user-only bypass is unchanged.
 
 - **Goal and Plan Mode now share upstream workflow exclusion** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) and [REQ-AGENT-152](agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions) remain Implemented). Goal moves to the latest 0.53.0 release, preserving manual and review-owned pause/resume behavior while refusing overlap with Plan Mode through the shared session mutex. Plan Mode retains its manual reload verification for planning, completion, and implementation handoff.

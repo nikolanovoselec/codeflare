@@ -1193,30 +1193,30 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let resumedWithoutBoundary = false;
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
-  let pendingBoundary: ClassifiedBoundary | undefined;
+  const pendingBoundaries = new Map<string, ClassifiedBoundary>();
   const queuedFollowUps = new Set<string>();
   const queuedMissingFollowUps = new Map<string, number>();
 
-  const retryPendingBoundary = async (ctx: ReviewContext): Promise<void> => {
-    const boundary = pendingBoundary;
-    if (!boundary) return;
-    const launch = await launchBoundaryPlan(
-      pi,
-      ctx,
-      dependencies,
-      boundary,
-      queuedFollowUps,
-      resumedWithoutBoundary,
-    );
-    if (launch === "retry") return;
-    pendingBoundary = undefined;
-    if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+  const retryPendingBoundaries = async (ctx: ReviewContext): Promise<void> => {
+    for (const boundary of pendingBoundaries.values()) {
+      const launch = await launchBoundaryPlan(
+        pi,
+        ctx,
+        dependencies,
+        boundary,
+        queuedFollowUps,
+        resumedWithoutBoundary,
+      );
+      if (launch === "retry") continue;
+      pendingBoundaries.delete(boundary.toolUseId);
+      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+      }
+      resumedWithoutBoundary = false;
+      if (!launch) continue;
+      if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
+      if (launch.queuedPlan) deferredSettledRecoveryHead = launch.head;
     }
-    resumedWithoutBoundary = false;
-    if (!launch) return;
-    if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-    if (launch.queuedPlan) deferredSettledRecoveryHead = launch.head;
   };
 
   pi.on("session_start", (event, ctx) => {
@@ -1226,7 +1226,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       || (event?.reason === "startup" && Boolean(existing?.latestBoundary || existing?.reviewHead));
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
-    pendingBoundary = undefined;
+    pendingBoundaries.clear();
     queuedFollowUps.clear();
     queuedMissingFollowUps.clear();
   });
@@ -1236,18 +1236,23 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const reconciledCreate = ambiguousPrCreateFailure(event, boundary);
     if (!successful(event) && !reconciledCreate) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
-    if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
-    if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
-    const pendingDelivery = pendingBoundary?.classification.event ? pendingBoundary : undefined;
-    const pendingDeliveryRepo = pendingDelivery
-      ? resolveShellInvocationRepo(pendingDelivery.invocation)
-      : undefined;
-    if (!boundary.classification.event && pendingDeliveryRepo
-      && pendingDeliveryRepo === resolveShellInvocationRepo(boundary.invocation)) {
-      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+    if (!boundary) {
+      if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
       return;
     }
-    if (boundary.classification.event) pendingBoundary = boundary;
+    if (boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
+    if (boundary.classification.event) pendingBoundaries.set(boundary.toolUseId, boundary);
+    if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
+    if (boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+      pendingBoundaries.delete(boundary.toolUseId);
+      return;
+    }
+    const boundaryRepo = resolveShellInvocationRepo(boundary.invocation);
+    const deliveryPendingForRepo = !boundary.classification.event && boundaryRepo
+      ? Array.from(pendingBoundaries.values()).some((candidate) => candidate.classification.event
+        && resolveShellInvocationRepo(candidate.invocation) === boundaryRepo)
+      : false;
+    if (deliveryPendingForRepo) return;
     const launch = await launchBoundaryPlan(
       pi,
       ctx,
@@ -1257,10 +1262,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       resumedWithoutBoundary,
     );
     if (launch === "retry") {
-      pendingBoundary = boundary;
+      pendingBoundaries.set(boundary.toolUseId, boundary);
       return;
     }
-    if (pendingBoundary?.toolUseId === boundary.toolUseId) pendingBoundary = undefined;
+    pendingBoundaries.delete(boundary.toolUseId);
     if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     }
@@ -1271,7 +1276,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    await retryPendingBoundary(ctx);
+    await retryPendingBoundaries(ctx);
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
     const goal = currentGoal(ctx);
@@ -1291,9 +1296,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    await retryPendingBoundary(ctx);
+    await retryPendingBoundaries(ctx);
     if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
-      pendingBoundary = undefined;
+      pendingBoundaries.clear();
       resumedWithoutBoundary = false;
     }
     const recoveryFile = rootSessionFile(ctx);
@@ -1314,7 +1319,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
             true,
           );
           if (launch === "retry") {
-            pendingBoundary = boundary;
+            pendingBoundaries.set(boundary.toolUseId, boundary);
             return;
           }
           if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {

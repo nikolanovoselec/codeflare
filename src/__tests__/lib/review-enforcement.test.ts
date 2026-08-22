@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 
@@ -772,6 +772,89 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
       boundaryToolUseId: 'push-in-flight',
+      head: fixture.head,
+      ciEvent: 'push',
+    });
+  });
+
+  it('REQ-AGENT-141: leaves an ordinary boundary eligible when pending delivery proves ineligible', async () => {
+    const fixture = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    let resolvePushQuery: ((pr: PrState | undefined) => void) | undefined;
+    let queryCount = 0;
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queryCount += 1;
+        if (queryCount === 1) {
+          return await new Promise<PrState | undefined>((resolve) => { resolvePushQuery = resolve; });
+        }
+        return fixture.pr;
+      },
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('push-ineligible', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-ineligible', 'bash'),
+      assistantTool('status-during-ineligible', 'bash', { command: 'git status --short' }),
+      toolResult('status-during-ineligible', 'bash'),
+    );
+
+    const pushResult = harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-ineligible'));
+    await vi.waitFor(() => expect(queryCount).toBe(1));
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-ineligible'));
+    resolvePushQuery?.(undefined);
+    await pushResult;
+    expect(harness.reviewPrompts).toEqual([]);
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-ineligible'));
+
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'status-during-ineligible',
+      head: fixture.head,
+    });
+  });
+
+  it('REQ-AGENT-141: keeps every concurrent delivery pending until its own reconciliation completes', async () => {
+    const fixture = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const resolvers: Array<((pr: PrState | undefined) => void) | undefined> = [];
+    let queryCount = 0;
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        const queryIndex = queryCount;
+        queryCount += 1;
+        if (queryIndex < 2) {
+          return await new Promise<PrState | undefined>((resolve) => { resolvers[queryIndex] = resolve; });
+        }
+        return fixture.pr;
+      },
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('push-concurrent-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-concurrent-1', 'bash'),
+      assistantTool('push-concurrent-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-concurrent-2', 'bash'),
+      assistantTool('status-during-concurrent', 'bash', { command: 'git status --short' }),
+      toolResult('status-during-concurrent', 'bash'),
+    );
+
+    const firstPush = harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-concurrent-1'));
+    await vi.waitFor(() => expect(queryCount).toBe(1));
+    const secondPush = harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-concurrent-2'));
+    await vi.waitFor(() => expect(queryCount).toBe(2));
+    resolvers[1]?.(undefined);
+    await secondPush;
+
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-concurrent'));
+    expect(harness.reviewPrompts).toEqual([]);
+
+    resolvers[0]?.(fixture.pr);
+    await firstPush;
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'push-concurrent-1',
       head: fixture.head,
       ciEvent: 'push',
     });
