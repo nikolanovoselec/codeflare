@@ -730,7 +730,8 @@ async function launchBoundaryPlan(
     && existing.reviewBranch === review.pr.headRefName
     && existing.reviewPrNumber === review.pr.number
     && existing.reviewBase === review.pr.baseRefName;
-  const existingCyclePlan = existingHeadPlan
+  const reusableHeadPlan = existingHeadPlan && !existing.fixDelivered;
+  const existingCyclePlan = reusableHeadPlan
     && existing.reviewBoundaryToolUseId === boundary.toolUseId;
   const persistedDecision = boundaryEvaluation(
     ctx,
@@ -739,12 +740,14 @@ async function launchBoundaryPlan(
     review.pr.headRefOid,
     boundary.toolUseId,
   );
-  const persistedHeadDecision = boundaryEvaluation(
-    ctx,
-    review.repo,
-    review.pr.number,
-    review.pr.headRefOid,
-  );
+  const persistedHeadDecision = existing.fixDelivered
+    ? undefined
+    : boundaryEvaluation(
+      ctx,
+      review.repo,
+      review.pr.number,
+      review.pr.headRefOid,
+    );
 
   if (persistedHeadDecision?.disposition === "acknowledge") {
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
@@ -752,7 +755,7 @@ async function launchBoundaryPlan(
     return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
   }
 
-  if (existingHeadPlan && !existingCyclePlan) {
+  if (reusableHeadPlan && !existingCyclePlan) {
     return {
       head: review.pr.headRefOid,
       pauseGoal: restoreExistingGoalPause,

@@ -14,6 +14,7 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
+export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
 export const RUNTIME_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_RUNTIME';
@@ -122,7 +123,7 @@ const RUNTIME_NATIVE_SCHEDULER_SOURCE = `\tscheduleContinuationDispatch(ctx: Sta
 \t\t\tif (
 \t\t\t\tgeneration !== this.menuGeneration ||
 \t\t\t\tthis.activeGoal?.id !== goalId ||
-\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t\t!this.ownsWorkflow(this.activeGoal)
 \t\t\t) {
 \t\t\t\treturn;
 \t\t\t}
@@ -143,7 +144,7 @@ const RUNTIME_NATIVE_SCHEDULER_PATCH = `\tscheduleContinuationDispatch(ctx: Stat
 \t\t\t\t\tgeneration !== this.menuGeneration ||
 \t\t\t\t\tthis.continuationIntent?.marker !== marker ||
 \t\t\t\t\tthis.activeGoal?.id !== goalId ||
-\t\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t\t\t!this.ownsWorkflow(this.activeGoal)
 \t\t\t\t) {
 \t\t\t\t\treturn;
 \t\t\t\t}
@@ -373,17 +374,51 @@ export function patchPiGoalSource(source) {
   return patched;
 }
 
+export function patchPiGoalEntrypointSource(source) {
+  if (
+    isCompleteMarkedPatch(
+      source,
+      GOAL_ENTRYPOINT_PATCH_MARKER,
+      ['registerGoalLifecycle(pi, runtime, runController, commands, options);'],
+      'Goal lifecycle command wiring',
+    )
+  ) return source;
+  return replaceOnce(
+    source,
+    'registerGoalLifecycle(pi, runtime, runController, options);',
+    `registerGoalLifecycle(pi, runtime, runController, commands, options); // ${GOAL_ENTRYPOINT_PATCH_MARKER}`,
+    'Goal lifecycle command wiring',
+  );
+}
+
 export function patchPiGoalLifecycleSource(source) {
   if (
     isCompleteMarkedPatch(
       source,
       PATCH_MARKER,
-      [CONTROL_CHANNEL, 'codeflareControlCtx = ctx;', 'codeflareControlCtx = undefined;'],
+      [
+        CONTROL_CHANNEL,
+        'commands: GoalCommandController,',
+        'codeflareControlCtx = ctx;',
+        'codeflareControlCtx = undefined;',
+      ],
       'review control',
     )
   ) return source;
   let patched = replaceOnce(
     source,
+    'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
+    'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\nimport type { GoalCommandController } from "./commands.js";',
+    'lifecycle command import',
+  );
+  patched = replaceOnce(
+    patched,
+    '\trunController: GoalRunController,\n\toptions: GoalLifecycleOptions = {},',
+    '\trunController: GoalRunController,\n\tcommands: GoalCommandController,\n\toptions: GoalLifecycleOptions = {},',
+    'lifecycle command parameter',
+  );
+  patched = replaceOnce(
+    patched,
     ') {\n\tpi.on("session_start", async (_event, ctx) => {',
     `) {${CONTROL_BLOCK}\n\n\tpi.on("session_start", async (_event, ctx) => {`,
     'lifecycle registration',
@@ -734,6 +769,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   const paths = {
     packageJson: join(directory, 'package.json'),
     commands: join(directory, 'src', 'commands.ts'),
+    goal: join(directory, 'src', 'goal.ts'),
     [sessionSourceName]: join(directory, 'src', `${sessionSourceName}.ts`),
     runtime: join(directory, 'src', 'runtime.ts'),
     settings: join(directory, 'src', 'settings.ts'),
@@ -756,12 +792,14 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   const originals = {
     commands: readFileSync(paths.commands, 'utf8'),
+    goal: readFileSync(paths.goal, 'utf8'),
     [sessionSourceName]: readFileSync(paths[sessionSourceName], 'utf8'),
     runtime: readFileSync(paths.runtime, 'utf8'),
     settings: readFileSync(paths.settings, 'utf8'),
   };
   const patched = {
     commands: patchPiGoalCommandsSource(originals.commands),
+    goal: patchPiGoalEntrypointSource(originals.goal),
     [sessionSourceName]: sessionSourceName === 'lifecycle'
       ? patchPiGoalLifecycleSource(originals[sessionSourceName])
       : patchPiGoalSource(originals[sessionSourceName]),
@@ -771,6 +809,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   const markers = {
     commands: COMMANDS_PATCH_MARKER,
+    goal: GOAL_ENTRYPOINT_PATCH_MARKER,
     [sessionSourceName]: PATCH_MARKER,
     runtime: RUNTIME_PATCH_MARKER,
     settings: SETTINGS_PATCH_MARKER,
@@ -781,7 +820,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     }
   }
 
-  for (const name of ['commands', sessionSourceName, 'runtime', 'settings']) {
+  for (const name of ['commands', 'goal', sessionSourceName, 'runtime', 'settings']) {
     writeFileSync(paths[name], patched[name]);
   }
 }

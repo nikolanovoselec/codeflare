@@ -6,12 +6,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { transform } from 'esbuild';
+import { build, transform } from 'esbuild';
 
 import {
   COMMANDS_PATCH_MARKER,
   CONTROL_CHANNEL,
   EXPECTED_PI_GOAL_VERSION,
+  GOAL_ENTRYPOINT_PATCH_MARKER,
   PATCH_MARKER,
   RUNTIME_PATCH_MARKER,
   SETTINGS_PATCH_MARKER,
@@ -607,58 +608,157 @@ function successorRuntimeHarness(minIntervalMs) {
 
 function readFixturePackage(root, sessionSourceName = 'lifecycle') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
 }
 
-const PINNED_PACKAGE_ARCHIVE = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '__fixtures__',
-  'pi-goal-0.53.0.tgz',
-);
+const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
+const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.53.0.tgz');
 const PINNED_PACKAGE_INTEGRITY = 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==';
+const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.52.0.tgz');
+const PINNED_PLAN_INTEGRITY = 'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==';
+
+function extractPackage(archivePath, integrity, root) {
+  const archive = readFileSync(archivePath);
+  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, integrity);
+  execFileSync('tar', ['-xzf', archivePath, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
+}
 
 function extractPinnedFixturePackage(root) {
-  const archive = readFileSync(PINNED_PACKAGE_ARCHIVE);
-  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, PINNED_PACKAGE_INTEGRITY);
-  execFileSync('tar', ['-xzf', PINNED_PACKAGE_ARCHIVE, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
+  extractPackage(PINNED_PACKAGE_ARCHIVE, PINNED_PACKAGE_INTEGRITY, root);
+}
+
+async function bundleFixture(entryPoint, outputPath) {
+  await build({
+    entryPoints: [entryPoint],
+    outfile: outputPath,
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node22',
+    logLevel: 'silent',
+    nodePaths: [join(process.cwd(), 'node_modules')],
+  });
+  return (await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`)).default;
+}
+
+function createExtensionHarness() {
+  const commands = new Map();
+  const lifecycle = new Map();
+  const eventListeners = new Map();
+  const notifications = [];
+  const entries = [];
+  let activeTools = [];
+  let thinkingLevel = 'medium';
+  const sessionManager = {
+    getBranch: () => entries,
+    getEntries: () => entries,
+  };
+  const ui = new Proxy({
+    notify: (message, level) => notifications.push({ message, level }),
+  }, { get: (target, property) => target[property] ?? (() => undefined) });
+  const api = new Proxy({
+    events: {
+      on(channel, listener) {
+        const listeners = eventListeners.get(channel) ?? [];
+        listeners.push(listener);
+        eventListeners.set(channel, listeners);
+        return () => eventListeners.set(channel, listeners.filter((candidate) => candidate !== listener));
+      },
+      emit(channel, payload) {
+        return Promise.all((eventListeners.get(channel) ?? []).map((listener) => listener(payload)));
+      },
+    },
+    registerCommand: (name, definition) => commands.set(name, definition),
+    registerTool: () => undefined,
+    registerFlag: () => undefined,
+    getFlag: () => false,
+    on(name, listener) {
+      const listeners = lifecycle.get(name) ?? [];
+      listeners.push(listener);
+      lifecycle.set(name, listeners);
+    },
+    appendEntry(customType, data) {
+      entries.push({ type: 'custom', customType, data });
+    },
+    sendUserMessage: async () => undefined,
+    getActiveTools: () => [...activeTools],
+    setActiveTools: (tools) => { activeTools = [...tools]; },
+    getThinkingLevel: () => thinkingLevel,
+    setThinkingLevel: (level) => { thinkingLevel = level; },
+  }, { get: (target, property) => target[property] ?? (() => undefined) });
+  const ctx = {
+    cwd: process.cwd(),
+    hasUI: true,
+    mode: 'interactive',
+    sessionManager,
+    ui,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+  };
+  return {
+    activeTools: () => activeTools,
+    api,
+    commands,
+    ctx,
+    emit: (channel, payload) => api.events.emit(channel, payload),
+    entries,
+    notifications,
+    startSession: async () => {
+      for (const listener of lifecycle.get('session_start') ?? []) await listener({}, ctx);
+    },
+  };
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111/REQ-AGENT-152: latest Goal mutex excludes another workflow in the same session', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'pi-goal-mutex-'));
-    extractPinnedFixturePackage(root);
-    const source = readFileSync(join(root, 'src/workflow-mutex.ts'), 'utf8');
-    const compiled = await transform(source, { loader: 'ts', format: 'esm', target: 'node22' });
-    const modulePath = join(root, 'workflow-mutex.mjs');
-    writeFileSync(modulePath, compiled.code);
-    const { WorkflowMutex } = await import(`${pathToFileURL(modulePath).href}?fixture=${Date.now()}`);
-    const listeners = [];
-    const pi = {
-      events: {
-        on(channel, listener) {
-          assert.equal(channel, 'workflow:mutex:v1');
-          listeners.push(listener);
-        },
-        emit(channel, payload) {
-          assert.equal(channel, 'workflow:mutex:v1');
-          for (const listener of listeners) listener(payload);
-        },
-      },
-    };
-    const session = {};
-    const goal = new WorkflowMutex(pi);
-    const plan = new WorkflowMutex(pi);
-    goal.bindSession(session);
-    plan.bindSession(session);
+  it('REQ-AGENT-111 AC6/AC7: pinned Goal and Plan Mode refuse overlap and release ownership', async () => {
+    const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
+    const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
+    extractPinnedFixturePackage(goalRoot);
+    extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
+    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    const goalExtension = await bundleFixture(join(goalRoot, 'src/index.ts'), join(goalRoot, 'goal.mjs'));
+    const planExtension = await bundleFixture(join(planRoot, 'dist/index.ts'), join(planRoot, 'plan.mjs'));
+    const harness = createExtensionHarness();
+    goalExtension(harness.api, { settingsPath: join(goalRoot, 'settings.json') });
+    planExtension(harness.api, { settingsPath: join(planRoot, 'settings.json') });
+    await harness.startSession();
 
-    const goalOwner = goal.acquire();
-    assert.ok(goalOwner);
-    assert.equal(plan.acquire(), undefined);
-    goal.release(goalOwner);
-    assert.ok(plan.acquire());
+    await harness.commands.get('goal').handler('first integration objective', harness.ctx);
+    assert.ok(harness.activeTools().includes('goal_complete'));
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    assert.ok(!harness.activeTools().includes('plan_mode_complete'));
+    assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
+
+    await harness.commands.get('goal').handler('clear', harness.ctx);
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    assert.ok(harness.activeTools().includes('plan_mode_complete'));
+    await harness.commands.get('plan').handler('exit', harness.ctx);
+    await harness.commands.get('goal').handler('second integration objective', harness.ctx);
+    assert.ok(harness.activeTools().includes('goal_complete'));
+
+    const activeGoalId = harness.entries
+      .filter((entry) => entry.data?.goal?.status === 'active')
+      .at(-1)?.data.goal.id;
+    assert.equal(typeof activeGoalId, 'string');
+    let response;
+    await harness.emit(CONTROL_CHANNEL, {
+      action: 'pause',
+      goalId: activeGoalId,
+      accepted: () => undefined,
+      respond: (value) => { response = value; },
+    });
+    assert.equal(response?.status, 'paused');
+    const pausedGoalId = response?.goalId;
+    await harness.emit(CONTROL_CHANNEL, {
+      action: 'resume',
+      goalId: pausedGoalId,
+      respond: (value) => { response = value; },
+    });
+    assert.equal(response?.ok, true);
+    assert.equal(response?.status, 'active');
+    assert.notEqual(response?.goalId, pausedGoalId);
   });
 
   it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract', async () => {
@@ -1023,7 +1123,10 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
         < first['src/commands.ts'].indexOf('transitionGoal(nextGoalInstance(this.runtime.activeGoal), "active")'),
       'resume must acquire the workflow mutex before activating Goal',
     );
+    assert.match(first['src/goal.ts'], new RegExp(GOAL_ENTRYPOINT_PATCH_MARKER));
+    assert.match(first['src/goal.ts'], /registerGoalLifecycle\(pi, runtime, runController, commands, options\)/);
     assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
+    assert.match(first['src/lifecycle.ts'], /commands: GoalCommandController,/);
     assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
     assert.match(first['src/runtime.ts'], /kind: "explicit_pause"; expectedGoalId: string; abortTurn\?: boolean/);
     assert.match(first['src/runtime.ts'], /if \(request\.abortTurn !== false\) abortCurrentTurn\(ctx\);/);
