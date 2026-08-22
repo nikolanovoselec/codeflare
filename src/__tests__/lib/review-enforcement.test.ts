@@ -310,6 +310,15 @@ function appendSession(sessionFile: string, ...entries: Record<string, unknown>[
   appendFileSync(sessionFile, entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8');
 }
 
+function hasBoundaryEvaluation(sessionFile: string, toolUseId: string): boolean {
+  return readFileSync(sessionFile, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { customType?: string; data?: { toolUseId?: string } })
+    .some((entry) => entry.customType === 'pr-boundary-evaluated'
+      && entry.data?.toolUseId === toolUseId);
+}
+
 function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
@@ -328,6 +337,7 @@ function makeHarness(repo: string, sessionFile: string): {
   setSessionReadFails(fails: boolean): void;
   setAppendEntryFails(fails: boolean): void;
   setAppendEntryFailureType(customType: string | undefined): void;
+  setAppendEntryFailureToolUseId(toolUseId: string | undefined): void;
   setSentMessagePersistence(persist: boolean): void;
   emit(event: string, payload?: unknown): Promise<void>;
 } {
@@ -347,6 +357,7 @@ function makeHarness(repo: string, sessionFile: string): {
   let sessionReadFails = false;
   let appendEntryFails = false;
   let appendEntryFailureType: string | undefined;
+  let appendEntryFailureToolUseId: string | undefined;
   let persistSentMessages = true;
   const allTools = [
     { name: 'read', description: 'Read files' },
@@ -388,7 +399,12 @@ function makeHarness(repo: string, sessionFile: string): {
       },
     },
     appendEntry: (customType, data) => {
-      if (appendEntryFails || customType === appendEntryFailureType) throw new Error('append failed');
+      const toolUseId = (data as { toolUseId?: string } | undefined)?.toolUseId;
+      if (appendEntryFails
+        || customType === appendEntryFailureType
+        || (appendEntryFailureToolUseId !== undefined && toolUseId === appendEntryFailureToolUseId)) {
+        throw new Error('append failed');
+      }
       operations.push(`append:${customType}`);
       appendSession(sessionFile, {
         type: 'custom',
@@ -463,6 +479,7 @@ function makeHarness(repo: string, sessionFile: string): {
     setSessionReadFails: (fails) => { sessionReadFails = fails; },
     setAppendEntryFails: (fails) => { appendEntryFails = fails; },
     setAppendEntryFailureType: (customType) => { appendEntryFailureType = customType; },
+    setAppendEntryFailureToolUseId: (toolUseId) => { appendEntryFailureToolUseId = toolUseId; },
     setSentMessagePersistence: (persist) => { persistSentMessages = persist; },
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -765,9 +782,11 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('status-during-push', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-push'));
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-during-push')).toBe(false);
     resolvePushQuery?.(fixture.pr);
     await pushResult;
 
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-during-push')).toBe(true);
     expect(harness.reviewPrompts).toEqual([]);
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
@@ -812,6 +831,48 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-153: retries a deferred boundary after its first decision cannot be persisted', async () => {
+    const fixture = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    let resolvePushQuery: ((pr: PrState | undefined) => void) | undefined;
+    let queryCount = 0;
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queryCount += 1;
+        if (queryCount === 1) {
+          return await new Promise<PrState | undefined>((resolve) => { resolvePushQuery = resolve; });
+        }
+        return fixture.pr;
+      },
+    });
+    harness.setReviewDecisions(['launch', 'launch']);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-before-deferred-retry', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-before-deferred-retry', 'bash'),
+      assistantTool('status-deferred-retry', 'bash', { command: 'git status --short' }),
+      toolResult('status-deferred-retry', 'bash'),
+    );
+
+    const pushResult = harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-before-deferred-retry'));
+    await vi.waitFor(() => expect(queryCount).toBe(1));
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-deferred-retry'));
+    harness.setAppendEntryFailureToolUseId('status-deferred-retry');
+    resolvePushQuery?.(undefined);
+    await pushResult;
+
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent).toEqual([]);
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-deferred-retry')).toBe(false);
+
+    harness.setAppendEntryFailureToolUseId(undefined);
+    await harness.emit('agent_end');
+
+    expect(harness.reviewPrompts).toHaveLength(2);
+    expect(harness.sent).toHaveLength(1);
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-deferred-retry')).toBe(true);
+  });
+
   it('REQ-AGENT-153: keeps every concurrent delivery pending until its own reconciliation completes', async () => {
     const fixture = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
@@ -845,10 +906,12 @@ describe('Pi review reminder and settled enforcement', () => {
     await secondPush;
 
     await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-concurrent'));
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-during-concurrent')).toBe(false);
     expect(harness.reviewPrompts).toEqual([]);
 
     resolvers[0]?.(fixture.pr);
     await firstPush;
+    expect(hasBoundaryEvaluation(fixture.sessionFile, 'status-during-concurrent')).toBe(true);
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
       boundaryToolUseId: 'push-concurrent-1',

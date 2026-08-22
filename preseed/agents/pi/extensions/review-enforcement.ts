@@ -1219,7 +1219,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         queuedFollowUps,
         resumedWithoutBoundary,
       );
-      if (launch === "retry") continue;
+      if (launch === "retry") {
+        deferredBoundaries.delete(boundary.toolUseId);
+        pendingBoundaries.set(boundary.toolUseId, boundary);
+        continue;
+      }
       deferredBoundaries.delete(boundary.toolUseId);
       if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
         pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
