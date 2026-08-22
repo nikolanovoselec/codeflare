@@ -404,6 +404,9 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     }
     expect(isLocalBuildCommand('git status')).toBe(false);
     expect(isLocalBuildCommand('npm run deploy')).toBe(false);
+    expect(isLocalBuildCommand('rg biome package.json')).toBe(false);
+    expect(isLocalBuildCommand("echo 'node --check'")).toBe(false);
+    expect(isLocalBuildCommand('git commit -m "document biome and node --check"')).toBe(false);
   });
 
   it('AC4: ignores blocked tool names inside heredoc payloads but still checks commands after them', () => {

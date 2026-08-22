@@ -257,10 +257,28 @@ function invokesSafeLocalCheckWrapper(command: string): boolean {
   return executableShellCommands(command).some(isSafeLocalCheckWords);
 }
 
+function isDirectManagedCheck(words: string[]): boolean {
+  const executable = shellCommandExecutable(words);
+  if (!executable) return false;
+  const executableIndex = words.findIndex((word, index) => word === executable
+    && shellCommandExecutable(words.slice(0, index + 1)) === executable);
+  const args = words.slice(executableIndex + 1);
+  if (executable === "biome") return true;
+  if (executable === "node") return args[0] === "--check";
+  if (executable !== "npx") return false;
+
+  let packageIndex = 0;
+  while ((args[packageIndex] ?? "").startsWith("-")) {
+    packageIndex += ["-p", "--package", "-c", "--call"].includes(args[packageIndex] ?? "") ? 2 : 1;
+  }
+  return /^biome(?:@|$)/u.test(args[packageIndex] ?? "");
+}
+
 export function isLocalBuildCommand(command: string): boolean {
   const executableCommand = withoutHeredocBodies(command);
   return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|biome|node\s+--check|prettier|wrangler\s+dev)\b/.test(executableCommand);
+    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand)
+    || executableShellCommands(command).some(isDirectManagedCheck);
 }
 
 export interface BypassFs {
