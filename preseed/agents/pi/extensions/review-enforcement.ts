@@ -1238,6 +1238,16 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
     if (!boundary || boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
+    const pendingDelivery = pendingBoundary?.classification.event ? pendingBoundary : undefined;
+    const pendingDeliveryRepo = pendingDelivery
+      ? resolveShellInvocationRepo(pendingDelivery.invocation)
+      : undefined;
+    if (!boundary.classification.event && pendingDeliveryRepo
+      && pendingDeliveryRepo === resolveShellInvocationRepo(boundary.invocation)) {
+      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+      return;
+    }
+    if (boundary.classification.event) pendingBoundary = boundary;
     const launch = await launchBoundaryPlan(
       pi,
       ctx,
@@ -1250,6 +1260,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       pendingBoundary = boundary;
       return;
     }
+    if (pendingBoundary?.toolUseId === boundary.toolUseId) pendingBoundary = undefined;
     if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     }

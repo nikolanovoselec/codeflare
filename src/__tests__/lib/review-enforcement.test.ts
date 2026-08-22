@@ -738,6 +738,45 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
+  it('REQ-AGENT-132/REQ-AGENT-141: an in-flight push boundary suppresses ordinary consent until automatic delivery completes', async () => {
+    const fixture = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    let resolvePushQuery: ((pr: PrState) => void) | undefined;
+    let queryCount = 0;
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queryCount += 1;
+        if (queryCount === 1) {
+          return await new Promise<PrState>((resolve) => { resolvePushQuery = resolve; });
+        }
+        return fixture.pr;
+      },
+    });
+    appendSession(fixture.sessionFile,
+      assistantTool('push-in-flight', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-in-flight', 'bash'),
+    );
+
+    const pushResult = harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-in-flight'));
+    await vi.waitFor(() => expect(queryCount).toBe(1));
+    appendSession(fixture.sessionFile,
+      assistantTool('status-during-push', 'bash', { command: 'git status --short' }),
+      toolResult('status-during-push', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-push'));
+    resolvePushQuery?.(fixture.pr);
+    await pushResult;
+
+    expect(harness.reviewPrompts).toEqual([]);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'push-in-flight',
+      head: fixture.head,
+      ciEvent: 'push',
+    });
+  });
+
   it('REQ-AGENT-132/REQ-AGENT-141: a user-approved exact-head plan suppresses later ordinary-boundary consent', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
