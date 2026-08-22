@@ -172,7 +172,9 @@ describe('block-local-builds.sh — Bash matcher', () => {
     'npx biome check .',
     'npx @biomejs/biome check .',
     "npx --call='biome check .'",
+    "npx --package foo --call='biome check .'",
     "npx -c 'biome check .'",
+    "npx -p foo -c 'biome check .'",
     'node --check script.mjs',
   ]) {
     it(`blocks direct managed-check alternative \`${command}\``, () => {
