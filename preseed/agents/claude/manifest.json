@@ -568,6 +568,18 @@
       "advanced"
     ]
   },
+  "skills/safe-local-checks/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/safe-local-checks/scripts/safe-local-check.mjs": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "skills/sdd-init/references/verify-enumeration-coverage.py": {
     "modes": [
       "advanced"

@@ -467,11 +467,24 @@ Managed curation reuses that exact status and reconciliation flow. Status polls 
 - Pi-native runtime assets include package config and package lock.
 
 The `rules/` tree includes core rules for both modes: cloudflare-environment,
-no-local-builds, and git-workflow. Advanced mode adds memory, spec-discipline,
-documentation-discipline, tdd-discipline,
-frontend-components, engineering-constitution, and vault-note-capture. It also
-includes per-language coding-style rules plus standalone language security rules for
-TypeScript, Python, Go, and Swift.
+no-local-builds, and git-workflow. The local-execution rule stays deliberately short:
+it requires agents to lazy-load `safe-local-checks` before any permitted local lint or
+syntax check. Advanced mode adds memory, spec-discipline, documentation-discipline,
+tdd-discipline, frontend-components, engineering-constitution, and
+vault-note-capture. It also includes per-language coding-style rules plus standalone
+language security rules for TypeScript, Python, Go, and Swift.
+
+The default+advanced `safe-local-checks` skill supplies the operational policy and one
+managed wrapper for every repository. It resolves only already-installed local
+Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
+no file-count limit, and runs them at low priority for at most three minutes; Node
+syntax checks use the same deadline. Mutation, watch,
+output-file, and analyzer-concurrency flags fail closed, and shell composition or
+redirection cannot turn an allowed wrapper invocation into a write. Builds, tests, type checks,
+Knip and other dependency-graph analysis, installs, servers, and authoritative
+verification remain CI-only. Both Pi and Claude guards allow only the exact wrapper
+path and direct blocked commands point agents to the skill; the user-only one-shot
+bypass remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6/AC7: managed safe local checks) -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
@@ -480,7 +493,7 @@ security-reviewer, spec-reviewer, tdd-guide, and vault-extract.
 The `commands/` tree is advanced-only: brainstorm, debug, deploy, review, and sdd.
 
 The `skills/` tree includes cloudflare-stack, ship (+ refs), ci-monitoring,
-pr-workflow, and deploy-credentials as default+advanced skills. Advanced skills
+pr-workflow, deploy-credentials, and safe-local-checks as default+advanced skills. Advanced skills
 include consult-llm, api-design, backend-patterns, content-hash-cache-pattern,
 database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval,
 search-first, spec-driven-development (+ reference templates for /sdd init

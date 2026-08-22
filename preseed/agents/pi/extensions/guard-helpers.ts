@@ -236,6 +236,23 @@ export function attributionBlockReason(command: string): string | undefined {
   return undefined;
 }
 
+const SAFE_LOCAL_CHECK_PATH = /^(?:~|\$HOME|\/home\/[^/]+)\/\.(?:claude\/skills|pi\/agent\/skills)\/safe-local-checks\/scripts\/safe-local-check\.mjs$/u;
+
+function isSafeLocalCheckWords(words: string[]): boolean {
+  if (shellCommandExecutable(words) !== "node") return false;
+  const nodeIndex = words.findIndex((word) => word === "node");
+  return nodeIndex >= 0 && SAFE_LOCAL_CHECK_PATH.test(words[nodeIndex + 1] ?? "");
+}
+
+export function isManagedSafeLocalCheckCommand(command: string): boolean {
+  if (/[<>]/u.test(withoutHeredocBodies(command))) return false;
+  const commands = executableShellCommands(command);
+  if (commands.length === 1) return isSafeLocalCheckWords(commands[0] ?? []);
+  return commands.length === 2
+    && shellCommandExecutable(commands[0] ?? []) === "cd"
+    && isSafeLocalCheckWords(commands[1] ?? []);
+}
+
 export function isLocalBuildCommand(command: string): boolean {
   const executableCommand = withoutHeredocBodies(command);
   return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
@@ -248,7 +265,7 @@ export interface BypassFs {
 }
 
 export function localBuildBlockReason(command: string, fs: BypassFs): string | undefined {
-  if (!isLocalBuildCommand(command)) return undefined;
+  if (!isLocalBuildCommand(command) || isManagedSafeLocalCheckCommand(command)) return undefined;
   // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
   if (fs.existsSync(LOCAL_BUILD_BYPASS)) {
     try {
@@ -256,7 +273,7 @@ export function localBuildBlockReason(command: string, fs: BypassFs): string | u
       return undefined;
     } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
   }
-  return "Local builds/tests/linters/dev servers are blocked in the resource-constrained container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
+  return "Direct local builds/tests/linters/dev servers are blocked. For bounded read-only lint or syntax checks, load the safe-local-checks skill and use its managed wrapper. Push and verify everything else with CI. User override: create /tmp/local-build-bypass.";
 }
 
 export default function () {

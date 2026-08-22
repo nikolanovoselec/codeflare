@@ -2,7 +2,7 @@
 
 ## Environment and code
 
-Default new, preference-free projects to Cloudflare and load `cloudflare-stack`. This resource-constrained container forbids local builds, tests, type checks, lint, formatting, and dev servers unless the user accepts the freeze risk; use CI. Prefix browser-opening CLIs with `BROWSER=""`. Use Git HTTPS, noreply identity, `printf '%s'` for secrets, and never commit credentials. Explain outcomes plainly.
+Default new, preference-free projects to Cloudflare and load `cloudflare-stack`. Builds, tests, type checks, dependency-graph analysis, installs, servers, and direct analyzers are CI-only; for a read-only local lint or syntax check, load `safe-local-checks` and use only its managed wrapper. Prefix browser-opening CLIs with `BROWSER=""`. Use Git HTTPS, noreply identity, `printf '%s'` for secrets, and never commit credentials. Explain outcomes plainly.
 
 Prefer immutable updates and never store JSON patches with `undefined`. Validate user/file/network boundaries; trust typed internal calls. Move owned docs with public API, configuration, workflow, or architecture changes. Apply the security checklist to auth, input, secrets, uploads, and external APIs. Use Graphify first for broad architecture/call-flow questions when a repo graph exists, then refresh safely after source edits; skip known-file edits and Git/CI state.
 

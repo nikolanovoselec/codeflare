@@ -7,7 +7,7 @@ paths:
 ---
 # TypeScript/JavaScript Testing
 
-**Important:** Tests run via CI only (GitHub Actions). Do not run test suites, linters, or type checkers locally — the container is resource-constrained. Write tests, push, and verify via `gh run view`.
+**Important:** Tests and type checks run via CI only. For supplemental read-only lint or syntax feedback, load `safe-local-checks` and use only its managed wrapper; CI remains authoritative.
 
 ## E2E Testing
 

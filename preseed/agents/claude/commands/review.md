@@ -1118,7 +1118,7 @@ After the root completes Phase 10:
 
 ## Important Notes
 
-- **NEVER run builds, tests, or linters locally** - the container is resource-constrained
+- Review is static analysis only: do not run builds, tests, or analyzers, including the managed local-check wrapper
 - All 6 Phase 2 agents MUST launch in a single message (parallel Task calls)
 - Phase 3 deep-reviewer agents (when --deep is set) also launch in parallel — up to 5 per wave; sequential at wave boundaries when ceil(N/15) > 5
 - Phases 4, 5, and 6 each use one report-only Task agent whose returned report is persisted by the root

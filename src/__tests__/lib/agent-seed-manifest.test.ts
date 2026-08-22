@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
-import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
+import { attributionBlockReason, isLocalBuildCommand, isManagedSafeLocalCheckCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -429,6 +429,49 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   it('AC5: a non-build command is never blocked regardless of the sentinel', () => {
     const fs = { existsSync: () => false, unlinkSync: () => { throw new Error('should not be called'); } };
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
+  });
+
+  it('AC7: allows only a standalone managed safe-check wrapper invocation', () => {
+    const pi = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
+    const claude = 'node "$HOME/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs" eslint .';
+    expect(isManagedSafeLocalCheckCommand(pi)).toBe(true);
+    expect(isManagedSafeLocalCheckCommand(claude)).toBe(true);
+    expect(isManagedSafeLocalCheckCommand(`${pi} && npm test`)).toBe(false);
+    expect(isManagedSafeLocalCheckCommand(`${pi} > lint.log`)).toBe(false);
+    expect(isManagedSafeLocalCheckCommand('node ./scripts/safe-local-check.mjs oxlint src')).toBe(false);
+  });
+
+  it('AC7: the managed wrapper bypasses the local-lint block without consuming the user sentinel', () => {
+    let consumed = false;
+    const fs = { existsSync: () => true, unlinkSync: () => { consumed = true; } };
+    const command = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
+    expect(localBuildBlockReason(command, fs)).toBeUndefined();
+    expect(consumed).toBe(false);
+    expect(localBuildBlockReason('oxlint src', { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    expect(localBuildBlockReason(`${command} > lint.log`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+  });
+
+  it('AC6/AC7: seeds one lazy-loaded safe-local-check skill for Claude and Pi', () => {
+    const claude = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/safe-local-checks/SKILL.md');
+    const pi = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/safe-local-checks/SKILL.md');
+    expect(claude?.content).toContain('safe-local-check.mjs');
+    expect(pi?.content).toContain('safe-local-check.mjs');
+    expect(claude?.modes).toEqual(['default', 'advanced']);
+    expect(pi?.modes).toEqual(['default', 'advanced']);
+  });
+
+  it('AC7: permanently loaded policy stays short and leaves operational detail in the skill', () => {
+    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/no-local-builds.md');
+    const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
+    expect(claudeRule?.content.length).toBeLessThan(400);
+    expect(claudeRule?.content).toContain('load `safe-local-checks`');
+    expect(piInstructions).toHaveLength(2);
+    for (const instructions of piInstructions) {
+      expect(instructions.content).toContain('load `safe-local-checks`');
+      expect(instructions.content).not.toContain('safe-local-check.mjs');
+    }
   });
 
 });

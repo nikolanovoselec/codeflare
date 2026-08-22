@@ -133,8 +133,9 @@ const PI_MODEL_HIDDEN_SKILLS = new Set([
   'tdd-enforce',
 ]);
 
-// These canonical principles are already preserved by the compact Pi-native
-// constitution, so duplicating their long-form prose in AGENTS.md adds no policy.
+// These canonical principles are preserved by the advanced Pi-native constitution.
+// Default Pi retains the short no-local-builds pointer because it does not receive
+// that constitution; the mode-specific filter below prevents both omission and duplication.
 const PI_COMPACTED_RULES = new Set([
   'rules/cloudflare-environment.md',
   'rules/no-local-builds.md',
@@ -880,7 +881,8 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
             !isClaudeOnlyFile(f.withinClaude) &&
             !(agentId === 'pi' && (
               piNativeRuleKeys.has(f.withinClaude)
-              || PI_COMPACTED_RULES.has(f.withinClaude)
+              || (PI_COMPACTED_RULES.has(f.withinClaude)
+                && !(mode === 'default' && f.withinClaude === 'rules/no-local-builds.md'))
               || hasPathsFrontmatter(f.content)
               || PI_COVERED_RULES.has(f.withinClaude)
             ))

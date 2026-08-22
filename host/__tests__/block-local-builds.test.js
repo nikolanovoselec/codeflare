@@ -161,8 +161,34 @@ describe('block-local-builds.sh — Bash matcher', () => {
       'node --test is exactly the violation that motivated this hook');
   });
 
-  it('blocks `oxlint src/`', () => {
+  it('blocks direct `oxlint src/` and points to the managed skill', () => {
     const r = runHook(bashInvocation('oxlint src/ --deny-warnings'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.match(r.stdout, /safe-local-checks/);
+  });
+
+  it('allows the standalone Claude managed safe-check wrapper', () => {
+    const r = runHook(
+      bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src/'),
+      { bypassFile: tempBypass() },
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does not let the managed wrapper hide a later blocked command', () => {
+    const r = runHook(
+      bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src/\nnpm test'),
+      { bypassFile: tempBypass() },
+    );
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('blocks shell redirection around the managed wrapper', () => {
+    const r = runHook(
+      bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src/ > lint.log'),
+      { bypassFile: tempBypass() },
+    );
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 
