@@ -73,14 +73,12 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
       dailySeconds: number;
       monthlySeconds: number;
       monthlyQuotaSeconds: number;
-      tierId: string;
       tier: string;
     };
     expect(body.dailySeconds).toBe(1234);
     expect(body.monthlySeconds).toBe(5678);
     expect(tkStub.fetch).toHaveBeenCalledTimes(1);
-    // Tier identity and monthlySeconds must come from tier config (not from live response).
-    expect(body.tierId).toBe('standard');
+    // Tier monthlySeconds must come from tier config (not from live response)
     expect(body.monthlyQuotaSeconds).toBeGreaterThan(0);
   });
 
@@ -199,9 +197,8 @@ describe('GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fall
     const { app } = createApp({ SAAS_MODE: 'active' });
     const res = await app.request('/usage', { method: 'GET' });
     expect(res.status).toBe(200);
-    const body = await res.json() as { tierId: string; tier: string };
+    const body = await res.json() as { tier: string };
     // Canceled standard user is downgraded to free tier per getEffectiveTier.
-    expect(body.tierId).toBe('free');
     expect(body.tier.toLowerCase()).toContain('free');
   });
 });

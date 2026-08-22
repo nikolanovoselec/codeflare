@@ -199,7 +199,7 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page), [REQ-SUB-022](../../sdd/spec/subscription.md#req-sub-022-cross-mode-personal-usage-data) | Current user's real-time usage (Timekeeper DO with KV fallback). The response includes stable `tierId` and display `tier` fields. `monthlyQuotaSeconds` carries the billing quota in SaaS mode and is `null` in onboarding/default and enterprise deployments. |
+| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page), [REQ-SUB-022](../../sdd/spec/subscription.md#req-sub-022-cross-mode-personal-usage-data) | Current user's real-time usage (Timekeeper DO with KV fallback). `monthlyQuotaSeconds` carries the billing quota in SaaS mode and is `null` in onboarding/default and enterprise deployments. |
 
 ## Admin
 

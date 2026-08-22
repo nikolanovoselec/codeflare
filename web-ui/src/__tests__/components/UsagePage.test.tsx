@@ -8,7 +8,6 @@ let mockUsage: {
   dailySeconds: number;
   monthlySeconds: number;
   monthlyQuotaSeconds: number | null;
-  tierId: string;
   tier: string;
   mode?: 'default' | 'advanced';
 };
@@ -48,7 +47,6 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
       dailySeconds: 3600,
       monthlySeconds: 36_000,
       monthlyQuotaSeconds: 144_000,
-      tierId: 'free',
       tier: 'Free',
       mode: 'default',
     };
@@ -118,13 +116,13 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
     mockSaasMode = true;
     mockUsage = {
       ...mockUsage,
-      tierId: 'unlimited',
+      monthlyQuotaSeconds: null,
       tier: 'Custom',
     };
 
     render(() => <UsagePage />);
 
-    await waitFor(() => expect(document.querySelector('.usage-panel-percent')).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelectorAll('.usage-panel-stat').length).toBe(2));
     expect(document.querySelector('.usage-panel-plan')).not.toBeInTheDocument();
   });
 

@@ -12,7 +12,6 @@ const UsagePage: Component = () => {
   const [dailySeconds, setDailySeconds] = createSignal(0);
   const [monthlySeconds, setMonthlySeconds] = createSignal(0);
   const [quotaSeconds, setQuotaSeconds] = createSignal<number | null>(null);
-  const [tierId, setTierId] = createSignal('');
   const [tierName, setTierName] = createSignal('');
 
   let pollInterval: ReturnType<typeof setInterval> | undefined;
@@ -23,7 +22,6 @@ const UsagePage: Component = () => {
       setDailySeconds(data.dailySeconds);
       setMonthlySeconds(data.monthlySeconds);
       setQuotaSeconds(data.monthlyQuotaSeconds);
-      setTierId(data.tierId);
       const mode = data.mode === 'advanced' ? 'Pro' : 'Standard';
       setTierName(`${data.tier} ${mode}`);
       setError(null);
@@ -49,7 +47,6 @@ const UsagePage: Component = () => {
   };
 
   const hasQuota = () => quotaSeconds() !== null;
-  const showPlan = () => sessionStore.saasMode && tierId() !== 'unlimited';
 
   const barColor = () =>
     usagePercent() >= 100
@@ -79,17 +76,10 @@ const UsagePage: Component = () => {
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
           <Show when={!error()} fallback={<div class="usage-error">{error()}</div>}>
             <div class="usage-panel">
-              <Show when={showPlan() || hasQuota()}>
-                <div
-                  class="usage-panel-header"
-                  classList={{ 'usage-panel-header--centered-plan': showPlan() }}
-                >
-                  <Show when={showPlan()}>
-                    <span class="usage-panel-plan">{tierName()}</span>
-                  </Show>
-                  <Show when={hasQuota()}>
-                    <span class="usage-panel-percent">{usagePercent()}%</span>
-                  </Show>
+              <Show when={hasQuota()}>
+                <div class="usage-panel-header usage-panel-header--centered-plan">
+                  <span class="usage-panel-plan">{tierName()}</span>
+                  <span class="usage-panel-percent">{usagePercent()}%</span>
                 </div>
               </Show>
 
