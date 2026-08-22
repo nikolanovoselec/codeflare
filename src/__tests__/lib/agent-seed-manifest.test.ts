@@ -399,7 +399,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 
   it('AC4: detects the package-manager verbs plus the standalone tool set, and allows the rest', () => {
-    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'biome check .', 'npx biome check .', 'node --check script.mjs', 'prettier -w .', 'wrangler dev']) {
+    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'biome check .', './node_modules/.bin/biome check .', 'npx biome check .', 'npx @biomejs/biome check .', "npx --call 'biome check .'", "npx -c 'biome check .'", 'node --check script.mjs', 'prettier -w .', 'wrangler dev']) {
       expect(isLocalBuildCommand(cmd), cmd).toBe(true);
     }
     expect(isLocalBuildCommand('git status')).toBe(false);

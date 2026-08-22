@@ -263,15 +263,20 @@ function isDirectManagedCheck(words: string[]): boolean {
   const executableIndex = words.findIndex((word, index) => word === executable
     && shellCommandExecutable(words.slice(0, index + 1)) === executable);
   const args = words.slice(executableIndex + 1);
-  if (executable === "biome") return true;
+  if (executable.split("/").at(-1) === "biome") return true;
   if (executable === "node") return args[0] === "--check";
   if (executable !== "npx") return false;
+
+  const callIndex = args.findIndex((argument) => argument === "-c" || argument === "--call");
+  const assignedCall = args.find((argument) => argument.startsWith("--call="));
+  const call = assignedCall?.slice("--call=".length) ?? (callIndex >= 0 ? args[callIndex + 1] : undefined);
+  if (call && executableShellCommands(call).some(isDirectManagedCheck)) return true;
 
   let packageIndex = 0;
   while ((args[packageIndex] ?? "").startsWith("-")) {
     packageIndex += ["-p", "--package", "-c", "--call"].includes(args[packageIndex] ?? "") ? 2 : 1;
   }
-  return /^biome(?:@|$)/u.test(args[packageIndex] ?? "");
+  return /^(?:biome|@biomejs\/biome)(?:@|$)/u.test(args[packageIndex] ?? "");
 }
 
 export function isLocalBuildCommand(command: string): boolean {
