@@ -68,6 +68,7 @@ const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.46.0': 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==',
   '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
   '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
+  '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -76,6 +77,7 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-goal'];
     const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
+    assert.equal(version, '0.53.0');
     assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
@@ -128,7 +130,10 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
       planMode.resolved,
       `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`,
     );
-    assert.match(planMode.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+    assert.equal(
+      planMode.integrity,
+      'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==',
+    );
     assert.deepEqual(planMode.peerDependencies, {
       '@earendil-works/pi-coding-agent': '*',
       '@earendil-works/pi-tui': '*',

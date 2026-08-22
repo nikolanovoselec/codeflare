@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Applies Codeflare's reviewed compatibility patch to the current locked pi-goal
-// release and the one cooldown-eligible successor admitted by automation. The
-// package remains upstream-owned and integrity-locked; this version-aware
+// Applies Codeflare's reviewed compatibility patch to the exact locked pi-goal
+// release. The package remains upstream-owned and integrity-locked; this version-aware
 // image-build transform adds the session-local PR-review control
 // channel and a bounded continuation dispatch interval without a companion
 // extension or permanent fork. Every transformed source is calculated before
@@ -10,11 +9,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const EXPECTED_PI_GOAL_VERSION = '0.46.0';
-export const NEXT_PI_GOAL_VERSION = '0.49.7';
+export const EXPECTED_PI_GOAL_VERSION = '0.53.0';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
-  NEXT_PI_GOAL_VERSION,
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
@@ -393,14 +390,14 @@ export function patchPiGoalLifecycleSource(source) {
   );
   patched = replaceOnce(
     patched,
-    '\tpi.on("session_start", async (_event, ctx) => {\n\t\truntime.replaceMenuSession();',
-    '\tpi.on("session_start", async (_event, ctx) => {\n\t\tcodeflareControlCtx = ctx;\n\t\truntime.replaceMenuSession();',
+    '\tpi.on("session_start", async (_event, ctx) => {',
+    '\tpi.on("session_start", async (_event, ctx) => {\n\t\tcodeflareControlCtx = ctx;',
     'session start',
   );
   patched = replaceOnce(
     patched,
-    '\tpi.on("session_shutdown", (_event, ctx) => {\n\t\trunController.unbindSession();',
-    '\tpi.on("session_shutdown", (_event, ctx) => {\n\t\tcodeflareControlCtx = undefined;\n\t\trunController.unbindSession();',
+    '\tpi.on("session_shutdown", (_event, ctx) => {',
+    '\tpi.on("session_shutdown", (_event, ctx) => {\n\t\tcodeflareControlCtx = undefined;',
     'session shutdown',
   );
   return patched;
@@ -733,7 +730,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     );
   }
 
-  const sessionSourceName = expectedVersion === NEXT_PI_GOAL_VERSION ? 'lifecycle' : 'goal';
+  const sessionSourceName = 'lifecycle';
   const paths = {
     packageJson: join(directory, 'package.json'),
     commands: join(directory, 'src', 'commands.ts'),

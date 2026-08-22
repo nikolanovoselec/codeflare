@@ -2531,7 +2531,7 @@ const required = [
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.21.0',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.46.0',
+  'npm:@narumitw/pi-goal@0.53.0',
   'npm:@narumitw/pi-plan-mode@0.52.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];

@@ -149,7 +149,7 @@ function boundaryEvaluation(
   repo: string,
   prNumber: number,
   head: string,
-  toolUseId: string,
+  toolUseId?: string,
 ): BoundaryEvaluation | undefined {
   const data = sessionEntries(ctx)
     .filter((entry) => entry?.type === "custom"
@@ -157,7 +157,7 @@ function boundaryEvaluation(
       && entry.data?.repo === repo
       && entry.data?.prNumber === prNumber
       && entry.data?.head === head
-      && entry.data?.toolUseId === toolUseId
+      && (toolUseId === undefined || entry.data?.toolUseId === toolUseId)
       && (entry.data?.disposition === "launch" || entry.data?.disposition === "acknowledge"))
     .at(-1)?.data;
   if (!data || typeof data.toolUseId !== "string" || !fullSha(data.head)) return undefined;
@@ -700,13 +700,14 @@ async function launchBoundaryPlan(
   const eventRepo = resolveShellInvocationRepo(boundary.invocation);
   if (!eventRepo) return undefined;
   let retryable = false;
+  const isDeliveryCandidate = boundary.classification.event !== undefined;
   const review = await currentReview(
     ctx,
     dependencies,
     undefined,
     "HEAD",
     eventRepo,
-    () => { retryable = true; },
+    isDeliveryCandidate ? () => { retryable = true; } : undefined,
     boundary.classification.event === "pr-create",
   );
   if (!review) return retryable ? "retry" : undefined;
@@ -724,11 +725,12 @@ async function launchBoundaryPlan(
   }
   const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
   const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
-  const existingPlan = existing.reviewHead === review.pr.headRefOid
+  const existingHeadPlan = existing.reviewHead === review.pr.headRefOid
     && existing.reviewRepo === review.repo
     && existing.reviewBranch === review.pr.headRefName
     && existing.reviewPrNumber === review.pr.number
-    && existing.reviewBase === review.pr.baseRefName
+    && existing.reviewBase === review.pr.baseRefName;
+  const existingCyclePlan = existingHeadPlan
     && existing.reviewBoundaryToolUseId === boundary.toolUseId;
   const persistedDecision = boundaryEvaluation(
     ctx,
@@ -737,20 +739,39 @@ async function launchBoundaryPlan(
     review.pr.headRefOid,
     boundary.toolUseId,
   );
+  const persistedHeadDecision = boundaryEvaluation(
+    ctx,
+    review.repo,
+    review.pr.number,
+    review.pr.headRefOid,
+  );
 
-  if (persistedDecision?.disposition === "acknowledge") {
+  if (persistedHeadDecision?.disposition === "acknowledge") {
     acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
     appendBoundaryEvaluation(pi, boundary, review, "acknowledge");
     return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
   }
 
+  if (existingHeadPlan && !existingCyclePlan) {
+    return {
+      head: review.pr.headRefOid,
+      pauseGoal: restoreExistingGoalPause,
+      queuedPlan: false,
+    };
+  }
+
   let confirmedEvent = boundary.classification.event;
   let planBoundaryToolUseId = boundary.toolUseId;
-  const recoveringPlan = existingPlan || persistedDecision?.disposition === "launch";
+  const persistedLaunch = persistedDecision?.disposition === "launch"
+    ? persistedDecision
+    : persistedHeadDecision?.disposition === "launch"
+      ? persistedHeadDecision
+      : undefined;
+  const recoveringPlan = existingCyclePlan || persistedLaunch !== undefined;
   if (recoveringPlan) {
-    confirmedEvent = existing.reviewCiEvent ?? persistedDecision?.ciEvent ?? confirmedEvent ?? "push";
+    confirmedEvent = existing.reviewCiEvent ?? persistedLaunch?.ciEvent ?? confirmedEvent ?? "push";
     planBoundaryToolUseId = existing.reviewBoundaryToolUseId
-      ?? persistedDecision?.toolUseId
+      ?? persistedLaunch?.toolUseId
       ?? boundary.toolUseId;
   } else if (reviewsEnabled && !skipReview && !confirmedEvent) {
     if (!ctx.hasUI || !ctx.ui) return undefined;
@@ -789,7 +810,7 @@ async function launchBoundaryPlan(
     : ciBoundaryEvent(confirmedEvent);
   if (requiredLanes.length === 0 && !ciEvent) return undefined;
 
-  if (existingPlan) {
+  if (existingCyclePlan) {
     appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
     return {
       head: review.pr.headRefOid,

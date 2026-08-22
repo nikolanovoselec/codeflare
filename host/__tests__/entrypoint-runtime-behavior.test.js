@@ -143,7 +143,7 @@ describe('entrypoint production helpers', () => {
     }
   });
 
-  it('REQ-AGENT-152 AC4/AC5: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
+  it('REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-plan-mode-settings-'));
     const configPath = join(fixture, '.pi/agent/pi-plan-mode.json');
     const conflictingPath = join(fixture, 'legacy/pi-plan-mode.json');

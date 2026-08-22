@@ -714,7 +714,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-132/REQ-AGENT-141: a new same-head ordinary boundary asks instead of recovering an older launch', async () => {
+  it('REQ-AGENT-132/REQ-AGENT-141: an automatic exact-head plan suppresses later ordinary-boundary consent', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -722,46 +722,46 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-visible', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-visible'));
-    harness.sent.splice(0);
-    harness.setReviewDecision('acknowledge');
     appendSession(fixture.sessionFile,
-      assistantTool('status-new-boundary', 'bash', { command: 'git status --short' }),
-      toolResult('status-new-boundary', 'bash'),
+      assistantTool('status-after-launch', 'bash', { command: 'git status --short' }),
+      toolResult('status-after-launch', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-new-boundary'));
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-after-launch'));
 
-    expect(harness.reviewPrompts).toHaveLength(1);
-    expect(harness.sent).toEqual([]);
-    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(harness.reviewPrompts).toEqual([]);
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      boundaryToolUseId: 'push-visible',
+      head: fixture.head,
+    });
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-132/REQ-AGENT-141: an accepted new same-head cycle carries its boundary ID without relaunching CI', async () => {
+  it('REQ-AGENT-132/REQ-AGENT-141: a user-approved exact-head plan suppresses later ordinary-boundary consent', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile,
-      assistantTool('push-old-cycle', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-old-cycle', 'bash'),
-    );
-    await harness.emit('tool_result', boundaryEvent('git push origin pi', 'push-old-cycle'));
-    harness.sent.splice(0);
-    writeFileSync(join(gitMetadataDirectory(fixture.repo), `sdd-review-ci-pr-${fixture.pr.number}`), `${fixture.head}\n`, 'utf8');
+    harness.setSentMessagePersistence(false);
     harness.setReviewDecision('launch');
     appendSession(fixture.sessionFile,
-      assistantTool('status-new-cycle', 'bash', { command: 'git status --short' }),
-      toolResult('status-new-cycle', 'bash'),
+      assistantTool('status-approved', 'bash', { command: 'git status --short' }),
+      toolResult('status-approved', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-approved'));
+    appendSession(fixture.sessionFile,
+      assistantTool('view-after-approval', 'bash', { command: 'gh pr view 42' }),
+      toolResult('view-after-approval', 'bash'),
     );
 
-    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-new-cycle'));
+    await harness.emit('tool_result', boundaryEvent('gh pr view 42', 'view-after-approval'));
 
     expect(harness.reviewPrompts).toHaveLength(1);
     expect(harness.sent).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
-      boundaryToolUseId: 'status-new-cycle',
+      boundaryToolUseId: 'status-approved',
       head: fixture.head,
-      ciEvent: undefined,
-      launchWaves: launchWaves(ALL_LANES, false),
     });
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
   it('REQ-AGENT-141: normal resume keeps a visible exact-boundary plan inert until another boundary occurs', async () => {
@@ -2309,7 +2309,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-058/REQ-AGENT-063: lifecycle recovery preserves a transient non-delivery lookup', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-058/REQ-AGENT-063: a transient non-delivery lookup is one-shot', async () => {
     const fixture = makeReviewFixture();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
     let queries = 0;
@@ -2323,14 +2323,11 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent('git status --short', 'transient-pr-lookup'));
-
-    expect(harness.sent).toEqual([]);
-    expect(readFileSync(fixture.sessionFile, 'utf8')).not.toContain('pr-boundary-evaluated');
-
     await harness.emit('agent_end');
 
-    expect(harness.reviewPrompts).toHaveLength(1);
-    expect(harness.sent).toHaveLength(1);
+    expect(queries).toBe(1);
+    expect(harness.reviewPrompts).toEqual([]);
+    expect(harness.sent).toEqual([]);
     expect(readFileSync(fixture.sessionFile, 'utf8')).toContain('pr-boundary-evaluated');
   });
 
@@ -2941,7 +2938,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-132/REQ-AGENT-141: startup and resume do not inherit an older same-head cycle', async () => {
+  it('REQ-AGENT-132/REQ-AGENT-141: startup and resume keep an existing exact-head plan authoritative across later ordinary activity', async () => {
     for (const reason of ['startup', 'resume'] as const) {
       const fixture = makeReviewFixture();
       const initialHarness = await registerFixture(fixture);
@@ -2951,18 +2948,17 @@ describe('Pi review reminder and settled enforcement', () => {
       );
       await initialHarness.emit('tool_result', boundaryEvent('git push origin pi', 'push-old-cycle'));
       appendSession(fixture.sessionFile,
-        assistantTool('status-new-cycle', 'bash', { command: 'git status --short' }),
-        toolResult('status-new-cycle', 'bash'),
+        assistantTool('status-after-plan', 'bash', { command: 'git status --short' }),
+        toolResult('status-after-plan', 'bash'),
       );
 
       const recoveredHarness = await registerFixture(fixture);
-      recoveredHarness.setReviewDecision('acknowledge');
       await recoveredHarness.emit('session_start', { reason });
       await recoveredHarness.emit('agent_settled');
 
-      expect(recoveredHarness.reviewPrompts).toHaveLength(1);
+      expect(recoveredHarness.reviewPrompts).toEqual([]);
       expect(recoveredHarness.sent).toEqual([]);
-      expect(ackHead(fixture.repo)).toBe(fixture.head);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
     }
   });
 
