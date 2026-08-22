@@ -579,6 +579,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(attachCount).toBe(1);
   });
 
+  it('REQ-AGENT-096 AC6: foreground owner retains registered context-mode tools', async () => {
+    const ownerRegistry: { owner?: symbol } = {};
+    const registered = new Set<string>();
+    const pi = {
+      on() {},
+      registerTool(tool: { name: string }) { registered.add(tool.name); },
+    };
+    const initialize = async () => {
+      pi.registerTool({ name: 'ctx_execute' });
+      pi.registerTool({ name: 'ctx_search' });
+    };
+
+    await expect(attachContextModeToForeground(ownerRegistry, pi, initialize)).resolves.toBe(true);
+    expect([...registered].sort()).toEqual(['ctx_execute', 'ctx_search']);
+    await expect(attachContextModeToForeground(ownerRegistry, { on() {} }, async () => {
+      registered.clear();
+    })).resolves.toBe(false);
+    expect([...registered].sort()).toEqual(['ctx_execute', 'ctx_search']);
+  });
+
   it('REQ-AGENT-089 AC2: owner shutdown permits context-mode reattachment', async () => {
     const ownerRegistry: { owner?: symbol } = {};
     const shutdownHandlers: Array<() => void | Promise<void>> = [];
