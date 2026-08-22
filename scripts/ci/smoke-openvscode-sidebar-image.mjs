@@ -123,6 +123,40 @@ export async function verifySelectedAgentPackages(
   return inventories;
 }
 
+export async function verifyNodeTarRuntimes({
+  runtimePaths = [
+    '/usr/local/lib/node_modules/npm/node_modules/tar',
+    '/opt/code-server/lib/vscode/node_modules/tar',
+  ],
+  expectedVersion = '7.5.21',
+  temporaryRoot = tmpdir(),
+} = {}) {
+  const require = createRequire(import.meta.url);
+  for (const runtimePath of runtimePaths) {
+    const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
+    assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain node-tar ${expectedVersion}`);
+    const nodeTar = require(runtimePath);
+    assert.equal(typeof nodeTar.create, 'function', `${runtimePath} must load node-tar create()`);
+    assert.equal(typeof nodeTar.extract, 'function', `${runtimePath} must load node-tar extract()`);
+
+    const root = await mkdtemp(join(temporaryRoot, 'node-tar-smoke-'));
+    try {
+      const source = join(root, 'source');
+      const extracted = join(root, 'extracted');
+      const archive = join(root, 'probe.tar');
+      await mkdir(source);
+      await mkdir(extracted);
+      await writeFile(join(source, 'probe.txt'), 'node-tar runtime smoke\n');
+      await nodeTar.create({ cwd: source, file: archive }, ['probe.txt']);
+      await nodeTar.extract({ cwd: extracted, file: archive });
+      assert.equal(await readFile(join(extracted, 'probe.txt'), 'utf8'), 'node-tar runtime smoke\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+  return runtimePaths;
+}
+
 export async function verifyUnsupportedInventory(inventory) {
   const entries = await readdir(inventory, { withFileTypes: true });
   assert.deepEqual(
@@ -154,6 +188,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
+  const nodeTarRuntimes = await verifyNodeTarRuntimes();
   const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
   const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
   assert.equal(welcomeManifest.name, WELCOME_EXTENSION_NAME);
@@ -235,6 +270,7 @@ async function main() {
     welcomeExtension: WELCOME_EXTENSION_NAME,
     userExtensionPersistence,
     codeServerRuntime,
+    nodeTarRuntimes,
     agentPackages,
     agentVersions,
     claudeVersion,
