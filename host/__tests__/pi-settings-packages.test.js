@@ -116,6 +116,26 @@ describe('Evaluate package preseed (REQ-AGENT-133)', () => {
   });
 });
 
+describe('Plan mode package preseed (REQ-AGENT-152)', () => {
+  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['@narumitw/pi-plan-mode'];
+    assert.equal(version, '0.52.0');
+    const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
+    assert.equal(planMode.version, version);
+    assert.equal(
+      planMode.resolved,
+      `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`,
+    );
+    assert.match(planMode.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+    assert.deepEqual(planMode.peerDependencies, {
+      '@earendil-works/pi-coding-agent': '*',
+      '@earendil-works/pi-tui': '*',
+    });
+  });
+});
+
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));

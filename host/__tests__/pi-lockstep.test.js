@@ -182,9 +182,10 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
   { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
+  { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
 ];
 
-describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133: image build warms and verifies every managed npm entrypoint', () => {
+describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint', () => {
   it('declares, warms, and re-verifies each locked package entrypoint', () => {
     const start = dockerfile.indexOf('RUN mkdir -p /opt/codeflare/jiti-warm-tmp');
     assert.notEqual(start, -1, 'jiti warm RUN block not found');
