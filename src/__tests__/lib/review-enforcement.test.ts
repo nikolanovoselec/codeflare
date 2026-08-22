@@ -738,7 +738,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-132/REQ-AGENT-141: an in-flight push boundary suppresses ordinary consent until automatic delivery completes', async () => {
+  it('REQ-AGENT-132/REQ-AGENT-141/REQ-AGENT-153: an in-flight push boundary suppresses ordinary consent until automatic delivery completes', async () => {
     const fixture = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
@@ -777,7 +777,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-141: leaves an ordinary boundary eligible when pending delivery proves ineligible', async () => {
+  it('REQ-AGENT-153: leaves an ordinary boundary eligible when pending delivery proves ineligible', async () => {
     const fixture = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);
@@ -804,9 +804,6 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-ineligible'));
     resolvePushQuery?.(undefined);
     await pushResult;
-    expect(harness.reviewPrompts).toEqual([]);
-
-    await harness.emit('tool_result', boundaryEvent('git status --short', 'status-during-ineligible'));
 
     expect(harness.reviewPrompts).toHaveLength(1);
     expect(harness.sent[0]?.message.details).toMatchObject({
@@ -815,7 +812,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-141: keeps every concurrent delivery pending until its own reconciliation completes', async () => {
+  it('REQ-AGENT-153: keeps every concurrent delivery pending until its own reconciliation completes', async () => {
     const fixture = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
     const harness = makeHarness(fixture.repo, fixture.sessionFile);

@@ -1194,8 +1194,40 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
   const pendingBoundaries = new Map<string, ClassifiedBoundary>();
+  const deferredBoundaries = new Map<string, ClassifiedBoundary>();
   const queuedFollowUps = new Set<string>();
   const queuedMissingFollowUps = new Map<string, number>();
+
+  const deliveryPendingForRepo = (repo: string): boolean =>
+    Array.from(pendingBoundaries.values()).some((candidate) => candidate.classification.event
+      && resolveShellInvocationRepo(candidate.invocation) === repo);
+
+  const recordLaunch = (launch: BoundaryLaunch | undefined): void => {
+    if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
+    if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
+  };
+
+  const retryDeferredBoundaries = async (ctx: ReviewContext, repo: string): Promise<void> => {
+    if (deliveryPendingForRepo(repo)) return;
+    for (const boundary of deferredBoundaries.values()) {
+      if (resolveShellInvocationRepo(boundary.invocation) !== repo) continue;
+      const launch = await launchBoundaryPlan(
+        pi,
+        ctx,
+        dependencies,
+        boundary,
+        queuedFollowUps,
+        resumedWithoutBoundary,
+      );
+      if (launch === "retry") continue;
+      deferredBoundaries.delete(boundary.toolUseId);
+      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+      }
+      resumedWithoutBoundary = false;
+      recordLaunch(launch);
+    }
+  };
 
   const retryPendingBoundaries = async (ctx: ReviewContext): Promise<void> => {
     for (const boundary of pendingBoundaries.values()) {
@@ -1213,9 +1245,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
       }
       resumedWithoutBoundary = false;
-      if (!launch) continue;
-      if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-      if (launch.queuedPlan) deferredSettledRecoveryHead = launch.head;
+      recordLaunch(launch);
+      const repo = resolveShellInvocationRepo(boundary.invocation);
+      if (repo) await retryDeferredBoundaries(ctx, repo);
     }
   };
 
@@ -1227,6 +1259,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
     pendingBoundaries.clear();
+    deferredBoundaries.clear();
     queuedFollowUps.clear();
     queuedMissingFollowUps.clear();
   });
@@ -1245,14 +1278,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
     if (boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pendingBoundaries.delete(boundary.toolUseId);
+      deferredBoundaries.delete(boundary.toolUseId);
       return;
     }
     const boundaryRepo = resolveShellInvocationRepo(boundary.invocation);
-    const deliveryPendingForRepo = !boundary.classification.event && boundaryRepo
-      ? Array.from(pendingBoundaries.values()).some((candidate) => candidate.classification.event
-        && resolveShellInvocationRepo(candidate.invocation) === boundaryRepo)
-      : false;
-    if (deliveryPendingForRepo) return;
+    if (!boundary.classification.event && boundaryRepo && deliveryPendingForRepo(boundaryRepo)) {
+      deferredBoundaries.set(boundary.toolUseId, boundary);
+      return;
+    }
     const launch = await launchBoundaryPlan(
       pi,
       ctx,
@@ -1266,13 +1299,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     pendingBoundaries.delete(boundary.toolUseId);
+    deferredBoundaries.delete(boundary.toolUseId);
     if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     }
     resumedWithoutBoundary = false;
-    if (!launch) return;
-    if (launch.pauseGoal) pendingGoalPauseHead = launch.head;
-    if (launch.queuedPlan) deferredSettledRecoveryHead = launch.head;
+    recordLaunch(launch);
+    if (boundary.classification.event && boundaryRepo) {
+      await retryDeferredBoundaries(ctx, boundaryRepo);
+    }
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -1299,6 +1334,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     await retryPendingBoundaries(ctx);
     if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
       pendingBoundaries.clear();
+      deferredBoundaries.clear();
       resumedWithoutBoundary = false;
     }
     const recoveryFile = rootSessionFile(ctx);
