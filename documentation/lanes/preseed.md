@@ -484,7 +484,7 @@ redirection cannot turn an allowed wrapper invocation into a write. Builds, test
 Knip and other dependency-graph analysis, installs, servers, and authoritative
 verification remain CI-only. Both Pi and Claude guards allow only the exact wrapper
 path and direct blocked commands point agents to the skill; the user-only one-shot
-bypass remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6/AC7: managed safe local checks) -->
+bypass remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6/AC7: managed safe local checks) -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
