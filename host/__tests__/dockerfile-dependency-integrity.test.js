@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
 const rootPackage = readJson('package.json');
 const rootLock = readJson('package-lock.json');
@@ -42,6 +43,22 @@ function assertCompleteIntegrityTree(lockfile) {
     assert.ok(metadata.integrity, `${path} must have committed registry integrity`);
   }
 }
+
+describe('REQ-OPS-002 AC8: fixed image dependencies', () => {
+  it('overlays the fixed node-tar release across immutable runtime artifacts', () => {
+    assert.match(dockerfile, /NODE_TAR_VERSION="7\.5\.21"/);
+    assert.match(
+      dockerfile,
+      /NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c"/,
+    );
+    assert.ok(
+      dockerfile.includes(`for NODE_TAR_DIR in \\
+        /usr/local/lib/node_modules/npm/node_modules/tar \\
+        /opt/code-server/lib/vscode/node_modules/tar; do`),
+    );
+    assert.match(dockerfile, /test "\$\(jq -r \.version "\$NODE_TAR_DIR\/package\.json"\)" = "\$NODE_TAR_VERSION"/);
+  });
+});
 
 describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   it('privileged npm tool manifest has a complete committed integrity tree', () => {

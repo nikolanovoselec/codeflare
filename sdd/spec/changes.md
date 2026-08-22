@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-22
 
+- **Fixable vulnerabilities in immutable runtime artifacts are remediated rather than excepted** ([REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) AC8 added; remains Implemented). The image replaces every affected npm and embedded Code OSS copy of node-tar from one exact integrity-verified 7.5.21 package artifact, verifies both installed versions during the build, and keeps the deployment scan fail-closed for CVE-2026-73566.
+
 - **Automatic Pi delivery remains authoritative throughout asynchronous reconciliation** ([REQ-AGENT-141](agents.md#req-agent-141-authoritative-head-review-launch-continuity) AC2 retained for established-plan reuse; [REQ-AGENT-153](agents.md#req-agent-153-in-flight-delivery-reconciliation-continuity) added as Implemented). Each push or PR-create boundary stays independently pending until its own authoritative lookup completes. Ordinary activity in the same repository waits without opening a competing choice, then reuses an established plan or automatically resumes normal eligibility when delivery proves ineligible.
 
 - **Usage plan labels are limited to metered SaaS plans** ([REQ-SUB-018](subscription.md#req-sub-018-usage-dashboard-page) AC7 added; remains Implemented). Non-SaaS and custom unmetered usage pages show personal time without subscription tier or mode naming. Metered SaaS retains the centered tier-and-mode label.

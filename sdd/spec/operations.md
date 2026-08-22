@@ -71,6 +71,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. The pipeline fails before push on an unexcepted vulnerability or when a bounded exception is missing, duplicated, additional, or differs from its reviewed artifact, package path, package URL, package, installed version, fixed version, or severity. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 6. The image is pushed to the selected registry (Cloudflare managed registry by default; Docker Hub as dispatch-selectable bypass); the content-address image tag is captured for downstream binding. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
 7. A freshly built image passes packaged Pi/Claude inventory, cold-readiness, process, resource, and prefixed-proxy smoke before vulnerability scan or push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-002 AC7: packaged-image smoke activates an extension through its VS Code EventEmitter shim) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+8. A fixable vulnerable package in immutable upstream runtime artifacts is replaced from one exact integrity-verified package artifact across every affected runtime path, and the image build verifies the fixed version before continuing. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-002 AC8: overlays the fixed node-tar release across immutable runtime artifacts) -->
 
 **Constraints:**
 
@@ -84,7 +85,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated workflow-ownership test; deployment image evidence
+**Verification:** Automated workflow-ownership and immutable-runtime-overlay tests; deployment image evidence
 
 **Status:** Implemented
 

@@ -207,7 +207,10 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # the immutable release tag and owns the five code-server literals below.
 # code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
 # the overlay pins 4.3.1 under an independent integrity hash as defence in
-# depth. Drop it when code-server vendors 4.3.1 or later directly.
+# depth. The immutable Node and code-server artifacts also carry node-tar
+# versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
+# replaces both runtime copies. Drop each overlay after its upstream artifact
+# contains at least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.132.0" && \
     CODE_SERVER_SHA256="a38d26f4cb81f768feddff79e2937fd3f39c83d3da8be3da7225e1087e62e4ed" && \
     CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
@@ -215,6 +218,8 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     CODE_SERVER_VSCODE_COMMIT="df53daabb18cd157bdb08c7f01c34df936cf12f4" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
+    NODE_TAR_VERSION="7.5.21" && \
+    NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
@@ -223,12 +228,25 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
       "https://registry.npmjs.org/js-yaml/-/js-yaml-${JS_YAML_VERSION}.tgz" \
       -o /tmp/js-yaml.tgz && \
     echo "${JS_YAML_SHA512}  /tmp/js-yaml.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/tar/-/tar-${NODE_TAR_VERSION}.tgz" \
+      -o /tmp/node-tar.tgz && \
+    echo "${NODE_TAR_SHA512}  /tmp/node-tar.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
     rm -rf /opt/code-server/node_modules/js-yaml && \
     mkdir -p /opt/code-server/node_modules/js-yaml && \
     tar -xzf /tmp/js-yaml.tgz -C /opt/code-server/node_modules/js-yaml --strip-components=1 && \
     test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "$JS_YAML_VERSION" && \
+    for NODE_TAR_DIR in \
+        /usr/local/lib/node_modules/npm/node_modules/tar \
+        /opt/code-server/lib/vscode/node_modules/tar; do \
+      rm -rf "$NODE_TAR_DIR" && \
+      mkdir -p "$NODE_TAR_DIR" && \
+      tar -xzf /tmp/node-tar.tgz -C "$NODE_TAR_DIR" --strip-components=1 && \
+      test "$(jq -r .version "$NODE_TAR_DIR/package.json")" = "$NODE_TAR_VERSION"; \
+    done && \
+    npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
     test "$(jq -r .version /opt/code-server/package.json)" = "$CODE_SERVER_VERSION" && \
@@ -249,7 +267,7 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
-    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz
+    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz
 
 # Codeflare's non-agent welcome surface is available for every fixed inventory.
 # It is packaged as owned extension code without modifying code-server or Code OSS.
