@@ -267,6 +267,7 @@ const fixtureNextRuntimeSource = [
 \t}
 
 \trecordGoalUsage() {}
+\townsWorkflow(goal = this.activeGoal) { return goal?.status === "active"; }
 \tclearGoalRecoveryForGoal() {}
 \tclearBudgetWrapUp() {}
 \tblockStaleGoalToolCalls() {}
@@ -303,7 +304,7 @@ const fixtureNextRuntimeSource = [
 \t\t\tif (
 \t\t\t\tgeneration !== this.menuGeneration ||
 \t\t\t\tthis.activeGoal?.id !== goalId ||
-\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t\t!this.ownsWorkflow(this.activeGoal)
 \t\t\t) {
 \t\t\t\treturn;
 \t\t\t}
@@ -629,6 +630,34 @@ function extractPinnedFixturePackage(root) {
   extractPackage(PINNED_PACKAGE_ARCHIVE, PINNED_PACKAGE_INTEGRITY, root);
 }
 
+const PINNED_RUNTIME_STUBS = {
+  name: 'pinned-runtime-stubs',
+  setup(bundle) {
+    bundle.onResolve(
+      { filter: /^@(?:earendil-works\/pi-(?:ai|coding-agent|tui)|narumitw\/pi-tui-kit)$/ },
+      ({ path }) => ({ path, namespace: 'pinned-runtime-stub' }),
+    );
+    bundle.onLoad({ filter: /.*/, namespace: 'pinned-runtime-stub' }, () => ({
+      loader: 'js',
+      contents: `
+        export const DEFAULT_MAX_BYTES = 50_000;
+        export const DEFAULT_MAX_LINES = 2_000;
+        export const defineMenu = (definition) => definition;
+        export const defineTool = (definition) => definition;
+        export const getAgentDir = () => process.cwd();
+        export const getMarkdownTheme = () => ({});
+        export const isContextOverflow = () => false;
+        export const isRetryableAssistantError = () => false;
+        export const runMenu = async () => ({ kind: "cancel" });
+        export const stripTerminalSequences = (value) => value;
+        export const truncateHead = (content) => ({ content, truncated: false });
+        export const withFileMutationQueue = async (_path, operation) => operation();
+        export class Markdown {}
+      `,
+    }));
+  },
+};
+
 async function bundleFixture(entryPoint, outputPath) {
   await build({
     entryPoints: [entryPoint],
@@ -638,6 +667,7 @@ async function bundleFixture(entryPoint, outputPath) {
     platform: 'node',
     target: 'node22',
     logLevel: 'silent',
+    plugins: [PINNED_RUNTIME_STUBS],
     nodePaths: [join(process.cwd(), 'node_modules')],
   });
   return (await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`)).default;
