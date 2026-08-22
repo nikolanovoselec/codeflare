@@ -413,6 +413,7 @@ const UsageResponseSchema = z.object({
   dailySeconds: z.number(),
   monthlySeconds: z.number(),
   monthlyQuotaSeconds: z.number().nullable(),
+  tierId: z.string(),
   tier: z.string(),
   mode: z.enum(['default', 'advanced']).optional(),
 });

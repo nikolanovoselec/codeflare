@@ -26,6 +26,7 @@ vi.mock('../../api/client', () => ({
     dailySeconds: 0,
     monthlySeconds: 0,
     monthlyQuotaSeconds: null,
+    tierId: 'free',
     tier: 'Free',
     mode: 'default',
   })),

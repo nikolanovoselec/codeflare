@@ -8,6 +8,7 @@ let mockUsage: {
   dailySeconds: number;
   monthlySeconds: number;
   monthlyQuotaSeconds: number | null;
+  tierId: string;
   tier: string;
   mode?: 'default' | 'advanced';
 };
@@ -47,6 +48,7 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
       dailySeconds: 3600,
       monthlySeconds: 36_000,
       monthlyQuotaSeconds: 144_000,
+      tierId: 'free',
       tier: 'Free',
       mode: 'default',
     };
@@ -87,7 +89,7 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
     expect(byLabel['Quota']).toBe('40h');
   });
 
-  it('REQ-SUB-022 AC4: renders personal usage stat cards without quota UI when monthly quota is null', async () => {
+  it('REQ-SUB-022 AC4: renders only personal usage times outside SaaS', async () => {
     mockUsage = { ...mockUsage, monthlyQuotaSeconds: null };
 
     render(() => <UsagePage />);
@@ -98,6 +100,32 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
     expect(labels).toEqual(['Today', 'This month']);
     expect(document.querySelector('.usage-bar-fill')).not.toBeInTheDocument();
     expect(document.querySelector('.usage-panel-percent')).not.toBeInTheDocument();
+    expect(document.querySelector('.usage-panel-plan')).not.toBeInTheDocument();
+  });
+
+  it('REQ-SUB-018 AC7: centers the plan label for a metered SaaS tier', async () => {
+    mockSaasMode = true;
+
+    render(() => <UsagePage />);
+
+    await waitFor(() => expect(document.querySelector('.usage-panel-plan')).toBeInTheDocument());
+    const plan = document.querySelector('.usage-panel-plan') as HTMLElement;
+    expect(plan.textContent).toBe('Free Standard');
+    expect(plan.parentElement).toHaveClass('usage-panel-header--centered-plan');
+  });
+
+  it('REQ-SUB-018 AC7: hides the plan label for the custom SaaS tier', async () => {
+    mockSaasMode = true;
+    mockUsage = {
+      ...mockUsage,
+      tierId: 'unlimited',
+      tier: 'Custom',
+    };
+
+    render(() => <UsagePage />);
+
+    await waitFor(() => expect(document.querySelector('.usage-panel-percent')).toBeInTheDocument());
+    expect(document.querySelector('.usage-panel-plan')).not.toBeInTheDocument();
   });
 
   it('shows the error surface instead of stat cards when getUsage rejects', async () => {

@@ -34,6 +34,7 @@ app.get('/', async (c) => {
           dailySeconds: live.dailySeconds,
           monthlySeconds: live.monthlySeconds,
           monthlyQuotaSeconds,
+          tierId: tier.id,
           tier: tier.displayName || tier.id,
           mode: user.subscribedMode ?? 'default',
         });
@@ -58,6 +59,7 @@ app.get('/', async (c) => {
     dailySeconds,
     monthlySeconds,
     monthlyQuotaSeconds,
+    tierId: tier.id,
     tier: tier.displayName || tier.id,
     mode: user.subscribedMode ?? 'default',
   });

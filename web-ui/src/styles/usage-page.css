@@ -27,9 +27,23 @@
 
 .usage-panel-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: baseline;
   margin-bottom: var(--space-4);
+}
+
+.usage-panel-header--centered-plan {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.usage-panel-header--centered-plan .usage-panel-plan {
+  grid-column: 2;
+}
+
+.usage-panel-header--centered-plan .usage-panel-percent {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .usage-panel-plan {

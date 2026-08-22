@@ -12,6 +12,7 @@ const UsagePage: Component = () => {
   const [dailySeconds, setDailySeconds] = createSignal(0);
   const [monthlySeconds, setMonthlySeconds] = createSignal(0);
   const [quotaSeconds, setQuotaSeconds] = createSignal<number | null>(null);
+  const [tierId, setTierId] = createSignal('');
   const [tierName, setTierName] = createSignal('');
 
   let pollInterval: ReturnType<typeof setInterval> | undefined;
@@ -22,6 +23,7 @@ const UsagePage: Component = () => {
       setDailySeconds(data.dailySeconds);
       setMonthlySeconds(data.monthlySeconds);
       setQuotaSeconds(data.monthlyQuotaSeconds);
+      setTierId(data.tierId);
       const mode = data.mode === 'advanced' ? 'Pro' : 'Standard';
       setTierName(`${data.tier} ${mode}`);
       setError(null);
@@ -47,6 +49,7 @@ const UsagePage: Component = () => {
   };
 
   const hasQuota = () => quotaSeconds() !== null;
+  const showPlan = () => sessionStore.saasMode && tierId() !== 'unlimited';
 
   const barColor = () =>
     usagePercent() >= 100
@@ -76,12 +79,19 @@ const UsagePage: Component = () => {
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
           <Show when={!error()} fallback={<div class="usage-error">{error()}</div>}>
             <div class="usage-panel">
-              <div class="usage-panel-header">
-                <span class="usage-panel-plan">{tierName()}</span>
-                <Show when={hasQuota()}>
-                  <span class="usage-panel-percent">{usagePercent()}%</span>
-                </Show>
-              </div>
+              <Show when={showPlan() || hasQuota()}>
+                <div
+                  class="usage-panel-header"
+                  classList={{ 'usage-panel-header--centered-plan': showPlan() }}
+                >
+                  <Show when={showPlan()}>
+                    <span class="usage-panel-plan">{tierName()}</span>
+                  </Show>
+                  <Show when={hasQuota()}>
+                    <span class="usage-panel-percent">{usagePercent()}%</span>
+                  </Show>
+                </div>
+              </Show>
 
               <Show when={hasQuota()}>
                 <div class="usage-bar-track">
@@ -116,8 +126,7 @@ const UsagePage: Component = () => {
 
             <div class="usage-actions">
               <a href="/app/" class="usage-btn">Back to Dashboard</a>
-              {/* Subscription is SaaS-only billing — hidden in enterprise where
-                  /app/subscribe is not reachable and usage is view-only. */}
+              {/* Subscription is SaaS-only billing and is hidden in every other deployment mode. */}
               <Show when={sessionStore.saasMode}>
                 <a href="/app/subscribe" class="usage-btn usage-btn--secondary">Subscription</a>
               </Show>
