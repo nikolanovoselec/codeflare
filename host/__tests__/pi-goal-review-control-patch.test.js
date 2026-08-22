@@ -679,6 +679,7 @@ function createExtensionHarness() {
   const eventListeners = new Map();
   const notifications = [];
   const entries = [];
+  const tools = [];
   let activeTools = [];
   let thinkingLevel = 'medium';
   const sessionManager = {
@@ -701,7 +702,7 @@ function createExtensionHarness() {
       },
     },
     registerCommand: (name, definition) => commands.set(name, definition),
-    registerTool: () => undefined,
+    registerTool: (definition) => tools.push(definition),
     registerFlag: () => undefined,
     getFlag: () => false,
     on(name, listener) {
@@ -713,6 +714,7 @@ function createExtensionHarness() {
       entries.push({ type: 'custom', customType, data });
     },
     sendUserMessage: async () => undefined,
+    getAllTools: () => [...tools],
     getActiveTools: () => [...activeTools],
     setActiveTools: (tools) => { activeTools = [...tools]; },
     getThinkingLevel: () => thinkingLevel,

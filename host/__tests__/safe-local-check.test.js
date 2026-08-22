@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -68,11 +69,31 @@ describe('REQ-AGENT-052 AC6/AC7: managed safe local checks', () => {
   });
 
   it('rejects mutating analyzer flags before starting the binary', () => {
-    const root = fixture('oxlint');
-    const result = run(root, ['oxlint', '--fix', 'src']);
+    for (const args of [
+      ['oxlint', '--fix', 'src'],
+      ['eslint', '-o', 'report.json', '.'],
+      ['eslint', '--cache', '.'],
+      ['eslint', '--cache-location=.cache/eslint', '.'],
+    ]) {
+      const root = fixture(args[0]);
+      const result = run(root, args);
+
+      assert.equal(result.status, 2, `${args.join(' ')} should be rejected`);
+      assert.match(result.stderr, /read-only|not allowed/i);
+      assert.equal(existsSync(join(root, 'capture.txt')), false, 'analyzer must not start');
+      assert.equal(existsSync(join(root, 'report.json')), false, 'output file must not be created');
+    }
+  });
+
+  it('does not resolve an analyzer outside the repository boundary', () => {
+    const parent = fixture('eslint');
+    const root = join(parent, 'repository');
+    mkdirSync(join(root, '.git'), { recursive: true });
+    const result = run(root, ['eslint', '.']);
 
     assert.equal(result.status, 2);
-    assert.match(result.stderr, /read-only|--fix/i);
+    assert.match(result.stderr, /repository-local eslint/i);
+    assert.equal(existsSync(join(parent, 'capture.txt')), false, 'ancestor analyzer must not start');
   });
 
   it('requires an already-installed repository-local analyzer', () => {

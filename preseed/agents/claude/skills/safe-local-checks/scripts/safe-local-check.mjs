@@ -12,6 +12,8 @@ const FORBIDDEN_ARGUMENTS = [
   /^--apply(?:$|=|-)/u,
   /^--watch(?:$|=)/u,
   /^--output-file(?:$|=)/u,
+  /^-o(?:$|=|[^-])/u,
+  /^--cache(?:$|=|-)/u,
   /^--concurrency(?:$|=)/u,
   /^-w$/u,
 ];
@@ -48,13 +50,27 @@ async function executable(path) {
   }
 }
 
+async function repositoryRoot(cwd) {
+  const start = resolve(cwd);
+  const filesystemRoot = parse(start).root;
+  let directory = start;
+  while (true) {
+    try {
+      await access(join(directory, '.git'), constants.F_OK);
+      return directory;
+    } catch { /* keep looking for the enclosing repository */ }
+    if (directory === filesystemRoot) return start;
+    directory = dirname(directory);
+  }
+}
+
 async function repositoryBinary(name, cwd) {
   let directory = resolve(cwd);
-  const root = parse(directory).root;
+  const boundary = await repositoryRoot(directory);
   while (true) {
     const candidate = join(directory, 'node_modules', '.bin', name);
     if (await executable(candidate)) return candidate;
-    if (directory === root) return undefined;
+    if (directory === boundary) return undefined;
     directory = dirname(directory);
   }
 }

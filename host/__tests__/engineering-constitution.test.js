@@ -13,6 +13,7 @@ const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
 const piDir = resolve(repoRoot, 'preseed/agents/pi');
 const piConstitution = readFileSync(resolve(piDir, 'rules/engineering-constitution.md'), 'utf8');
 const piGitWorkflow = readFileSync(resolve(piDir, 'rules/git-workflow.md'), 'utf8');
+const localExecutionGate = readFileSync(resolve(claudeDir, 'rules/no-local-builds.md'), 'utf8');
 const generatedSource = readFileSync(resolve(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
 const generatedDocuments = parseGeneratedSeed(generatedSource);
 
@@ -44,7 +45,7 @@ describe('engineering constitution preseed', () => {
 
   it('delivers Git Workflow in both modes and the constitution only in advanced mode', () => {
     const expectedByMode = {
-      default: `${piGitWorkflow.trim()}\n`,
+      default: `${piGitWorkflow.trim()}\n\n---\n\n${localExecutionGate.trim()}\n`,
       advanced: `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`,
     };
     for (const mode of ['default', 'advanced']) {

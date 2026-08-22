@@ -109,6 +109,7 @@ PATTERNS=(
   "${CMDPOS}pytest([[:space:]]|$)"
   "${CMDPOS}playwright[[:space:]]+test"
   "${CMDPOS}node[[:space:]]+--test"
+  "${CMDPOS}node[[:space:]]+--check([[:space:]]|$)"
   "${CMDPOS}bun[[:space:]]+test"
   # npm / npx wrappers. The `npx` form must permit arbitrary flags
   # between `npx` and the tool name (e.g. `npx -y oxlint@1.66.0`,
@@ -122,7 +123,7 @@ PATTERNS=(
   # the letter `n` (e.g. `--no-install`, `--include-node`). `grep -E`
   # matches per-line, so newlines never appear in the haystack
   # mid-match, making `.*` the correct primitive here.
-  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|biome|prettier|playwright)([[:space:]@]|$)"
   "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
   "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
@@ -137,6 +138,7 @@ PATTERNS=(
   "${CMDPOS}tsc([[:space:]]|$)"
   "${CMDPOS}oxlint([[:space:]]|$)"
   "${CMDPOS}eslint([[:space:]]|$)"
+  "${CMDPOS}biome([[:space:]]|$)"
   "${CMDPOS}prettier([[:space:]]|$)"
   # Wrangler dev/build/deploy (deploy goes through CI/Actions)
   "${CMDPOS}wrangler[[:space:]]+(dev|build|deploy)"

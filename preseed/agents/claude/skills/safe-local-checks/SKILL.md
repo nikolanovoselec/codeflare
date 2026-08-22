@@ -24,7 +24,7 @@ The wrapper:
 - permits full-project checks and imposes no file-count limit;
 - resolves analyzers only from the repository's existing `node_modules/.bin` tree;
 - runs at low priority and stops the complete process group after at most three minutes;
-- rejects mutation, watch, output-file, and analyzer-concurrency flags;
+- rejects mutation, watch, output-file, cache-writing, and analyzer-concurrency flags;
 - never installs or downloads a package.
 
 Biome is limited to `check`. Prettier requires `--check`. Syntax mode runs Node's parser against each named file within one shared deadline.

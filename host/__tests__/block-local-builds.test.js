@@ -167,6 +167,14 @@ describe('block-local-builds.sh — Bash matcher', () => {
     assert.match(r.stdout, /safe-local-checks/);
   });
 
+  for (const command of ['biome check .', 'npx biome check .', 'node --check script.mjs']) {
+    it(`blocks direct managed-check alternative \`${command}\``, () => {
+      const r = runHook(bashInvocation(command), { bypassFile: tempBypass() });
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+      assert.match(r.stdout, /safe-local-checks/);
+    });
+  }
+
   it('allows the standalone Claude managed safe-check wrapper', () => {
     const r = runHook(
       bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src/'),
@@ -186,7 +194,7 @@ describe('block-local-builds.sh — Bash matcher', () => {
 
   it('blocks shell redirection around the managed wrapper', () => {
     const r = runHook(
-      bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src/ > lint.log'),
+      bashInvocation('node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs syntax script.mjs > syntax.log'),
       { bypassFile: tempBypass() },
     );
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);

@@ -399,7 +399,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 
   it('AC4: detects the package-manager verbs plus the standalone tool set, and allows the rest', () => {
-    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'prettier -w .', 'wrangler dev']) {
+    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'biome check .', 'npx biome check .', 'node --check script.mjs', 'prettier -w .', 'wrangler dev']) {
       expect(isLocalBuildCommand(cmd), cmd).toBe(true);
     }
     expect(isLocalBuildCommand('git status')).toBe(false);
@@ -450,6 +450,11 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(localBuildBlockReason('oxlint src', { existsSync: () => false, unlinkSync: () => undefined }))
       .toMatch(/safe-local-checks/);
     expect(localBuildBlockReason(`${command} > lint.log`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    const syntax = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs syntax script.mjs';
+    expect(localBuildBlockReason(`${syntax} > syntax.log`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    expect(localBuildBlockReason(`${syntax} && printf done`, { existsSync: () => false, unlinkSync: () => undefined }))
       .toMatch(/safe-local-checks/);
   });
 

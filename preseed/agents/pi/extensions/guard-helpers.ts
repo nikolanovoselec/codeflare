@@ -253,10 +253,14 @@ export function isManagedSafeLocalCheckCommand(command: string): boolean {
     && isSafeLocalCheckWords(commands[1] ?? []);
 }
 
+function invokesSafeLocalCheckWrapper(command: string): boolean {
+  return executableShellCommands(command).some(isSafeLocalCheckWords);
+}
+
 export function isLocalBuildCommand(command: string): boolean {
   const executableCommand = withoutHeredocBodies(command);
   return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand);
+    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|biome|node\s+--check|prettier|wrangler\s+dev)\b/.test(executableCommand);
 }
 
 export interface BypassFs {
@@ -265,7 +269,8 @@ export interface BypassFs {
 }
 
 export function localBuildBlockReason(command: string, fs: BypassFs): string | undefined {
-  if (!isLocalBuildCommand(command) || isManagedSafeLocalCheckCommand(command)) return undefined;
+  if (isManagedSafeLocalCheckCommand(command)) return undefined;
+  if (!isLocalBuildCommand(command) && !invokesSafeLocalCheckWrapper(command)) return undefined;
   // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
   if (fs.existsSync(LOCAL_BUILD_BYPASS)) {
     try {
