@@ -44,7 +44,7 @@ function assertCompleteIntegrityTree(lockfile) {
   }
 }
 
-describe('REQ-OPS-046 AC1: fixed immutable runtime dependencies', () => {
+describe('immutable runtime overlay build contract', () => {
   it('overlays the fixed node-tar release across immutable runtime artifacts', () => {
     assert.match(dockerfile, /NODE_TAR_VERSION="7\.5\.21"/);
     assert.match(

@@ -98,8 +98,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. One exact integrity-verified package artifact replaces the vulnerable dependency across every affected immutable runtime path. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (overlays the fixed node-tar release across immutable runtime artifacts) -->
-2. Before scan or push, packaged-image smoke verifies every replacement's fixed version, loads it through its affected runtime path, and completes an archive round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2: packaged-image smoke loads and exercises every fixed node-tar runtime) --> <!-- @manual: Dispatch an integration deployment that builds a fresh image; confirm packaged smoke reports both node-tar paths before Trivy scan and image push. -->
+1. One exact integrity-verified package artifact replaces the vulnerable dependency across every affected immutable runtime path. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @manual: Dispatch a fresh integration image build and confirm its integrity check succeeds before the artifact is extracted into both declared runtime paths. -->
+2. Before scan or push, packaged-image smoke verifies the fixed version at every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) -->
+3. Packaged-image smoke loads the replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) -->
+4. Each loaded replacement completes an archive creation and extraction round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @manual: Confirm fresh-image smoke reports both node-tar paths before Trivy scan and image push. -->
 
 **Constraints:**
 

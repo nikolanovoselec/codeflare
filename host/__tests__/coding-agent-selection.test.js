@@ -82,7 +82,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     }
   });
 
-  it('REQ-OPS-046 AC2: packaged-image smoke loads and exercises every fixed node-tar runtime', async () => {
+  it('REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'node-tar-runtime-smoke-'));
     try {
       const runtimePaths = ['npm-tar', 'code-server-tar'].map((name) => join(fixture, name));
@@ -101,8 +101,20 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       }
 
       const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
-
       assert.deepEqual(verified, runtimePaths);
+
+      const brokenRuntime = join(fixture, 'broken-tar');
+      mkdirSync(brokenRuntime, { recursive: true });
+      writeFileSync(
+        join(brokenRuntime, 'package.json'),
+        JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }),
+      );
+      writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
+
+      await assert.rejects(
+        verifyNodeTarRuntimes({ runtimePaths: [brokenRuntime], temporaryRoot: fixture }),
+        /must load node-tar extract/,
+      );
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

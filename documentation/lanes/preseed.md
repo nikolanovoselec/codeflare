@@ -48,11 +48,11 @@ deployed on Recreate or new bucket creation.
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode helper package (`ctx_*` tools) | Installed and enabled by default; `/ctx off` opts out until restart | Installed and enabled by default; `/ctx off` opts out until restart | Installed and enabled by default; `/ctx off` opts out until restart |
+| context-mode helper package (`ctx_*` tools) | Installed and enabled by default; `/ctx off` opts out until restart | Installed and enabled by default; `/ctx off` opts out until restart | Installed and enabled by default; `/ctx off` opts out until restart ([REQ-AGENT-076 AC1](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)) |
 | Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-plan-mode`, `@narumitw/pi-usage`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes context-mode's enabled Pi package marker, exposing its skills and `ctx_*` tools through the managed single foreground owner while filtering the package's own extension entrypoint. A state-changing `/ctx off` or `/ctx on` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start restores the enabled default.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Container startup writes context-mode's enabled Pi package marker, exposing its skills and `ctx_*` tools through the managed single foreground owner while filtering the package's own extension entrypoint. A state-changing `/ctx off` or `/ctx on` command persists the selected shared Pi setting and reloads the active Pi process; the next Codeflare container start restores the enabled default. See [REQ-AGENT-076 AC1-AC2](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults).
 
 When enabled by startup or explicit `/ctx on`, package settings expose context-mode skills but filter out its extension. The managed `context-mode-runtime.ts` extension claims one process-wide foreground owner and loads the installed context-mode Pi adapter only for that owner; every in-process subagent sees the claim and skips the adapter, so no reviewer/capture/CI child creates a bridge helper. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> The owner is released after context-mode handles `session_shutdown`, allowing `/reload` and `/ctx` toggles to reattach cleanly.
 
@@ -417,6 +417,23 @@ Behavior required in both timelines receives two explicit edits, with the privat
 The shared compiler and runtime ABI remain Codeflare-owned. Compiler, transform, seed ABI, or Pi runtime-lock changes land in Codeflare first; after that commit exists, update the exact compiler pin in `codeflare-curation` and run its real compiler integration workflow. Never copy dirty or untracked compiler files into the private repository.
 
 After a private content change merges to protected `main`, the operator runs the one-trigger protected release workflow. It derives the next sequence from verified immutable history and publishes fixed signed assets. Codeflare discovers the release through its normal five-minute dashboard refresh. No image rebuild, source synchronization job, webhook, or container clone participates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+
+### Spotlight: how `runtimeDependencyHash` binds a release to its image
+
+A managed release may replace agent code without rebuilding the container. That freedom needs a hard compatibility check. A valid signature proves who published the bytes; it does not prove that the installed Pi packages can run them. `runtimeDependencyHash` closes that gap. See [REQ-AGENT-147 AC2-AC3](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) and [REQ-AGENT-150 AC4](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation).
+
+1. `codeflare-curation/config/compiler.json` pins one exact Codeflare commit, which owns the compiler and Pi runtime contract. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
+2. Publication checks out that clean commit and copies its `preseed/agents/pi/package-lock.json` into the staged private source. The private repository supplies the managed content. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash -->
+3. The shared compiler calculates SHA-256 over the complete lockfile bytes. Whitespace and dependency-tree changes count because npm installs from that exact lock. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash -->
+4. Release construction writes the digest to `runtimeDependencyHash` inside `seed-v1.json.gz`. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease -->
+5. Publication signs the exact deterministic compressed bundle and publishes it with its raw 64-byte Ed25519 signature. <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle -->
+6. Every Codeflare image contains `PRESEED_RUNTIME_DEPENDENCY_HASH`, generated from the Pi lockfile used to build that image. <!-- @impl: scripts/agent-seed-core.mjs::toGeneratedModuleSource -->
+7. On its periodic release check, the Worker verifies immutable metadata, asset digests, signature, schema, sequence, and runtime hash before activation. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream -->
+8. Equal hashes permit activation. A mismatch retains the previous verified release, records `Managed release requires a different runtime dependency set`, and retries later. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+
+The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and each image compares that value with its own generated constant. A content-only release that keeps the same Pi lockfile keeps the same hash and needs no image redeploy. A new npm or native dependency changes the lock, so the matching image must reach an environment before that environment can activate the release.
+
+This is deliberately narrower than a full Codeflare source hash. The exact compiler commit makes compilation reproducible; the Pi lockfile digest answers the runtime question. Treating those as one concept would force image deployments for harmless prose changes, which would defeat managed curation.
 
 <a id="preseed-deployment"></a>
 ## Runtime Delivery Pipeline
@@ -1030,9 +1047,9 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 ### Third-party plugin: context-mode
 
-[context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi installs and enables context-mode by default through the managed foreground owner. `/ctx off` disables the package for the current running container and reloads resources; `/ctx on` enables it again. The next Codeflare container start returns Pi to the enabled default.
+[context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi installs and enables context-mode by default through the managed foreground owner. `/ctx off` disables the package for the current running container and reloads resources; `/ctx on` enables it again. The next Codeflare container start returns Pi to the enabled default. See [REQ-AGENT-076 AC1-AC2](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults). <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand -->
 
-The npm package is installed and patched at image-build time in both the global Claude MCP tree and Pi's prewarmed package tree, so first invocation performs no package fetch. Entrypoint registers the Claude MCP server for every user. Custom-tier (`unlimited` subscription) delivery adds the plugin hooks, while Pi enables the package through its managed foreground owner by default and retains `/ctx off` as a per-container opt-out. The package source is pulled from npm rather than vendored.
+The npm package is installed and patched at image-build time in both the global Claude MCP tree and Pi's prewarmed package tree, so first invocation performs no package fetch. Entrypoint registers the Claude MCP server for every user. Custom-tier (`unlimited` subscription) delivery adds the plugin hooks, while Pi enables the package through its managed foreground owner by default and retains `/ctx off` as a per-container opt-out. The package source is pulled from npm rather than vendored. <!-- @impl: Dockerfile::CTX_DIR --> <!-- @impl: entrypoint.sh::CONTEXT_MODE_MCP_CONFIG -->
 
 Claude's three PR reviewer definitions are Bash-only report lanes with embedded policies and no write surface. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools -->
 
