@@ -2535,11 +2535,12 @@ const required = [
   'npm:@narumitw/pi-plan-mode@0.52.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
-// Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
-// every fresh container start until upstream ships a memory-safe Pi adapter.
-const disabledPackageIds = new Set(['npm:context-mode']);
-const disabledPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+// Keep context-mode enabled through the managed foreground-owner bridge on every fresh container
+// start. Filtering its upstream extension avoids a second owner; omitting `skills` keeps its tools
+// and routing skill active. `/ctx off` remains an explicit per-container override until restart.
+const defaultPackageIds = new Set(['npm:context-mode']);
+const defaultPackages = [
+  { source: 'npm:context-mode@1.0.169', extensions: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
@@ -2561,14 +2562,14 @@ for (const spec of existing) {
   const source = sourceOf(spec);
   if (!source) continue;
   const id = identity(source);
-  if (disabledPackageIds.has(id) || removedPackageIds.has(id)) continue;
+  if (defaultPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
 }
 for (const spec of required) {
   const source = sourceOf(spec);
   if (source) byName.set(identity(source), spec);
 }
-for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
+for (const spec of defaultPackages) byName.set(identity(spec.source), spec);
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
 NODE
 

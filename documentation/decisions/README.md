@@ -126,7 +126,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming)~~ | ~~Retire xterm-owned trimming during manual scrollback~~ | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) retains mode ownership but replaces reader trimming and keyboard-open wheel routing after both failed in the field. | Architecture, Mobile | Superseded |
 | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Defer terminal output while users read scrollback | The terminal freezes normal-buffer writes during manual scrollback and routes navigation through buffer state, preventing trims and DOM drift from yanking the viewport. | Architecture, Mobile | Active |
 | [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | Use one cross-agent SDD enforcement contract | Claude's canonical enforcement skills are transformed for Pi, and per-AC manual markers replace REQ-wide exemptions so both runtimes apply the same checks. | Process, Agents | Active |
-| [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety) | Keep context-mode opt-in for Pi sessions | Container startup disables context-mode until `/ctx on`, limiting exposure to its unsafe long-lived memory lifecycle while preserving explicit per-container access. | Agents, Architecture, Reliability | Active |
+| ~~[AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety)~~ | ~~Keep context-mode opt-in for Pi sessions~~ | [AD138](#ad138-context-mode-is-on-by-default-in-pi) enables the managed single-owner adapter on fresh startup while retaining `/ctx off` as a per-container escape hatch. | Agents, Architecture, Reliability | Superseded |
 | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Permit multiple resolving test anchors per acceptance criterion | The SDD parser validates every comment-bounded `@test` anchor independently, allowing distributed behavioral evidence without splitting a coherent acceptance criterion. | Process, Agents, Testing | Active |
 | [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | Make entrypoint the sole Claude context-mode registrar | Container entrypoint always writes Claude's context-mode MCP registration, preventing tier-specific plugin metadata from creating duplicate servers. | Agents, Architecture | Active |
 | [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) | Make terminal scrolling buffer-authoritative on every route | Wheel, input, refit, and bottom-anchor paths use terminal buffer state, while held output drops oldest chunks at its cap so no write path can move a reader. | Architecture | Active |
@@ -156,6 +156,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD135](#ad135-inline-chat-requires-one-host-correlated-result) | Require one host-correlated Inline result | [AD137](#ad137-inline-chat-is-edit-first-and-responses-support-is-explicit) replaces informational no-change and Chat-only scope; the one-result envelope and host correlation remain active. | Architecture, Security | Partially superseded |
 | [AD136](#ad136-managed-environments-reconcile-signed-releases-before-session-start) | Reconcile signed managed-environment releases before session start | The dashboard verifies and applies immutable releases through existing R2 upgrade machinery, avoiding a second container-start materializer and running-session conflicts. | Architecture, Security, Storage, Supply Chain | Active |
 | [AD137](#ad137-inline-chat-is-edit-first-and-responses-support-is-explicit) | Make Inline Chat edit-first with explicit Responses support | Editor turns reserve no-change for safe exceptions, force the result tool on recognized OpenAI payloads, and request provider summaries without changing Qwen. | Architecture, Security | Active |
+| [AD138](#ad138-context-mode-is-on-by-default-in-pi) | Enable context-mode by default in Pi | Fresh containers expose context-mode through the existing single foreground owner while `/ctx off` remains a per-container opt-out and subagents keep native transports. | Agents, Architecture, Reliability | Active |
 ---
 
 ## Decisions
@@ -3153,7 +3154,7 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Category:** Agents, Architecture, Reliability
 
-**Status:** Accepted (2026-07-18)
+**Status:** Superseded by [AD138](#ad138-context-mode-is-on-by-default-in-pi)
 
 **Context:** [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) eliminated competing context-mode owners, but the upstream Pi adapter still keeps foreground lifecycle state in the long-lived Pi process and disables its bridge idle reaper. Long tool-heavy sessions can therefore exhaust the constrained container before Pi reaches a compaction boundary. The latest reviewed context-mode release remains 1.0.169, and Codeflare will not patch or fork either package's lifecycle or ownership implementation; the existing image-build transforms remain limited to the ESM compatibility shim and update-probe suppression. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.169" -->
 
@@ -3193,7 +3194,7 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Context:** AD49 originally assigned Claude MCP registration to either plugin metadata or entrypoint according to tier. The shipped plugin manifest is now intentionally bare, while the container entrypoint writes the `context-mode` MCP registration for every Claude user. The image already installs and patches the package before any session starts.
 
-**Decision:** Keep one Claude registration owner: entrypoint always writes the MCP server configuration, independent of tier. Custom-tier Advanced delivery adds the context-mode plugin hooks only; it does not register a second MCP server. Pi uses its separate image-prewarmed package and remains disabled by default until `/ctx on` under [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety).
+**Decision:** Keep one Claude registration owner: entrypoint always writes the MCP server configuration, independent of tier. Custom-tier Advanced delivery adds the context-mode plugin hooks only; it does not register a second MCP server. Pi uses its separate image-prewarmed package and enables it through the managed single foreground owner under [AD138](#ad138-context-mode-is-on-by-default-in-pi).
 
 **Consequences:** Claude users have the same manual `ctx_*` capability in every tier, Custom-tier users alone receive automatic routing hooks, first invocation performs no package download, and plugin metadata cannot create duplicate MCP registrations.
 
@@ -3835,5 +3836,23 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Alternatives rejected:** A prompt classifier, retry loop, direct file writes, Code OSS fork, speculative provider fallback, raw chain-of-thought exposure, or Qwen payload rewrite adds machinery or changes established behavior without addressing the evidenced boundaries proportionally.
 
 **Consequences:** Brief source-change requests should produce host-owned proposals consistently while truthful safe exceptions remain available. Provider forcing still fails open for unknown payload structures rather than guessing syntax. The stochastic edit-first outcome requires deployed repeated-request evidence in addition to deterministic payload, tool, settlement, and publication tests. The signed curated runtime and independent image fallback carry the same extension behavior.
+
+---
+
+### AD138: context-mode is on by default in Pi
+
+**Category:** Agents, Architecture, Reliability
+
+**Status:** Accepted (2026-08-22). Supersedes [AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety).
+
+**Context:** Codeflare now clears inherited process-wide bridge-idle overrides before context-mode initializes and retains [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports)'s single foreground owner. In-process reviewers, CI monitors, and capture workers continue using native transports and cannot create competing bridges. The user chose context-mode as the default Pi experience after operating the managed adapter explicitly. The upstream package remains exact-pinned and unmodified; the remaining long-lived-process risk does not justify making every fresh session opt in again. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
+
+**Decision:** On every container start, normalize the context-mode package entry to `{ source, extensions: [] }`. This keeps upstream skills enabled while filtering its package extension, because Codeflare's managed runtime bridge is the sole adapter owner. `/ctx off` remains an explicit per-container opt-out that reloads Pi; `/ctx on` restores the same managed owner. A later container start restores the enabled default. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand -->
+
+**Alternatives rejected:** Preserve opt-in startup despite the user's default preference; load the upstream extension alongside Codeflare's bridge; patch or fork context-mode; or remove `/ctx off`. These respectively preserve unwanted friction, create duplicate ownership, add upgrade debt, or remove the bounded operational escape hatch.
+
+**Consequences:** Fresh Pi sessions expose context-mode skills and `ctx_*` tools immediately. The managed foreground owner, idle-policy reset, exact pin, and native subagent transports remain unchanged. Users can disable context-mode for the current container, but restart returns to the managed enabled state.
+
+**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports).
 
 ---
