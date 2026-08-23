@@ -76,15 +76,20 @@ describe('shared agent seed compiler', () => {
     }
   });
 
-  it('REQ-AGENT-157 AC4: rejects a Claude safe-check rule at the 400-character boundary', async () => {
+  it('REQ-AGENT-157 AC4: accepts 399 and rejects 400 Claude safe-check policy characters', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agent-seed-policy-limit-'));
     try {
       await copyCompilerFixture(dir);
-      await writeFile(
-        join(dir, 'preseed/agents/claude/rules/no-local-builds.md'),
-        'x'.repeat(400),
-      );
+      const policyPath = join(dir, 'preseed/agents/claude/rules/no-local-builds.md');
+      await writeFile(policyPath, 'x'.repeat(399));
       const { compileAgentSeed } = await import(coreUrl);
+      const compiled = await compileAgentSeed({ rootDir: dir });
+      assert.equal(
+        compiled.documents.find(({ key }) => key === '.claude/rules/no-local-builds.md')?.content.length,
+        399,
+      );
+
+      await writeFile(policyPath, 'x'.repeat(400));
       await assert.rejects(
         compileAgentSeed({ rootDir: dir }),
         /Claude permanently loaded safe-check rule must remain below 400 characters/,

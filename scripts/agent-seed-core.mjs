@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..');
-export const MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS = 400;
+const MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS = 400;
 
 // ---------------------------------------------------------------------------
 // Agent configurations
