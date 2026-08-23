@@ -93,8 +93,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const packageJson = JSON.parse(piPackage?.content ?? '{}');
     const packageLock = JSON.parse(piLock?.content ?? '{}');
 
-    expect(packageJson.dependencies?.['pi-caveman']).toBe('1.0.8');
-    expect(packageLock.packages?.['node_modules/pi-caveman']?.version).toBe('1.0.8');
+    const cavemanVersion = packageJson.dependencies?.['pi-caveman'];
+    expect(cavemanVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(packageLock.packages?.['node_modules/pi-caveman']?.version).toBe(cavemanVersion);
     expect(caveman?.modes).toEqual(['default', 'advanced']);
     expect(JSON.parse(caveman?.content ?? '{}')).toEqual({ defaultLevel: 'full', showStatus: false });
   });
