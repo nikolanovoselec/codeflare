@@ -763,16 +763,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-024: Pi native terminal notification producer
 
-**Intent:** Pi emits only fixed attention signals backed by native interactive provenance and structured lifecycle state.
+**Intent:** Pi emits fixed attention signals backed by native interactive provenance and structured lifecycle state only after the root has remained idle.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pi emits one fixed `input-required` signal for the validated ask-user event and ignores question content. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC1: emits one fixed input-required frame without question content) -->
-2. Pi completion requires interactive provenance, no extension-origin continuation, a settled run, and structured non-error, non-aborted status. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: completion requires interactive provenance and settled structured success) -->
-3. Pi failure requires an interactive-origin settled run whose final assistant stop reason is structured error. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: final structured error emits task-failed, not completion or provider prose) -->
-4. Cancellation, abort, extension-origin continuation, and absent positive provenance emit neither completion nor failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: extension-origin continuation suppresses an otherwise interactive completion) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: cancellation and abort emit neither completion nor failure) -->
+2. Pi completion requires interactive lineage, a settled structured success, and five uninterrupted minutes without new input or agent activity. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: emits completion only after five idle minutes) -->
+3. Pi failure requires interactive lineage and a settled structured error, then waits for the same uninterrupted idle interval without including provider prose. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: delays structured failure and excludes provider prose) -->
+4. New input or agent activity cancels a pending completion/failure timer and starts a fresh five-minute interval only after the continuation settles; cancellation, abort, and absent interactive lineage emit neither terminal signal. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: reactivation resets the idle window until the continuation settles) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: cancellation and abort emit neither completion nor failure) -->
 5. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC5: registers nothing and writes no bytes in RPC mode) -->
 
 **Notes:** Partial pending a fresh terminal-one record of Pi input-required, structured completion/failure, and silence for abort or continuation residue.

@@ -4,10 +4,12 @@ const INPUT_NEEDED = '\u001b]777;notify;Pi;Agent needs your input\u0007';
 const READY_FOR_INPUT = '\u001b]777;notify;Pi;Ready for input\u0007';
 const TASK_FAILED = '\u001b]777;notify;Pi;Task failed\u0007';
 
+export const PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000;
+
 type RunState = {
   readonly started: boolean;
   readonly interactiveInput: boolean;
-  readonly suppressed: boolean;
+  readonly cancelled: boolean;
   readonly eventEmitted: boolean;
   readonly signal?: AbortSignal;
   readonly finalStopReason?: string;
@@ -36,29 +38,49 @@ export default function nativeNotifications(
   if (isPiRpcMode(argv)) return;
 
   let run: RunState | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let hasInteractiveLineage = false;
+
+  const cancelIdleTimer = (clearLineage: boolean): void => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    idleTimer = undefined;
+    if (clearLineage) hasInteractiveLineage = false;
+  };
+
+  const scheduleIdleNotification = (sequence: string): void => {
+    cancelIdleTimer(false);
+    hasInteractiveLineage = true;
+    idleTimer = setTimeout(() => {
+      idleTimer = undefined;
+      hasInteractiveLineage = false;
+      emit(sequence);
+    }, PI_IDLE_NOTIFICATION_DELAY_MS);
+    (idleTimer as { unref?: () => void }).unref?.();
+  };
 
   pi.on('input', async (event) => {
+    cancelIdleTimer(false);
     const interactiveInput = event.source === 'interactive';
     run = run === undefined
       ? {
           started: false,
           interactiveInput,
-          suppressed: !interactiveInput,
+          cancelled: false,
           eventEmitted: false,
         }
       : {
           ...run,
           interactiveInput: run.interactiveInput || interactiveInput,
-          suppressed: run.suppressed || !interactiveInput,
         };
   });
 
   pi.on('agent_start', async (_event, ctx) => {
+    cancelIdleTimer(false);
     run = run === undefined
       ? {
           started: true,
           interactiveInput: false,
-          suppressed: false,
+          cancelled: false,
           eventEmitted: false,
           signal: ctx.signal,
         }
@@ -75,12 +97,13 @@ export default function nativeNotifications(
   // most one terminal event, even if the notifier channel fires repeatedly.
   pi.events.on(ASK_USER_PROMPT_EVENT, () => {
     if (run?.eventEmitted === true) return;
+    cancelIdleTimer(true);
     emit(INPUT_NEEDED);
     run = run === undefined
       ? {
           started: false,
           interactiveInput: false,
-          suppressed: false,
+          cancelled: false,
           eventEmitted: true,
         }
       : { ...run, eventEmitted: true };
@@ -90,7 +113,8 @@ export default function nativeNotifications(
     if (event.toolName !== 'ask_user_question') return;
     const details = event.details as { cancelled?: boolean } | undefined;
     if (details?.cancelled === true && run !== undefined) {
-      run = { ...run, suppressed: true };
+      cancelIdleTimer(true);
+      run = { ...run, cancelled: true };
     }
   });
 
@@ -105,17 +129,22 @@ export default function nativeNotifications(
   pi.on('agent_settled', async () => {
     const settledRun = run;
     run = undefined;
+    if (settledRun === undefined || !settledRun.started) return;
+
     if (
-      settledRun === undefined
-      || !settledRun.started
-      || !settledRun.interactiveInput
-      || settledRun.suppressed
+      settledRun.cancelled
       || settledRun.eventEmitted
       || settledRun.signal?.aborted === true
       || settledRun.finalStopReason === undefined
       || settledRun.finalStopReason === 'aborted'
-    ) return;
+    ) {
+      cancelIdleTimer(true);
+      return;
+    }
 
-    emit(settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT);
+    if (!settledRun.interactiveInput && !hasInteractiveLineage) return;
+    scheduleIdleNotification(
+      settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT,
+    );
   });
 }
