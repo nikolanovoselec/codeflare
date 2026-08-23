@@ -77,6 +77,12 @@ function skillDescription(content: string): string {
   return JSON.parse(raw) as string;
 }
 
+function compactPurpose(description: string): string {
+  if (description.length <= 32) return description;
+  const prefix = description.slice(0, 29).replace(/\s+\S*$/, '').trimEnd();
+  return `${prefix}…`;
+}
+
 function skillDoc(name: string, mode: 'default' | 'advanced' = 'advanced') {
   return docs(`.pi/agent/skills/${name}/SKILL.md`, mode)[0];
 }
@@ -198,10 +204,11 @@ describe('REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Cla
     }
   });
 
-  it('keeps model-visible package descriptions compact without rewriting skill payloads', () => {
+  it('derives every compact index purpose from installed skill metadata', () => {
     for (const mode of ['default', 'advanced'] as const) {
-      for (const doc of skillDocuments(mode)) {
-        expect(skillDescription(doc.content).length, doc.key).toBeGreaterThan(0);
+      for (const { name, purpose } of indexedSkills(mode)) {
+        const document = skillDoc(name, mode)!;
+        expect(purpose, document.key).toBe(compactPurpose(skillDescription(document.content)));
       }
     }
   });

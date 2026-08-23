@@ -157,6 +157,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD136](#ad136-managed-environments-reconcile-signed-releases-before-session-start) | Reconcile signed managed-environment releases before session start | The dashboard verifies and applies immutable releases through existing R2 upgrade machinery, avoiding a second container-start materializer and running-session conflicts. | Architecture, Security, Storage, Supply Chain | Active |
 | [AD137](#ad137-inline-chat-is-edit-first-and-responses-support-is-explicit) | Make Inline Chat edit-first with explicit Responses support | Editor turns reserve no-change for safe exceptions, force the result tool on recognized OpenAI payloads, and request provider summaries without changing Qwen. | Architecture, Security | Active |
 | [AD138](#ad138-context-mode-is-on-by-default-in-pi) | Enable context-mode by default in Pi | Fresh containers expose context-mode through the existing single foreground owner while `/ctx off` remains a per-container opt-out and subagents keep native transports. | Agents, Architecture, Reliability | Active |
+| [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
 ---
 
 ## Decisions
@@ -3865,7 +3866,7 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Status:** Accepted (2026-08-23).
 
-**Context:** Pi's native model-visible skill catalog repeats XML framing and absolute paths for every skill. That representation dominated the measured provider-boundary prompt even after descriptions and permanent policy were compressed. Removing skill files or maintaining a second routing registry would reduce bytes by weakening discovery or creating a source that can drift from the actual source-root projection.
+**Context:** Pi's native model-visible skill catalog repeats XML framing and absolute paths for every skill. That representation dominated the measured provider-boundary prompt even after descriptions and permanent policy were compressed. Removing skill files or maintaining a second routing registry would reduce bytes by weakening discovery or creating a source that can drift from the actual source-root projection. <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection -->
 
 **Decision:** The shared seed compiler derives a deterministic `name — purpose` index from each final source root after mode resolution and appends it to that mode's generated Pi `AGENTS.md`. Every model-invocable indexed name maps to the conventional `~/.pi/agent/skills/<name>/SKILL.md` path. The compiler then suppresses duplicate native XML entries without deleting skill documents or changing explicit `/skill:name` invocation. Skills already restricted to explicit user, command, event, or reviewer invocation remain installed but absent from the model-invocable index. Codeflare's public fallback and codeflare-curation's managed source each generate their own index through the same pinned compiler; no generated index synchronizes between repositories. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex -->
 

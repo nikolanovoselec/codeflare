@@ -508,12 +508,12 @@ managed wrapper for every repository. It resolves only already-installed local
 Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
 no file-count limit, and runs them at low priority for at most three minutes; Node
 syntax checks use the same deadline. Mutation, watch,
-output-file, cache-writing, and analyzer-concurrency flags fail closed, and shell composition or
-redirection cannot turn an allowed wrapper invocation into a write. Builds, tests, type checks,
+output-file, cache-writing, and analyzer-concurrency flags fail closed, and shell composition beyond
+one optional leading `cd` or any redirection cannot turn an allowed wrapper invocation into a write. Builds, tests, type checks,
 Knip and other dependency-graph analysis, installs, servers, and authoritative
 verification remain CI-only. Both Pi and Claude guards allow only the exact wrapper
 path and direct blocked commands point agents to the skill; the user-only one-shot
-bypass remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6/AC7: managed safe local checks) -->
+bypass remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC1: allows only a managed safe-check wrapper invocation with an optional leading cd) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC2: the managed wrapper bypasses the local-lint block without consuming the user sentinel) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC3: permanently loaded policy stays bounded while operational policy remains lazy) -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,

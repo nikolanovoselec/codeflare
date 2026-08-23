@@ -211,21 +211,31 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       for (const entry of entries) {
         const isAdvanced = entry.modes.includes('advanced');
         // Pi owns a native Git workflow in both modes, while its engineering
-        // constitution is advanced-only. The compact AGENTS.md must preserve
-        // the workflow gates without leaking constitution sections to default.
-        const requiredHeadings = key === '.pi/agent/AGENTS.md'
-          ? isAdvanced
-            ? ['Work continuity', 'Review and CI gates', 'Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
-            : ['Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
-          : isAdvanced
-            ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
-            : [];
-        const headings = markdownHeadings(entry.content);
-        expect(headings, `${key} ${entry.modes.join(',')} includes gate sections`)
-          .toEqual(expect.arrayContaining(requiredHeadings));
-        if (key === '.pi/agent/AGENTS.md' && !isAdvanced) {
-          expect(headings).not.toEqual(expect.arrayContaining(['Work continuity', 'Review and CI gates']));
+        // constitution is advanced-only. Assert canonical rule projection
+        // rather than pinning headings that compression may legitimately rename.
+        if (key === '.pi/agent/AGENTS.md') {
+          const workflow = AGENTS_SEEDED_CONFIGS.find(
+            (doc) => doc.key === '.pi/agent/rules/git-workflow.md' && doc.modes.includes(isAdvanced ? 'advanced' : 'default'),
+          );
+          const constitution = AGENTS_SEEDED_CONFIGS.find(
+            (doc) => doc.key === '.pi/agent/rules/engineering-constitution.md' && doc.modes.includes(isAdvanced ? 'advanced' : 'default'),
+          );
+          expect(workflow, `${entry.modes.join(',')} owns a Git workflow`).toBeDefined();
+          expect(entry.content).toContain(workflow!.content.trim());
+          if (isAdvanced) {
+            expect(constitution).toBeDefined();
+            expect(entry.content).toContain(constitution!.content.trim());
+          } else {
+            expect(constitution).toBeUndefined();
+          }
+          continue;
         }
+
+        const requiredHeadings = isAdvanced
+          ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
+          : [];
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
+          .toEqual(expect.arrayContaining(requiredHeadings));
       }
     }
   });

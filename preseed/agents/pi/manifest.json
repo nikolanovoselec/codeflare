@@ -95,6 +95,7 @@
   },
   "extensions/guard-helpers.ts": {
     "modes": [
+      "default",
       "advanced"
     ]
   },

@@ -79,11 +79,17 @@ function toolSchema(tool) {
 }
 
 export function serializePiToolSchemas({ builtInTools, extensionTools }) {
-  const byName = new Map();
-  for (const tool of [...builtInTools, ...extensionTools]) {
-    if (!tool || typeof tool.name !== 'string' || byName.has(tool.name)) continue;
-    byName.set(tool.name, tool);
+  const byName = new Map(
+    builtInTools
+      .filter((tool) => tool && typeof tool.name === 'string')
+      .map((tool) => [tool.name, tool]),
+  );
+  const extensionsByName = new Map();
+  for (const tool of extensionTools) {
+    if (!tool || typeof tool.name !== 'string' || extensionsByName.has(tool.name)) continue;
+    extensionsByName.set(tool.name, tool);
   }
+  for (const [name, tool] of extensionsByName) byName.set(name, tool);
   return JSON.stringify(
     [...byName.values()]
       .sort((left, right) => left.name.localeCompare(right.name))
@@ -154,6 +160,8 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
       builtInTools,
       extensionTools: controlled.extensionTools,
     });
+    const registeredToolNames = JSON.parse(serializedToolSchemas).map(({ name }) => name);
+    const extensionToolNames = [...new Set(controlled.extensionTools.map(({ name }) => name))].sort();
     const budget = measurePiPromptBudget({
       controlledPrompt: controlled.prompt,
       additiveProjectContext: withProject.prompt.slice(controlled.prompt.length),
@@ -179,6 +187,8 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
       visibleSkills: skills.filter((skill) => skill.visible).length,
       diagnostics: controlled.diagnostics.map((diagnostic) =>
         stablePath(diagnostic.message ?? diagnostic, agentDir, root)),
+      extensionToolNames,
+      registeredToolNames,
       skills,
     };
   } finally {

@@ -91,16 +91,23 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
 
   it('reports registered extension tool schemas separately from the controlled prompt', () => {
     const serialized = serializePiToolSchemas({
-      builtInTools: [{ name: 'read', description: 'Read', parameters: { type: 'object' } }],
+      builtInTools: [
+        { name: 'capability', description: 'Built-in placeholder', parameters: { type: 'object' } },
+        { name: 'read', description: 'Read', parameters: { type: 'object' } },
+      ],
       extensionTools: [
         { name: 'capability', description: 'Load tools', parameters: { type: 'object' } },
+        { name: 'capability', description: 'Ignored duplicate', parameters: { type: 'null' } },
         { name: 'subagent', description: 'Delegate', parameters: { type: 'object' } },
       ],
     });
-    assert.deepEqual(
-      JSON.parse(serialized).map(({ name }) => name),
-      ['capability', 'read', 'subagent'],
-    );
+    const schemas = JSON.parse(serialized);
+    assert.deepEqual(schemas.map(({ name }) => name), ['capability', 'read', 'subagent']);
+    assert.deepEqual(schemas.find(({ name }) => name === 'capability'), {
+      name: 'capability',
+      description: 'Load tools',
+      parameters: { type: 'object' },
+    });
   });
 
   it('keeps real default and advanced resource-loader projections inside the prompt boundary', async () => {
@@ -120,6 +127,8 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
       const report = await verifyPiProjection({ documents, mode, runtimeAgentDir, piPackageRoot });
       assert.equal(report.withinPromptBudget, true, `${mode} prompt uses ${report.promptChars} characters`);
       assert.ok(report.toolSchemaChars > 0, `${mode} registered tool schemas must be reported`);
+      assert.ok(report.extensionToolNames.includes('capability'), `${mode} must load the configured capability extension tool`);
+      assert.ok(report.registeredToolNames.includes('capability'), `${mode} schemas must include the capability extension tool`);
     }
   });
 

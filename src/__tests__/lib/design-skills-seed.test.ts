@@ -32,10 +32,14 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     expect(uiLicense.every((document) => document.content.includes('MIT License'))).toBe(true);
     expect(uiLicense.every((document) => document.modes.length === 1 && document.modes[0] === 'advanced')).toBe(true);
 
-    const canvasLicense = docsFor('/skills/canvas-design/LICENSE.txt');
+    const canvasLicense = docsFor('/skills/_licenses/anthropic-skills-Apache-2.0.txt');
     expect(canvasLicense).toHaveLength(TARGET_PREFIXES.length);
     expect(canvasLicense.every((document) => document.content.includes('Apache License'))).toBe(true);
     expect(canvasLicense.every((document) => document.modes.length === 1 && document.modes[0] === 'advanced')).toBe(true);
+
+    const canvasOrigin = docsFor('/skills/canvas-design/ORIGIN.md');
+    expect(canvasOrigin).toHaveLength(TARGET_PREFIXES.length);
+    expect(canvasOrigin.every((document) => document.content.includes('../_licenses/anthropic-skills-Apache-2.0.txt'))).toBe(true);
 
     const canvas = AGENTS_SEEDED_CONFIGS.find((document) => document.key === '.claude/skills/canvas-design/SKILL.md');
     expect(canvas?.content).toContain('Modified by Codeflare');
