@@ -195,7 +195,7 @@ exec "$REAL_NODE" "$@"
     });
   });
 
-  it('REQ-AGENT-155 AC2: fails startup when the authoritative Caveman policy cannot be written', () => {
+  it('REQ-AGENT-155 AC3: fails startup when the authoritative Caveman policy cannot be written', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-failure-'));
     mkdirSync(join(fixture, '.pi'), { recursive: true });
     writeFileSync(join(fixture, '.pi/agent'), 'not a directory\n');
@@ -203,7 +203,7 @@ exec "$REAL_NODE" "$@"
     const result = runStartupInvocation('configure_pi_caveman', { USER_HOME: fixture });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /ENOTDIR/);
+    assert.equal(existsSync(join(fixture, '.pi/agent/caveman.json')), false);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {

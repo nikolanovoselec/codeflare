@@ -671,7 +671,7 @@ esac
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
-  it('REQ-AGENT-155 AC5: Caveman participates in coherent Pi extension shadow bumps', () => {
+  it('REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
@@ -680,13 +680,13 @@ esac
     const hostTests = join(fixture, 'host/__tests__');
     mkdirSync(piDirectory, { recursive: true });
     mkdirSync(hostTests, { recursive: true });
-    writeFileSync(join(piDirectory, 'package.json'), JSON.stringify({
+    writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
       dependencies: {
         'context-mode': '1.0.0',
         'pi-caveman': '1.0.8',
         'pi-web-access': '0.18.0',
       },
-    }));
+    }, null, 2)}\n`);
     writeFileSync(join(fixture, 'entrypoint.sh'), "required='npm:pi-caveman@1.0.8'\n");
     writeFileSync(
       join(hostTests, 'pi-settings-packages.test.js'),

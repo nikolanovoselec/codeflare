@@ -86,6 +86,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(entries[0]!.contentType).toBe('text/typescript; charset=utf-8');
   });
 
+  it('REQ-AGENT-155 AC1/AC4: generated Pi seed keeps Caveman package and policy coherent', () => {
+    const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
+    const piLock = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package-lock.json');
+    const caveman = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/caveman.json');
+    const packageJson = JSON.parse(piPackage?.content ?? '{}');
+    const packageLock = JSON.parse(piLock?.content ?? '{}');
+
+    expect(packageJson.dependencies?.['pi-caveman']).toBe('1.0.8');
+    expect(packageLock.packages?.['node_modules/pi-caveman']?.version).toBe('1.0.8');
+    expect(caveman?.modes).toEqual(['default', 'advanced']);
+    expect(JSON.parse(caveman?.content ?? '{}')).toEqual({ defaultLevel: 'full', showStatus: false });
+  });
+
   it('REQ-AGENT-080 AC3: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
     for (const key of [
       '.pi/agent/extensions/active-repo-memory.ts',
@@ -749,9 +762,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/mcp.json')).toBe(false);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
-    const caveman = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/caveman.json');
-    expect(caveman?.modes).toEqual(['default', 'advanced']);
-    expect(JSON.parse(caveman?.content ?? '{}')).toEqual({ defaultLevel: 'full', showStatus: false });
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);
