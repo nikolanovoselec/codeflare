@@ -454,7 +454,7 @@ describe('managed release resolver', () => {
     expect(JSON.stringify(persisted)).not.toContain('secret-pat');
   });
 
-  it('REQ-AGENT-150 AC7: activates the newest signed release matching this build hash', async () => {
+  it('REQ-AGENT-154 AC2: activates the newest signed release matching this build hash', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const latest = await signedFixture(release({
       sequence: 9,
@@ -514,7 +514,7 @@ describe('managed release resolver', () => {
     expect(fetcher.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/releases'))).toBe(true);
   });
 
-  it('bounds compatible-release discovery to ten complete history pages', async () => {
+  it('REQ-AGENT-154 AC1+AC4: bounds compatible-release discovery to ten complete history pages', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const ordinaryPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -1375,7 +1375,7 @@ describe('managed release resolver', () => {
     expect(kv._store.get('managed-environment:retained-history')).toBe('keep');
   });
 
-  it('rejects mutable releases and changed immutable asset bytes without moving the active pointer', async () => {
+  it('REQ-AGENT-154 AC3: rejects mutable releases and changed immutable asset bytes without moving the active pointer', async () => {
     const fixture = await signedFixture();
     const bundleDigest = await sha256(fixture.compressed);
     const signatureDigest = await sha256(fixture.signature);

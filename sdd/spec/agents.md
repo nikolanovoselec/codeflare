@@ -4060,7 +4060,6 @@ None.
 4. Activation rejects undeclared runtime requirements. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
 5. Activation rejects invalid extension records. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
 6. Activation rejects non-semantic exact extension versions. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC1-AC6: independently rejects invalid release records before activation) -->
-7. Release discovery scans at most ten 100-record GitHub history pages and selects the newest valid signed release in that window whose runtime dependency hash matches the exact deployed build; it fails when the bounded window has no match. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-150 AC7: activates the newest signed release matching this build hash) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (bounds compatible-release discovery to ten complete history pages) -->
 
 **Constraints:** Signature validity never bypasses release-contract validation.
 
@@ -4069,6 +4068,31 @@ None.
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated Worker release-verification tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-154: Build-compatible managed-release discovery
+
+**Intent:** Each deployment discovers the newest managed release compatible with its exact runtime dependency set within a fixed history bound.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Discovery scans at most ten 100-record GitHub release-history pages. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC4: bounds compatible-release discovery to ten complete history pages) -->
+2. A runtime-hash mismatch continues to the next managed release, and the first matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2: activates the newest signed release matching this build hash) -->
+3. Unrelated published releases are ignored, while any advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2: activates the newest signed release matching this build hash) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC3: rejects mutable releases and changed immutable asset bytes without moving the active pointer) -->
+4. Discovery fails when the bounded history window contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC4: bounds compatible-release discovery to ten complete history pages) -->
+
+**Constraints:** Pagination and validation remain memory-bounded and fail closed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
+
+**Verification:** Automated Worker release-discovery tests
 
 **Status:** Implemented
 
