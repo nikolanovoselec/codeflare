@@ -59,7 +59,7 @@ Durable admin role is authoritative outside request-local Enterprise elevation. 
 <a id="onboarding-access-request-oauth-gated"></a>
 ### Onboarding abuse boundary
 
-Onboarding access requests are reachable only after completed provider authentication, so verified provider identity is the abuse gate. The anonymous contact/waitlist path uses Turnstile separately. Email dispatch is best effort and carries no internal system details; delivery does not grant admission.
+Onboarding access requests are reachable only after completed provider authentication, so verified provider identity is the abuse gate. The anonymous contact/waitlist path uses Turnstile separately. Email dispatch is best effort and carries no internal system details; delivery does not grant admission. <!-- @impl: src/routes/auth.ts::app -->
 
 ## Credential Controls
 
@@ -77,12 +77,14 @@ A compromised container can still exercise any legitimate capability represented
 <a id="non-enterprise-cloudflare-oauth-token"></a>
 ### Session-bound resolution
 
-Boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide.
+Boundary interceptors resolve credentials from the session-bound bucket/configuration, never a caller-selected bucket header. Missing, expired, unrefreshable, wrong-account, or wrong-host requests fail before an upstream credential is attached. OAuth placeholders are distinct from Enterprise placeholders so modes cannot collide. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth -->
 
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
 Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. GitHub App/OAuth disconnect and offboarding attempt provider revocation, log failures, and clear the local GitHub credential even when revocation is unconfirmed so local cleanup can continue ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
+
+Worker-session cookies are `HttpOnly`, `Secure`, and `SameSite=Lax`, so browser JavaScript cannot read them. <!-- @impl: src/routes/github-auth.ts::Set-Cookie = HttpOnly; Secure; SameSite=Lax -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
@@ -94,7 +96,7 @@ The host rejects missing/invalid credentials before route dispatch except for ex
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
 
-The deployment token creates/manages resources but never enters containers. Containers receive only the user-scoped R2 credential needed by the sync runtime. Bucket selection is derived from verified user ownership. Exact creation and rotation procedures belong to Configuration/private operations.
+The deployment token creates/manages resources but never enters containers. Containers receive only the user-scoped R2 credential needed by the sync runtime. Bucket selection is derived from verified user ownership. Exact creation and rotation procedures belong to Configuration/private operations. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 
 <a id="credential-encryption-at-rest"></a>
 ### Encryption at rest and missing-key posture
@@ -116,34 +118,34 @@ Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded val
 <a id="enterprise-mode-credential-containment-and-ca-trust"></a>
 ### Interception and CA trust
 
-Supported Enterprise model/provider traffic is intercepted at exact Worker-owned boundaries. The container trusts only the platform-mounted interception CA through the configured runtime stores. If the expected CA file is missing, current entrypoint behavior logs a warning and continues startup; intercepted provider calls then fail. It does not silently fall back to sending the real credential directly.
+Supported Enterprise model/provider traffic is intercepted at exact Worker-owned boundaries. The container trusts only the platform-mounted interception CA through the configured runtime stores. If the expected CA file is missing, current entrypoint behavior logs a warning and continues startup; intercepted provider calls then fail. It does not silently fall back to sending the real credential directly. <!-- @impl: entrypoint.sh::CF_CA_SRC -->
 
 <a id="strict-gateway-egress-enterprise-mode"></a>
 ### Strict Gateway Egress
 
-When enabled, supported HTTP, HTTPS, and WebSocket direct-internet traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. The account's own required Cloudflare control/data-plane destinations use documented scoped exceptions. Once strict routing is wired, Codeflare does not fall back to unrestricted direct egress on Gateway failure.
+When enabled, supported HTTP, HTTPS, and WebSocket direct-internet traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. The account's own required Cloudflare control/data-plane destinations use documented scoped exceptions. Once strict routing is wired, Codeflare does not fall back to unrestricted direct egress on Gateway failure ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)).
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 
 ### Startup availability exception
 
-Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation/rollback remains private operations material.
+Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation/rollback remains private operations material ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)).
 
 <a id="view-only-storage-enterprise-anti-exfil"></a>
 ### View-only storage
 
-Enterprise anti-exfil policy can disable downloads while preserving approved viewing. Backend enforcement, not hidden UI alone, is authoritative. Error or missing-policy reads follow the SDD-defined posture and must not fabricate a successful download decision.
+Enterprise anti-exfil policy can disable downloads while preserving approved viewing. Backend enforcement, not hidden UI alone, is authoritative. Error or missing-policy reads follow the SDD-defined posture and must not fabricate a successful download decision ([REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)).
 
 ## Data Controls
 
 ### Bucket and path authority
 
-User bucket authority is resolved server-side. Storage keys reject traversal, null bytes, malformed encoding, and disallowed prefixes at the route boundary. `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation.
+User bucket authority is resolved server-side. Storage keys strip null bytes and reject traversal, malformed encoding, leading slashes, and configured protected prefixes at the route boundary. `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
 ### Input and response hardening
 
 <a id="session-id-validation"></a>
-Session IDs are strict bounded lowercase alphanumeric values before routing. Request bodies use route schemas and a global API body bound; upload/streaming routes declare their explicit exception. Downloads use safe content disposition and inline-content policy so stored bytes do not become an unintended active browser origin.
+Session IDs are strict bounded lowercase alphanumeric values before routing. Request bodies use route schemas and a global API body bound; upload/streaming routes declare their explicit exception. Downloads use safe content disposition and inline-content policy so stored bytes do not become an unintended active browser origin. <!-- @impl: src/index.ts::app.use --> <!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
 <a id="body-limit"></a>
 Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
@@ -156,12 +158,12 @@ The DO enriches fixed host events from its trusted Session record, bounds event 
 
 ### Outbound email boundary
 
-Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body.
+Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body. <!-- @impl: src/lib/xml-utils.ts::escapeXml --> <!-- @impl: src/lib/email.ts::sendEmail -->
 
 ### Governed-mode encryption regime
 
 <a id="governed-mode--r2-sse-c-governance-trade-off"></a>
-When operator encryption is configured, R2 objects use SSE-C. Governed Mode deliberately disables SSE-C so customer security tooling can inspect corporate-owned bucket data while Vault/KV secret encryption remains active. [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) owns the current gated, chunked, verified migration; AD89 remains superseded history. Mixed-regime reads, writer gates, verification, and recovery are mandatory during transition.
+When operator encryption is configured, R2 objects use SSE-C. Governed Mode deliberately disables SSE-C so customer security tooling can inspect corporate-owned bucket data while Vault/KV secret encryption remains active. [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) owns the current gated, chunked, verified migration; AD89 remains superseded history. Mixed-regime reads, writer gates, verification, and recovery are mandatory during transition ([REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine)).
 
 ## Browser and Proxy Boundaries
 
@@ -174,12 +176,12 @@ Early responses built outside the Hono pipeline use `withSecurityHeaders`; route
 
 ### Framing exceptions
 
-Vault/SilverBullet and Browser IDE require narrowly scoped framing/proxy behavior inside the authenticated Codeflare application. Exceptions are path-specific and do not relax default public document framing. Validation failure still receives the security-header set.
+Vault/SilverBullet and Browser IDE require narrowly scoped framing/proxy behavior inside the authenticated Codeflare application. Exceptions are path-specific and do not relax default public document framing. Validation failure still receives the security-header set. <!-- @impl: src/index.ts::withSecurityHeaders -->
 
 <a id="code-server-supply-chain-and-reverse-proxy-boundary"></a>
 ### Browser IDE proxy boundary
 
-Public workspace selectors are rejected independently by Worker and host. Only the private loopback root request receives the fixed workspace. This constrains browser navigation, not terminal/trusted-extension filesystem access. The package is pinned and image-verified without patching code-server/Code OSS or Anthropic's official extension.
+Public workspace selectors are rejected independently by Worker and host. Only the private loopback root request receives the fixed workspace. This constrains browser navigation, not terminal/trusted-extension filesystem access. The package is pinned and image-verified without patching code-server/Code OSS or Anthropic's official extension ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection)).
 
 <a id="browser-ide-user-extensions"></a>
 ### User-installed Browser IDE extensions
@@ -200,28 +202,28 @@ Settlement restores the exact unrestricted panel tool set, and malformed or dupl
 <a id="rate-limiting"></a>
 ### HTTP and WebSocket limits
 
-Rate limiters use authenticated user/session identity where available, bounded in-memory fallback where defined, and route-specific responses/headers. WebSocket connection limits exclude retryable stopped-container outcomes from budget consumption. Exact values belong to the [API Reference](api-reference.md).
+Rate limiters use authenticated user/session identity where available, bounded in-memory fallback where defined, and route-specific responses/headers. WebSocket connection limits exclude retryable stopped-container outcomes from budget consumption. Exact values belong to the [API Reference](api-reference.md). <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter -->
 
 General resource-protection limiters may degrade open on KV failure to preserve availability; security-sensitive limiters selected under [AD66](../decisions/README.md#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) fail closed. Every new limiter must explicitly choose and test its failure posture rather than inherit one silently.
 
 <a id="websocket-rate-limit-req-sec-007"></a>
 ### WebSocket boundary
 
-WebSocket upgrades authenticate and validate route/session ownership before forwarding. Private host upgrades require the same lifecycle bearer as HTTP. Malformed/unknown control frames do not become privileged input; payload and connection bounds fail predictably.
+WebSocket upgrades authenticate and validate route/session ownership before forwarding. Private host upgrades require the same lifecycle bearer as HTTP. Malformed/unknown control frames do not become privileged input; payload and connection bounds fail predictably. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
 
 ### Stress-test bypass
 
-Only exact `STRESS_TEST_MODE=active` activates the integration bypass and warning. SaaS plus stress is invalid and fails requests rather than silently disabling production limits. This mode is for prepared integration targets only; [Stress Testing](stress-test.md) owns execution safety.
+Only exact `STRESS_TEST_MODE=active` activates the integration bypass and warning. SaaS plus stress is invalid and fails requests rather than silently disabling production limits. This mode is for prepared integration targets only; [Stress Testing](stress-test.md) owns execution safety ([REQ-OPS-004](../../sdd/spec/operations.md#req-ops-004-stress-test-mode)).
 
 ### Session limits are not a security boundary
 
-Per-user session admission is best effort: KV counting and the later running write are non-atomic. Simultaneous starts can exceed the nominal limit. Billing owns the resource/cost consequence; deployment `max_instances` is the separate platform ceiling.
+Per-user session admission is best effort: KV counting and the later running write are non-atomic. Simultaneous starts can exceed the nominal limit. Billing owns the resource/cost consequence; deployment `max_instances` is the separate platform ceiling. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 
 ## Supply-chain Controls
 
 ### Artifact identity
 
-Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. Workflow procedure belongs to [CI/CD](ci-cd.md).
+Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. Workflow procedure belongs to [CI/CD](ci-cd.md). <!-- @impl: .github/workflows/container-image.yml::trivy-action -->
 
 ### Managed curation signing and repository credentials
 

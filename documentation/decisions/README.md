@@ -422,7 +422,7 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Context:** This decision recorded the deletion-safety reason to avoid routine baseline resets. It did not match the daemon's already-existing fallback path and was later contradicted explicitly by [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6.
 
-**Historical decision:** Prefer resilient/recover semantics over automatic baseline reset because `--resync` can resurrect a deletion that has not propagated. Startup baseline establishment remains safe after the one-way restore.
+**Decision:** Prefer resilient/recover semantics over automatic baseline reset because `--resync` can resurrect a deletion that has not propagated. Startup baseline establishment remains safe after the one-way restore.
 
 **Consequences:** The deletion-resurrection risk remains current. AD125 narrows the disagreement: ordinary recovery still avoids `--resync`, while bounded baseline re-establishment is accepted only after the tracked failure budget is exhausted or the required listing state is absent.
 
@@ -2154,7 +2154,9 @@ The request body is passed through except for gateway route-pinning, which subst
 - Flag-unset parity preserved: when `ENTERPRISE_MODE` is unset the interceptor is never instantiated and non-enterprise behavior is byte-identical.
 - Operator dependency: third-party models require BYOK provider keys (or Unified Billing) configured on the gateway; a dynamic route is the recommended way to consume BYOK keys with availability/rate-limit/budget control.
 
-**Route-pinning amendment (2026-06-05):** A gateway route is invoked by sending `model: dynamic/<route>` in the request body. Configuring that id *in the container* failed for Pi: Pi parses a slash in a model id as `provider/model`, so `dynamic/codeflare-enterprise` bound to a built-in provider (amazon-bedrock — falsely "authenticated" by the container's R2 S3 keys, which are exported under the generic `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` names) and was signed as a SigV4 call that never reached `api.openai.com` — empty gateway logs, looking like a broken route.
+**Route-pinning amendment (2026-06-05):** A gateway route is invoked by sending `model: dynamic/<route>` in the request body.
+
+Configuring that id *in the container* failed for Pi: Pi parses a slash in a model id as `provider/model`, so `dynamic/codeflare-enterprise` bound to a built-in provider (amazon-bedrock — falsely "authenticated" by the container's R2 S3 keys, which are exported under the generic `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` names) and was signed as a SigV4 call that never reached `api.openai.com` — empty gateway logs, looking like a broken route.
 
 Resolution: the route id stays a **Worker-only var** (`AIG_LANGUAGE_MODEL`, no longer fanned into the container); agents are configured with a fixed slash-free handle (`codeflare`) so they reliably route to `api.openai.com`; and the `LlmInterceptor` rewrites the request `model` to `AIG_LANGUAGE_MODEL` on egress (only for `/chat/completions` and `/responses`; non-JSON or model-less bodies pass through untouched). This keeps the route name out of the container entirely and lets the operator change routes by editing one Worker var with no agent reconfig.
 
@@ -2172,7 +2174,9 @@ This intentionally overrides REQ-ENTERPRISE-004's original "does not expose the 
 
 **Catalog-driven routing + multi-group attribution amendment (2026-06-09):** Two changes supersede earlier mechanisms in this ADR. (1) **Route selection moves from the single `AIG_LANGUAGE_MODEL` Worker var to a Setup-configured catalog** ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)): the setup wizard persists an unlimited route list plus one optional default `route:reasoning` in KV (`setup:dynamic_routes`, `setup:default_route`), editable with no redeploy; `AIG_LANGUAGE_MODEL` and its `deploy.yml` plumbing are **removed**. The `LlmInterceptor` now maps the agent's slash-free handle to `dynamic/<route>` from the catalog (`loadRouteCatalog`), failing safe to the resolved default on an unknown handle — superseding both the route-pinning amendment's single-var stamp and the `AIG_LANGUAGE_MODEL` backend-selection consequence above.
 
-The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch). (2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns every match from the configured user-access list and the interceptor stamps one `group_<sanitized>_<hash>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured-list order with a warning). Unconfigured IdP memberships and separately configured admin-group memberships are excluded.
+The catalog/default/reasoning are fanned to the container (`ENTERPRISE_ROUTE_CATALOG` / `ENTERPRISE_DEFAULT_ROUTE` / `ENTERPRISE_DEFAULT_REASONING`) so Pi's `models.json` lists every route (switchable via `/model`, `reasoning: true`, `defaultThinkingLevel` pinned from the default route's grade) and Copilot launches on the default route only (GitHub #3282 — Copilot cannot enumerate multiple BYOK models, so route switching is a relaunch).
+
+(2) **Per-group attribution supersedes the single-group `cf-aig-metadata` stamp**: the resolver now returns every match from the configured user-access list and the interceptor stamps one `group_<sanitized>_<hash>=1` tag per group plus `user`, dropping the scalar `group` key, within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation in configured-list order with a warning). Unconfigured IdP memberships and separately configured admin-group memberships are excluded.
 
 Per-group KEYS — not a CSV value — because the AI Gateway log/route filter operators are equals/not-equals only (no `contains`), so each `group_*` key is independently equals-filterable to build per-group Dynamic-Route if/else conditions ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). `sanitizeGroupKey` lowercases + replaces non-alphanumerics + appends a djb2 hash suffix so distinct names never collide on a sanitized key.
 
@@ -3518,15 +3522,6 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
-- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
-- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
-- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
-
 ### AD121: A review boundary is a delivery subcommand, not any Git invocation
 
 **Category:** Architecture, Build / Container
@@ -3877,3 +3872,12 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Related REQ:** [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt).
 
 ---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders

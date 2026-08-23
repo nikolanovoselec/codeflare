@@ -371,9 +371,9 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
-### Zombie Container
+**Zombie Container**
 
-Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `deleteSchedules('collectMetrics')` to immediately kill the alarm loop when a container stops, and (2) `onActivityExpired()` calls `this.stop('SIGTERM')` on unreachable activity endpoints instead of renewing the timeout, which triggers `onStop()` and its schedule cleanup. As a defense-in-depth fallback, `collectMetrics` itself still has three self-termination guards: container-not-running check, missing-identifiers guard, and re-arm guard. These cover edge cases where `onStop()` might not fire (e.g., after `destroy()`).
+Zombie alarm loops are prevented when `lifecycleOnStop()` deletes the `collectMetrics` schedule. `onActivityExpired()` is intentionally not overridden; the SDK default owns the 24-hour fallback and reaches `onStop()`, while `collectMetrics()` owns normal idle stopping. As a defense-in-depth fallback, `collectMetrics` still has three self-termination guards: container-not-running check, missing-identifiers guard, and re-arm guard. These cover edge cases where `onStop()` might not fire (e.g., after `destroy()`). <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/index.ts::sleepAfter -->
 
 ### Secrets Lost After Worker Deletion
 
@@ -383,7 +383,7 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 **Fix:** Restore each required secret with `wrangler secret put` before using the recreated Worker.
 
-### R2 Bucket Cleanup on User Deletion
+**R2 Bucket Cleanup on User Deletion**
 
 Explicit user removal calls `cleanupUserData()` in `src/lib/user-cleanup.ts`, which destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set; raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), and deletes the scoped R2 token. Setup reconfiguration never invokes this destructive workflow.
 
