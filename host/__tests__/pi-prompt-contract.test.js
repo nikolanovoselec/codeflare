@@ -75,6 +75,20 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
     assert.equal(result.ids.size, ledger.entries.length);
     assert.equal(Object.hasOwn(ledger.ownership, 'sharedFlow'), false);
     assert.ok(ledger.ownership['codeflare-curation'].includes('complete managed policy inventory'));
+
+    const missingCurationOwnership = structuredClone(ledger);
+    missingCurationOwnership.ownership['codeflare-curation'] = [];
+    assert.throws(
+      () => validatePiPromptRuleLedger(missingCurationOwnership),
+      /complete managed policy inventory/,
+    );
+
+    const legacySharedFlow = structuredClone(ledger);
+    legacySharedFlow.ownership.sharedFlow = 'codeflare-deployment-to-curation';
+    assert.throws(
+      () => validatePiPromptRuleLedger(legacySharedFlow),
+      /must not declare shared-preseed policy flow/,
+    );
     assert.deepEqual(new Set(ledger.sourceCoverage.globalAgentsHeadings), new Set([
       'Environment and code',
       'Four mandates',
