@@ -582,14 +582,14 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-020: Managed environment reconciliation
 
-**Intent:** Verified managed releases and concurrent trust selections advance monotonically in the deployment cache.
+**Intent:** Verified managed releases advance monotonically within one runtime dependency set while deployments may switch safely between distinct runtime sets.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Verified assets are content-addressed in one deployment cache. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
-2. Each trust configuration advances monotonically without same-sequence conflicts or cross-configuration mutation. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) -->
+2. Each trust configuration advances monotonically within one runtime dependency set without same-sequence conflicts; selecting a different deployed runtime set may replace a globally newer incompatible pointer. <!-- @impl: src/lib/remote-curation-cache.ts::activateManagedRelease --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (REQ-STOR-020 AC1+AC2: active release cache is content-addressed and monotonic) --> <!-- @test: src/__tests__/lib/remote-curation-cache.test.ts (replaces an incompatible active pointer even when its global sequence is higher) -->
 3. Concurrent key selections for one repository settle on one authoritative winner. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 4. A losing concurrent selection makes at most four repair attempts. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 5. Reconfiguration fails explicitly when selection does not settle within the repair bound. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->

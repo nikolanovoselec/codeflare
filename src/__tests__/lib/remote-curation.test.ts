@@ -355,37 +355,52 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return hex(await crypto.subtle.digest('SHA-256', bytes));
 }
 
-function latestReleaseResponse(input: {
+function releaseMetadata(input: {
   bundleDigest: string;
   signatureDigest: string;
   immutable?: boolean;
   releaseId?: number;
-}): Response {
-  return new Response(JSON.stringify({
-    id: input.releaseId ?? 77,
-    tag_name: 'release-7',
+  releaseTag?: string;
+}) {
+  const releaseId = input.releaseId ?? 77;
+  return {
+    id: releaseId,
+    tag_name: input.releaseTag ?? 'release-7',
     immutable: input.immutable ?? true,
+    draft: false,
+    prerelease: false,
     assets: [
       {
-        id: 1,
+        id: releaseId * 10 + 1,
         name: 'seed-v1.json.gz',
-        url: 'https://api.github.com/repos/acme/curation/releases/assets/1',
+        url: `https://api.github.com/repos/acme/curation/releases/assets/${releaseId * 10 + 1}`,
         digest: `sha256:${input.bundleDigest}`,
       },
       {
-        id: 2,
+        id: releaseId * 10 + 2,
         name: 'seed-v1.sig',
-        url: 'https://api.github.com/repos/acme/curation/releases/assets/2',
+        url: `https://api.github.com/repos/acme/curation/releases/assets/${releaseId * 10 + 2}`,
         digest: `sha256:${input.signatureDigest}`,
       },
     ],
-  }), {
+  };
+}
+
+function latestReleaseResponse(input: Parameters<typeof releaseMetadata>[0]): Response {
+  return new Response(JSON.stringify(releaseMetadata(input)), {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
       etag: '"latest-etag"',
       'github-authentication-token-expiration': '2026-09-01 00:00:00 UTC',
     },
+  });
+}
+
+function releaseListResponse(releases: ReturnType<typeof releaseMetadata>[]): Response {
+  return new Response(JSON.stringify(releases), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 }
 
@@ -439,6 +454,62 @@ describe('managed release resolver', () => {
     expect(JSON.stringify(persisted)).not.toContain('secret-pat');
   });
 
+  it('REQ-AGENT-150 AC7: activates the newest signed release matching this build hash', async () => {
+    const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    const latest = await signedFixture(release({
+      sequence: 9,
+      source: { repositoryId: 123456, commitSha: '9'.repeat(40), releaseTag: 'release-9', compilerCommit: 'd'.repeat(40) },
+      runtimeDependencyHash: 'd'.repeat(64),
+    }), keyPair);
+    const compatible = await signedFixture(release({
+      sequence: 8,
+      source: { repositoryId: 123456, commitSha: '8'.repeat(40), releaseTag: 'release-8', compilerCommit: 'c'.repeat(40) },
+      runtimeDependencyHash: 'c'.repeat(64),
+    }), keyPair);
+    const latestMetadata = releaseMetadata({
+      releaseId: 99,
+      releaseTag: 'release-9',
+      bundleDigest: await sha256(latest.compressed),
+      signatureDigest: await sha256(latest.signature),
+    });
+    const compatibleMetadata = releaseMetadata({
+      releaseId: 88,
+      releaseTag: 'release-8',
+      bundleDigest: await sha256(compatible.compressed),
+      signatureDigest: await sha256(compatible.signature),
+    });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(latestReleaseResponse({
+        releaseId: 99,
+        releaseTag: 'release-9',
+        bundleDigest: await sha256(latest.compressed),
+        signatureDigest: await sha256(latest.signature),
+      }))
+      .mockResolvedValueOnce(new Response(latest.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(latest.signature, { status: 200 }))
+      .mockResolvedValueOnce(releaseListResponse([latestMetadata, compatibleMetadata]))
+      .mockResolvedValueOnce(new Response(compatible.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(compatible.signature, { status: 200 }));
+
+    const resolved = await resolveManagedEnvironmentRelease({
+      kv: createMockKV() as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache().cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: latest.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+      requireFresh: true,
+    });
+
+    expect(resolved.active?.sequence).toBe(8);
+    expect(resolved.active?.runtimeDependencyHash).toBe('c'.repeat(64));
+    expect(fetcher.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/releases'))).toBe(true);
+  });
+
   it('uses a complete verified cache without GitHub I/O inside the five-minute freshness window', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
@@ -471,6 +542,47 @@ describe('managed release resolver', () => {
 
     expect(resolved.active).toEqual(active);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a fresh cached release from a different build hash', async () => {
+    const fixture = await signedFixture(release({ runtimeDependencyHash: 'c'.repeat(64) }));
+    const incompatible: ActiveManagedRelease = {
+      schemaVersion: 1,
+      seedAbi: 1,
+      sequence: 6,
+      digest: 'd'.repeat(64),
+      repositoryId: 123456,
+      releaseId: 66,
+      releaseTag: 'release-6',
+      sourceCommit: '6'.repeat(40),
+      runtimeDependencyHash: 'd'.repeat(64),
+      activatedAt: '2026-08-18T00:00:00.000Z',
+    };
+    const kv = createMockKV();
+    kv._store.set('state', JSON.stringify({ schemaVersion: 1, active: incompatible, lastCheckedAt: '2026-08-18T00:00:00.000Z' }));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(latestReleaseResponse({
+        bundleDigest: await sha256(fixture.compressed),
+        signatureDigest: await sha256(fixture.signature),
+      }))
+      .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }));
+
+    const resolved = await resolveManagedEnvironmentRelease({
+      kv: kv as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache(incompatible).cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: fixture.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:01:00.000Z'),
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(resolved.active?.runtimeDependencyHash).toBe('c'.repeat(64));
   });
 
   it('uses the stored ETag after five minutes and treats 304 as a fresh no-op', async () => {

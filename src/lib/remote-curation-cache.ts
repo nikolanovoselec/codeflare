@@ -67,6 +67,7 @@ function resolveAgainstCurrent(
   candidate: ActiveManagedRelease,
   current: ActiveManagedRelease,
 ): ActiveManagedRelease | undefined {
+  if (current.runtimeDependencyHash !== candidate.runtimeDependencyHash) return undefined;
   if (current.sequence > candidate.sequence) return current;
   if (current.sequence === candidate.sequence) {
     if (!sameRelease(current, candidate)) {

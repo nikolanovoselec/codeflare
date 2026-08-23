@@ -416,7 +416,7 @@ Behavior required in both timelines receives two explicit edits, with the privat
 
 The shared compiler and runtime ABI remain Codeflare-owned. Compiler, transform, seed ABI, or Pi runtime-lock changes land in Codeflare first; after that commit exists, update the exact compiler pin in `codeflare-curation` and run its real compiler integration workflow. Never copy dirty or untracked compiler files into the private repository.
 
-After a private content change merges to protected `main`, the operator runs the one-trigger protected release workflow. It derives the next sequence from verified immutable history and publishes fixed signed assets. Codeflare discovers the release through its normal five-minute dashboard refresh. No image rebuild, source synchronization job, webhook, or container clone participates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+After a relevant private content change reaches `main`, the protected release workflow derives the next sequence from verified immutable history and publishes fixed signed assets. Codeflare discovers releases through its normal five-minute dashboard refresh. No image rebuild, webhook, or container clone participates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 ### Spotlight: how `runtimeDependencyHash` binds a release to its image
 
@@ -429,9 +429,9 @@ A managed release may replace agent code without rebuilding the container. That 
 5. Publication signs the exact deterministic compressed bundle and publishes it with its raw 64-byte Ed25519 signature. <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle -->
 6. Every Codeflare image contains `PRESEED_RUNTIME_DEPENDENCY_HASH`, generated from the Pi lockfile used to build that image. <!-- @impl: scripts/agent-seed-core.mjs::toGeneratedModuleSource -->
 7. On its periodic release check, the Worker verifies immutable metadata, asset digests, signature, schema, sequence, and runtime hash before activation. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream -->
-8. Equal hashes permit activation. A mismatch retains the previous verified release, records `Managed release requires a different runtime dependency set`, and retries later. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+8. The Worker searches immutable releases from newest to oldest and activates the first valid release whose hash equals that deployment's build hash. Newer releases for other builds are skipped, not treated as failures. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
-The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and each image compares that value with its own generated constant. A content-only release that keeps the same Pi lockfile keeps the same hash and needs no image redeploy. A new npm or native dependency changes the lock, so the matching image must reach an environment before that environment can activate the release.
+The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and each image compares that value with its own generated constant. A content-only release that keeps the same Pi lockfile keeps the same hash and needs no image redeploy. Builds from different branches with byte-identical Pi lockfiles intentionally share the same newest compatible seed. A new npm or native dependency changes the lock, so each environment independently remains on the newest release matching its deployed image.
 
 This is deliberately narrower than a full Codeflare source hash. The exact compiler commit makes compilation reproducible; the Pi lockfile digest answers the runtime question. Treating those as one concept would force image deployments for harmless prose changes, which would defeat managed curation.
 
