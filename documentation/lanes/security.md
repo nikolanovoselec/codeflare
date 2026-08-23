@@ -148,9 +148,9 @@ User bucket authority is resolved server-side. Storage keys strip null bytes and
 Session-facing route validators accept only bounded lowercase alphanumeric identifiers before selecting a session. <!-- @impl: src/lib/request-helpers.ts::validateSessionId --> <!-- @impl: src/routes/vault/validation.ts::validateVaultRoute --> <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute -->
 
 <a id="body-limit"></a>
-Request bodies use route schemas and a 64 KiB global API bound. Oversized bounded bodies fail before handler parsing; storage upload routes declare their own explicit limits rather than inheriting an unlimited exemption. <!-- @impl: src/index.ts::app.use --> <!-- @impl: src/lib/request-helpers.ts::parseJsonBody --> <!-- @impl: src/routes/storage/index.ts::app.use -->
+Non-storage API request bodies have a 64 KiB global bound. Routes may additionally pass a schema to the shared JSON parser; schema-less callers still receive JSON syntax validation. Oversized bounded bodies fail before handler parsing, while storage upload routes declare their own explicit limits. <!-- @impl: src/index.ts::app.use --> <!-- @impl: src/lib/request-helpers.ts::parseJsonBody --> <!-- @impl: src/routes/storage/index.ts::app.use -->
 
-Downloads sanitize attachment filenames and allow inline display only through a deny-by-default type policy that prevents stored HTML or SVG from becoming active same-origin content. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @impl: src/routes/storage/download.ts::isInlineViewable -->
+Downloads sanitize attachment filenames. In normal mode, unknown inline types are coerced to `text/plain` with `nosniff` so stored HTML or SVG cannot execute as active same-origin content. When view-only policy disables downloads, inline display additionally uses a deny-by-default extension allowlist. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @impl: src/routes/storage/download.ts::isInlineViewable -->
 
 ### Push notification capabilities
 

@@ -371,13 +371,13 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
-### Zombie Container
+### Zombie Container ([REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state))
 
 **Symptom:** A stopped or destroyed session continues scheduling `collectMetrics` alarms.
 
-**Cause:** The metrics schedule survived a teardown edge where `onStop()` did not fire. `onActivityExpired()` is intentionally not overridden; the SDK default owns the 24-hour fallback and reaches `onStop()`, while `collectMetrics()` owns normal idle stopping.
+**Cause:** The metrics schedule survived a teardown edge where `onStop()` did not fire. `onActivityExpired()` is intentionally not overridden; the SDK default owns the 24-hour fallback and reaches `onStop()`, while `collectMetrics()` owns normal idle stopping. <!-- @impl: src/container/index.ts::sleepAfter -->
 
-**Fix:** Use a build where `lifecycleOnStop()` deletes the `collectMetrics` schedule. The metrics handler also exits on a non-running container, missing identifiers, or a failed re-arm check. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/index.ts::sleepAfter -->
+**Fix:** Use a build where `lifecycleOnStop()` deletes the `collectMetrics` schedule. When a metrics tick reads the container as not running, `collectMetrics()` opens a confirmation window and re-arms the check; only a reading that persists through that window is marked stopped and returned without re-arming. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
 **Verify:** After stopping the session, confirm that the `collectMetrics` schedule is absent and does not re-arm.
 
@@ -389,7 +389,7 @@ See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
 **Fix:** Restore each required secret with `wrangler secret put` before using the recreated Worker.
 
-### R2 Bucket Cleanup on User Deletion
+### R2 Bucket Cleanup on User Deletion ([REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel))
 
 **Symptom:** Explicit user removal completes, but the user's R2 bucket remains.
 
