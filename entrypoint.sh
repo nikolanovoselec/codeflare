@@ -3689,7 +3689,7 @@ configure_fast_start_tool_settings() {
 }
 configure_fast_start_tool_settings
 
-# REQ-GITHUB-004: one-shot repo clone at container start. Runs AFTER the git
+# REQ-GITHUB-014: one-shot repo clone at container start. Runs AFTER the git
 # credential helper above (so private repos authenticate via $GH_TOKEN, or the
 # enterprise egress GitHubInterceptor injects the real token) and BEFORE
 # configure_tab_autostart launches the agent, so the workspace is populated when

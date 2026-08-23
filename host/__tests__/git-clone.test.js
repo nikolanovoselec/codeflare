@@ -35,7 +35,7 @@ function createFakeGit(root) {
 
 function extractStartupCloneBlock() {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
-  const start = entrypoint.indexOf('# REQ-GITHUB-004: one-shot repo clone at container start.');
+  const start = entrypoint.indexOf('# REQ-GITHUB-014: one-shot repo clone at container start.');
   const end = entrypoint.indexOf('\n# Configure tab auto-start\n', start);
   assert.ok(start >= 0 && end > start, 'entrypoint startup clone block is missing');
   return entrypoint.slice(start, end);
@@ -339,8 +339,8 @@ describe('REQ-GITHUB-004: git-clone HTTP boundary (behavioral)', () => {
   });
 });
 
-describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', () => {
-  it('REQ-GITHUB-004: preserves a validated .git basename, branches safely, and keeps argv separated', () => {
+describe('REQ-GITHUB-014: entrypoint startup clone path (real shell behavior)', () => {
+  it('REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated', () => {
     const { workspace, fake, result } = runStartupClone({ repo: 'octo/repo.git', ref: 'feature/safe' });
 
     assert.equal(result.status, 0, result.stderr);
@@ -354,7 +354,7 @@ describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', 
     ]);
   });
 
-  it('REQ-GITHUB-004: rejects option-leading refs and refuses an existing target without invoking git', () => {
+  it('REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git', () => {
     const invalid = runStartupClone({ repo: 'octo/repo', ref: '--upload-pack' });
     assert.equal(invalid.result.status, 0, invalid.result.stderr);
     assert.match(invalid.result.stdout, /Skipping clone: invalid repo\/ref/);
@@ -366,7 +366,7 @@ describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', 
     assert.equal(existsSync(collision.fake.log), false);
   });
 
-  it('REQ-GITHUB-004: logs a clone failure and continues startup successfully', () => {
+  it('REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully', () => {
     const { result } = runStartupClone({ repo: 'octo/repo', gitStatus: 7 });
 
     assert.equal(result.status, 0, result.stderr);
