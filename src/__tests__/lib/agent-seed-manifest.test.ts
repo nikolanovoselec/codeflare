@@ -481,11 +481,14 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     }
   });
 
-  it('REQ-AGENT-157 AC4: permanently loaded policy stays bounded', () => {
+  it('REQ-AGENT-157 AC4: Claude permanently loaded policy stays below 400 characters', () => {
     const claudeRules = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.claude/rules/no-local-builds.md');
-    const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(claudeRules).toHaveLength(1);
     expect(claudeRules[0]?.content.length).toBeLessThan(400);
+  });
+
+  it('REQ-AGENT-157 AC5: Pi pre-skill policy stays below 4,500 characters', () => {
+    const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(piInstructions).toHaveLength(2);
     for (const instructions of piInstructions) {
       const permanentlyLoadedPolicy = instructions.content.split('\n## Skills\n')[0] ?? '';

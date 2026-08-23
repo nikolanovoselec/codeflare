@@ -138,7 +138,7 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
-  it('REQ-AGENT-157 AC5: canonical safe-check guidance reaches each lazy skill projection', () => {
+  it('REQ-AGENT-157 AC6: canonical safe-check guidance reaches each lazy skill projection', () => {
     const canonical = readFileSync(
       join(repoRoot, 'preseed/agents/claude/skills/safe-local-checks/SKILL.md'),
       'utf8',
