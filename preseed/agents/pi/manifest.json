@@ -1,4 +1,10 @@
 {
+  "SYSTEM.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/codeflare-pi.ts": {
     "modes": [
       "advanced"
