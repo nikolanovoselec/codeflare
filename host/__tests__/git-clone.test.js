@@ -376,9 +376,10 @@ describe('REQ-GITHUB-014: entrypoint startup clone path (real shell behavior)', 
   });
 
   it('REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully', () => {
-    const { result } = runStartupClone({ repo: 'octo/repo', gitStatus: 7 });
+    const { fake, result } = runStartupClone({ repo: 'octo/repo', gitStatus: 7 });
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /clone failed for octo\/repo; continuing startup/);
+    assert.deepEqual(readFileSync(fake.events, 'utf8').trim().split('\n'), ['git', 'autostart']);
   });
 });
