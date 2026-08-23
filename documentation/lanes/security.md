@@ -145,10 +145,12 @@ User bucket authority is resolved server-side. Storage keys strip null bytes and
 ### Input and response hardening
 
 <a id="session-id-validation"></a>
-Session IDs are strict bounded lowercase alphanumeric values before routing. Request bodies use route schemas and a global API body bound; upload/streaming routes declare their explicit exception. Downloads use safe content disposition and inline-content policy so stored bytes do not become an unintended active browser origin. <!-- @impl: src/index.ts::app.use --> <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+Session-facing route validators accept only bounded lowercase alphanumeric identifiers before selecting a session. <!-- @impl: src/lib/request-helpers.ts::validateSessionId --> <!-- @impl: src/routes/vault/validation.ts::validateVaultRoute --> <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute -->
 
 <a id="body-limit"></a>
-Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
+Request bodies use route schemas and a 64 KiB global API bound. Oversized bounded bodies fail before handler parsing; storage upload routes declare their own explicit limits rather than inheriting an unlimited exemption. <!-- @impl: src/index.ts::app.use --> <!-- @impl: src/lib/request-helpers.ts::parseJsonBody --> <!-- @impl: src/routes/storage/index.ts::app.use -->
+
+Downloads sanitize attachment filenames and allow inline display only through a deny-by-default type policy that prevents stored HTML or SVG from becoming active same-origin content. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @impl: src/routes/storage/download.ts::isInlineViewable -->
 
 ### Push notification capabilities
 

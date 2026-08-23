@@ -654,7 +654,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(clearPrewarmingVaultStatus(before, 'sess2')).toBe(before);
     });
 
-    it('REQ-VAULT-018 AC4: dashboard departure cancels the in-flight iframe and return resumes preparation', async () => {
+    it('REQ-VAULT-018 AC3: dashboard departure cancels the in-flight iframe and return resumes preparation', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
