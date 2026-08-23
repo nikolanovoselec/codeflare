@@ -21,9 +21,13 @@ async function copyCompilerFixture(root) {
       await copyFile(join(repoRoot, relativePath), destination);
     }
   }
-  const sharedLock = 'preseed/npm-tools/package-lock.json';
-  await mkdir(dirname(join(root, sharedLock)), { recursive: true });
-  await copyFile(join(repoRoot, sharedLock), join(root, sharedLock));
+  for (const relativePath of [
+    'preseed/npm-tools/package-lock.json',
+    'preseed/retired-keys.json',
+  ]) {
+    await mkdir(dirname(join(root, relativePath)), { recursive: true });
+    await copyFile(join(repoRoot, relativePath), join(root, relativePath));
+  }
 }
 
 // REQ-AGENT-147: the image generator and the private release workflow share
