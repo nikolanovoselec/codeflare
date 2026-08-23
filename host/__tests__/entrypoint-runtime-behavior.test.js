@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -31,7 +31,7 @@ function runFunction(name, setup, invocation, env = {}) {
 
 function runStartupInvocation(name, env = {}) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
-  const invocation = lines.find((line) => line.startsWith(`${name} || `));
+  const invocation = lines.find((line) => line === name || line.startsWith(`${name} || `));
   if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
     encoding: 'utf8',
@@ -175,12 +175,35 @@ describe('entrypoint production helpers', () => {
     assert.equal(existsSync(conflictingPath), false);
 
     writeFileSync(configPath, '{"defaultLevel":"off","showStatus":true,"unknown":"drop"}\n');
-    const second = runStartupInvocation('configure_pi_caveman', env);
+    const fakeBin = join(fixture, 'bin');
+    const nodeWrapper = join(fakeBin, 'node');
+    mkdirSync(fakeBin);
+    writeFileSync(nodeWrapper, `#!/bin/sh
+printf 'incomplete\\n' > "\${PI_CAVEMAN_STARTUP_CONFIG}.$$.tmp"
+exec "$REAL_NODE" "$@"
+`);
+    chmodSync(nodeWrapper, 0o755);
+    const second = runStartupInvocation('configure_pi_caveman', {
+      ...env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      REAL_NODE: process.execPath,
+    });
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       defaultLevel: 'full',
       showStatus: false,
     });
+  });
+
+  it('REQ-AGENT-155 AC2: fails startup when the authoritative Caveman policy cannot be written', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-failure-'));
+    mkdirSync(join(fixture, '.pi'), { recursive: true });
+    writeFileSync(join(fixture, '.pi/agent'), 'not a directory\n');
+
+    const result = runStartupInvocation('configure_pi_caveman', { USER_HOME: fixture });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /ENOTDIR/);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {

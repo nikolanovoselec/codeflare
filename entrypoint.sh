@@ -2479,6 +2479,7 @@ NODE
 configure_pi_caveman() {
     local caveman_config="$USER_HOME/.pi/agent/caveman.json"
     PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
+const { randomUUID } = require('node:crypto');
 const { mkdirSync, renameSync, rmSync, writeFileSync } = require('node:fs');
 const { dirname } = require('node:path');
 
@@ -2489,13 +2490,13 @@ const settings = {
 };
 
 mkdirSync(dirname(settingsPath), { recursive: true });
-const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
 try {
   writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
   renameSync(temporaryPath, settingsPath);
 } finally {
   rmSync(temporaryPath, { force: true });
-}
+} // try
 console.log('[entrypoint] Pi Caveman policy configured');
 NODE
 }
@@ -2638,14 +2639,13 @@ update_pi_when_fast_start_disabled() {
 # R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
-# Non-fatal: under `set -euo pipefail` an unguarded failure here aborts the
-# entrypoint before the init-complete flag is written (see touch near end of
-# MAIN EXECUTION), which leaves the terminal server gated in "warming up"
-# forever and no session can attach. A failed Pi warm-up must degrade, not
-# block startup. Same cold-start discipline as PR #364/#365.
+# Dependency warm-up remains non-fatal: aborting before the init-complete flag
+# leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
+# keep that established degradation policy. Caveman is different: its response
+# policy is startup-owned, so an unwritable policy blocks startup.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
-configure_pi_caveman || echo "[entrypoint] WARNING: Pi Caveman configuration failed; continuing startup"
+configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 
