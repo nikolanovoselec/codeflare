@@ -5,6 +5,10 @@
 !entrypoint.sh
 !transcript-retention.mjs
 !.cache-bust
+# Image-owned runtime policy files are build inputs, not agent preseed.
+!image/
+!image/pi/
+!image/pi/caveman.json
 # Whitelist the context-mode plugin manifest so the Dockerfile can read
 # the pinned version at build time (codeflare#309). Each parent directory
 # must be un-ignored explicitly because un-ignore does not recurse upward.
