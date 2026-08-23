@@ -420,10 +420,10 @@ After a relevant private content change reaches `main`, the protected release wo
 
 ### Spotlight: how `runtimeDependencyHash` binds a release to its image
 
-A managed release may replace agent code without rebuilding the container. That freedom needs a hard compatibility check. A valid signature proves who published the bytes; it does not prove that the image has the npm packages the managed content expects. `runtimeDependencyHash` closes that gap. See [REQ-AGENT-147 AC2-AC3](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) and [REQ-AGENT-150 AC4](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation).
+A managed release may replace agent code without rebuilding the container. That freedom needs a hard compatibility check. A valid signature proves who published the bytes; it does not prove that the image has the npm packages the managed content expects. `runtimeDependencyHash` closes that gap. See [REQ-AGENT-147 AC3 and AC7](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) and [REQ-AGENT-150 AC4](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation).
 
-1. `codeflare-curation/config/compiler.json` pins one exact Codeflare commit, which owns the compiler and managed npm runtime contract.
-2. Publication checks out that commit and copies its shared npm-tools, Claude Browser Run MCP, and Pi lockfiles into the staged source.
+1. [`codeflare-curation/config/compiler.json`](https://github.com/nikolanovoselec/codeflare-curation/blob/main/config/compiler.json) pins one exact Codeflare commit, which owns the compiler and managed npm runtime contract.
+2. The [release workflow](https://github.com/nikolanovoselec/codeflare-curation/blob/main/.github/workflows/release.yml) checks out that commit, and the [compiler wrapper](https://github.com/nikolanovoselec/codeflare-curation/blob/main/scripts/lib/compiler.mjs) copies its shared npm-tools, Claude Browser Run MCP, and Pi lockfiles into the staged source.
 3. The shared compiler hashes every byte of each lockfile, then hashes the three fixed-order digests into one runtime identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash -->
 4. Release construction writes that identity to `runtimeDependencyHash` inside `seed-v1.json.gz`. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease -->
 5. Publication signs the exact deterministic compressed bundle and publishes it with its raw 64-byte Ed25519 signature. <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle -->

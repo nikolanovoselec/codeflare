@@ -697,7 +697,7 @@ type SeedDocument = {
 
 export const PRESEED_CONTENT_HASH = '${hash}';
 
-/** Full Pi package-lock digest defining the managed release runtime ABI. */
+/** Composite digest of the managed npm runtime locks defining the release ABI. */
 export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${runtimeHash}';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
