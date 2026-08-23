@@ -4161,7 +4161,7 @@ None.
 
 **Verification:** Automated contract, compiler, real-resource-loader, public fallback, and signed managed projection tests
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
