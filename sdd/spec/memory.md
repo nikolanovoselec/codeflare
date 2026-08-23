@@ -9,7 +9,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - **Vault** -- The persistent per-user vault directory. Single source of truth for cross-session memory; holds agent-written session captures plus user-curated notes, inbox, and journal entries. Attachment uploads land next to the note that referenced them. Bisynced to R2 so the vault survives across sessions.
 - **Unified Graph** -- The merged graph combining the vault's graph with every active repo's per-repo graph; merges are hash-keyed. Queryable through the graphify MCP surface so structural questions can span all sources in a single call.
 - **Capture** -- A background subagent runs every fifteen real user messages, strips tool I/O, synthesises a markdown capture into the vault's raw-sessions subdirectory, and merges its subgraph under a shared multi-writer lock. Claude retains its chunked scratchpad; Pi processes only the bounded uncaptured interval in one pass.
-- **Session Mode** -- Pro mode enables R2 sync of the vault and capture hooks. Standard mode runs the in-session capture flow but the vault is not preserved across container recreations.
+- **Session Mode** -- Pro mode enables automatic capture and R2 persistence of the vault. Standard mode registers neither capture machinery nor cross-container vault persistence.
 
 ### Out of Scope
 
@@ -108,7 +108,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
+1. The hook tracks the number of user messages since the last capture using a per-session counter file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
 2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
 4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 15+ NEW real prompts since last_count) -->
@@ -120,7 +120,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`).
+- The counter file remains in ephemeral storage and permits a test-only directory override.
 - `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
 - Detection uses no timestamps, mtimes, or external sentinels.
 - The hook does not detect in-session `/compact`; its surviving counter catches up within the 15-prompt window while the compressed summary preserves orientation.

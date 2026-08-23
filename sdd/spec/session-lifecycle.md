@@ -219,11 +219,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 6. Enforcement is best effort: the KV list/count and later `running` write are not atomic, so simultaneous starts may both pass and exceed the nominal limit until a session stops. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC6 / REQ-SUB-013 AC5: simultaneous starts can exceed the best-effort limit) -->
 7. Outside SaaS mode, deployment environment values override the role defaults. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC7: respects MAX_SESSIONS_USER env var override) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC7: respects MAX_SESSIONS_ADMIN env var override) -->
 
+**Notes:** [Issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks a role-independent Enterprise limit.
+
 **Constraints:**
 
 - Tier limits are configurable per deployment via the admin Subscription Management panel.
 - The session-cap lookup respects an explicit zero value (a zero cap blocks starts observed after that value, not a fallthrough to default).
-- Best-effort enforcement is an explicit product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity). Atomic reservation is out of scope; [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) separately tracks a role-independent Enterprise limit.
+- Best-effort enforcement is the product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity); atomic reservation is out of scope.
 
 **Priority:** P1
 

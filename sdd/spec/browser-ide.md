@@ -209,7 +209,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - Pi context is capped at 1 MiB and treats editor content as untrusted data.
 - Anthropic's IDE MCP is limited to `127.0.0.1`, a random port, and a fresh token in the isolated mode-0700 config directory, with no Codeflare-owned relay or public listener (owner-approved exception in [AD114](../../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)).
-- The one shared panel/editor Pi transcript is hidden IDE process state. It is separate from terminal Pi, and replacement bootstrap reflects only the bounded visible history of the surface whose request creates the replacement.
+- The one shared panel/editor Pi transcript is hidden IDE process state and remains separate from terminal Pi.
+- Replacement bootstrap reflects only the bounded visible history of the surface whose request creates the replacement.
 
 **Priority:** P1
 
@@ -770,7 +771,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - The fixed local `pi --mode rpc --no-session --no-themes` process serializes all IDE turns.
 - Pi 0.84.1 awaits extension settlement handlers before emitting external settlement.
-- Active cancellation or backend failure follows REQ-IDE-008 process-generation ownership.
+- Active cancellation or backend failure follows [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle) process-generation ownership.
 
 **Priority:** P1
 
@@ -1046,7 +1047,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
+- User extensions execute arbitrary root-capable container code.
+- code-server admits proposed APIs broadly.
 - Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
 - code-server disables VSIX signatures; TLS to Open VSX is the transport boundary because install does not expose artifact bytes.
 - The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.

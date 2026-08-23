@@ -120,7 +120,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Intent:** Re-running the setup wizard with the same or updated inputs must safely update existing resources without creating duplicates or leaving orphaned state.
 
-**Applies To:** User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
