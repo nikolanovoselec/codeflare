@@ -236,10 +236,110 @@ export function attributionBlockReason(command: string): string | undefined {
   return undefined;
 }
 
+const SAFE_LOCAL_CHECK_PATH = /^(?:~|\$HOME|\/home\/[^/]+)\/\.(?:claude\/skills|pi\/agent\/skills)\/safe-local-checks\/scripts\/safe-local-check\.mjs$/u;
+
+function isSafeLocalCheckWords(words: string[]): boolean {
+  if (shellCommandExecutable(words) !== "node") return false;
+  const nodeIndex = words.findIndex((word) => word === "node");
+  return nodeIndex >= 0 && SAFE_LOCAL_CHECK_PATH.test(words[nodeIndex + 1] ?? "");
+}
+
+function topLevelShellSeparators(command: string): string[] {
+  const source = withoutHeredocBodies(command);
+  const separators: string[] = [];
+  const skipSubstitution = (start: number): number => {
+    let depth = 1;
+    let quote = "";
+    let escaped = false;
+    for (let index = start; index < source.length; index += 1) {
+      const char = source[index] ?? "";
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\" && quote !== "'") { escaped = true; continue; }
+      if (quote) {
+        if (char === quote) quote = "";
+        continue;
+      }
+      if (char === "'" || char === '"') { quote = char; continue; }
+      if (char === "(") depth += 1;
+      else if (char === ")" && --depth === 0) return index;
+    }
+    return source.length;
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (char === "\\") { index += 1; continue; }
+    if (char === "'" || char === '"') {
+      const quote = char;
+      for (index += 1; index < source.length && source[index] !== quote; index += 1) {
+        if (quote === '"' && source[index] === "\\") index += 1;
+      }
+      continue;
+    }
+    if (char === "`") {
+      for (index += 1; index < source.length && source[index] !== "`"; index += 1) {
+        if (source[index] === "\\") index += 1;
+      }
+      continue;
+    }
+    if (char === "$" && source[index + 1] === "(") {
+      index = skipSubstitution(index + 2);
+      continue;
+    }
+    if (char === "&" || char === "|") {
+      const separator = source[index + 1] === char ? `${char}${char}` : char;
+      separators.push(separator);
+      if (separator.length === 2) index += 1;
+    } else if (char === ";" || char === "\n" || char === "\r" || "(){}".includes(char)) {
+      separators.push(char);
+    }
+  }
+  return separators;
+}
+
+export function isManagedSafeLocalCheckCommand(command: string): boolean {
+  if (/[<>]/u.test(withoutHeredocBodies(command))) return false;
+  const commands = executableShellCommands(command);
+  if (commands.length === 1) return isSafeLocalCheckWords(commands[0] ?? []);
+  const separators = topLevelShellSeparators(command);
+  return commands.length === 2
+    && separators.length === 1
+    && separators[0] === "&&"
+    && shellCommandExecutable(commands[0] ?? []) === "cd"
+    && isSafeLocalCheckWords(commands[1] ?? []);
+}
+
+function invokesSafeLocalCheckWrapper(command: string): boolean {
+  return executableShellCommands(command).some(isSafeLocalCheckWords);
+}
+
+function isDirectManagedCheck(words: string[]): boolean {
+  const executable = shellCommandExecutable(words);
+  if (!executable) return false;
+  const executableIndex = words.findIndex((word, index) => word === executable
+    && shellCommandExecutable(words.slice(0, index + 1)) === executable);
+  const args = words.slice(executableIndex + 1);
+  if (executable.split("/").at(-1) === "biome") return true;
+  if (executable === "node") return args[0] === "--check";
+  if (executable !== "npx") return false;
+
+  const callIndex = args.findIndex((argument) => argument === "-c" || argument === "--call");
+  const assignedCall = args.find((argument) => argument.startsWith("--call="));
+  const call = assignedCall?.slice("--call=".length) ?? (callIndex >= 0 ? args[callIndex + 1] : undefined);
+  if (call && executableShellCommands(call).some(isDirectManagedCheck)) return true;
+
+  let packageIndex = 0;
+  while ((args[packageIndex] ?? "").startsWith("-")) {
+    packageIndex += ["-p", "--package", "-c", "--call"].includes(args[packageIndex] ?? "") ? 2 : 1;
+  }
+  return /^(?:biome|@biomejs\/biome)(?:@|$)/u.test(args[packageIndex] ?? "");
+}
+
 export function isLocalBuildCommand(command: string): boolean {
   const executableCommand = withoutHeredocBodies(command);
   return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand);
+    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand)
+    || executableShellCommands(command).some(isDirectManagedCheck);
 }
 
 export interface BypassFs {
@@ -248,7 +348,8 @@ export interface BypassFs {
 }
 
 export function localBuildBlockReason(command: string, fs: BypassFs): string | undefined {
-  if (!isLocalBuildCommand(command)) return undefined;
+  if (isManagedSafeLocalCheckCommand(command)) return undefined;
+  if (!isLocalBuildCommand(command) && !invokesSafeLocalCheckWrapper(command)) return undefined;
   // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
   if (fs.existsSync(LOCAL_BUILD_BYPASS)) {
     try {
@@ -256,7 +357,7 @@ export function localBuildBlockReason(command: string, fs: BypassFs): string | u
       return undefined;
     } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
   }
-  return "Local builds/tests/linters/dev servers are blocked in the resource-constrained container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
+  return "Direct local builds/tests/linters/dev servers are blocked. For bounded read-only lint or syntax checks, load the safe-local-checks skill and use its managed wrapper. Push and verify everything else with CI. User override: create /tmp/local-build-bypass.";
 }
 
 export default function () {

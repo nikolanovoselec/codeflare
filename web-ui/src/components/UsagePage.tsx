@@ -76,12 +76,12 @@ const UsagePage: Component = () => {
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
           <Show when={!error()} fallback={<div class="usage-error">{error()}</div>}>
             <div class="usage-panel">
-              <div class="usage-panel-header">
-                <span class="usage-panel-plan">{tierName()}</span>
-                <Show when={hasQuota()}>
+              <Show when={hasQuota()}>
+                <div class="usage-panel-header usage-panel-header--centered-plan">
+                  <span class="usage-panel-plan">{tierName()}</span>
                   <span class="usage-panel-percent">{usagePercent()}%</span>
-                </Show>
-              </div>
+                </div>
+              </Show>
 
               <Show when={hasQuota()}>
                 <div class="usage-bar-track">
@@ -116,8 +116,7 @@ const UsagePage: Component = () => {
 
             <div class="usage-actions">
               <a href="/app/" class="usage-btn">Back to Dashboard</a>
-              {/* Subscription is SaaS-only billing — hidden in enterprise where
-                  /app/subscribe is not reachable and usage is view-only. */}
+              {/* Subscription is SaaS-only billing and is hidden in every other deployment mode. */}
               <Show when={sessionStore.saasMode}>
                 <a href="/app/subscribe" class="usage-btn usage-btn--secondary">Subscription</a>
               </Show>

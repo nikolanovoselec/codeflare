@@ -68,8 +68,8 @@ interface SetBucketNameBody {
   // surfaces it to the container as USER_TIMEZONE; entrypoint.sh applies the
   // three-artifact contract (export TZ, /etc/timezone, /etc/localtime symlink).
   userTimezone?: string;
-  // REQ-GITHUB-004: one-shot clone directive forwarded by the Worker from the
-  // session's `clone` field. applyBucketName stores it in instance memory and
+  // REQ-GITHUB-004: session clone directive forwarded by the Worker from the
+  // session's `clone` field. Lifecycle config stores it in instance memory and
   // buildEnvVars surfaces it to the container as GIT_CLONE_REPO/GIT_CLONE_REF.
   gitCloneRepo?: string;
   gitCloneRef?: string;
@@ -174,6 +174,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, userTimezone,
+        gitCloneRepo, gitCloneRef,
       });
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -276,8 +277,8 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       remoteCurationManifestDigest,
       sessionMode,
       userTimezone,
-      // REQ-GITHUB-004: one-shot clone directive. Only on the first (create→start)
-      // call — the restart path (409 idempotent branch above) does not re-apply it.
+      // REQ-GITHUB-004: clone directive for a session created from a repository.
+      // The restart path also re-applies it so an ephemeral workspace can be rebuilt.
       gitCloneRepo,
       gitCloneRef,
     });

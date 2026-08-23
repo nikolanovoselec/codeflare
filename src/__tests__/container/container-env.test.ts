@@ -161,7 +161,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.ENCRYPTION_KEY).toBeUndefined();
   });
 
-  // REQ-GITHUB-004: the one-shot clone directive flows DO state -> container env.
+  // REQ-GITHUB-004: the session clone directive flows DO state -> container env.
   // entrypoint.sh clones GIT_CLONE_REPO (with optional GIT_CLONE_REF) at start.
   it('REQ-GITHUB-004: emits GIT_CLONE_REPO when state._gitCloneRepo is set', () => {
     const state = baseState();

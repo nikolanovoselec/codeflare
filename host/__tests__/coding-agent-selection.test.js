@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   activateExtensionWithVscode,
   createVscodeSmokeApi,
+  verifyNodeTarRuntimes,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -76,6 +77,44 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
 
       assert.deepEqual(context.observed, ['ready']);
       assert.equal(context.subscriptions.length, 1);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'node-tar-runtime-smoke-'));
+    try {
+      const runtimePaths = ['npm-tar', 'code-server-tar'].map((name) => join(fixture, name));
+      const moduleSource = [
+        "const { copyFile } = require('node:fs/promises');",
+        "const { join } = require('node:path');",
+        'exports.create = async ({ cwd, file }, entries) => copyFile(join(cwd, entries[0]), file);',
+        "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
+        '',
+      ].join('\n');
+      for (const runtimePath of runtimePaths) {
+        const packagePath = join(runtimePath, 'package.json');
+        mkdirSync(runtimePath, { recursive: true });
+        writeFileSync(packagePath, JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
+        writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
+      }
+
+      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
+      assert.deepEqual(verified, runtimePaths);
+
+      const brokenRuntime = join(fixture, 'broken-tar');
+      mkdirSync(brokenRuntime, { recursive: true });
+      writeFileSync(
+        join(brokenRuntime, 'package.json'),
+        JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }),
+      );
+      writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
+
+      await assert.rejects(
+        verifyNodeTarRuntimes({ runtimePaths: [brokenRuntime], temporaryRoot: fixture }),
+        /must load node-tar extract/,
+      );
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

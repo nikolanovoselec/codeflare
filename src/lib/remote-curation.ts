@@ -38,6 +38,9 @@ const FRESHNESS_MS = 5 * 60 * 1000;
 const MAX_SAFE_ERROR_BYTES = 512;
 const MAX_GITHUB_METADATA_BYTES = 1024 * 1024;
 const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RELEASE_HISTORY_PAGES = 10;
+
+class ManagedRuntimeMismatchError extends Error {}
 
 const Hex40 = z.string().regex(/^[0-9a-f]{40}$/);
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -539,7 +542,7 @@ export async function verifyManagedReleaseStream(input: {
   const release = await parseManagedReleaseStream(input.compressed);
   if (release.source.repositoryId !== input.expectedRepositoryId) throw new Error('Managed release repository identity does not match configuration');
   if (release.sequence < input.minimumSequence) throw new Error('Managed release sequence is older than active state');
-  if (release.runtimeDependencyHash !== input.expectedRuntimeHash) throw new Error('Managed release requires a different runtime dependency set');
+  if (release.runtimeDependencyHash !== input.expectedRuntimeHash) throw new ManagedRuntimeMismatchError('Managed release requires a different runtime dependency set');
   return { compressed: input.compressed, release, digest: await sha256Hex(input.compressed) };
 }
 
@@ -621,8 +624,28 @@ const GithubReleaseSchema = z.object({
   id: z.number().int().positive(),
   tag_name: z.string().min(1).max(256),
   immutable: z.literal(true),
+  draft: z.literal(false).optional(),
+  prerelease: z.literal(false).optional(),
   assets: z.array(GithubAssetSchema),
 }).passthrough();
+function publishedReleasePage(value: unknown): { releases: z.infer<typeof GithubReleaseSchema>[]; full: boolean } {
+  if (!Array.isArray(value) || value.length > 100) throw new Error('GitHub release history metadata is invalid');
+  const releases: z.infer<typeof GithubReleaseSchema>[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    if (record.draft !== false || record.prerelease !== false || !Array.isArray(record.assets)) continue;
+    const advertisesManagedAsset = record.assets.some((asset) => (
+      asset && typeof asset === 'object'
+      && ['seed-v1.json.gz', 'seed-v1.sig'].includes(String((asset as Record<string, unknown>).name))
+    ));
+    if (!advertisesManagedAsset) continue;
+    const decoded = GithubReleaseSchema.safeParse(entry);
+    if (!decoded.success) throw new Error(`GitHub managed release history contains invalid immutable metadata: ${decoded.error.issues[0]?.path.join('.') || 'root'}`);
+    releases.push(decoded.data);
+  }
+  return { releases, full: value.length === 100 };
+}
 
 function exactReleaseAssets(release: z.infer<typeof GithubReleaseSchema>): {
   bundle: z.infer<typeof GithubAssetSchema>;
@@ -695,6 +718,53 @@ async function hasCachedRelease(cache: ManagedReleaseCache, active: ActiveManage
   }
 }
 
+async function verifyGithubReleaseCandidate(input: {
+  metadata: z.infer<typeof GithubReleaseSchema>;
+  token: string;
+  publicKeyHex: string;
+  repositoryId: number;
+  expectedRuntimeHash: string;
+  minimumSequence: number;
+  checkedAt: string;
+  fetcher: typeof fetch;
+}): Promise<{ candidate: ActiveManagedRelease; compressed: Uint8Array; signature: Uint8Array }> {
+  const assets = exactReleaseAssets(input.metadata);
+  const [compressed, signature] = await Promise.all([
+    downloadManagedAsset({ url: assets.bundle.url, token: input.token, fetcher: input.fetcher, maxBytes: MANAGED_RELEASE_LIMITS.compressedBytes }),
+    downloadManagedAsset({ url: assets.signature.url, token: input.token, fetcher: input.fetcher, maxBytes: 64 }),
+  ]);
+  if (signature.byteLength !== 64) throw new Error('Managed release signature must be exactly 64 bytes');
+  const [bundleDigest, signatureDigest] = await Promise.all([sha256Hex(compressed), sha256Hex(signature)]);
+  if (`sha256:${bundleDigest}` !== assets.bundle.digest) throw new Error('Managed release bundle immutable asset digest does not match');
+  if (`sha256:${signatureDigest}` !== assets.signature.digest) throw new Error('Managed release signature immutable asset digest does not match');
+
+  const verified = await verifyManagedReleaseStream({
+    compressed,
+    signature,
+    publicKeyHex: input.publicKeyHex,
+    expectedRepositoryId: input.repositoryId,
+    minimumSequence: input.minimumSequence,
+    expectedRuntimeHash: input.expectedRuntimeHash,
+  });
+  if (verified.release.source.releaseTag !== input.metadata.tag_name) throw new Error('Managed release tag does not match signed source metadata');
+  return {
+    compressed,
+    signature,
+    candidate: {
+      schemaVersion: 1,
+      seedAbi: verified.release.seedAbi,
+      sequence: verified.release.sequence,
+      digest: verified.digest,
+      repositoryId: verified.release.source.repositoryId,
+      releaseId: input.metadata.id,
+      releaseTag: input.metadata.tag_name,
+      sourceCommit: verified.release.source.commitSha,
+      runtimeDependencyHash: verified.release.runtimeDependencyHash,
+      activatedAt: input.checkedAt,
+    },
+  };
+}
+
 export async function resolveManagedEnvironmentRelease(input: {
   kv: KVNamespace;
   stateKey: string;
@@ -717,12 +787,15 @@ export async function resolveManagedEnvironmentRelease(input: {
 }> {
   const now = input.now ?? new Date();
   const fetcher = input.fetcher ?? fetch;
+  const expectedRuntimeHash = input.expectedRuntimeHash ?? PRESEED_RUNTIME_DEPENDENCY_HASH;
   const state = await readFreshnessState(input.kv, input.stateKey);
   const lastChecked = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
   const freshnessAge = now.getTime() - lastChecked;
   if (!input.requireFresh && state.active && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
     const cachedActive = await readActiveWithFallback(input.cache, undefined);
-    if (cachedActive?.digest === state.active.digest && await hasCachedRelease(input.cache, cachedActive)) {
+    if (cachedActive?.runtimeDependencyHash === expectedRuntimeHash
+      && cachedActive.digest === state.active.digest
+      && await hasCachedRelease(input.cache, cachedActive)) {
       return { active: cachedActive, freshness: state.lastError ? 'degraded' : 'fresh', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
     }
   }
@@ -737,7 +810,7 @@ export async function resolveManagedEnvironmentRelease(input: {
 
     if (response.status === 304) {
       const active = await readActiveWithFallback(input.cache, undefined);
-      if (active && await hasCachedRelease(input.cache, active)) {
+      if (active?.runtimeDependencyHash === expectedRuntimeHash && await hasCachedRelease(input.cache, active)) {
         await writeFreshnessState(input.kv, input.stateKey, {
           schemaVersion: 1,
           ...(state.etag ? { etag: state.etag } : {}),
@@ -759,54 +832,75 @@ export async function resolveManagedEnvironmentRelease(input: {
 
     const decoded = GithubReleaseSchema.safeParse(await readJsonResponseBounded(response, 'GitHub latest release metadata'));
     if (!decoded.success) throw new Error(`GitHub latest release is not immutable or has invalid metadata: ${decoded.error.issues[0]?.path.join('.') || 'root'}`);
-    const releaseMetadata = decoded.data;
-    const assets = exactReleaseAssets(releaseMetadata);
-    const cachedActive = await readActiveWithFallback(input.cache, undefined);
-    const observedActive = cachedActive ?? state.active;
-    if (cachedActive?.releaseId === releaseMetadata.id
-      && cachedActive.releaseTag === releaseMetadata.tag_name
-      && await hasCachedRelease(input.cache, cachedActive)) {
+    const latestMetadata = decoded.data;
+    const cachedPointer = await readActiveWithFallback(input.cache, undefined);
+    const cachedActive = cachedPointer?.runtimeDependencyHash === expectedRuntimeHash ? cachedPointer : undefined;
+    const stateActive = state.active?.runtimeDependencyHash === expectedRuntimeHash ? state.active : undefined;
+    const observedActive = cachedActive ?? stateActive;
+    const etag = responseEtag(response);
+    const returnCached = async (metadata: z.infer<typeof GithubReleaseSchema>) => {
+      if (cachedActive?.releaseId !== metadata.id
+        || cachedActive.releaseTag !== metadata.tag_name
+        || !await hasCachedRelease(input.cache, cachedActive)) return undefined;
       await writeFreshnessState(input.kv, input.stateKey, {
         schemaVersion: 1,
-        ...(responseEtag(response) ? { etag: responseEtag(response)! } : {}),
-        active: observedActive,
+        ...(etag ? { etag } : {}),
+        active: cachedActive,
         lastCheckedAt: checkedAt,
         ...(patExpiresAt ? { patExpiresAt } : {}),
       });
-      return { active: observedActive, freshness: 'fresh', lastCheckedAt: checkedAt };
-    }
-
-    const [compressed, signature] = await Promise.all([
-      downloadManagedAsset({ url: assets.bundle.url, token: input.token, fetcher, maxBytes: MANAGED_RELEASE_LIMITS.compressedBytes }),
-      downloadManagedAsset({ url: assets.signature.url, token: input.token, fetcher, maxBytes: 64 }),
-    ]);
-    if (signature.byteLength !== 64) throw new Error('Managed release signature must be exactly 64 bytes');
-    const [bundleDigest, signatureDigest] = await Promise.all([sha256Hex(compressed), sha256Hex(signature)]);
-    if (`sha256:${bundleDigest}` !== assets.bundle.digest) throw new Error('Managed release bundle immutable asset digest does not match');
-    if (`sha256:${signatureDigest}` !== assets.signature.digest) throw new Error('Managed release signature immutable asset digest does not match');
-
-    const verified = await verifyManagedReleaseStream({
-      compressed,
-      signature,
-      publicKeyHex: input.publicKeyHex,
-      expectedRepositoryId: input.repositoryId,
-      minimumSequence: observedActive?.sequence ?? 1,
-      expectedRuntimeHash: input.expectedRuntimeHash ?? PRESEED_RUNTIME_DEPENDENCY_HASH,
-    });
-    if (verified.release.source.releaseTag !== releaseMetadata.tag_name) throw new Error('Managed release tag does not match signed source metadata');
-    const candidate: ActiveManagedRelease = {
-      schemaVersion: 1,
-      seedAbi: verified.release.seedAbi,
-      sequence: verified.release.sequence,
-      digest: verified.digest,
-      repositoryId: verified.release.source.repositoryId,
-      releaseId: releaseMetadata.id,
-      releaseTag: releaseMetadata.tag_name,
-      sourceCommit: verified.release.source.commitSha,
-      runtimeDependencyHash: verified.release.runtimeDependencyHash,
-      activatedAt: checkedAt,
+      return { active: cachedActive, freshness: 'fresh' as const, lastCheckedAt: checkedAt };
     };
-    const etag = responseEtag(response);
+
+    const latestCached = await returnCached(latestMetadata);
+    if (latestCached) return latestCached;
+
+    let selected: Awaited<ReturnType<typeof verifyGithubReleaseCandidate>> | undefined;
+    try {
+      selected = await verifyGithubReleaseCandidate({
+        metadata: latestMetadata,
+        token: input.token,
+        publicKeyHex: input.publicKeyHex,
+        repositoryId: input.repositoryId,
+        expectedRuntimeHash,
+        minimumSequence: observedActive?.sequence ?? 1,
+        checkedAt,
+        fetcher,
+      });
+    } catch (error) {
+      if (!(error instanceof ManagedRuntimeMismatchError)) throw error;
+      for (let page = 1; page <= MAX_RELEASE_HISTORY_PAGES && !selected; page += 1) {
+        const historyResponse = await fetchGithub(fetcher, `${GITHUB_API_ORIGIN}/repos/${input.repository}/releases?per_page=100&page=${page}`, {
+          headers: githubHeaders(input.token),
+          redirect: 'manual',
+        });
+        if (!historyResponse.ok) throw new Error(`GitHub release history request failed with HTTP ${historyResponse.status}`);
+        const history = publishedReleasePage(await readJsonResponseBounded(historyResponse, 'GitHub release history metadata'));
+        for (const metadata of history.releases) {
+          if (metadata.id === latestMetadata.id) continue;
+          const cached = await returnCached(metadata);
+          if (cached) return cached;
+          try {
+            selected = await verifyGithubReleaseCandidate({
+              metadata,
+              token: input.token,
+              publicKeyHex: input.publicKeyHex,
+              repositoryId: input.repositoryId,
+              expectedRuntimeHash,
+              minimumSequence: observedActive?.sequence ?? 1,
+              checkedAt,
+              fetcher,
+            });
+            break;
+          } catch (candidateError) {
+            if (!(candidateError instanceof ManagedRuntimeMismatchError)) throw candidateError;
+          }
+        }
+        if (!history.full) break;
+      }
+    }
+    if (!selected) throw new Error('No immutable managed release matches this runtime dependency set');
+    const { candidate, compressed, signature } = selected;
     if (input.deferActivation) {
       const releasePrefix = `releases/${candidate.digest}`;
       await Promise.all([
@@ -838,7 +932,8 @@ export async function resolveManagedEnvironmentRelease(input: {
     return { active, freshness: 'fresh', lastCheckedAt: checkedAt };
   } catch (error) {
     const message = safeError(error, input.token);
-    const active = await readActiveWithFallback(input.cache, state.active);
+    const fallbackActive = await readActiveWithFallback(input.cache, state.active);
+    const active = fallbackActive?.runtimeDependencyHash === expectedRuntimeHash ? fallbackActive : undefined;
     const failedState: ManagedEnvironmentFreshnessState = {
       schemaVersion: 1,
       ...(state.etag ? { etag: state.etag } : {}),
@@ -1376,7 +1471,7 @@ export async function resolveManagedEnvironment(input: {
       configured: true,
       enabled: true,
       config,
-      ...(state.active ? { active: state.active } : {}),
+      ...(state.active?.runtimeDependencyHash === PRESEED_RUNTIME_DEPENDENCY_HASH ? { active: state.active } : {}),
       freshness: 'degraded',
       ...(state.lastCheckedAt ? { lastCheckedAt: state.lastCheckedAt } : {}),
       lastError: message,
@@ -1414,6 +1509,7 @@ export async function getManagedEnvironmentPrefill(
     readFreshnessState(env.KV, getManagedEnvironmentStateKey(config.configFingerprint)),
   ]);
   const checked = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
+  const active = state.active?.runtimeDependencyHash === PRESEED_RUNTIME_DEPENDENCY_HASH ? state.active : undefined;
   const freshness: ManagedEnvironmentFreshness = !config.enabled
     ? 'disabled'
     : state.lastError
@@ -1427,10 +1523,10 @@ export async function getManagedEnvironmentPrefill(
     repository: config.repository,
     personalAccessTokenSet: typeof pat === 'string' && pat.startsWith('v1:'),
     publicKeyFingerprint: config.publicKeyFingerprint,
-    ...(state.active ? {
-      activeReleaseTag: state.active.releaseTag,
-      activeSequence: state.active.sequence,
-      activeDigestPrefix: state.active.digest.slice(0, 12),
+    ...(active ? {
+      activeReleaseTag: active.releaseTag,
+      activeSequence: active.sequence,
+      activeDigestPrefix: active.digest.slice(0, 12),
     } : {}),
     freshness,
     ...(state.lastCheckedAt ? { lastCheckedAt: state.lastCheckedAt } : {}),

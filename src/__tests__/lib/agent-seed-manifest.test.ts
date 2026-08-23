@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
-import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
+import { attributionBlockReason, isLocalBuildCommand, isManagedSafeLocalCheckCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -399,11 +399,14 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 
   it('AC4: detects the package-manager verbs plus the standalone tool set, and allows the rest', () => {
-    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'prettier -w .', 'wrangler dev']) {
+    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'biome check .', './node_modules/.bin/biome check .', 'npx biome check .', 'npx @biomejs/biome check .', "npx --call 'biome check .'", "npx --call='biome check .'", "npx -c 'biome check .'", 'node --check script.mjs', 'prettier -w .', 'wrangler dev']) {
       expect(isLocalBuildCommand(cmd), cmd).toBe(true);
     }
     expect(isLocalBuildCommand('git status')).toBe(false);
     expect(isLocalBuildCommand('npm run deploy')).toBe(false);
+    expect(isLocalBuildCommand('rg biome package.json')).toBe(false);
+    expect(isLocalBuildCommand("echo 'node --check'")).toBe(false);
+    expect(isLocalBuildCommand('git commit -m "document biome and node --check"')).toBe(false);
   });
 
   it('AC4: ignores blocked tool names inside heredoc payloads but still checks commands after them', () => {
@@ -429,6 +432,68 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   it('AC5: a non-build command is never blocked regardless of the sentinel', () => {
     const fs = { existsSync: () => false, unlinkSync: () => { throw new Error('should not be called'); } };
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
+  });
+
+  it('REQ-AGENT-157 AC1: allows only a managed safe-check wrapper invocation with an optional leading cd', () => {
+    const pi = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
+    const claude = 'node "$HOME/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs" eslint .';
+    expect(isManagedSafeLocalCheckCommand(pi)).toBe(true);
+    expect(isManagedSafeLocalCheckCommand(claude)).toBe(true);
+    expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo && ${pi}`)).toBe(true);
+    for (const separator of [';', '||', '&', '\n']) {
+      expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo${separator}${pi}`), separator).toBe(false);
+    }
+    expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo && ${pi} && npm test`)).toBe(false);
+    expect(isManagedSafeLocalCheckCommand(`${pi} && npm test`)).toBe(false);
+    expect(isManagedSafeLocalCheckCommand(`${pi} > lint.log`)).toBe(false);
+    expect(isManagedSafeLocalCheckCommand('node ./scripts/safe-local-check.mjs oxlint src')).toBe(false);
+  });
+
+  it('REQ-AGENT-157 AC2: the managed wrapper bypasses the local-lint block without consuming the user sentinel', () => {
+    let consumed = false;
+    const fs = { existsSync: () => true, unlinkSync: () => { consumed = true; } };
+    const command = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
+    expect(localBuildBlockReason(command, fs)).toBeUndefined();
+    expect(consumed).toBe(false);
+    expect(localBuildBlockReason('oxlint src', { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    expect(localBuildBlockReason(`${command} > lint.log`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    const syntax = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs syntax script.mjs';
+    expect(localBuildBlockReason(`${syntax} > syntax.log`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+    expect(localBuildBlockReason(`${syntax} && printf done`, { existsSync: () => false, unlinkSync: () => undefined }))
+      .toMatch(/safe-local-checks/);
+  });
+
+  it('REQ-AGENT-157 AC3: seeds one managed safe-check skill and wrapper for each runtime and mode', () => {
+    const capabilities = new Map([
+      ['.claude/skills/safe-local-checks/SKILL.md', 'text/markdown; charset=utf-8'],
+      ['.claude/skills/safe-local-checks/scripts/safe-local-check.mjs', 'text/javascript; charset=utf-8'],
+      ['.pi/agent/skills/safe-local-checks/SKILL.md', 'text/markdown; charset=utf-8'],
+      ['.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs', 'text/javascript; charset=utf-8'],
+    ]);
+    for (const [key, contentType] of capabilities) {
+      const documents = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(documents).toHaveLength(1);
+      expect(documents[0]?.contentType).toBe(contentType);
+      expect(documents[0]?.modes).toEqual(['default', 'advanced']);
+    }
+  });
+
+  it('REQ-AGENT-157 AC4: Claude permanently loaded policy stays below 400 characters', () => {
+    const claudeRules = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.claude/rules/no-local-builds.md');
+    expect(claudeRules).toHaveLength(1);
+    expect(claudeRules[0]?.content.length).toBeLessThan(400);
+  });
+
+  it('REQ-AGENT-157 AC5: Pi pre-skill policy stays below 4,500 characters', () => {
+    const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
+    expect(piInstructions).toHaveLength(2);
+    for (const instructions of piInstructions) {
+      const permanentlyLoadedPolicy = instructions.content.split('\n## Skills\n')[0] ?? '';
+      expect(permanentlyLoadedPolicy.length).toBeLessThan(4_500);
+    }
   });
 
 });

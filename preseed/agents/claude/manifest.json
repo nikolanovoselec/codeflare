@@ -479,16 +479,6 @@
       "advanced"
     ]
   },
-  "skills/frontend-components/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/git-review-pipeline/SKILL.md": {
     "modes": [
       "advanced"
@@ -565,6 +555,18 @@
   },
   "skills/sdd-init/references/verify-source-anchors.py": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "skills/safe-local-checks/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/safe-local-checks/scripts/safe-local-check.mjs": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -2018,17 +2020,49 @@
       "advanced"
     ]
   },
-  "skills/canvas-design/LICENSE.txt": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/canvas-design/ORIGIN.md": {
     "modes": [
       "advanced"
     ]
   },
   "skills/canvas-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-components/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/_licenses/vercel-agent-skills-MIT.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/skill-authoring/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/systematic-debugging/LICENSE": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/systematic-debugging/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/_licenses/anthropic-skills-Apache-2.0.txt": {
     "modes": [
       "advanced"
     ]

@@ -93,8 +93,8 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.
     ...(params.userTimezone && { userTimezone: params.userTimezone }),
-    // REQ-GITHUB-004: forward the one-shot clone directive so the container
-    // clones the repo at start (before the agent autostarts). Only sent when a
+    // REQ-GITHUB-004: forward the session clone directive so a fresh workspace
+    // clones the repo before agent autostart. Only sent when a
     // repo was requested; ref travels with it when present.
     ...(params.gitCloneRepo && { gitCloneRepo: params.gitCloneRepo }),
     ...(params.gitCloneRef && { gitCloneRef: params.gitCloneRef }),
@@ -295,7 +295,7 @@ export async function ensureBucketAndSeed(params: {
  * Configure the container Durable Object: set bucket name, R2 creds, and preferences.
  * Returns whether the bucket name needed an update.
  *
- * @throws ContainerError if setBucketName fails on a needed update
+ * @throws ContainerError if setBucketName fails on a needed bucket update or clone restoration
  */
 export async function configureContainerDO(params: ContainerConfigPayload & {
   container: { fetch: (req: Request) => Promise<Response> };
@@ -311,7 +311,7 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
   const needsBucketUpdate = storedBucketName !== bucketName;
 
   try {
-    await getContainerInternalCB(containerId).execute(() =>
+    const response = await getContainerInternalCB(containerId).execute(() =>
       container.fetch(
         new Request('http://container/_internal/setBucketName', {
           method: 'POST',
@@ -320,13 +320,16 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
         })
       )
     );
+    if (response.status !== 200 && response.status !== 409) {
+      throw new Error(`setBucketName returned ${response.status}`);
+    }
     if (needsBucketUpdate) {
       await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
     }
     logger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
   } catch (error) {
-    if (needsBucketUpdate) {
-      logger.error('Failed to set bucket name', toError(error));
+    if (needsBucketUpdate || params.gitCloneRepo) {
+      logger.error('Failed to configure container before start', toError(error));
       throw new ContainerError('set_bucket_name', toErrorMessage(error));
     }
     logger.warn('Failed to store sessionId via setBucketName', { sessionId: params.sessionId });

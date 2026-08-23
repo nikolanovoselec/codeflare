@@ -545,6 +545,7 @@ Tiers, billing, usage tracking, and quotas.
 4. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets. <!-- @impl: web-ui/src/stores/session-usage.ts::setDismissedQuotaLevel --> <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)) -->
 5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 6. The 100% (quota-exceeded) banner is not dismissible because it explains why new sessions cannot start. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
+7. The page shows a centered tier-and-mode label only for metered SaaS plans; non-SaaS and custom unmetered plans show usage time without a plan label. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
 
 **Constraints:** Non-SaaS personal usage visibility is owned by [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data); account-menu actions are owned by [REQ-SUB-023](#req-sub-023-deployment-mode-account-actions).
 
@@ -650,7 +651,7 @@ Tiers, billing, usage tracking, and quotas.
 1. Timekeeper reports the current month's durable total plus pending usage in every deployment mode. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) -->
 2. The usage endpoint returns personal usage statistics in every deployment mode. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
 3. A non-SaaS usage response carries `null` instead of a billing quota. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
-4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-022 AC4: renders personal usage stat cards without quota UI when monthly quota is null) -->
+4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-022 AC4: renders only personal usage times outside SaaS) -->
 
 **Constraints:** Usage recording and display do not authorize quota, trial, or billing enforcement outside SaaS mode.
 

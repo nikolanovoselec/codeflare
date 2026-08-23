@@ -836,6 +836,7 @@ probe_identity generation match match other-generation`, {
   it('REQ-IDE-008 AC4: generation cleanup rescans children forked between signal snapshots', () => {
     const forker = writeExecutable(dir, 'fork-on-term', `#!/usr/bin/env bash
 trap '
+  trap - TERM
   (
     for _ in $(seq 1 40); do
       setsid sleep 30 >/dev/null 2>&1 &

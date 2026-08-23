@@ -8,9 +8,11 @@
     "@juicesharp/rpiv-advisor": "2.4.0",
     "@juicesharp/rpiv-ask-user-question": "2.4.0",
     "@juicesharp/rpiv-todo": "2.4.0",
-    "@narumitw/pi-goal": "0.46.0",
+    "@narumitw/pi-goal": "0.53.0",
+    "@narumitw/pi-plan-mode": "0.52.0",
     "@narumitw/pi-usage": "0.50.0",
     "context-mode": "1.0.169",
+    "pi-caveman": "1.0.8",
     "pi-evaluate": "0.1.5",
     "pi-mcp-adapter": "2.21.0",
     "pi-web-access": "0.18.0"

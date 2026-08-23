@@ -1,6 +1,7 @@
 ---
 name: consult-llm
 description: User-invoked only for explicit requests to consult an external LLM.
+disable-model-invocation: true
 ---
 
 # Consult LLM (Pi): Query External AI Models

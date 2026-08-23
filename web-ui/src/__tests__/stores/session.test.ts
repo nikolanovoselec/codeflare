@@ -227,7 +227,7 @@ describe('Session Store', () => {
       expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
 
-    it('REQ-STOR-020 AC3: reconciles upgrading and returns to current after success', async () => {
+    it('REQ-AGENT-049 AC4: reconciles upgrading and returns to current after success', async () => {
       let resolveRecreate: (value: any) => void;
       mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
         resolveRecreate = resolve;
@@ -485,7 +485,7 @@ describe('Session Store', () => {
       expect(sessionStore.bucketMigrationPercent).toBeNull();
     });
 
-    it('REQ-STOR-020 AC3: checks for a later managed release while status is current', async () => {
+    it('REQ-STOR-023 AC3: checks for a later managed release while status is current', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -499,7 +499,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
     });
 
-    it('REQ-STOR-020 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
+    it('REQ-STOR-023 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -516,7 +516,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true });
     });
 
-    it('REQ-STOR-020 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
+    it('REQ-STOR-023 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
       // A transient status is checked on every poll, so this isolates the in-flight guard
       // from the freshness window and from any stamp an earlier test left behind.
       mockGetBatchSessionStatus.mockResolvedValue({

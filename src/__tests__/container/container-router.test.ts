@@ -111,6 +111,30 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(dispatchInternalRoute(host, request)).toBeNull();
   });
 
+  // The Worker calls the same idempotent config route before every start. A woken
+  // Durable Object already has its bucket but not the memory-only clone fields.
+  it('REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container', async () => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _gitCloneRepo: null,
+      _gitCloneRef: null,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({ bucketName: 'b', gitCloneRepo: 'octo/repo', gitCloneRef: 'develop' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(host._gitCloneRepo).toBe('octo/repo');
+    expect(host._gitCloneRef).toBe('develop');
+    expect(host.envVars.GIT_CLONE_REPO).toBe('octo/repo');
+    expect(host.envVars.GIT_CLONE_REF).toBe('develop');
+  });
+
   // REQ-ENTERPRISE-005: the first-config persistence path must store an EMPTY-STRING
   // default route/reasoning (the "reasoning off / first-route fallback" reset), not swallow
   // it the way a truthiness guard would - mirroring applyPrefsOnRestart's empty-reset

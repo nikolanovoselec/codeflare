@@ -86,6 +86,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(entries[0]!.contentType).toBe('text/typescript; charset=utf-8');
   });
 
+  it('REQ-AGENT-155 AC1/AC4: keeps Caveman image-owned and out of agent seeds', () => {
+    const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
+    const piLock = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package-lock.json');
+    const packageJson = JSON.parse(piPackage?.content ?? '{}');
+    const packageLock = JSON.parse(piLock?.content ?? '{}');
+
+    const cavemanVersion = packageJson.dependencies?.['pi-caveman'];
+    expect(cavemanVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(packageLock.packages?.['node_modules/pi-caveman']?.version).toBe(cavemanVersion);
+    expect(AGENTS_SEEDED_CONFIGS.some((doc) => doc.key === '.pi/agent/caveman.json')).toBe(false);
+  });
+
   it('REQ-AGENT-080 AC3: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
     for (const key of [
       '.pi/agent/extensions/active-repo-memory.ts',
@@ -196,22 +208,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
         const isAdvanced = entry.modes.includes('advanced');
-        // Pi owns a native Git workflow in both modes, while its engineering
-        // constitution is advanced-only. The compact AGENTS.md must preserve
-        // the workflow gates without leaking constitution sections to default.
-        const requiredHeadings = key === '.pi/agent/AGENTS.md'
-          ? isAdvanced
-            ? ['Work continuity', 'Review and CI gates', 'Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
-            : ['Mandatory boundary stop', 'No pre-push reviewers', 'Execute one boundary plan', 'Hard obligations']
-          : isAdvanced
-            ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
-            : [];
-        const headings = markdownHeadings(entry.content);
-        expect(headings, `${key} ${entry.modes.join(',')} includes gate sections`)
+        // Pi's exact canonical rule assembly and mode split are covered by the
+        // host engineering-constitution contract, including the compact index boundary.
+        if (key === '.pi/agent/AGENTS.md') continue;
+
+        const requiredHeadings = isAdvanced
+          ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
+          : [];
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`)
           .toEqual(expect.arrayContaining(requiredHeadings));
-        if (key === '.pi/agent/AGENTS.md' && !isAdvanced) {
-          expect(headings).not.toEqual(expect.arrayContaining(['Work continuity', 'Review and CI gates']));
-        }
       }
     }
   });
@@ -577,6 +582,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     await expect(attachContextModeToForeground(ownerRegistry, rootPi, initialize)).resolves.toBe(true);
     await expect(attachContextModeToForeground(ownerRegistry, childPi, initialize)).resolves.toBe(false);
     expect(attachCount).toBe(1);
+  });
+
+  it('REQ-AGENT-096 AC6: foreground owner retains registered context-mode tools', async () => {
+    const ownerRegistry: { owner?: symbol } = {};
+    const registered = new Set<string>();
+    const pi = {
+      on() {},
+      registerTool(tool: { name: string }) { registered.add(tool.name); },
+    };
+    const initialize = async () => {
+      pi.registerTool({ name: 'ctx_execute' });
+      pi.registerTool({ name: 'ctx_search' });
+    };
+
+    await expect(attachContextModeToForeground(ownerRegistry, pi, initialize)).resolves.toBe(true);
+    expect([...registered].sort()).toEqual(['ctx_execute', 'ctx_search']);
+    await expect(attachContextModeToForeground(ownerRegistry, { on() {} }, async () => {
+      registered.clear();
+    })).resolves.toBe(false);
+    expect([...registered].sort()).toEqual(['ctx_execute', 'ctx_search']);
   });
 
   it('REQ-AGENT-089 AC2: owner shutdown permits context-mode reattachment', async () => {

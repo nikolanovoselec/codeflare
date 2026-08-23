@@ -90,6 +90,7 @@ describe('deployment container image input hash', () => {
       'host/package-lock.json',
       'host/tsconfig.json',
       'host/src/index.ts',
+      'image/pi/caveman.json',
       'openvscode/runtime.txt',
       'preseed/runtime.txt',
       'scripts/browser-ide-ui-state.py',
@@ -98,6 +99,8 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/verify-pi-lockstep.mjs',
+      'scripts/verify-pi-prompt.mjs',
+      'scripts/pi-prompt-contract.mjs',
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
@@ -133,10 +136,15 @@ describe('deployment container image input hash', () => {
     const productionTag = imageHashResult().tag;
     assert.notEqual(productionTag, baseline.tag);
 
+    write('image/pi/caveman.json', '{"defaultLevel":"off"}\n');
+    commit('image policy change');
+    const imagePolicyTag = imageHashResult().tag;
+    assert.notEqual(imagePolicyTag, productionTag);
+
     write('transcript-retention.mjs', 'retention change\n');
     commit('retention script change');
     const retentionTag = imageHashResult().tag;
-    assert.notEqual(retentionTag, productionTag);
+    assert.notEqual(retentionTag, imagePolicyTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');

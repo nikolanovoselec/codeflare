@@ -14,7 +14,7 @@ User command: /review --all|--diff [--deep] [--verify-high] [scope-hint]
 
 Parse scope and flags from that line, then run the phases below. This is the user-invoked review workflow, NOT PR-boundary enforcement. Do not run the git-review-pipeline. Review the requested scope and report findings.
 
-**Review mode:** static analysis only. Never run builds, tests, or linters - the container is resource-constrained. Read and analyze code only.
+**Review mode:** static analysis only. Do not run builds, tests, or analyzers, including the managed local-check wrapper. Read and analyze code only.
 
 ## Review ownership (binding)
 
@@ -1122,7 +1122,7 @@ After the root completes Phase 10:
 
 ## Hard rules (recap)
 
-- NEVER run builds, tests, or linters locally - the container is resource-constrained.
+- Review remains static: never run builds, tests, or analyzers, including the managed local-check wrapper.
 - All 6 Phase 2 subagents launch together through public background `subagent` calls without inherited context or an artificial concurrency cap.
 - Phase 3 deep-reviewer subagents (when --deep) launch together through public background calls without inherited context or artificial limits.
 - Phases 4, 5, and 6 each run as a single report-only `code-reviewer` call; the root writes every returned report.

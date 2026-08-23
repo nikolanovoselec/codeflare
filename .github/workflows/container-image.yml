@@ -113,7 +113,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs host/package.json host/package-lock.json host/tsconfig.json host/src openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
           CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
@@ -123,7 +123,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|transcript-retention.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|transcript-retention.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -331,6 +331,36 @@ jobs:
           IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
           printf 'image_bytes=%s image_id=%s\n' "$IMAGE_BYTES" "$IMAGE_ID" \
             | tee -a /tmp/browser-ide-image-evidence.txt
+
+      - name: Verify real Pi prompt budget
+        if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            -v "$RUNNER_TEMP:/evidence" \
+            --entrypoint /bin/sh "$IMAGE" -c '
+              set -eu
+              mkdir -p /tmp/pi-runtime/npm
+              ln -s /opt/codeflare/pi-agent/npm/node_modules /tmp/pi-runtime/npm/node_modules
+              node -e '\''const fs=require("fs");const p=require("/workspace/preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync("/tmp/pi-runtime/settings.json",JSON.stringify({packages}));'\''
+              node /workspace/scripts/verify-pi-prompt.mjs \
+                --generated /workspace/src/lib/agent-seed.generated.ts \
+                --runtime-agent-dir /tmp/pi-runtime \
+                --pi-package-root /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent \
+                --report /evidence/pi-prompt-report.json
+            '
+
+      - name: Upload Pi prompt report
+        if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pi-prompt-report
+          path: ${{ runner.temp }}/pi-prompt-report.json
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Measure idle code-server resources
         if: steps.reuse.outputs.reused != 'true'

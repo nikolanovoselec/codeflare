@@ -603,8 +603,8 @@ export function setContextModeEnabled(
 function contextModeStatusText(store: PiSettingsStore = PI_SETTINGS_STORE): string {
   const enabled = contextModeEnabled(store.read());
   return enabled
-    ? "context-mode is enabled for Pi in this container. Use `/ctx off` to persist the disabled setting and reload this Pi process; the next Codeflare container start restores the disabled default."
-    : "context-mode is disabled for Pi in this container. Use `/ctx on` to opt in and reload this Pi process; the next Codeflare container start keeps the disabled default.";
+    ? "context-mode is enabled for Pi in this container. Use `/ctx off` to disable it and reload this Pi process; the next Codeflare container start restores the enabled default."
+    : "context-mode is disabled for Pi in this container. Use `/ctx on` to enable it and reload this Pi process; the next Codeflare container start restores the enabled default.";
 }
 
 export async function handleContextModeCommand(

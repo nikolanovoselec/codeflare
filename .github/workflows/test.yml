@@ -769,6 +769,30 @@ jobs:
           directory: host
           key-prefix: host
 
+      - name: Install exact Pi prompt runtime
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix preseed/agents/pi
+
+      - name: Verify real Pi prompt budget
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/pi-runtime"
+          mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
+          ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node scripts/verify-pi-prompt.mjs \
+            --generated src/lib/agent-seed.generated.ts \
+            --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
+            --pi-package-root preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent \
+            --report "$RUNNER_TEMP/pi-prompt-report.json"
+
+      - name: Upload Pi prompt report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pi-prompt-report-pr
+          path: ${{ runner.temp }}/pi-prompt-report.json
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
         # which resolves the [assets] directory; without the dir the config loads

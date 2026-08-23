@@ -66,6 +66,15 @@ esac
 CMD=$(printf '%s\n' "$CMD" | awk '{ sub(/[[:space:]]+#.*$/, ""); sub(/^#.*$/, ""); print }')
 [ -z "$CMD" ] && exit 0
 
+# The managed safe-local-check wrapper is the sole assistant-usable exception.
+# It enforces its own read-only analyzer allowlist, low priority, and deadline. Accept one standalone invocation, optionally after one `cd`; shell
+# composition stays blocked so the wrapper cannot hide a later unrestricted command.
+SAFE_WRAPPER='(~|\$HOME|/home/[^/]+)/\.(claude/skills|pi/agent/skills)/safe-local-checks/scripts/safe-local-check\.mjs'
+if [[ "$CMD" != *$'\n'* ]] \
+  && printf '%s' "$CMD" | grep -qE "^[[:space:]]*(cd[[:space:]]+[^;&|<>(){}\`]+[[:space:]]*&&[[:space:]]*)?node[[:space:]]+[\"']?${SAFE_WRAPPER}[\"']?([[:space:]][^;&|<>(){}\`]*)?$"; then
+  exit 0
+fi
+
 # USER-only bypass sentinel. One-shot: consumed on use so the bypass
 # is intentional and visible (re-running the command requires creating
 # the sentinel again, which only the user can do).
@@ -100,6 +109,7 @@ PATTERNS=(
   "${CMDPOS}pytest([[:space:]]|$)"
   "${CMDPOS}playwright[[:space:]]+test"
   "${CMDPOS}node[[:space:]]+--test"
+  "${CMDPOS}node[[:space:]]+--check([[:space:]]|$)"
   "${CMDPOS}bun[[:space:]]+test"
   # npm / npx wrappers. The `npx` form must permit arbitrary flags
   # between `npx` and the tool name (e.g. `npx -y oxlint@1.66.0`,
@@ -113,7 +123,8 @@ PATTERNS=(
   # the letter `n` (e.g. `--no-install`, `--include-node`). `grep -E`
   # matches per-line, so newlines never appear in the haystack
   # mid-match, making `.*` the correct primitive here.
-  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|biome|@biomejs/biome|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(((-p|--package)[[:space:]]+[^[:space:]]+|-[^[:space:]]+)[[:space:]]+)*(-c|--call)(=|[[:space:]])[\"']?(biome|@biomejs/biome)([[:space:]\"']|$)"
   "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
   "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
@@ -121,10 +132,14 @@ PATTERNS=(
   "${CMDPOS}pnpm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint)"
   "${CMDPOS}yarn[[:space:]]+test"
   "${CMDPOS}yarn[[:space:]]+(build|dev|typecheck|lint)"
+  # Any malformed or shell-composed managed wrapper invocation. A valid
+  # standalone wrapper already exited above; everything else stays blocked.
+  "${CMDPOS}node[[:space:]]+[\"']?${SAFE_WRAPPER}([\"']|[[:space:]]|$)"
   # Direct compiler / linter / formatter binaries
   "${CMDPOS}tsc([[:space:]]|$)"
   "${CMDPOS}oxlint([[:space:]]|$)"
   "${CMDPOS}eslint([[:space:]]|$)"
+  "${CMDPOS}biome([[:space:]]|$)"
   "${CMDPOS}prettier([[:space:]]|$)"
   # Wrangler dev/build/deploy (deploy goes through CI/Actions)
   "${CMDPOS}wrangler[[:space:]]+(dev|build|deploy)"
@@ -135,7 +150,7 @@ PATTERNS=(
 
 for pat in "${PATTERNS[@]}"; do
   if echo "$CMD" | grep -qE "$pat"; then
-    REASON="BLOCKED. No local builds, tests, type-checks, lints, or dev servers in this container -- heavy CPU use will freeze the session. Push to GitHub and let CI run. See ~/.claude/rules/no-local-builds.md. USER bypass: touch /tmp/local-build-bypass (one-shot, USER-only; the assistant must never create this)."
+    REASON="BLOCKED. Direct local builds, tests, type-checks, lints, and dev servers are prohibited. For bounded read-only lint or syntax checks, load the safe-local-checks skill and use its managed wrapper. Push and verify everything else with CI. USER bypass: touch /tmp/local-build-bypass (one-shot, USER-only; the assistant must never create this)."
     jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null
     exit 0
   fi

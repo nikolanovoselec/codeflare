@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { build, transform } from 'esbuild';
 
 import {
   COMMANDS_PATCH_MARKER,
   CONTROL_CHANNEL,
   EXPECTED_PI_GOAL_VERSION,
-  NEXT_PI_GOAL_VERSION,
+  GOAL_ENTRYPOINT_PATCH_MARKER,
   PATCH_MARKER,
   RUNTIME_PATCH_MARKER,
   SETTINGS_PATCH_MARKER,
@@ -266,6 +267,7 @@ const fixtureNextRuntimeSource = [
 \t}
 
 \trecordGoalUsage() {}
+\townsWorkflow(goal = this.activeGoal) { return goal?.status === "active"; }
 \tclearGoalRecoveryForGoal() {}
 \tclearBudgetWrapUp() {}
 \tblockStaleGoalToolCalls() {}
@@ -302,7 +304,7 @@ const fixtureNextRuntimeSource = [
 \t\t\tif (
 \t\t\t\tgeneration !== this.menuGeneration ||
 \t\t\t\tthis.activeGoal?.id !== goalId ||
-\t\t\t\tthis.activeGoal.status !== "active"
+\t\t\t\t!this.ownsWorkflow(this.activeGoal)
 \t\t\t) {
 \t\t\t\treturn;
 \t\t\t}
@@ -605,42 +607,195 @@ function successorRuntimeHarness(minIntervalMs) {
   return { runtime, scheduler, messages, state, ctx };
 }
 
-function writeFixturePackage(root, overrides = {}) {
-  mkdirSync(join(root, 'src'));
-  const files = {
-    'package.json': `${JSON.stringify({ version: EXPECTED_PI_GOAL_VERSION })}\n`,
-    'src/commands.ts': fixtureCommandsSource,
-    'src/goal.ts': fixtureGoalSource,
-    'src/runtime.ts': fixtureRuntimeSource,
-    'src/settings.ts': fixtureSettingsSource,
-    ...overrides,
-  };
-  for (const [path, contents] of Object.entries(files)) writeFileSync(join(root, path), contents);
-  return files;
-}
-
-function readFixturePackage(root, sessionSourceName = 'goal') {
+function readFixturePackage(root, sessionSourceName = 'lifecycle') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
 }
 
-const NEXT_PACKAGE_ARCHIVE = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '__fixtures__',
-  'pi-goal-0.49.7.tgz',
-);
-const NEXT_PACKAGE_INTEGRITY = 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==';
+const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
+const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.53.0.tgz');
+const PINNED_PACKAGE_INTEGRITY = 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==';
+const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.52.0.tgz');
+const PINNED_PLAN_INTEGRITY = 'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==';
 
-function extractPinnedNextFixturePackage(root) {
-  const archive = readFileSync(NEXT_PACKAGE_ARCHIVE);
-  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, NEXT_PACKAGE_INTEGRITY);
-  execFileSync('tar', ['-xzf', NEXT_PACKAGE_ARCHIVE, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
+function extractPackage(archivePath, integrity, root) {
+  const archive = readFileSync(archivePath);
+  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, integrity);
+  execFileSync('tar', ['-xzf', archivePath, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
+}
+
+function extractPinnedFixturePackage(root) {
+  extractPackage(PINNED_PACKAGE_ARCHIVE, PINNED_PACKAGE_INTEGRITY, root);
+}
+
+const PINNED_RUNTIME_STUBS = {
+  name: 'pinned-runtime-stubs',
+  setup(bundle) {
+    bundle.onResolve(
+      { filter: /^@(?:earendil-works\/pi-(?:ai|coding-agent|tui)|narumitw\/pi-tui-kit)$/ },
+      ({ path }) => ({ path, namespace: 'pinned-runtime-stub' }),
+    );
+    bundle.onLoad({ filter: /.*/, namespace: 'pinned-runtime-stub' }, () => ({
+      loader: 'js',
+      contents: `
+        export const DEFAULT_MAX_BYTES = 50_000;
+        export const DEFAULT_MAX_LINES = 2_000;
+        export const defineMenu = (definition) => definition;
+        export const defineTool = (definition) => definition;
+        export const getAgentDir = () => process.cwd();
+        export const getMarkdownTheme = () => ({});
+        export const isContextOverflow = () => false;
+        export const isRetryableAssistantError = () => false;
+        export const runMenu = async () => ({ kind: "cancel" });
+        export const stripTerminalSequences = (value) => value;
+        export const truncateHead = (content) => ({ content, truncated: false });
+        export const withFileMutationQueue = async (_path, operation) => operation();
+        export class Markdown {}
+      `,
+    }));
+  },
+};
+
+async function bundleFixture(entryPoint, outputPath) {
+  await build({
+    entryPoints: [entryPoint],
+    outfile: outputPath,
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node22',
+    logLevel: 'silent',
+    plugins: [PINNED_RUNTIME_STUBS],
+    nodePaths: [join(process.cwd(), 'node_modules')],
+  });
+  return (await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`)).default;
+}
+
+function createExtensionHarness() {
+  const commands = new Map();
+  const lifecycle = new Map();
+  const eventListeners = new Map();
+  const notifications = [];
+  const entries = [];
+  const tools = [];
+  let activeTools = [];
+  let thinkingLevel = 'medium';
+  const sessionManager = {
+    getBranch: () => entries,
+    getEntries: () => entries,
+  };
+  const ui = new Proxy({
+    notify: (message, level) => notifications.push({ message, level }),
+  }, { get: (target, property) => target[property] ?? (() => undefined) });
+  const api = new Proxy({
+    events: {
+      on(channel, listener) {
+        const listeners = eventListeners.get(channel) ?? [];
+        listeners.push(listener);
+        eventListeners.set(channel, listeners);
+        return () => eventListeners.set(channel, listeners.filter((candidate) => candidate !== listener));
+      },
+      emit(channel, payload) {
+        return Promise.all((eventListeners.get(channel) ?? []).map((listener) => listener(payload)));
+      },
+    },
+    registerCommand: (name, definition) => commands.set(name, definition),
+    registerTool: (definition) => tools.push({
+      ...definition,
+      sourceInfo: { source: 'extension', path: 'pinned-fixture' },
+    }),
+    registerFlag: () => undefined,
+    getFlag: () => false,
+    on(name, listener) {
+      const listeners = lifecycle.get(name) ?? [];
+      listeners.push(listener);
+      lifecycle.set(name, listeners);
+    },
+    appendEntry(customType, data) {
+      entries.push({ type: 'custom', customType, data });
+    },
+    sendUserMessage: async () => undefined,
+    getAllTools: () => [...tools],
+    getActiveTools: () => [...activeTools],
+    setActiveTools: (tools) => { activeTools = [...tools]; },
+    getThinkingLevel: () => thinkingLevel,
+    setThinkingLevel: (level) => { thinkingLevel = level; },
+  }, { get: (target, property) => target[property] ?? (() => undefined) });
+  const ctx = {
+    cwd: process.cwd(),
+    hasUI: true,
+    mode: 'interactive',
+    sessionManager,
+    ui,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+  };
+  return {
+    activeTools: () => activeTools,
+    api,
+    commands,
+    ctx,
+    emit: (channel, payload) => api.events.emit(channel, payload),
+    entries,
+    notifications,
+    startSession: async () => {
+      for (const listener of lifecycle.get('session_start') ?? []) await listener({}, ctx);
+    },
+  };
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
+  it('REQ-AGENT-111 AC6/AC7: pinned Goal and Plan Mode refuse overlap and release ownership', async () => {
+    const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
+    const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
+    extractPinnedFixturePackage(goalRoot);
+    extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
+    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    const goalExtension = await bundleFixture(join(goalRoot, 'src/index.ts'), join(goalRoot, 'goal.mjs'));
+    const planExtension = await bundleFixture(join(planRoot, 'dist/index.ts'), join(planRoot, 'plan.mjs'));
+    const harness = createExtensionHarness();
+    goalExtension(harness.api, { settingsPath: join(goalRoot, 'settings.json') });
+    planExtension(harness.api, { settingsPath: join(planRoot, 'settings.json') });
+    await harness.startSession();
+
+    await harness.commands.get('goal').handler('first integration objective', harness.ctx);
+    assert.ok(harness.activeTools().includes('goal_complete'));
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    assert.ok(!harness.activeTools().includes('plan_mode_complete'));
+    assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
+
+    await harness.commands.get('goal').handler('clear', harness.ctx);
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    assert.ok(harness.activeTools().includes('plan_mode_complete'));
+    await harness.commands.get('plan').handler('exit', harness.ctx);
+    await harness.commands.get('goal').handler('second integration objective', harness.ctx);
+    assert.ok(harness.activeTools().includes('goal_complete'));
+
+    const activeGoalId = harness.entries
+      .filter((entry) => entry.data?.goal?.status === 'active')
+      .at(-1)?.data.goal.id;
+    assert.equal(typeof activeGoalId, 'string');
+    let response;
+    await harness.emit(CONTROL_CHANNEL, {
+      action: 'pause',
+      goalId: activeGoalId,
+      accepted: () => undefined,
+      respond: (value) => { response = value; },
+    });
+    assert.equal(response?.status, 'paused');
+    const pausedGoalId = response?.goalId;
+    await harness.emit(CONTROL_CHANNEL, {
+      action: 'resume',
+      goalId: pausedGoalId,
+      respond: (value) => { response = value; },
+    });
+    assert.equal(response?.ok, true);
+    assert.equal(response?.status, 'active');
+    assert.notEqual(response?.goalId, pausedGoalId);
+  });
+
   it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract', async () => {
     const { runtime, controller, lifecycle, events } = executablePatchedGoal();
     runtime.activeGoal = { id: 'goal-a', status: 'active' };
@@ -988,30 +1143,25 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     );
   });
 
-  it('REQ-AGENT-111: applies every marked patch idempotently to the locked fixtures', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pi-goal-review-control-'));
-    writeFixturePackage(root);
+  it('REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-latest-review-control-'));
+    extractPinnedFixturePackage(root);
 
+    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.53.0');
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
-    const first = readFixturePackage(root);
-    assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
-    assert.match(first['src/goal.ts'], new RegExp(PATCH_MARKER));
-    assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
-    assert.match(first['src/settings.ts'], new RegExp(SETTINGS_PATCH_MARKER));
-
-    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
-    assert.deepEqual(readFixturePackage(root), first);
-  });
-
-  it('REQ-AGENT-111/REQ-OPS-020: patches the cooldown-eligible pi-goal layout without double registration', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pi-goal-next-review-control-'));
-    extractPinnedNextFixturePackage(root);
-
-    patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
     assert.match(first['src/commands.ts'], /abortTurn: options\.abortTurn/);
+    assert.match(first['src/commands.ts'], /options\.sendPrompt === false \|\| await this\.runtime\.sendOwnedGoalPrompt/);
+    assert.ok(
+      first['src/commands.ts'].indexOf('this.runtime.acquireWorkflow(ctx.sessionManager)')
+        < first['src/commands.ts'].indexOf('transitionGoal(nextGoalInstance(this.runtime.activeGoal), "active")'),
+      'resume must acquire the workflow mutex before activating Goal',
+    );
+    assert.match(first['src/goal.ts'], new RegExp(GOAL_ENTRYPOINT_PATCH_MARKER));
+    assert.match(first['src/goal.ts'], /registerGoalLifecycle\(pi, runtime, runController, commands, options\)/);
     assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
+    assert.match(first['src/lifecycle.ts'], /commands: GoalCommandController,/);
     assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
     assert.match(first['src/runtime.ts'], /kind: "explicit_pause"; expectedGoalId: string; abortTurn\?: boolean/);
     assert.match(first['src/runtime.ts'], /if \(request\.abortTurn !== false\) abortCurrentTurn\(ctx\);/);
@@ -1026,7 +1176,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(first['src/lifecycle.ts'].match(/runController\.register/g), null);
     assert.match(first['src/settings.ts'], /automaticTurns: 25, noProgressTurns: 3, minIntervalMs: 0/);
 
-    patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root);
+    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
     assert.deepEqual(readFixturePackage(root, 'lifecycle'), first);
 
     const damagedRuntime = first['src/runtime.ts'].replace(
@@ -1035,43 +1185,43 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     );
     writeFileSync(join(root, 'src/runtime.ts'), damagedRuntime);
     assert.throws(
-      () => patchPiGoalDirectory(NEXT_PI_GOAL_VERSION, root),
+      () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root),
       /continuation runtime marker is present but 1 patched anchor\(s\) are missing/,
     );
   });
 
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
-    // The current expected half is derived. The admitted successor stays literal
-    // in the refusal assertion, so changing the bounded compatibility window must
-    // update both the successful candidate fixture and this fail-closed contract.
-    // The installed 0.44.0 stays literal because it is this fixture's own value.
     const expected = EXPECTED_PI_GOAL_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const versionDrift = mkdtempSync(join(tmpdir(), 'pi-goal-version-drift-'));
-    writeFixturePackage(versionDrift, { 'package.json': '{"version":"0.44.0"}\n' });
-    const versionBytes = readFixturePackage(versionDrift);
+    extractPinnedFixturePackage(versionDrift);
+    writeFileSync(join(versionDrift, 'package.json'), '{"version":"0.44.0"}\n');
+    const versionBytes = readFixturePackage(versionDrift, 'lifecycle');
     assert.throws(
       () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, versionDrift),
       new RegExp(`pi-goal 0\\.44\\.0 != expected ${expected}`),
     );
-    assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
+    assert.deepEqual(readFixturePackage(versionDrift, 'lifecycle'), versionBytes);
     assert.throws(
       () => patchPiGoalDirectory('0.44.0', versionDrift),
-      new RegExp(`review-control patch supports only pi-goal ${expected} or 0\\.49\\.7`),
+      new RegExp(`review-control patch supports only pi-goal ${expected}`),
     );
-    assert.deepEqual(readFixturePackage(versionDrift), versionBytes);
+    assert.deepEqual(readFixturePackage(versionDrift, 'lifecycle'), versionBytes);
 
     const sourceDrift = mkdtempSync(join(tmpdir(), 'pi-goal-source-drift-'));
-    writeFixturePackage(sourceDrift, {
-      'src/runtime.ts': fixtureRuntimeSource.replace(
-        'dispatchContinuationIfSettled',
-        'dispatchContinuationWhenReady',
+    extractPinnedFixturePackage(sourceDrift);
+    const runtimePath = join(sourceDrift, 'src/runtime.ts');
+    writeFileSync(
+      runtimePath,
+      readFileSync(runtimePath, 'utf8').replace(
+        'this.continuationDispatchTimer = setTimeout(() => {',
+        'this.continuationDispatchTimer = queueMicrotask(() => {',
       ),
-    });
-    const sourceBytes = readFixturePackage(sourceDrift);
+    );
+    const sourceBytes = readFixturePackage(sourceDrift, 'lifecycle');
     assert.throws(
       () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, sourceDrift),
-      /continuation dispatcher anchor count 0; expected 1/,
+      /native continuation scheduler interval anchor count 0; expected 1/,
     );
-    assert.deepEqual(readFixturePackage(sourceDrift), sourceBytes);
+    assert.deepEqual(readFixturePackage(sourceDrift, 'lifecycle'), sourceBytes);
   });
 });

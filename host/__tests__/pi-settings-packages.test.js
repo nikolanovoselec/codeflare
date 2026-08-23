@@ -1,7 +1,7 @@
 // Runs the real embedded Node program from entrypoint.sh that assembles Pi's
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
-//   - context-mode being disabled by default while remaining available through explicit /ctx on,
+//   - context-mode being enabled by default while remaining controllable through explicit /ctx off/on,
 //   - the managed extension packages, including Goal, Usage, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
@@ -68,6 +68,7 @@ const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.46.0': 'sha512-NY6fsXQmdD1hfX1f4ijI1fsJskoV6KGu7GoY0ZbzCUsfM5LKS7VsKNpGWuRMsOvjgd2sJCPKv8se/eUDu5wGGg==',
   '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
   '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
+  '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -76,6 +77,7 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-goal'];
     const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
+    assert.equal(version, '0.53.0');
     assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
@@ -116,6 +118,46 @@ describe('Evaluate package preseed (REQ-AGENT-133)', () => {
   });
 });
 
+describe('Caveman package preseed (REQ-AGENT-155)', () => {
+  it('pins the reviewed upstream release and integrity-locks its extension', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['pi-caveman'];
+    assert.equal(version, '1.0.8');
+    const caveman = lock.packages['node_modules/pi-caveman'];
+    assert.equal(caveman.version, version);
+    assert.equal(caveman.resolved, `https://registry.npmjs.org/pi-caveman/-/pi-caveman-${version}.tgz`);
+    assert.equal(
+      caveman.integrity,
+      'sha512-N0F/Ui86dEtKzoAnRpe+9t4AXsv9cshTGBFwbDf7aiiE1C5iQ8QrZuszdc/yX9FWNUP0pzSZX/M/zWynngnGQw==',
+    );
+    assert.deepEqual(caveman.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
+  });
+});
+
+describe('Plan mode package preseed (REQ-AGENT-152)', () => {
+  it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    const version = pkg.dependencies['@narumitw/pi-plan-mode'];
+    assert.equal(version, '0.52.0');
+    const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
+    assert.equal(planMode.version, version);
+    assert.equal(
+      planMode.resolved,
+      `https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-${version}.tgz`,
+    );
+    assert.equal(
+      planMode.integrity,
+      'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==',
+    );
+    assert.deepEqual(planMode.peerDependencies, {
+      '@earendil-works/pi-coding-agent': '*',
+      '@earendil-works/pi-tui': '*',
+    });
+  });
+});
+
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
@@ -126,7 +168,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and disables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and enables context-mode by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
@@ -134,13 +176,13 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     const contextMode = settings.packages.find((entry) => sourceOf(entry) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+    assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [] });
   });
 
-  it('startup removes the retired package while preserving managed and unrelated packages', () => {
+  it('startup restores the enabled default while preserving managed and unrelated packages', () => {
     const initial = JSON.stringify({
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [] },
+        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
@@ -148,7 +190,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });
     // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');

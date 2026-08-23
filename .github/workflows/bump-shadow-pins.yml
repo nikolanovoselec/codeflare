@@ -14,8 +14,8 @@ name: Bump Shadow Pins
 # - uv versioned GitHub archive + authoritative SHA-256 digest
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: every dependency in preseed/agents/pi/package.json except context-mode
-#   (the @juicesharp rpiv family, @narumitw/pi-goal, @narumitw/pi-usage,
-#   pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) — each is also a literal install
+#   (the @juicesharp rpiv family, @narumitw/pi-goal, @narumitw/pi-plan-mode, @narumitw/pi-usage,
+#   pi-caveman, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) — each is also a literal install
 #   spec in entrypoint.sh + baked into the seed; context-mode is owned
 #   atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
@@ -1179,7 +1179,7 @@ jobs:
             --body "$BODY"
 
   # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv
-  # family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
+  # family, pi-caveman, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
   # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
   # install spec in entrypoint.sh's Pi settings `required` array and baked into
   # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.

@@ -671,6 +671,57 @@ esac
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
+  it('REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const fixture = join(work, 'pi-extension-bump');
+    const piDirectory = join(fixture, 'preseed/agents/pi');
+    const hostTests = join(fixture, 'host/__tests__');
+    mkdirSync(piDirectory, { recursive: true });
+    mkdirSync(hostTests, { recursive: true });
+    writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
+      dependencies: {
+        'context-mode': '1.0.0',
+        'pi-caveman': '1.0.8',
+        'pi-web-access': '0.18.0',
+      },
+    }, null, 2)}\n`);
+    writeFileSync(join(fixture, 'entrypoint.sh'), "required='npm:pi-caveman@1.0.8'\n");
+    writeFileSync(
+      join(hostTests, 'pi-settings-packages.test.js'),
+      "assert.equal(spec, 'npm:pi-caveman@1.0.8');\n",
+    );
+
+    const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
+      (step) => step.name === 'List Pi extension pins (every dep except context-mode)',
+    )?.run ?? '';
+    const output = join(fixture, 'github-output');
+    const discovered = spawnSync('bash', ['-c', discover], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: output },
+    });
+    expect(discovered.status, discovered.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(output, 'utf8').trim().slice('packages='.length))).toEqual([
+      'pi-caveman',
+      'pi-web-access',
+    ]);
+
+    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
+    const updater = apply.match(/node <<'NODE'\n([\s\S]*?)\nNODE/)?.[1];
+    expect(updater).toBeDefined();
+    const applied = spawnSync(process.execPath, ['-e', updater ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: { ...process.env, PKG: 'pi-caveman', CUR: '1.0.8', LAT: '1.0.9' },
+    });
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['pi-caveman']).toBe('1.0.9');
+    expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
+    expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
+  });
+
   it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;

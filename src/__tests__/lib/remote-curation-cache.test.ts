@@ -94,6 +94,20 @@ describe('managed release deployment cache', () => {
     expect(state.cache.replaceActive).not.toHaveBeenCalled();
   });
 
+  it('replaces an incompatible active pointer even when its global sequence is higher', async () => {
+    const incompatible = { ...pointer(9, '9'.repeat(64)), runtimeDependencyHash: 'd'.repeat(64) };
+    const compatible = pointer(8, '8'.repeat(64));
+    const state = memoryCache({ pointer: incompatible, etag: 'current' });
+
+    await expect(activateManagedRelease({
+      cache: state.cache,
+      candidate: compatible,
+      bundle: new Uint8Array([8]),
+      signature: new Uint8Array([8]),
+    })).resolves.toEqual(compatible);
+    expect(state.cache.replaceActive).toHaveBeenCalledWith(compatible, 'current');
+  });
+
   it('rereads once after a lost CAS and accepts the winning higher sequence', async () => {
     const state = memoryCache({ pointer: pointer(1, '1'.repeat(64)), etag: 'old' });
     const winner = pointer(3, '3'.repeat(64));

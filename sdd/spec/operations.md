@@ -84,7 +84,35 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated workflow-ownership test; deployment image evidence
+**Verification:** Automated workflow-ownership tests; deployment image evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-046: Fixable dependencies in immutable runtime artifacts
+
+**Intent:** Fixable vulnerable dependencies embedded in immutable upstream artifacts must be replaced without weakening the image vulnerability gate, and the packaged image must prove each replacement is loadable and operational.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. One exact integrity-verified package artifact replaces the vulnerable dependency across every affected immutable runtime path. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @manual: Dispatch a fresh integration image build and confirm its integrity check succeeds before the artifact is extracted into both declared runtime paths. -->
+2. Before scan or push, packaged-image smoke verifies the fixed version at every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+3. Packaged-image smoke loads the replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) -->
+4. Each loaded replacement completes an archive creation and extraction round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @manual: Confirm fresh-image smoke reports both node-tar paths before Trivy scan and image push. -->
+
+**Constraints:**
+
+- The overlay is removed once every upstream immutable artifact carries at least the fixed version directly.
+- Vulnerability exceptions remain governed by [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) and [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
+
+**Verification:** Automated overlay-contract and packaged-runtime-smoke tests; deployment image evidence
 
 **Status:** Implemented
 

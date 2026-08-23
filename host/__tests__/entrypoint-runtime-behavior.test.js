@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
+const CAVEMAN_IMAGE_CONFIG = resolve(__dirname, '../../image/pi/caveman.json');
 
 function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
@@ -31,13 +32,39 @@ function runFunction(name, setup, invocation, env = {}) {
 
 function runStartupInvocation(name, env = {}) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
-  const invocation = lines.find((line) => line.startsWith(`${name} || `));
+  const invocation = lines.find((line) => line === name || line.startsWith(`${name} || `));
   if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
     encoding: 'utf8',
     env: { ...process.env, ...env },
   });
 }
+
+const EXPECTED_PLAN_MODE_SETTINGS = {
+  thinkingLevel: 'inherit',
+  implementationPlanRetention: 'keep',
+  defaultPlanTools: [
+    'bash',
+    'find',
+    'grep',
+    'ls',
+    'read',
+    'browser_content',
+    'browser_markdown',
+    'browser_scrape',
+    'fetch_content',
+    'get_search_content',
+    'source_check',
+    'web_search',
+    'ctx_execute_file',
+    'ctx_fetch_and_index',
+    'ctx_index',
+    'ctx_search',
+    'graphify_explain',
+    'graphify_path',
+    'graphify_query',
+  ],
+};
 
 describe('entrypoint production helpers', () => {
   it('REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent', () => {
@@ -115,6 +142,87 @@ describe('entrypoint production helpers', () => {
       assert.equal(result.status, 0, result.stderr);
       assert.equal(readFileSync(configPath, 'utf8'), malformed);
     }
+  });
+
+  it('REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-plan-mode-settings-'));
+    const configPath = join(fixture, '.pi/agent/pi-plan-mode.json');
+    const conflictingPath = join(fixture, 'legacy/pi-plan-mode.json');
+    const env = { USER_HOME: fixture, PI_PLAN_MODE_CONFIG_FILE: conflictingPath };
+
+    const first = runStartupInvocation('configure_pi_plan_mode', env);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+    assert.equal(existsSync(conflictingPath), false);
+
+    writeFileSync(configPath, '{"thinkingLevel":"max","toggleShortcut":"ctrl+alt+p","unknown":"drop"}\n');
+    const second = runStartupInvocation('configure_pi_plan_mode', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
+  });
+
+  it('REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-'));
+    const configPath = join(fixture, '.pi/agent/caveman.json');
+    const conflictingPath = join(fixture, 'legacy/caveman.json');
+    const env = {
+      USER_HOME: fixture,
+      PI_CAVEMAN_CONFIG_FILE: conflictingPath,
+      PI_CAVEMAN_IMAGE_CONFIG: CAVEMAN_IMAGE_CONFIG,
+    };
+
+    const first = runStartupInvocation('configure_pi_caveman', env);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      defaultLevel: 'full',
+      showStatus: false,
+    });
+    assert.equal(existsSync(conflictingPath), false);
+
+    writeFileSync(configPath, '{"defaultLevel":"off","showStatus":true,"unknown":"drop"}\n');
+    const fakeBin = join(fixture, 'bin');
+    const nodeWrapper = join(fakeBin, 'node');
+    mkdirSync(fakeBin);
+    writeFileSync(nodeWrapper, `#!/bin/sh
+printf 'incomplete\\n' > "\${PI_CAVEMAN_STARTUP_CONFIG}.$$.tmp"
+exec "$REAL_NODE" "$@"
+`);
+    chmodSync(nodeWrapper, 0o755);
+    const second = runStartupInvocation('configure_pi_caveman', {
+      ...env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      REAL_NODE: process.execPath,
+    });
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      defaultLevel: 'full',
+      showStatus: false,
+    });
+  });
+
+  it('REQ-AGENT-155 AC3: fails startup when the authoritative Caveman policy cannot be written', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-failure-'));
+    mkdirSync(join(fixture, '.pi'), { recursive: true });
+    writeFileSync(join(fixture, '.pi/agent'), 'not a directory\n');
+
+    const result = runStartupInvocation('configure_pi_caveman', {
+      USER_HOME: fixture,
+      PI_CAVEMAN_IMAGE_CONFIG: CAVEMAN_IMAGE_CONFIG,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(existsSync(join(fixture, '.pi/agent/caveman.json')), false);
+  });
+
+  it('REQ-AGENT-155 AC4: fails startup when the image-owned Caveman policy is absent', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-image-policy-missing-'));
+    const result = runStartupInvocation('configure_pi_caveman', {
+      USER_HOME: fixture,
+      PI_CAVEMAN_IMAGE_CONFIG: join(fixture, 'missing-caveman.json'),
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(existsSync(join(fixture, '.pi/agent/caveman.json')), false);
   });
 
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {

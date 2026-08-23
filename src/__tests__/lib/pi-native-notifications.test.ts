@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import nativeNotifications, { isPiRpcMode } from '../../../preseed/agents/pi/extensions/native-notifications';
+import nativeNotifications, {
+  isPiRpcMode,
+  PI_IDLE_NOTIFICATION_DELAY_MS,
+} from '../../../preseed/agents/pi/extensions/native-notifications';
 
 type Handler = (
   event?: Record<string, unknown>,
@@ -41,9 +44,12 @@ async function settle(
 }
 
 describe('Pi native terminal notifications / REQ-TERM-024', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
-  it('REQ-TERM-024 AC5: registers nothing and writes no bytes in RPC mode', () => {
+  it('REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode', () => {
     expect(isPiRpcMode(['/usr/local/bin/pi', '--mode', 'rpc', '--no-session'])).toBe(true);
     expect(isPiRpcMode(['/usr/local/bin/pi'])).toBe(false);
 
@@ -66,28 +72,51 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     expect(String(runtime.write.mock.calls[0]?.[0])).not.toContain('Include this secret?');
   });
 
-  it('REQ-TERM-024 AC2: completion requires interactive provenance and settled structured success', async () => {
+  it('REQ-TERM-029 AC1: emits completion only after five idle minutes', async () => {
+    vi.useFakeTimers();
+    expect(PI_IDLE_NOTIFICATION_DELAY_MS).toBe(300_000);
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
     await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
     await settle(runtime, 'stop');
 
+    expect(runtime.write).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(299_999);
+    expect(runtime.write).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(runtime.write).toHaveBeenCalledOnce();
     expect(runtime.write).toHaveBeenCalledWith(
       '\u001b]777;notify;Pi;Ready for input\u0007',
     );
   });
 
-  it('REQ-TERM-024 AC3: final structured error emits task-failed, not completion or provider prose', async () => {
+  it('REQ-TERM-029 AC2: delays structured failure until five idle minutes', async () => {
+    vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
     await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
     await settle(runtime, 'error');
 
+    expect(runtime.write).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(runtime.write).toHaveBeenCalledOnce();
-    expect(runtime.write).toHaveBeenCalledWith(
-      '\u001b]777;notify;Pi;Task failed\u0007',
-    );
+  });
+
+  it.each([
+    ['stop' as const, '\u001b]777;notify;Pi;Ready for input\u0007'],
+    ['error' as const, '\u001b]777;notify;Pi;Task failed\u0007'],
+  ])('REQ-TERM-024 AC2: completion and failure frames are fixed and inert', async (
+    stopReason,
+    expected,
+  ) => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, stopReason);
+    await vi.advanceTimersByTimeAsync(300_000);
+
+    expect(runtime.write).toHaveBeenCalledWith(expected);
     expect(String(runtime.write.mock.calls[0]?.[0])).not.toContain('provider failed');
   });
 
@@ -95,50 +124,71 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     ['no input provenance', undefined],
     ['RPC-origin input', { source: 'rpc' }],
     ['extension-origin input', { source: 'extension' }],
-  ])('REQ-TERM-024 AC4: suppresses settled output for %s', async (_name, input) => {
+  ])('REQ-TERM-029 AC6: absent interactive lineage emits no terminal signal', async (_name, input) => {
+    vi.useFakeTimers();
     const runtime = notificationRuntime();
     if (input) await runtime.handlers.get('input')?.(input);
     await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
     await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(runtime.write).not.toHaveBeenCalled();
   });
 
-  it('REQ-TERM-024 AC4: extension-origin continuation suppresses an otherwise interactive completion', async () => {
+  it('REQ-TERM-029 AC3: reactivation restarts five idle minutes after settlement', async () => {
+    vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
     await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
-    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
     await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(299_999);
+
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+
+    await vi.advanceTimersByTimeAsync(299_999);
     expect(runtime.write).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runtime.write).toHaveBeenCalledOnce();
+    expect(runtime.write).toHaveBeenCalledWith(
+      '\u001b]777;notify;Pi;Ready for input\u0007',
+    );
   });
 
-  it('REQ-TERM-024 AC4: cancellation and abort emit neither completion nor failure', async () => {
-    const cancelled = notificationRuntime();
-    await cancelled.handlers.get('input')?.({ source: 'interactive' });
-    await cancelled.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
-    await cancelled.handlers.get('tool_result')?.({
+  it('REQ-TERM-029 AC4: cancelled input emits no terminal signal', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await runtime.handlers.get('tool_result')?.({
       toolName: 'ask_user_question',
       details: { cancelled: true },
     });
-    await settle(cancelled, 'stop');
-    expect(cancelled.write).not.toHaveBeenCalled();
-
-    vi.restoreAllMocks();
-    const aborted = notificationRuntime();
-    const controller = new AbortController();
-    await aborted.handlers.get('input')?.({ source: 'interactive' });
-    await aborted.handlers.get('agent_start')?.({}, { signal: controller.signal });
-    controller.abort();
-    await settle(aborted, 'aborted');
-    expect(aborted.write).not.toHaveBeenCalled();
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
   });
 
-  it('does not settle twice when agent_settled repeats without a new interactive run', async () => {
+  it('REQ-TERM-029 AC5: aborted run emits no terminal signal', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    const controller = new AbortController();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: controller.signal });
+    controller.abort();
+    await settle(runtime, 'aborted');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
+  });
+
+  it('does not settle twice when agent_settled repeats without a new run', async () => {
+    vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
     await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
     await settle(runtime, 'stop');
     await runtime.handlers.get('agent_settled')?.();
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(runtime.write).toHaveBeenCalledOnce();
   });
 });

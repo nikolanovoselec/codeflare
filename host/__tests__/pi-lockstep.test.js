@@ -81,26 +81,30 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
   });
 });
 
-describe('REQ-AGENT-131: pi-usage JITI warm-cache contract', () => {
-  it('warms every requested entrypoint and fails when Usage produces no cache artifact', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'codeflare-usage-cache-'));
+describe('REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract', () => {
+  it('warms every requested entrypoint and fails when a managed extension produces no cache artifact', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-managed-extension-cache-'));
     try {
       const cacheDirectory = join(directory, 'cache');
       const goalSource = join(directory, 'goal/src/index.ts');
       const usageSource = join(directory, 'usage/src/index.ts');
+      const cavemanSource = join(directory, 'pi-caveman/extensions/caveman.ts');
       mkdirSync(join(directory, 'goal/src'), { recursive: true });
       mkdirSync(join(directory, 'usage/src'), { recursive: true });
+      mkdirSync(join(directory, 'pi-caveman/extensions'), { recursive: true });
       writeFileSync(goalSource, 'export default function goal() {}\n');
       writeFileSync(usageSource, 'export default function usage() {}\n');
+      writeFileSync(cavemanSource, 'export default function caveman() {}\n');
 
       const runWarm = (piBinary, env = {}) => spawnSync(
         process.execPath,
-        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, usageSource],
+        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, usageSource, cavemanSource],
         { encoding: 'utf8', env: { ...process.env, ...env } },
       );
       const argsLog = join(directory, 'args.log');
       const goalArtifact = resolveCachePath(goalSource, cacheDirectory);
       const usageArtifact = resolveCachePath(usageSource, cacheDirectory);
+      const cavemanArtifact = resolveCachePath(cavemanSource, cacheDirectory);
       const fakePi = join(directory, 'pi');
       writeFileSync(fakePi, `#!/bin/sh
 printf '%s\\n' "$@" > "$ARGS_LOG"
@@ -122,10 +126,16 @@ done
         CACHE_DIR: cacheDirectory,
       });
       assert.equal(success.status, 0, success.stderr);
-      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, usageArtifact]);
+      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, usageArtifact, cavemanArtifact]);
       assert.deepEqual(
         readArgs(argsLog),
-        ['--no-extensions', '--extension', goalSource, '--extension', usageSource, '--list-models'],
+        [
+          '--no-extensions',
+          '--extension', goalSource,
+          '--extension', usageSource,
+          '--extension', cavemanSource,
+          '--list-models',
+        ],
       );
 
       const failingPi = join(directory, 'pi-failing');
@@ -151,6 +161,16 @@ done
       const missingUsage = runWarm(goalOnlyPi, { GOAL_ARTIFACT: goalArtifact });
       assert.notEqual(missingUsage.status, 0);
       assert.equal(missingUsage.stderr, `jiti cache artifact is missing at ${usageArtifact}\n`);
+
+      const noCavemanPi = join(directory, 'pi-without-caveman');
+      writeFileSync(noCavemanPi, '#!/bin/sh\nprintf "compiled\\n" > "$GOAL_ARTIFACT"\nprintf "compiled\\n" > "$USAGE_ARTIFACT"\n');
+      chmodSync(noCavemanPi, 0o755);
+      const missingCaveman = runWarm(noCavemanPi, {
+        GOAL_ARTIFACT: goalArtifact,
+        USAGE_ARTIFACT: usageArtifact,
+      });
+      assert.notEqual(missingCaveman.status, 0);
+      assert.equal(missingCaveman.stderr, `jiti cache artifact is missing at ${cavemanArtifact}\n`);
 
       const missingExecutable = runWarm(join(directory, 'does-not-exist'));
       assert.notEqual(missingExecutable.status, 0);
@@ -182,9 +202,11 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
   { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
+  { variable: 'caveman', package: 'pi-caveman', entrypoint: 'extensions/caveman.ts' },
+  { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
 ];
 
-describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133: image build warms and verifies every managed npm entrypoint', () => {
+describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-155: image build warms and verifies every managed npm entrypoint', () => {
   it('declares, warms, and re-verifies each locked package entrypoint', () => {
     const start = dockerfile.indexOf('RUN mkdir -p /opt/codeflare/jiti-warm-tmp');
     assert.notEqual(start, -1, 'jiti warm RUN block not found');

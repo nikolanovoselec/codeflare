@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..');
+const MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS = 400;
 
 // ---------------------------------------------------------------------------
 // Agent configurations
@@ -124,6 +125,7 @@ const PI_MODEL_HIDDEN_SKILLS = new Set([
   'doc-enforce-lanes',
   'doc-enforce-shape',
   'doc-enforce-truth',
+  'sandbox-migrate-to-next',
   'sdd-clean',
   'sdd-init',
   'spec-driven-development',
@@ -133,8 +135,9 @@ const PI_MODEL_HIDDEN_SKILLS = new Set([
   'tdd-enforce',
 ]);
 
-// These canonical principles are already preserved by the compact Pi-native
-// constitution, so duplicating their long-form prose in AGENTS.md adds no policy.
+// These canonical principles are preserved by the advanced Pi-native constitution.
+// Default Pi retains the short no-local-builds pointer because it does not receive
+// that constitution; the mode-specific filter below prevents both omission and duplication.
 const PI_COMPACTED_RULES = new Set([
   'rules/cloudflare-environment.md',
   'rules/no-local-builds.md',
@@ -446,9 +449,93 @@ function compactPiSkillDescription(content, skillName) {
 
 function setPiModelVisibility(content, skillName) {
   if (!skillName || !PI_MODEL_HIDDEN_SKILLS.has(skillName)) return content;
+  return hidePiSkillFromNativeCatalog(content);
+}
+
+function hidePiSkillFromNativeCatalog(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match || /^disable-model-invocation:/m.test(match[1])) return content;
-  return `---\n${match[1]}\ndisable-model-invocation: true\n---\n${match[2]}`;
+  if (!match) throw new Error('Pi skill is missing frontmatter');
+  const frontmatter = /^disable-model-invocation:/m.test(match[1])
+    ? match[1].replace(/^disable-model-invocation:.*$/m, 'disable-model-invocation: true')
+    : `${match[1]}\ndisable-model-invocation: true`;
+  return `---\n${frontmatter}\n---\n${match[2]}`;
+}
+
+function parsePiSkillMetadata(document) {
+  const frontmatter = document.content.match(/^---\n([\s\S]*?)\n---\n/)?.[1];
+  if (!frontmatter) throw new Error(`Pi skill is missing frontmatter: ${document.key}`);
+  const scalar = (field) => {
+    const raw = frontmatter.match(new RegExp(`^${field}:\\s*(.+)$`, 'm'))?.[1]?.trim();
+    if (!raw) throw new Error(`Pi skill is missing ${field}: ${document.key}`);
+    if (raw.startsWith('"') && raw.endsWith('"')) {
+      try { return JSON.parse(raw); } catch { throw new Error(`Pi skill has invalid ${field}: ${document.key}`); }
+    }
+    if (raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
+    return raw;
+  };
+  const name = scalar('name');
+  const description = scalar('description').replace(/\s+/g, ' ').trim();
+  const expectedName = document.key.match(/^\.pi\/agent\/skills\/([^/]+)\/SKILL\.md$/)?.[1];
+  if (name !== expectedName) {
+    throw new Error(`Pi skill name must match its conventional path: ${document.key} -> ${name}`);
+  }
+  return {
+    name,
+    description,
+    modelInvocable: !/^disable-model-invocation:\s*true$/m.test(frontmatter),
+  };
+}
+
+function compactPiIndexPurpose(description) {
+  if (description.length <= 32) return description;
+  const prefix = description.slice(0, 29).replace(/\s+\S*$/, '').trimEnd();
+  return `${prefix}…`;
+}
+
+function renderPiSkillIndex(skills) {
+  return [
+    '## Skills',
+    '',
+    'Match the task to this compact index, then read `~/.pi/agent/skills/<name>/SKILL.md` before applying that skill. The installed file is authoritative.',
+    '',
+    '<!-- pi-skill-index:start -->',
+    ...skills.map(({ name, description }) => `- \`${name}\` — ${compactPiIndexPurpose(description)}`),
+    '<!-- pi-skill-index:end -->',
+    '',
+  ].join('\n');
+}
+
+function finalizePiSkillIndex(documents) {
+  const skillPattern = /^\.pi\/agent\/skills\/[^/]+\/SKILL\.md$/;
+  const hiddenDocuments = documents.map((document) => (
+    skillPattern.test(document.key)
+      ? { ...document, content: hidePiSkillFromNativeCatalog(document.content) }
+      : document
+  ));
+  const instructions = hiddenDocuments.filter((document) => document.key === '.pi/agent/AGENTS.md');
+  const otherDocuments = hiddenDocuments.filter((document) => document.key !== '.pi/agent/AGENTS.md');
+  const finalizedInstructions = [];
+
+  for (const mode of ['default', 'advanced']) {
+    const matchingInstructions = instructions.filter((document) => document.modes.includes(mode));
+    if (matchingInstructions.length !== 1) {
+      throw new Error(`Pi ${mode} mode must have exactly one AGENTS.md before skill indexing`);
+    }
+    const skills = documents
+      .filter((document) => skillPattern.test(document.key) && document.modes.includes(mode))
+      .map(parsePiSkillMetadata)
+      .filter(({ modelInvocable }) => modelInvocable)
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const names = new Set(skills.map(({ name }) => name));
+    if (names.size !== skills.length) throw new Error(`Pi ${mode} skill names must be unique`);
+    finalizedInstructions.push({
+      ...matchingInstructions[0],
+      content: `${matchingInstructions[0].content.trimEnd()}\n\n${renderPiSkillIndex(skills)}`,
+      modes: [mode],
+    });
+  }
+
+  return [...otherDocuments, ...finalizedInstructions];
 }
 
 function adaptPiSkillContent(content, withinClaude) {
@@ -575,6 +662,7 @@ function piNativeKey(withinPi) {
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
   if (withinPi === 'settings.json') return '.pi/agent/settings.json';
+  if (withinPi === 'SYSTEM.md') return '.pi/agent/SYSTEM.md';
   throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
 }
 
@@ -696,7 +784,7 @@ type SeedDocument = {
 
 export const PRESEED_CONTENT_HASH = '${hash}';
 
-/** Full Pi package-lock digest defining the managed release runtime ABI. */
+/** Composite digest of the managed npm runtime locks defining the release ABI. */
 export const PRESEED_RUNTIME_DEPENDENCY_HASH = '${runtimeHash}';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
@@ -717,9 +805,18 @@ export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
 // Main
 // ---------------------------------------------------------------------------
 
+const MANAGED_RUNTIME_LOCK_PATHS = Object.freeze([
+  'preseed/npm-tools/package-lock.json',
+  'preseed/agents/claude/browser-run-mcp/package-lock.json',
+  'preseed/agents/pi/package-lock.json',
+]);
+
 export async function computeAgentRuntimeHash(rootDir = DEFAULT_ROOT_DIR) {
-  const lockBytes = await fs.readFile(path.join(rootDir, 'preseed/agents/pi/package-lock.json'));
-  return createHash('sha256').update(lockBytes).digest('hex');
+  const lockDigests = await Promise.all(MANAGED_RUNTIME_LOCK_PATHS.map(async (relativePath) => {
+    const lockBytes = await fs.readFile(path.join(rootDir, relativePath));
+    return createHash('sha256').update(lockBytes).digest('hex');
+  }));
+  return createHash('sha256').update(lockDigests.join('\n')).digest('hex');
 }
 
 export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
@@ -750,6 +847,13 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
     }
     const category = classifyFile(withinClaude);
     sourceFiles.push({ withinClaude, content, modes: entry.modes, category });
+  }
+
+  const claudeSafeCheckPolicy = sourceFiles.find(
+    ({ withinClaude }) => withinClaude === 'rules/no-local-builds.md',
+  );
+  if (claudeSafeCheckPolicy && claudeSafeCheckPolicy.content.length >= MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS) {
+    throw new Error(`Claude permanently loaded safe-check rule must remain below ${MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS} characters`);
   }
 
   // An agent that ships its lane's skills needs no Skill tool, and without one
@@ -880,7 +984,8 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
             !isClaudeOnlyFile(f.withinClaude) &&
             !(agentId === 'pi' && (
               piNativeRuleKeys.has(f.withinClaude)
-              || PI_COMPACTED_RULES.has(f.withinClaude)
+              || (PI_COMPACTED_RULES.has(f.withinClaude)
+                && !(mode === 'default' && f.withinClaude === 'rules/no-local-builds.md'))
               || hasPathsFrontmatter(f.content)
               || PI_COVERED_RULES.has(f.withinClaude)
             ))
@@ -946,6 +1051,14 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
       }
     }
   }
+
+  // Build one compact index from the final source-root projection. Codeflare's
+  // public fallback and curation's private master therefore index their own
+  // complete inventories through the same compiler without synchronizing a
+  // generated artifact or deleting any skill file.
+  const finalizedDocuments = finalizePiSkillIndex(documents);
+  documents.length = 0;
+  documents.push(...finalizedDocuments);
 
   // Validate output
   validateDocuments(documents);

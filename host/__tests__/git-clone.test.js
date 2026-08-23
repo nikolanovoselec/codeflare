@@ -26,16 +26,17 @@ const WS = '/home/user/workspace';
 function createFakeGit(root) {
   const bin = join(root, 'bin');
   const log = join(root, 'git-args.log');
+  const events = join(root, 'startup-events.log');
   mkdirSync(bin, { recursive: true });
   const git = join(bin, 'git');
-  writeFileSync(git, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "$FAKE_GIT_LOG"\nif [ -n "\${FAKE_GIT_SLEEP:-}" ]; then sleep "$FAKE_GIT_SLEEP"; fi\nexit "\${FAKE_GIT_STATUS:-0}"\n`);
+  writeFileSync(git, `#!/usr/bin/env bash\nif [ -n "\${FAKE_EVENT_LOG:-}" ]; then printf 'git\\n' >> "$FAKE_EVENT_LOG"; fi\nprintf '%s\\n' "$@" >> "$FAKE_GIT_LOG"\nif [ -n "\${FAKE_GIT_SLEEP:-}" ]; then sleep "$FAKE_GIT_SLEEP"; fi\nexit "\${FAKE_GIT_STATUS:-0}"\n`);
   chmodSync(git, 0o755);
-  return { bin, log };
+  return { bin, log, events };
 }
 
 function extractStartupCloneBlock() {
   const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
-  const start = entrypoint.indexOf('# REQ-GITHUB-004: one-shot repo clone at container start.');
+  const start = entrypoint.indexOf('# REQ-GITHUB-014: one-shot repo clone at container start.');
   const end = entrypoint.indexOf('\n# Configure tab auto-start\n', start);
   assert.ok(start >= 0 && end > start, 'entrypoint startup clone block is missing');
   return entrypoint.slice(start, end);
@@ -46,7 +47,11 @@ function runStartupClone({ repo, ref, existing = false, gitStatus = 0 }) {
   const workspace = join(root, 'workspace');
   const fake = createFakeGit(root);
   mkdirSync(workspace, { recursive: true });
-  if (existing) mkdirSync(join(workspace, repo.split('/').at(-1)), { recursive: true });
+  const existingSentinel = join(workspace, repo.split('/').at(-1), 'sentinel.txt');
+  if (existing) {
+    mkdirSync(dirname(existingSentinel), { recursive: true });
+    writeFileSync(existingSentinel, 'preserve me');
+  }
   const env = {
     ...process.env,
     PATH: `${fake.bin}:${process.env.PATH ?? ''}`,
@@ -55,10 +60,12 @@ function runStartupClone({ repo, ref, existing = false, gitStatus = 0 }) {
     GIT_CLONE_REF: ref ?? '',
     GITHUB_HOST: 'github.example.com',
     FAKE_GIT_LOG: fake.log,
+    FAKE_EVENT_LOG: fake.events,
     FAKE_GIT_STATUS: String(gitStatus),
   };
-  const result = spawnSync('bash', ['-c', extractStartupCloneBlock()], { encoding: 'utf8', env });
-  return { root, workspace, fake, result };
+  const script = `${extractStartupCloneBlock()}\nprintf 'autostart\\n' >> "$FAKE_EVENT_LOG"\n`;
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
+  return { root, workspace, fake, result, existingSentinel };
 }
 
 describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
@@ -339,8 +346,8 @@ describe('REQ-GITHUB-004: git-clone HTTP boundary (behavioral)', () => {
   });
 });
 
-describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', () => {
-  it('REQ-GITHUB-004: preserves a validated .git basename, branches safely, and keeps argv separated', () => {
+describe('REQ-GITHUB-014: entrypoint startup clone path (real shell behavior)', () => {
+  it('REQ-GITHUB-014 AC3: preserves a validated .git basename, branches safely, and keeps argv separated', () => {
     const { workspace, fake, result } = runStartupClone({ repo: 'octo/repo.git', ref: 'feature/safe' });
 
     assert.equal(result.status, 0, result.stderr);
@@ -352,9 +359,10 @@ describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', 
       'https://github.example.com/octo/repo.git',
       join(workspace, 'repo.git'),
     ]);
+    assert.deepEqual(readFileSync(fake.events, 'utf8').trim().split('\n'), ['git', 'autostart']);
   });
 
-  it('REQ-GITHUB-004: rejects option-leading refs and refuses an existing target without invoking git', () => {
+  it('REQ-GITHUB-014 AC6+AC7: rejects option-leading refs and refuses an existing target without invoking git', () => {
     const invalid = runStartupClone({ repo: 'octo/repo', ref: '--upload-pack' });
     assert.equal(invalid.result.status, 0, invalid.result.stderr);
     assert.match(invalid.result.stdout, /Skipping clone: invalid repo\/ref/);
@@ -364,12 +372,14 @@ describe('REQ-GITHUB-004: entrypoint startup clone path (real shell behavior)', 
     assert.equal(collision.result.status, 0, collision.result.stderr);
     assert.match(collision.result.stdout, /already exists \(collision refuse\)/);
     assert.equal(existsSync(collision.fake.log), false);
+    assert.equal(readFileSync(collision.existingSentinel, 'utf8'), 'preserve me');
   });
 
-  it('REQ-GITHUB-004: logs a clone failure and continues startup successfully', () => {
-    const { result } = runStartupClone({ repo: 'octo/repo', gitStatus: 7 });
+  it('REQ-GITHUB-014 AC4+AC5: logs a clone failure and continues startup successfully', () => {
+    const { fake, result } = runStartupClone({ repo: 'octo/repo', gitStatus: 7 });
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /clone failed for octo\/repo; continuing startup/);
+    assert.deepEqual(readFileSync(fake.events, 'utf8').trim().split('\n'), ['git', 'autostart']);
   });
 });

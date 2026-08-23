@@ -308,9 +308,9 @@ export function buildEnvVars(
     // the wizard-configured Browser Rendering account (browser-run builds its API URL from it,
     // and the interceptor matches that account). Emitted in both modes when present.
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
-    // REQ-GITHUB-004: one-shot clone directive. entrypoint.sh clones the repo
-    // into $USER_WORKSPACE/<repo-name> at start (after the git credential helper
-    // is configured, before the agent autostarts), refusing on a name collision.
+    // REQ-GITHUB-004: session clone directive. entrypoint.sh clones the repo into
+    // $USER_WORKSPACE/<repo-name> at start (after the git credential helper is
+    // configured, before the agent autostarts), refusing on a name collision.
     // Only emit when set so a session with no clone request gets neither var.
     ...(state._gitCloneRepo && { GIT_CLONE_REPO: state._gitCloneRepo }),
     ...(state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
@@ -427,10 +427,10 @@ export async function applyBucketName(
     state._userTimezone = tz;
   }
 
-  // REQ-GITHUB-004: clone target is a one-shot, set-at-create directive.
-  // Kept in instance memory only (not persisted to DO storage); buildEnvVars
-  // surfaces it as GIT_CLONE_REPO/GIT_CLONE_REF and entrypoint.sh clones once,
-  // refusing if the target dir already exists (so an idempotent restart is safe).
+  // REQ-GITHUB-004: clone target is attached to sessions created from a repository.
+  // Kept in instance memory only (not persisted to DO storage); the Worker re-sends
+  // it from session KV on every start. entrypoint refuses an existing target, so a
+  // warm restart preserves the workspace and a fresh ephemeral workspace re-clones.
   if (r2Creds?.gitCloneRepo) state._gitCloneRepo = r2Creds.gitCloneRepo;
   if (r2Creds?.gitCloneRef) state._gitCloneRef = r2Creds.gitCloneRef;
 
@@ -582,6 +582,19 @@ export async function applyPrefsOnRestart(
   }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;
+    changed = true;
+  }
+
+  // REQ-GITHUB-014 AC1: the Durable Object may outlive its ephemeral container,
+  // but may also wake with only persisted configuration. Reapply the immutable
+  // session clone target in memory so every container start receives it. A missing
+  // ref explicitly clears a stale in-memory ref for the same repository.
+  if (input.gitCloneRepo && (
+    input.gitCloneRepo !== state._gitCloneRepo
+    || (input.gitCloneRef ?? null) !== state._gitCloneRef
+  )) {
+    state._gitCloneRepo = input.gitCloneRepo;
+    state._gitCloneRef = input.gitCloneRef ?? null;
     changed = true;
   }
 

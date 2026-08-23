@@ -180,10 +180,9 @@ export class container extends Container<Env> implements ContainerEnvState {
   _routeContextWindows: Record<string, number> = {};
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
-  /** REQ-GITHUB-004: one-shot clone directive (repo owner/name + optional ref),
-   * set at create→start. Instance memory only — buildEnvVars surfaces it as
-   * GIT_CLONE_REPO/GIT_CLONE_REF; not hydrated from storage on restart so the
-   * clone runs once. */
+  /** REQ-GITHUB-004: clone directive (repo owner/name + optional ref) for a
+   * session created from a repository. Instance memory only; the Worker re-sends
+   * it from session KV before each container start. */
   _gitCloneRepo: string | null = null;
   _gitCloneRef: string | null = null;
   /**

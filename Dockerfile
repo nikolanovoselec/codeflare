@@ -207,7 +207,10 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # the immutable release tag and owns the five code-server literals below.
 # code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
 # the overlay pins 4.3.1 under an independent integrity hash as defence in
-# depth. Drop it when code-server vendors 4.3.1 or later directly.
+# depth. The immutable Node and code-server artifacts also carry node-tar
+# versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
+# replaces both runtime copies. Drop each overlay after its upstream artifact
+# contains at least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.132.0" && \
     CODE_SERVER_SHA256="a38d26f4cb81f768feddff79e2937fd3f39c83d3da8be3da7225e1087e62e4ed" && \
     CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
@@ -215,6 +218,8 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     CODE_SERVER_VSCODE_COMMIT="df53daabb18cd157bdb08c7f01c34df936cf12f4" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
+    NODE_TAR_VERSION="7.5.21" && \
+    NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
@@ -223,12 +228,25 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
       "https://registry.npmjs.org/js-yaml/-/js-yaml-${JS_YAML_VERSION}.tgz" \
       -o /tmp/js-yaml.tgz && \
     echo "${JS_YAML_SHA512}  /tmp/js-yaml.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/tar/-/tar-${NODE_TAR_VERSION}.tgz" \
+      -o /tmp/node-tar.tgz && \
+    echo "${NODE_TAR_SHA512}  /tmp/node-tar.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
     rm -rf /opt/code-server/node_modules/js-yaml && \
     mkdir -p /opt/code-server/node_modules/js-yaml && \
     tar -xzf /tmp/js-yaml.tgz -C /opt/code-server/node_modules/js-yaml --strip-components=1 && \
     test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "$JS_YAML_VERSION" && \
+    for NODE_TAR_DIR in \
+        /usr/local/lib/node_modules/npm/node_modules/tar \
+        /opt/code-server/lib/vscode/node_modules/tar; do \
+      rm -rf "$NODE_TAR_DIR" && \
+      mkdir -p "$NODE_TAR_DIR" && \
+      tar -xzf /tmp/node-tar.tgz -C "$NODE_TAR_DIR" --strip-components=1 && \
+      test "$(jq -r .version "$NODE_TAR_DIR/package.json")" = "$NODE_TAR_VERSION"; \
+    done && \
+    npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
     test "$(jq -r .version /opt/code-server/package.json)" = "$CODE_SERVER_VERSION" && \
@@ -249,7 +267,7 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
-    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz
+    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz
 
 # Codeflare's non-agent welcome surface is available for every fixed inventory.
 # It is packaged as owned extension code without modifying code-server or Code OSS.
@@ -396,6 +414,8 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
+# Caveman policy is image-owned and deliberately excluded from agent seeds.
+COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
 COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
@@ -635,7 +655,7 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 #   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
 #   load transpiles Goal's installed entrypoint even when another package reports a
 #   non-fatal startup error; the build then derives and requires exact regular-file
-#   artifacts for Goal, Usage, and Evaluate. A future extension that is added, modified into a non-loading state,
+#   artifacts for Goal, Plan Mode, Usage, Evaluate, and Caveman. A future extension that is added, modified into a non-loading state,
 #   or skipped by a pi-loader change therefore fails the build instead of silently
 #   cold-transpiling every production session.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
@@ -644,12 +664,14 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
+    plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
+    caveman_source="/opt/codeflare/pi-agent/npm/node_modules/pi-caveman/extensions/caveman.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$usage_source" "$evaluate_source" && \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$caveman_source" && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -661,9 +683,11 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
         else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
     done && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
+    plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Usage, and Evaluate are baked"
+    caveman_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$caveman_source" /opt/codeflare/jiti-cache)" && \
+    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, Evaluate, and Caveman are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

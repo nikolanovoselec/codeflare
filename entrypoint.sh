@@ -2431,6 +2431,75 @@ configure();
 NODE
 }
 
+configure_pi_plan_mode() {
+    local plan_config="$USER_HOME/.pi/agent/pi-plan-mode.json"
+    PI_PLAN_MODE_STARTUP_CONFIG="$plan_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_PLAN_MODE_STARTUP_CONFIG;
+const settings = {
+  thinkingLevel: 'inherit',
+  implementationPlanRetention: 'keep',
+  defaultPlanTools: [
+    'bash',
+    'find',
+    'grep',
+    'ls',
+    'read',
+    'browser_content',
+    'browser_markdown',
+    'browser_scrape',
+    'fetch_content',
+    'get_search_content',
+    'source_check',
+    'web_search',
+    'ctx_execute_file',
+    'ctx_fetch_and_index',
+    'ctx_index',
+    'ctx_search',
+    'graphify_explain',
+    'graphify_path',
+    'graphify_query',
+  ],
+};
+
+mkdirSync(dirname(settingsPath), { recursive: true });
+const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+try {
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
+  renameSync(temporaryPath, settingsPath);
+} finally {
+  rmSync(temporaryPath, { force: true });
+} // try
+console.log('[entrypoint] Pi Plan Mode policy configured');
+NODE
+}
+
+configure_pi_caveman() {
+    local caveman_config="$USER_HOME/.pi/agent/caveman.json"
+    local caveman_image_config="${PI_CAVEMAN_IMAGE_CONFIG:-/opt/codeflare/pi-agent/caveman.json}"
+    PI_CAVEMAN_IMAGE_CONFIG="$caveman_image_config" PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
+const { randomUUID } = require('node:crypto');
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_CAVEMAN_STARTUP_CONFIG;
+const settings = JSON.parse(readFileSync(process.env.PI_CAVEMAN_IMAGE_CONFIG, 'utf8'));
+if (JSON.stringify(settings) !== JSON.stringify({ defaultLevel: 'full', showStatus: false })) throw new Error('Image-owned Pi Caveman policy is invalid');
+
+mkdirSync(dirname(settingsPath), { recursive: true });
+const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
+try {
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
+  renameSync(temporaryPath, settingsPath);
+} finally {
+  rmSync(temporaryPath, { force: true });
+} // try
+console.log('[entrypoint] Pi Caveman policy configured');
+NODE
+}
+
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2485,15 +2554,18 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.4.0',
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.21.0',
+  'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.46.0',
+  'npm:@narumitw/pi-goal@0.53.0',
+  'npm:@narumitw/pi-plan-mode@0.52.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
-// Keep context-mode installed for explicit `/ctx on`, but disable both its extension and skills on
-// every fresh container start until upstream ships a memory-safe Pi adapter.
-const disabledPackageIds = new Set(['npm:context-mode']);
-const disabledPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+// Keep context-mode enabled through the managed foreground-owner bridge on every fresh container
+// start. Filtering its upstream extension avoids a second owner; omitting `skills` keeps its tools
+// and routing skill active. `/ctx off` remains an explicit per-container override until restart.
+const defaultPackageIds = new Set(['npm:context-mode']);
+const defaultPackages = [
+  { source: 'npm:context-mode@1.0.169', extensions: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
@@ -2515,14 +2587,14 @@ for (const spec of existing) {
   const source = sourceOf(spec);
   if (!source) continue;
   const id = identity(source);
-  if (disabledPackageIds.has(id) || removedPackageIds.has(id)) continue;
+  if (defaultPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
 }
 for (const spec of required) {
   const source = sourceOf(spec);
   if (source) byName.set(identity(source), spec);
 }
-for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
+for (const spec of defaultPackages) byName.set(identity(spec.source), spec);
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
 NODE
 
@@ -2566,12 +2638,13 @@ update_pi_when_fast_start_disabled() {
 # R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
-# Non-fatal: under `set -euo pipefail` an unguarded failure here aborts the
-# entrypoint before the init-complete flag is written (see touch near end of
-# MAIN EXECUTION), which leaves the terminal server gated in "warming up"
-# forever and no session can attach. A failed Pi warm-up must degrade, not
-# block startup. Same cold-start discipline as PR #364/#365.
+# Dependency warm-up remains non-fatal: aborting before the init-complete flag
+# leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
+# keep that established degradation policy. Caveman is different: its response
+# policy is startup-owned, so an unwritable policy blocks startup.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
+configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
+configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 
@@ -3251,7 +3324,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   - GitHub Copilot: deferred (not wired yet).
 #
 # CDP endpoint (Claude):
-#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
+#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=30000
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
@@ -3286,7 +3359,7 @@ remove_owned_browser_mcp_servers() {
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=600000"
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=30000"
     # --wsHeaders takes a JSON string; build it with jq so the bearer token is
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
@@ -3641,7 +3714,7 @@ configure_fast_start_tool_settings() {
 }
 configure_fast_start_tool_settings
 
-# REQ-GITHUB-004: one-shot repo clone at container start. Runs AFTER the git
+# REQ-GITHUB-014: one-shot repo clone at container start. Runs AFTER the git
 # credential helper above (so private repos authenticate via $GH_TOKEN, or the
 # enterprise egress GitHubInterceptor injects the real token) and BEFORE
 # configure_tab_autostart launches the agent, so the workspace is populated when

@@ -106,12 +106,19 @@ function expectedCanonicalSkill(skillName) {
 
 function expectedPiContent(relativePath) {
   const source = readFileSync(join(repoRoot, 'preseed/agents/pi', relativePath), 'utf8');
-  return source.replace(/^<!-- @include-skill ([a-z0-9-]+) -->$/gm, (_directive, skillName) => {
+  const expanded = source.replace(/^<!-- @include-skill ([a-z0-9-]+) -->$/gm, (_directive, skillName) => {
     const skill = documents.find(
       (document) => document.key === `.pi/agent/skills/${skillName}/SKILL.md`,
     );
     assert.ok(skill, `seeded skill ${skillName} not found`);
     return `<embedded-skill name="${skillName}">\n${skill.content}</embedded-skill>`;
+  });
+  if (!/^skills\/[^/]+\/SKILL\.md$/.test(relativePath)) return expanded;
+  return expanded.replace(/^---\n([\s\S]*?)\n---\n/, (_match, frontmatter) => {
+    const hidden = /^disable-model-invocation:/m.test(frontmatter)
+      ? frontmatter.replace(/^disable-model-invocation:.*$/m, 'disable-model-invocation: true')
+      : `${frontmatter}\ndisable-model-invocation: true`;
+    return `---\n${hidden}\n---\n`;
   });
 }
 
@@ -129,6 +136,22 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         );
       }
     }
+  });
+
+  it('REQ-AGENT-157 AC6: canonical safe-check guidance reaches each lazy skill projection', () => {
+    const canonical = readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/safe-local-checks/SKILL.md'),
+      'utf8',
+    );
+    const claude = documents.find(
+      (document) => document.key === '.claude/skills/safe-local-checks/SKILL.md',
+    );
+    const pi = documents.find(
+      (document) => document.key === '.pi/agent/skills/safe-local-checks/SKILL.md',
+    );
+    assert.equal(claude?.content, canonical, 'Claude lazy guidance must preserve its canonical bytes');
+    assert.equal(pi?.content, expectedCanonicalSkill('safe-local-checks'),
+      'Pi lazy guidance must use the deterministic canonical adaptation');
   });
 
   it('REQ-AGENT-085/REQ-AGENT-040: the canonical review programs reach Pi byte-identically', () => {
