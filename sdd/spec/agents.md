@@ -4102,6 +4102,35 @@ None.
 
 ---
 
+### REQ-AGENT-155: Image-owned Caveman response policy
+
+**Intent:** Every Pi session uses the reviewed Caveman extension in full compression mode without adding animated footer noise or relying on an ephemeral runtime install.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi's required package set contains one exact-pinned, integrity-locked `pi-caveman` release. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) -->
+2. Every container start atomically replaces Caveman configuration with full mode and status display disabled. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start) -->
+3. Default and advanced Pi seeds carry the same Caveman configuration as the startup policy. <!-- @impl: preseed/agents/pi/manifest.json::caveman.json --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (multi-agent documents) -->
+4. Image construction loads Caveman's declared extension and fails if its path-correct JITI artifact is absent. <!-- @impl: Dockerfile::caveman_hit --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-155: image build warms and verifies every managed npm entrypoint) -->
+5. Weekly Pi-extension dependency discovery includes Caveman and keeps its manifest pin, runtime registration, lockfile, reviewed assertion, and generated seed coherent. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) -->
+
+**Constraints:**
+
+- Package bytes and npm installation state remain image-owned; managed curation distributes configuration only.
+- Startup policy is authoritative and does not preserve user changes to Caveman mode or footer visibility.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-supported-coding-agent-runtimes), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)
+
+**Verification:** Automated package, startup-policy, seed, and image-cache contract tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-151: Bounded managed-release streaming
 
 **Intent:** Managed-release validation and application remain memory-bounded without changing signed document bytes.

@@ -2476,6 +2476,30 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
+configure_pi_caveman() {
+    local caveman_config="$USER_HOME/.pi/agent/caveman.json"
+    PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
+const { mkdirSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+const settingsPath = process.env.PI_CAVEMAN_STARTUP_CONFIG;
+const settings = {
+  defaultLevel: 'full',
+  showStatus: false,
+};
+
+mkdirSync(dirname(settingsPath), { recursive: true });
+const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+try {
+  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
+  renameSync(temporaryPath, settingsPath);
+} finally {
+  rmSync(temporaryPath, { force: true });
+}
+console.log('[entrypoint] Pi Caveman policy configured');
+NODE
+}
+
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2530,6 +2554,7 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.4.0',
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.21.0',
+  'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.53.0',
   'npm:@narumitw/pi-plan-mode@0.52.0',
@@ -2620,6 +2645,7 @@ update_pi_when_fast_start_disabled() {
 # block startup. Same cold-start discipline as PR #364/#365.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
+configure_pi_caveman || echo "[entrypoint] WARNING: Pi Caveman configuration failed; continuing startup"
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 

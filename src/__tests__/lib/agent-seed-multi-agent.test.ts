@@ -749,6 +749,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/mcp.json')).toBe(false);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
+    const caveman = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/caveman.json');
+    expect(caveman?.modes).toEqual(['default', 'advanced']);
+    expect(JSON.parse(caveman?.content ?? '{}')).toEqual({ defaultLevel: 'full', showStatus: false });
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);

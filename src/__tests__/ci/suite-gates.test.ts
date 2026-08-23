@@ -671,6 +671,28 @@ esac
     expect(execute(join(fixture, 'mismatch-output')).status).toBe(1);
   });
 
+  it('REQ-AGENT-155 AC5: Caveman participates in coherent Pi extension shadow bumps', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const piPackage = JSON.parse(readFileSync(join(REPO, 'preseed/agents/pi/package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(piPackage.dependencies?.['pi-caveman']).toBe('1.0.8');
+    const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
+      (step) => step.name === 'List Pi extension pins (every dep except context-mode)',
+    )?.run ?? '';
+    expect(discover).toContain('Object.keys(p.dependencies||{}).filter(n=>n!=="context-mode")');
+    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
+    for (const path of [
+      'preseed/agents/pi/package.json',
+      'entrypoint.sh',
+      'host/__tests__/pi-settings-packages.test.js',
+    ]) expect(apply).toContain(`'${path}'`);
+    expect(apply).toContain('node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi');
+    expect(apply).toContain('npm run generate:agent-seed');
+  });
+
   it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;

@@ -160,6 +160,29 @@ describe('entrypoint production helpers', () => {
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
   });
 
+  it('REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-'));
+    const configPath = join(fixture, '.pi/agent/caveman.json');
+    const conflictingPath = join(fixture, 'legacy/caveman.json');
+    const env = { USER_HOME: fixture, PI_CAVEMAN_CONFIG_FILE: conflictingPath };
+
+    const first = runStartupInvocation('configure_pi_caveman', env);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      defaultLevel: 'full',
+      showStatus: false,
+    });
+    assert.equal(existsSync(conflictingPath), false);
+
+    writeFileSync(configPath, '{"defaultLevel":"off","showStatus":true,"unknown":"drop"}\n');
+    const second = runStartupInvocation('configure_pi_caveman', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
+      defaultLevel: 'full',
+      showStatus: false,
+    });
+  });
+
   it('REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'graphify-path-'));
     const source = join(fixture, 'tools/graphify');
