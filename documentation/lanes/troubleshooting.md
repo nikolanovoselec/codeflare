@@ -371,15 +371,9 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
-### Zombie Container ([REQ-SESSION-009](../../sdd/spec/session-lifecycle.md#req-session-009-container-destroy-wipes-session-state))
+### Zombie Container
 
-**Symptom:** A stopped or destroyed session continues scheduling `collectMetrics` alarms.
-
-**Cause:** The metrics schedule survived a teardown edge where `onStop()` did not fire. `onActivityExpired()` is intentionally not overridden; the SDK default owns the 24-hour fallback and reaches `onStop()`, while `collectMetrics()` owns normal idle stopping. <!-- @impl: src/container/index.ts::sleepAfter -->
-
-**Fix:** Use a build where `lifecycleOnStop()` deletes the `collectMetrics` schedule. When a metrics tick reads the container as not running, `collectMetrics()` opens a confirmation window and re-arms the check; only a reading that persists through that window is marked stopped and returned without re-arming. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
-
-**Verify:** After stopping the session, confirm that the `collectMetrics` schedule is absent and does not re-arm.
+Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `deleteSchedules('collectMetrics')` to immediately kill the alarm loop when a container stops, and (2) `onActivityExpired()` calls `this.stop('SIGTERM')` on unreachable activity endpoints instead of renewing the timeout, which triggers `onStop()` and its schedule cleanup. As a defense-in-depth fallback, `collectMetrics` itself still has three self-termination guards: container-not-running check, missing-identifiers guard, and re-arm guard. These cover edge cases where `onStop()` might not fire (e.g., after `destroy()`).
 
 ### Secrets Lost After Worker Deletion
 
@@ -389,15 +383,13 @@ See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
 **Fix:** Restore each required secret with `wrangler secret put` before using the recreated Worker.
 
-### R2 Bucket Cleanup on User Deletion ([REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel))
+### R2 Bucket Cleanup on User Deletion
 
-**Symptom:** Explicit user removal completes, but the user's R2 bucket remains.
+Explicit user removal calls `cleanupUserData()` in `src/lib/user-cleanup.ts`, which destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set; raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), and deletes the scoped R2 token. Setup reconfiguration never invokes this destructive workflow.
 
-**Cause:** User cleanup destroys active containers, deletes user and bucket-keyed KV state, decrypts and deletes the scoped R2 token, empties the bucket, and then requests bucket deletion. If worker-level R2 credentials are unavailable, emptying is skipped and deletion can return `BucketNotEmpty`; GitHub revocation is independently best effort. Setup reconfiguration never invokes this destructive workflow. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+It then empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
-**Fix:** Before explicit removal, confirm that it targets the correct user and that worker-level R2 credentials are available; deletion has no rollback. If a bucket already remains, inspect the Worker warning, empty the bucket with the restored credentials, and remove it through Cloudflare. The cleanup itself retries bucket deletion up to three times after removing objects to accommodate R2 propagation.
-
-**Verify:** Confirm that the user's session and bucket-keyed KV entries, scoped R2 token, and R2 bucket are absent. Review Worker warnings for any best-effort GitHub revocation failure.
+If worker-level R2 credentials are not configured (for example, setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. GitHub revocation is also best-effort: failure is logged, local GitHub credentials are cleared, and explicit cleanup continues.
 
 <a id="agent-runtime-review-and-ci"></a>
 **Agent Runtime, Review, and CI**

@@ -587,7 +587,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Intent:** Visitors must see subscription prices in their local currency (CHF, USD, EUR, GBP) with Stripe charging the exact displayed amount -- no surprise FX conversion on the bank statement.
 
-**Applies To:** Visitor
+**Applies To:** User
 
 **Acceptance Criteria:**
 

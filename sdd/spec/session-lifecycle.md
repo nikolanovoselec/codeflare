@@ -223,7 +223,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 - Tier limits are configurable per deployment via the admin Subscription Management panel.
 - The session-cap lookup respects an explicit zero value (a zero cap blocks starts observed after that value, not a fallthrough to default).
-- Best-effort enforcement is the product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity); atomic reservation is out of scope.
+- Best-effort enforcement is an explicit product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity). Atomic reservation is out of scope; [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) separately tracks a role-independent Enterprise limit.
 
 **Priority:** P1
 

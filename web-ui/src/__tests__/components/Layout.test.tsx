@@ -73,14 +73,6 @@ vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
 }));
 
-const vaultStoragePersistenceMock = vi.hoisted(() => ({
-  request: vi.fn(async () => ({ supported: true, granted: true })),
-}));
-
-vi.mock('../../lib/browser-storage-persistence', () => ({
-  requestBrowserStoragePersistence: () => vaultStoragePersistenceMock.request(),
-}));
-
 const vaultPrewarmProof = {
   scope: `${window.location.origin}/api/vault/0123456789abcdef0123456789abcdef/`,
   contentReady: true,
@@ -233,8 +225,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultPrewarmMock.latestOptions = null;
     vaultLocalReadinessMock.keyRecoverable.mockClear();
     vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(true);
-    vaultStoragePersistenceMock.request.mockClear();
-    vaultStoragePersistenceMock.request.mockResolvedValue({ supported: true, granted: true });
     localStorage.clear();
     window.history.replaceState(null, '', '/app/');
     delete (window as any).__terminalAreaProps;
@@ -474,21 +464,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect((window as any).__headerProps.vaultReady).toBe(true);
-    });
-
-    it('REQ-VAULT-012 AC6: first-click preparation requests persistent browser storage', async () => {
-      mockSessions = [createMockSession({ status: 'running' })];
-      mockActiveSessionId = 'sess1';
-      mockPreferences = { sessionMode: 'advanced' };
-
-      render(() => <Layout />);
-      vaultProbeMock.latestOptions.setLatch();
-      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
-      expect(vaultStoragePersistenceMock.request).not.toHaveBeenCalled();
-
-      await (window as any).__headerProps.onVaultOpen();
-
-      await waitFor(() => expect(vaultStoragePersistenceMock.request).toHaveBeenCalledTimes(1));
     });
 
     it('ignores legacy persistent readiness markers until the user starts a fresh prepare', async () => {

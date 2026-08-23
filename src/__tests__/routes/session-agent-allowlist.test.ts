@@ -137,7 +137,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
     );
 
     it.each(['copilot', 'antigravity', 'opencode'])(
-      "REQ-AGENT-002 AC7: unavailable agentType '%s' is rejected",
+      "REQ-AGENT-002 AC7: omitted agentType '%s' is rejected",
       async (agentType) => {
         const app = createApp({ CODING_AGENTS: 'claude-code,codex,pi' });
         const res = await app.request('/sessions', {
