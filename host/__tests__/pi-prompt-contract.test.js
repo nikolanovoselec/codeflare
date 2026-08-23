@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { describe, it } from 'node:test';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
@@ -11,10 +14,25 @@ import {
   validatePiPromptBaseline,
   validatePiPromptRuleLedger,
 } from '../../scripts/pi-prompt-contract.mjs';
+import {
+  serializePiToolSchemas,
+  verifyPiProjection,
+} from '../../scripts/verify-pi-prompt.mjs';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/pi-prompt-baseline.json', import.meta.url));
-const ledgerPath = fileURLToPath(new URL('../../documentation/decisions/pi-prompt-rule-ledger.json', import.meta.url));
+const ledgerPath = fileURLToPath(new URL('../../scripts/pi-prompt-rule-ledger.json', import.meta.url));
 const generatedPath = fileURLToPath(new URL('../../src/lib/agent-seed.generated.ts', import.meta.url));
+const piPackageRoot = fileURLToPath(new URL(
+  '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent',
+  import.meta.url,
+));
+const piNodeModules = fileURLToPath(new URL('../../preseed/agents/pi/node_modules', import.meta.url));
+const piPackageJson = fileURLToPath(new URL('../../preseed/agents/pi/package.json', import.meta.url));
+const temporaryRoots = [];
+
+after(async () => {
+  await Promise.all(temporaryRoots.map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
   it('pins the measured provider-boundary baseline and keeps tool schemas outside it', () => {
@@ -69,6 +87,40 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
       'Hard obligations',
     ]));
     assert.equal(ledger.sourceCoverage.visibleSkillCatalog.baselineEntries, 61);
+  });
+
+  it('reports registered extension tool schemas separately from the controlled prompt', () => {
+    const serialized = serializePiToolSchemas({
+      builtInTools: [{ name: 'read', description: 'Read', parameters: { type: 'object' } }],
+      extensionTools: [
+        { name: 'capability', description: 'Load tools', parameters: { type: 'object' } },
+        { name: 'subagent', description: 'Delegate', parameters: { type: 'object' } },
+      ],
+    });
+    assert.deepEqual(
+      JSON.parse(serialized).map(({ name }) => name),
+      ['capability', 'read', 'subagent'],
+    );
+  });
+
+  it('keeps real default and advanced resource-loader projections inside the prompt boundary', async () => {
+    assert.equal(existsSync(piPackageRoot), true, 'CI must install the exact Pi prompt runtime');
+    const runtimeAgentDir = await mkdtemp(join(tmpdir(), 'pi-runtime-'));
+    temporaryRoots.push(runtimeAgentDir);
+    await mkdir(join(runtimeAgentDir, 'npm'));
+    await symlink(piNodeModules, join(runtimeAgentDir, 'npm', 'node_modules'), 'dir');
+    const piDependencies = JSON.parse(readFileSync(piPackageJson, 'utf8')).dependencies;
+    const packages = Object.entries(piDependencies).map(([name, version]) => (
+      name === 'context-mode' ? { source: `npm:${name}@${version}`, extensions: [] } : `npm:${name}@${version}`
+    ));
+    await writeFile(join(runtimeAgentDir, 'settings.json'), JSON.stringify({ packages }));
+    const documents = parseGeneratedSeed(readFileSync(generatedPath, 'utf8'));
+
+    for (const mode of ['default', 'advanced']) {
+      const report = await verifyPiProjection({ documents, mode, runtimeAgentDir, piPackageRoot });
+      assert.equal(report.withinPromptBudget, true, `${mode} prompt uses ${report.promptChars} characters`);
+      assert.ok(report.toolSchemaChars > 0, `${mode} registered tool schemas must be reported`);
+    }
   });
 
   it('seeds one SYSTEM and AGENTS prompt input for both public Pi modes', () => {

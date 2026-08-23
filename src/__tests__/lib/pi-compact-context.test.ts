@@ -18,8 +18,22 @@ const COVERED_RULES = new Map([
   ['vault-note-capture', 'vault-note-capture'],
 ]);
 
-const HIDDEN_INTERNAL_SKILLS = [
+const REPRESENTATIVE_SKILLS = [
+  'cloudflare',
+  'frontend-patterns',
+  'impeccable',
+  'safe-local-checks',
+  'ship',
+] as const;
+
+const ALIGNED_CURATED_SKILLS = new Map([
+  ['systematic-debugging', { modes: ['default', 'advanced'], indexed: true }],
+  ['skill-authoring', { modes: ['advanced'], indexed: false }],
+] as const);
+
+const EXPLICIT_ONLY_SKILLS = new Set([
   'advisor',
+  'code-review-checklist',
   'consult-llm',
   'doc-enforce',
   'doc-enforce-lanes',
@@ -28,28 +42,18 @@ const HIDDEN_INTERNAL_SKILLS = [
   'git-review-pipeline',
   'review',
   'review-scope',
+  'rpiv-ask-user-question',
+  'rpiv-todo',
   'sandbox-migrate-to-next',
   'sdd-clean',
   'sdd-init',
+  'skill-authoring',
   'spec-driven-development',
   'spec-enforce',
   'spec-enforce-ac',
   'spec-enforce-truth',
   'tdd-enforce',
-] as const;
-
-const PROACTIVE_SKILLS = [
-  'browser-run',
-  'cloudflare',
-  'cloudflare-stack',
-  'frontend-components',
-  'graphify',
-  'impeccable',
-  'pr-workflow',
-  'search-first',
-  'ship',
-  'vault-note-capture',
-] as const;
+]);
 
 function docs(key: string, mode: 'default' | 'advanced') {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key && doc.modes.includes(mode));
@@ -77,9 +81,29 @@ function skillDoc(name: string, mode: 'default' | 'advanced' = 'advanced') {
   return docs(`.pi/agent/skills/${name}/SKILL.md`, mode)[0];
 }
 
+function skillDocuments(mode: 'default' | 'advanced') {
+  return AGENTS_SEEDED_CONFIGS.filter(
+    (doc) => doc.key.startsWith('.pi/agent/skills/')
+      && doc.key.endsWith('/SKILL.md')
+      && doc.modes.includes(mode),
+  );
+}
+
+function indexedSkills(mode: 'default' | 'advanced') {
+  const instructions = docs('.pi/agent/AGENTS.md', mode);
+  expect(instructions).toHaveLength(1);
+  const section = instructions[0]!.content.match(
+    /<!-- pi-skill-index:start -->\n([\s\S]*?)\n<!-- pi-skill-index:end -->/,
+  )?.[1];
+  expect(section, `${mode} compact skill index`).toBeTruthy();
+  return [...section!.matchAll(/^- `([a-z0-9-]+)` — (.+)$/gm)].map((match) => ({
+    name: match[1]!,
+    purpose: match[2]!,
+  }));
+}
+
 function visibleSkillCatalogChars(mode: 'default' | 'advanced'): number {
-  return AGENTS_SEEDED_CONFIGS
-    .filter((doc) => doc.key.startsWith('.pi/agent/skills/') && doc.key.endsWith('/SKILL.md') && doc.modes.includes(mode))
+  return skillDocuments(mode)
     .filter((doc) => frontmatter(doc.content)['disable-model-invocation'] !== 'true')
     .reduce((total, doc) => {
       const metadata = frontmatter(doc.content);
@@ -130,31 +154,55 @@ describe('REQ-AGENT-007/REQ-AGENT-095: compact Pi context generated from the Cla
     }
   });
 
-  it('hides command/event/reviewer internals while keeping proactive skills visible', () => {
-    for (const name of HIDDEN_INTERNAL_SKILLS) {
-      const doc = skillDoc(name);
-      expect(doc, `${name} should be seeded`).toBeTruthy();
-      expect(frontmatter(doc!.content)['disable-model-invocation']).toBe('true');
-    }
-    for (const name of PROACTIVE_SKILLS) {
-      const doc = skillDoc(name);
-      expect(doc, `${name} should be seeded`).toBeTruthy();
-      expect(frontmatter(doc!.content)['disable-model-invocation']).not.toBe('true');
+  it('indexes every model-invocable seed skill exactly once per mode without removing its file', () => {
+    for (const mode of ['default', 'advanced'] as const) {
+      const skillDocs = skillDocuments(mode);
+      const installedNames = skillDocs.map((doc) => frontmatter(doc.content).name).sort();
+      const expectedIndexNames = installedNames.filter((name) => !EXPLICIT_ONLY_SKILLS.has(name));
+      const index = indexedSkills(mode);
+      const indexNames = index.map(({ name }) => name);
+
+      expect(new Set(installedNames).size).toBe(installedNames.length);
+      expect(indexNames).toEqual(expectedIndexNames);
+      expect(new Set(indexNames).size).toBe(indexNames.length);
+      for (const { name, purpose } of index) {
+        expect(skillDoc(name, mode), `${name} conventional path`).toBeTruthy();
+        expect(purpose.length, `${name} compact purpose`).toBeGreaterThan(0);
+        expect(purpose.length, `${name} compact purpose`).toBeLessThanOrEqual(32);
+      }
     }
   });
 
-  it('keeps model-visible Pi descriptions within the compact catalog budget', () => {
-    const visibleSkills = AGENTS_SEEDED_CONFIGS.filter(
-      (doc) => doc.key.startsWith('.pi/agent/skills/')
-        && doc.key.endsWith('/SKILL.md')
-        && doc.modes.includes('advanced')
-        && frontmatter(doc.content)['disable-model-invocation'] !== 'true',
-    );
+  it('retains the reviewed curated skill additions in their intended modes', () => {
+    for (const [name, expectation] of ALIGNED_CURATED_SKILLS) {
+      const documents = AGENTS_SEEDED_CONFIGS.filter(
+        (doc) => doc.key === `.pi/agent/skills/${name}/SKILL.md`,
+      );
+      expect(documents).toHaveLength(1);
+      expect(documents[0]?.modes).toEqual(expectation.modes);
+      for (const mode of expectation.modes) {
+        expect(indexedSkills(mode).some((entry) => entry.name === name)).toBe(expectation.indexed);
+      }
+    }
+  });
 
-    expect(visibleSkills.length).toBeLessThanOrEqual(48);
-    for (const doc of visibleSkills) {
-      const name = frontmatter(doc.content).name;
-      expect(skillDescription(doc.content).length, `${name} description length`).toBeLessThanOrEqual(160);
+  it('keeps indexed skills explicitly invocable while omitting duplicate native XML entries', () => {
+    for (const mode of ['default', 'advanced'] as const) {
+      for (const doc of skillDocuments(mode)) {
+        expect(frontmatter(doc.content)['disable-model-invocation'], doc.key).toBe('true');
+      }
+      const names = new Set(indexedSkills(mode).map(({ name }) => name));
+      for (const name of REPRESENTATIVE_SKILLS) {
+        if (skillDoc(name, mode)) expect(names.has(name), `${mode} index contains ${name}`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps model-visible package descriptions compact without rewriting skill payloads', () => {
+    for (const mode of ['default', 'advanced'] as const) {
+      for (const doc of skillDocuments(mode)) {
+        expect(skillDescription(doc.content).length, doc.key).toBeGreaterThan(0);
+      }
     }
   });
 

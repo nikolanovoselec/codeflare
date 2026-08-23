@@ -15,6 +15,7 @@ const FORBIDDEN_ARGUMENTS = [
   /^-o(?:$|=|[^-])/u,
   /^--cache(?:$|=|-)/u,
   /^--concurrency(?:$|=)/u,
+  /^--init$/u,
   /^-w$/u,
 ];
 

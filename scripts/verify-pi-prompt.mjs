@@ -70,15 +70,45 @@ function stablePath(value, agentDir, root) {
   return String(value).replaceAll(agentDir, '~/.pi/agent').replaceAll(root, '<fixture>');
 }
 
+function toolSchema(tool) {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  };
+}
+
+export function serializePiToolSchemas({ builtInTools, extensionTools }) {
+  const byName = new Map();
+  for (const tool of [...builtInTools, ...extensionTools]) {
+    if (!tool || typeof tool.name !== 'string' || byName.has(tool.name)) continue;
+    byName.set(tool.name, tool);
+  }
+  return JSON.stringify(
+    [...byName.values()]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(toolSchema),
+  );
+}
+
+function extensionToolDefinitions(loader) {
+  return loader.getExtensions().extensions.flatMap((extension) => (
+    [...extension.tools.values()].map((registeredTool) => registeredTool.definition)
+  ));
+}
+
 async function loadPrompt({ runtime, agentDir, cwd }) {
   const loader = new runtime.DefaultResourceLoader({
     cwd,
     agentDir,
-    noExtensions: true,
     noPromptTemplates: true,
     noThemes: true,
   });
   await loader.reload();
+  const extensionErrors = loader.getExtensions().errors;
+  if (extensionErrors.length > 0) {
+    throw new Error(`Pi extension loading failed: ${extensionErrors.map(({ path: extensionPath, error }) => `${extensionPath}: ${error}`).join('; ')}`);
+  }
   const skills = loader.getSkills().skills;
   const agentsFiles = loader.getAgentsFiles().agentsFiles;
   const appendSystemPrompt = loader.getAppendSystemPrompt().join('\n\n');
@@ -90,13 +120,19 @@ async function loadPrompt({ runtime, agentDir, cwd }) {
     contextFiles: agentsFiles,
     skills,
   });
-  return { prompt, skills, agentsFiles, diagnostics: loader.getSkills().diagnostics };
+  return {
+    prompt,
+    skills,
+    agentsFiles,
+    extensionTools: extensionToolDefinitions(loader),
+    diagnostics: loader.getSkills().diagnostics,
+  };
 }
 
 export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piPackageRoot }) {
   if (!modes.has(mode)) throw new Error(`unsupported Pi prompt mode: ${mode}`);
-  const root = await mkdtemp(path.join(tmpdir(), `codeflare-pi-prompt-${mode}-`));
-  const agentDir = path.join(root, 'agent');
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-agent-'));
+  const agentDir = root;
   const isolatedCwd = path.join(root, 'isolated');
   const projectCwd = path.join(root, 'project');
   const projectPolicy = '# Project fixture\n\nPROJECT_CONTEXT_SENTINEL\n';
@@ -114,11 +150,10 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
     }
 
     const builtInTools = runtime.createCodingTools(isolatedCwd);
-    const serializedToolSchemas = JSON.stringify(builtInTools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    })));
+    const serializedToolSchemas = serializePiToolSchemas({
+      builtInTools,
+      extensionTools: controlled.extensionTools,
+    });
     const budget = measurePiPromptBudget({
       controlledPrompt: controlled.prompt,
       additiveProjectContext: withProject.prompt.slice(controlled.prompt.length),

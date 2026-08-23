@@ -651,7 +651,7 @@ Tiers, billing, usage tracking, and quotas.
 1. Timekeeper reports the current month's durable total plus pending usage in every deployment mode. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) -->
 2. The usage endpoint returns personal usage statistics in every deployment mode. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
 3. A non-SaaS usage response carries `null` instead of a billing quota. <!-- @impl: src/routes/usage.ts::app --> <!-- @test: src/__tests__/routes/usage.test.ts (REQ-SUB-022 AC2-AC3: returns live usage with no billing quota outside SaaS mode) -->
-4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-022 AC4: renders personal usage stat cards without quota UI when monthly quota is null) -->
+4. The usage page renders today's and this month's stat cards when no billing quota exists. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-022 AC4: renders only personal usage times outside SaaS) -->
 
 **Constraints:** Usage recording and display do not authorize quota, trial, or billing enforcement outside SaaS mode.
 

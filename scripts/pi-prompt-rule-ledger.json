@@ -1,0 +1,179 @@
+{
+  "baselineChars": 32416,
+  "maxPromptChars": 14000,
+  "toolSchemasMeasuredSeparately": true,
+  "projectContextMeasuredSeparately": true,
+  "coverageGuarantee": "controlled-surface-categories",
+  "ownership": {
+    "codeflare": [
+      "Pi prompt assembly",
+      "runtime transaction and workflow guards",
+      "image-baked fallback",
+      "generated seed compiler",
+      "declared shared hard-policy files"
+    ],
+    "codeflare-curation": [
+      "managed source inventory",
+      "mode and invocation visibility",
+      "signed managed projections",
+      "managed prompt verification"
+    ],
+    "sharedFlow": "codeflare-deployment-to-curation",
+    "reversePrivateSync": false
+  },
+  "sourceCoverage": {
+    "piDefaultSystemPrompt": [
+      "identity and available-tool framing",
+      "file-operation and response guidelines",
+      "Pi documentation routing",
+      "custom-tool availability note",
+      "working-directory framing"
+    ],
+    "globalAgentsHeadings": [
+      "Environment and code",
+      "Four mandates",
+      "Scope and autonomy",
+      "Review and CI gates",
+      "Work continuity",
+      "Task tracking",
+      "Git Workflow",
+      "Mandatory boundary stop",
+      "No pre-push reviewers",
+      "Execute one boundary plan",
+      "Hard obligations"
+    ],
+    "visibleSkillCatalog": {
+      "baselineEntries": 61,
+      "baselineChars": 18307,
+      "inventoryOwner": "codeflare-curation"
+    }
+  },
+  "entries": [
+    {
+      "id": "pi-base-identity-tools",
+      "covers": ["identity and available-tool framing"],
+      "destination": "SYSTEM.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "pi-base-operating-guidelines",
+      "covers": ["file-operation guidelines", "concise response guidance", "working-directory framing"],
+      "destination": "SYSTEM.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "pi-base-documentation-routing",
+      "covers": ["Pi documentation paths", "topic-to-document mapping", "cross-reference reading"],
+      "destination": "lazy-skill",
+      "owner": "codeflare"
+    },
+    {
+      "id": "pi-base-custom-tool-note",
+      "covers": ["custom-tool availability note"],
+      "destination": "tool-schema",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-environment-code",
+      "covers": ["Environment and code"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-four-mandates",
+      "covers": ["Four mandates"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-scope-autonomy",
+      "covers": ["Scope and autonomy"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-review-ci-gates",
+      "covers": ["Review and CI gates", "CI result handoff"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-work-continuity",
+      "covers": ["Work continuity"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-task-transaction",
+      "covers": ["Task tracking", "one active task per owner", "parallel agent ownership", "dependency and completion state"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-environment-cli-mechanics",
+      "covers": ["Git HTTPS", "noreply identity", "browser-opening CLI environment"],
+      "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-context-mode-fallback",
+      "covers": ["context-mode optional fallback mechanics"],
+      "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-git-route-mechanics",
+      "covers": ["Git Workflow event routes", "reviewer and CI launch mechanics"],
+      "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-git-commit-format",
+      "covers": ["commit format", "attribution exclusion"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-boundary-stop",
+      "covers": ["Mandatory boundary stop"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-no-prepush-review",
+      "covers": ["No pre-push reviewers"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-boundary-plan-execution",
+      "covers": ["Execute one boundary plan"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "agents-hard-obligations",
+      "covers": ["Hard obligations"],
+      "destination": "AGENTS.md",
+      "owner": "codeflare"
+    },
+    {
+      "id": "visible-skill-catalog",
+      "covers": ["all model-invocable baseline skill names", "all model-invocable trigger descriptions", "each model-invocable final source-root skill"],
+      "destination": "AGENTS.md",
+      "owner": "generated-seed-compiler"
+    },
+    {
+      "id": "explicit-skill-catalog",
+      "covers": ["user-only skills", "command and event skills", "reviewer-only enforcement skills"],
+      "destination": "lazy-skill",
+      "owner": "source-inventory-manifest"
+    },
+    {
+      "id": "serialized-tool-contracts",
+      "covers": ["tool parameter schemas", "tool descriptions"],
+      "destination": "tool-schema",
+      "owner": "runtime-tool-owners"
+    }
+  ]
+}

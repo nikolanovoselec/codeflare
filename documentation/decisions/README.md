@@ -3858,3 +3858,21 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [REQ-AGENT-096](../../sdd/spec/agents.md#req-agent-096-on-demand-pi-tool-activation), [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports).
 
 ---
+
+### AD139: Pi skill discovery uses one compiler-generated compact index
+
+**Category:** Agents, Architecture, Performance
+
+**Status:** Accepted (2026-08-23).
+
+**Context:** Pi's native model-visible skill catalog repeats XML framing and absolute paths for every skill. That representation dominated the measured provider-boundary prompt even after descriptions and permanent policy were compressed. Removing skill files or maintaining a second routing registry would reduce bytes by weakening discovery or creating a source that can drift from the actual source-root projection.
+
+**Decision:** The shared seed compiler derives a deterministic `name — purpose` index from each final source root after mode resolution and appends it to that mode's generated Pi `AGENTS.md`. Every model-invocable indexed name maps to the conventional `~/.pi/agent/skills/<name>/SKILL.md` path. The compiler then suppresses duplicate native XML entries without deleting skill documents or changing explicit `/skill:name` invocation. Skills already restricted to explicit user, command, event, or reviewer invocation remain installed but absent from the model-invocable index. Codeflare's public fallback and codeflare-curation's managed source each generate their own index through the same pinned compiler; no generated index synchronizes between repositories. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex -->
+
+**Alternatives rejected:** Patch Pi's XML formatter; add a runtime search tool or persistent registry; maintain content-router tables; delete optional skills; synchronize a generated public index into curation; or raise the prompt cap. These add runtime machinery, duplicate inventory ownership, lose capabilities, omit curated content, or abandon the reduction goal.
+
+**Consequences:** The source manifests and skill files remain authoritative and composable. Inventory or mode changes automatically change the matching index, duplicate names and missing conventional paths fail compilation, and package-owned skills may retain native discovery independently. Default and advanced prompt projections remain measurable without transferring prompt prose into tool schemas.
+
+**Related REQ:** [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt).
+
+---

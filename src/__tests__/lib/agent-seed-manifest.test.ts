@@ -434,7 +434,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
   });
 
-  it('AC7: allows only a standalone managed safe-check wrapper invocation', () => {
+  it('REQ-AGENT-157 AC1: allows only a standalone managed safe-check wrapper invocation', () => {
     const pi = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
     const claude = 'node "$HOME/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs" eslint .';
     expect(isManagedSafeLocalCheckCommand(pi)).toBe(true);
@@ -444,7 +444,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(isManagedSafeLocalCheckCommand('node ./scripts/safe-local-check.mjs oxlint src')).toBe(false);
   });
 
-  it('AC7: the managed wrapper bypasses the local-lint block without consuming the user sentinel', () => {
+  it('REQ-AGENT-157 AC2: the managed wrapper bypasses the local-lint block without consuming the user sentinel', () => {
     let consumed = false;
     const fs = { existsSync: () => true, unlinkSync: () => { consumed = true; } };
     const command = 'node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint src';
@@ -461,24 +461,28 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
       .toMatch(/safe-local-checks/);
   });
 
-  it('AC6/AC7: seeds one lazy-loaded safe-local-check skill for Claude and Pi', () => {
-    const claude = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/safe-local-checks/SKILL.md');
-    const pi = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/safe-local-checks/SKILL.md');
-    expect(claude?.content).toContain('safe-local-check.mjs');
-    expect(pi?.content).toContain('safe-local-check.mjs');
-    expect(claude?.modes).toEqual(['default', 'advanced']);
-    expect(pi?.modes).toEqual(['default', 'advanced']);
+  it('REQ-AGENT-157 AC3: seeds one managed safe-check capability for each runtime and mode', () => {
+    const capabilityKeys = [
+      '.claude/skills/safe-local-checks/SKILL.md',
+      '.pi/agent/skills/safe-local-checks/SKILL.md',
+    ];
+    for (const key of capabilityKeys) {
+      const documents = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(documents).toHaveLength(1);
+      expect(documents[0]?.contentType).toBe('text/markdown; charset=utf-8');
+      expect(documents[0]?.modes).toEqual(['default', 'advanced']);
+    }
   });
 
-  it('AC7: permanently loaded policy stays short and leaves operational detail in the skill', () => {
-    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/no-local-builds.md');
+  it('REQ-AGENT-157 AC3: permanently loaded policy stays bounded while operational policy remains lazy', () => {
+    const claudeRules = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.claude/rules/no-local-builds.md');
     const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
-    expect(claudeRule?.content.length).toBeLessThan(400);
-    expect(claudeRule?.content).toContain('load `safe-local-checks`');
+    expect(claudeRules).toHaveLength(1);
+    expect(claudeRules[0]?.content.length).toBeLessThan(400);
     expect(piInstructions).toHaveLength(2);
     for (const instructions of piInstructions) {
-      expect(instructions.content).toContain('load `safe-local-checks`');
-      expect(instructions.content).not.toContain('safe-local-check.mjs');
+      const permanentlyLoadedPolicy = instructions.content.split('\n## Skills\n')[0] ?? '';
+      expect(permanentlyLoadedPolicy.length).toBeLessThan(4_500);
     }
   });
 

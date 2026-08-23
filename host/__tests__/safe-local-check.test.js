@@ -41,7 +41,7 @@ function run(root, args, env = {}) {
   });
 }
 
-describe('REQ-AGENT-052 AC6/AC7: managed safe local checks', () => {
+describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
   it('runs full-project Oxlint through the repository-local binary at low priority', () => {
     const root = fixture('oxlint', [
       'if [ "$#" -gt 0 ]; then printf "%s\\n" "$@" > "$SAFE_CHECK_CAPTURE"; else : > "$SAFE_CHECK_CAPTURE"; fi',
@@ -74,6 +74,7 @@ describe('REQ-AGENT-052 AC6/AC7: managed safe local checks', () => {
       ['eslint', '-o', 'report.json', '.'],
       ['eslint', '--cache', '.'],
       ['eslint', '--cache-location=.cache/eslint', '.'],
+      ['eslint', '--init'],
     ]) {
       const root = fixture(args[0]);
       const result = run(root, args);
