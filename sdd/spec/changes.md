@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-23
+
+- **Clone-created sessions rebuild their repository after an ephemeral stop** ([REQ-GITHUB-004](github.md#req-github-004-clone-a-repository-into-a-session) AC6 added; remains Implemented). Session KV already retained the validated repository and ref, but the idempotent Durable Object reconfiguration path discarded them after a wake. Resume now re-applies that in-memory startup directive; entrypoint clones a missing target before agent startup and preserves an existing or workspace-synced target through the established collision guard.
+
 ## 2026-08-22
 
 - **Managed environments select the newest seed compatible with each deployed build** ([REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery) added and [REQ-STOR-020](storage.md#req-stor-020-managed-environment-reconciliation) AC2-AC3 amended; remain Implemented). Release discovery searches a bounded immutable history window instead of treating the latest global seed as authoritative, so environments on different dependency sets may select different releases while builds with identical lockfile hashes share the same newest match. An incompatible cached pointer cannot win merely through a higher global sequence.
