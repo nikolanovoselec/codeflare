@@ -43,6 +43,16 @@ describe('engineering constitution preseed', () => {
     );
   });
 
+  it('keeps advanced ambient policy bounded and permits owner-scoped parallel work', () => {
+    const advancedChars = piConstitution.trim().length + piGitWorkflow.trim().length + '\n\n---\n\n'.length + 1;
+    assert.ok(advancedChars >= 3_000 && advancedChars <= 4_000, `advanced AGENTS policy is ${advancedChars} chars`);
+    assert.match(piConstitution, /Multiple tasks may be `in_progress` only when distinct active owners are working them/);
+    assert.match(piConstitution, /Each owner has at most one active task/);
+    assert.doesNotMatch(piConstitution, /exactly one task `in_progress`/);
+    assert.doesNotMatch(piGitWorkflow, /monitor-ci\.mjs request/,
+      'the emitted boundary plan and lazy CI skill own command mechanics');
+  });
+
   it('delivers Git Workflow in both modes and the constitution only in advanced mode', () => {
     const expectedByMode = {
       default: `${piGitWorkflow.trim()}\n\n---\n\n${localExecutionGate.trim()}\n`,

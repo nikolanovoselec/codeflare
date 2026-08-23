@@ -108,33 +108,51 @@
       "owner": "codeflare"
     },
     {
-      "id": "agents-git-commit-routing",
-      "covers": ["Git Workflow event routes", "commit format"],
+      "id": "agents-environment-cli-mechanics",
+      "covers": ["Git HTTPS", "noreply identity", "browser-opening CLI environment"],
       "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-context-mode-fallback",
+      "covers": ["context-mode optional fallback mechanics"],
+      "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-git-route-mechanics",
+      "covers": ["Git Workflow event routes", "reviewer and CI launch mechanics"],
+      "destination": "lazy-skill",
+      "owner": "codeflare-curation"
+    },
+    {
+      "id": "agents-git-commit-format",
+      "covers": ["commit format", "attribution exclusion"],
+      "destination": "AGENTS.md",
       "owner": "codeflare"
     },
     {
       "id": "agents-boundary-stop",
       "covers": ["Mandatory boundary stop"],
-      "destination": "runtime-guard",
+      "destination": "AGENTS.md",
       "owner": "codeflare"
     },
     {
       "id": "agents-no-prepush-review",
       "covers": ["No pre-push reviewers"],
-      "destination": "runtime-guard",
+      "destination": "AGENTS.md",
       "owner": "codeflare"
     },
     {
       "id": "agents-boundary-plan-execution",
       "covers": ["Execute one boundary plan"],
-      "destination": "lazy-skill",
+      "destination": "AGENTS.md",
       "owner": "codeflare"
     },
     {
       "id": "agents-hard-obligations",
       "covers": ["Hard obligations"],
-      "destination": "runtime-guard",
+      "destination": "AGENTS.md",
       "owner": "codeflare"
     },
     {
