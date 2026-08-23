@@ -2478,16 +2478,17 @@ NODE
 
 configure_pi_caveman() {
     local caveman_config="$USER_HOME/.pi/agent/caveman.json"
-    PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
+    local caveman_image_config="${PI_CAVEMAN_IMAGE_CONFIG:-/opt/codeflare/pi-agent/caveman.json}"
+    PI_CAVEMAN_IMAGE_CONFIG="$caveman_image_config" PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
 const { randomUUID } = require('node:crypto');
-const { mkdirSync, renameSync, rmSync, writeFileSync } = require('node:fs');
+const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
 const { dirname } = require('node:path');
 
 const settingsPath = process.env.PI_CAVEMAN_STARTUP_CONFIG;
-const settings = {
-  defaultLevel: 'full',
-  showStatus: false,
-};
+const settings = JSON.parse(readFileSync(process.env.PI_CAVEMAN_IMAGE_CONFIG, 'utf8'));
+if (JSON.stringify(settings) !== JSON.stringify({ defaultLevel: 'full', showStatus: false })) {
+  throw new Error('Image-owned Pi Caveman policy is invalid');
+}
 
 mkdirSync(dirname(settingsPath), { recursive: true });
 const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;

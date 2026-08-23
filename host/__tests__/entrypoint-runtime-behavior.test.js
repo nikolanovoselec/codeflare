@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
+const CAVEMAN_IMAGE_CONFIG = resolve(__dirname, '../../image/pi/caveman.json');
 
 function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
@@ -164,7 +165,11 @@ describe('entrypoint production helpers', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-'));
     const configPath = join(fixture, '.pi/agent/caveman.json');
     const conflictingPath = join(fixture, 'legacy/caveman.json');
-    const env = { USER_HOME: fixture, PI_CAVEMAN_CONFIG_FILE: conflictingPath };
+    const env = {
+      USER_HOME: fixture,
+      PI_CAVEMAN_CONFIG_FILE: conflictingPath,
+      PI_CAVEMAN_IMAGE_CONFIG: CAVEMAN_IMAGE_CONFIG,
+    };
 
     const first = runStartupInvocation('configure_pi_caveman', env);
     assert.equal(first.status, 0, first.stderr);
@@ -200,7 +205,21 @@ exec "$REAL_NODE" "$@"
     mkdirSync(join(fixture, '.pi'), { recursive: true });
     writeFileSync(join(fixture, '.pi/agent'), 'not a directory\n');
 
-    const result = runStartupInvocation('configure_pi_caveman', { USER_HOME: fixture });
+    const result = runStartupInvocation('configure_pi_caveman', {
+      USER_HOME: fixture,
+      PI_CAVEMAN_IMAGE_CONFIG: CAVEMAN_IMAGE_CONFIG,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(existsSync(join(fixture, '.pi/agent/caveman.json')), false);
+  });
+
+  it('REQ-AGENT-155 AC4: fails startup when the image-owned Caveman policy is absent', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-image-policy-missing-'));
+    const result = runStartupInvocation('configure_pi_caveman', {
+      USER_HOME: fixture,
+      PI_CAVEMAN_IMAGE_CONFIG: join(fixture, 'missing-caveman.json'),
+    });
 
     assert.notEqual(result.status, 0);
     assert.equal(existsSync(join(fixture, '.pi/agent/caveman.json')), false);

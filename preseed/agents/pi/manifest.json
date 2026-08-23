@@ -104,12 +104,6 @@
       "advanced"
     ]
   },
-  "caveman.json": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "package.json": {
     "modes": [
       "default",

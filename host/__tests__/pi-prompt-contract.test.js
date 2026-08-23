@@ -73,6 +73,8 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
     const result = validatePiPromptRuleLedger(ledger);
     assert.equal(result.entryCount, ledger.entries.length);
     assert.equal(result.ids.size, ledger.entries.length);
+    assert.equal(Object.hasOwn(ledger.ownership, 'sharedFlow'), false);
+    assert.ok(ledger.ownership['codeflare-curation'].includes('complete managed policy inventory'));
     assert.deepEqual(new Set(ledger.sourceCoverage.globalAgentsHeadings), new Set([
       'Environment and code',
       'Four mandates',

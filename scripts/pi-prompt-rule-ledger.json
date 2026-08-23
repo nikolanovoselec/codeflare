@@ -9,16 +9,14 @@
       "Pi prompt assembly",
       "runtime transaction and workflow guards",
       "image-baked fallback",
-      "generated seed compiler",
-      "declared shared hard-policy files"
+      "generated seed compiler"
     ],
     "codeflare-curation": [
-      "managed source inventory",
+      "complete managed policy inventory",
       "mode and invocation visibility",
       "signed managed projections",
       "managed prompt verification"
     ],
-    "sharedFlow": "codeflare-deployment-to-curation",
     "reversePrivateSync": false
   },
   "sourceCoverage": {

@@ -414,6 +414,8 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
+# Caveman policy is image-owned and deliberately excluded from agent seeds.
+COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
 COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user

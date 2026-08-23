@@ -4109,24 +4109,24 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi's required package set, integrity lock, and generated seed contain the same exact `pi-caveman` release. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-caveman --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: generated Pi seed keeps Caveman package and policy coherent) -->
+1. Pi's required package set, integrity lock, and generated package metadata contain the same exact `pi-caveman` release. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-caveman --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: keeps Caveman image-owned and out of agent seeds) -->
 2. Before each successful container startup, Caveman configuration is atomically replaced with full mode and status display disabled. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start) -->
 3. An unwritable Caveman policy blocks container startup. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC3: fails startup when the authoritative Caveman policy cannot be written) -->
-4. Default and advanced Pi seeds carry the same Caveman configuration as the startup policy. <!-- @impl: preseed/agents/pi/manifest.json::caveman.json --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: generated Pi seed keeps Caveman package and policy coherent) -->
+4. Caveman configuration is absent from default, advanced, and managed agent seeds; the image carries the validated policy used at startup. <!-- @impl: image/pi/caveman.json --> <!-- @impl: Dockerfile::image/pi/caveman.json --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: keeps Caveman image-owned and out of agent seeds) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC4: fails startup when the image-owned Caveman policy is absent) -->
 5. Image construction includes Caveman in the warm path so new images load it without first-session compilation. <!-- @impl: Dockerfile::caveman_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 6. Image construction fails when Caveman's expected compiled artifact is absent. <!-- @impl: Dockerfile::caveman_hit --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 7. Weekly Pi-extension discovery includes Caveman and applies its candidate version to every source-owned runtime pin. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps) -->
 
 **Constraints:**
 
-- Package bytes and npm installation state remain image-owned; managed curation distributes configuration only.
+- Package bytes, npm installation state, and Caveman configuration remain image-owned; agent seeds do not distribute the policy.
 - Startup policy is authoritative and does not preserve user changes to Caveman mode or footer visibility.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-supported-coding-agent-runtimes), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Automated package, startup-policy, seed, and image-cache contract tests
+**Verification:** Automated package, image-policy, startup, seed-exclusion, and image-cache contract tests
 
 **Status:** Implemented
 
@@ -4145,8 +4145,8 @@ None.
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (reports registered extension tool schemas separately from the controlled prompt) -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (indexes every model-invocable seed skill exactly once per mode without removing its file) --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (seeds one SYSTEM and AGENTS prompt input for both public Pi modes) -->
-6. Codeflare owns prompt assembly, executable guards, image fallback, compiler support, and declared shared policy; codeflare-curation owns its source inventory, invocation visibility, mode membership, signed projections, and managed prompt verification. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
-7. Shared prompt policy flows only from an exact successful Codeflare deployment through the declared curation synchronization allowlist and guarded curation CI; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin, synchronized prompt policy, and both managed-mode prompt reports in protected codeflare-curation CI -->
+6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, and managed prompt verification. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
+7. Curation advances its compiler pin only from an exact successful Codeflare deployment and verifies both managed modes before publication; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin and both managed-mode prompt reports in protected codeflare-curation CI -->
 
 **Constraints:**
 
@@ -4157,7 +4157,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-OPS-046](operations.md#req-ops-046-deployment-derived-shared-preseed-synchronization)
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated contract, compiler, real-resource-loader, public fallback, and signed managed projection tests
 

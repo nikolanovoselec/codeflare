@@ -80,8 +80,12 @@ export function validatePiPromptRuleLedger(ledger) {
     || ledger.toolSchemasMeasuredSeparately !== true) {
     throw new Error('rule ledger must cover controlled surface categories and report additive inputs separately');
   }
-  if (ledger.ownership?.sharedFlow !== 'codeflare-deployment-to-curation') {
-    throw new Error('rule ledger must retain one-way deployment-derived shared policy flow');
+  if (!Array.isArray(ledger.ownership?.['codeflare-curation'])
+    || !ledger.ownership['codeflare-curation'].includes('complete managed policy inventory')) {
+    throw new Error('rule ledger must assign the complete managed policy inventory to curation');
+  }
+  if (Object.hasOwn(ledger.ownership, 'sharedFlow')) {
+    throw new Error('rule ledger must not declare shared-preseed policy flow');
   }
   if (ledger.ownership?.reversePrivateSync !== false) {
     throw new Error('private curation content must never reverse-sync into Codeflare');
