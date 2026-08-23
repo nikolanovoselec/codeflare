@@ -23,6 +23,7 @@ async function copyCompilerFixture(root) {
   }
   for (const relativePath of [
     'preseed/npm-tools/package-lock.json',
+    'preseed/agents/claude/browser-run-mcp/package-lock.json',
     'preseed/retired-keys.json',
   ]) {
     await mkdir(dirname(join(root, relativePath)), { recursive: true });
