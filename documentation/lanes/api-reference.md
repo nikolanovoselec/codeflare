@@ -245,7 +245,7 @@ The OAuth callback is mounted separately under `/auth/github` (`src/routes/githu
 |--------|----------|------|------------|-------------|
 | GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, persists the repo token to deploy-keys; never mints a session cookie. GitHub App/OAuth App registers this exact URL. |
 
-The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)). The session retains that directive and re-applies it before agent startup after every resume; configuration restoration failure blocks startup. A wiped ephemeral workspace receives the established best-effort clone attempt again, while an existing target is preserved.
+The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)). Under [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), the session retains that directive and re-applies it before agent startup after every resume; configuration restoration failure blocks startup. A wiped ephemeral workspace receives the established best-effort clone attempt again, while an existing target is preserved.
 
 ## Cloudflare Integration
 

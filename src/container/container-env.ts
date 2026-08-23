@@ -585,7 +585,7 @@ export async function applyPrefsOnRestart(
     changed = true;
   }
 
-  // REQ-GITHUB-004 AC6: the Durable Object may outlive its ephemeral container,
+  // REQ-GITHUB-014 AC1: the Durable Object may outlive its ephemeral container,
   // but may also wake with only persisted configuration. Reapply the immutable
   // session clone target in memory so every container start receives it. A missing
   // ref explicitly clears a stale in-memory ref for the same repository.

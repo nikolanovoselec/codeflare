@@ -130,8 +130,6 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. The validated repository basename is preserved verbatim in `$USER_WORKSPACE/<repo-name-verbatim>`; the resolved target must remain a direct child of the normalized workspace, and the clone is refused with a clear message if that folder already exists. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
 4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise). <!-- @impl: host/src/git-clone.ts::buildCloneArgs --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
-6. Resuming a clone-created session re-applies its repository and ref before agent startup. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-004 AC6: restores the clone directive when a stopped session resumes with a fresh container) -->
-7. Startup is blocked if the session's clone configuration cannot be restored. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-004 AC7: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-004 AC7: blocks resume when clone restoration cannot reach the container) -->
 
 **Constraints:**
 
@@ -142,6 +140,31 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-014: Clone-created session resume
+
+**Intent:** A session created from a repository retries its original clone safely when ephemeral workspace storage is absent after resume.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Resume re-applies the session's validated repository and optional ref before agent startup. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container) -->
+2. Startup is blocked if the session's clone configuration cannot be restored. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container) -->
+3. When the target is missing, startup makes one best-effort clone attempt before agent autostart; a failed attempt is logged and startup continues. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: preserves a validated .git basename, branches safely, and keeps argv separated) --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: logs a clone failure and continues startup successfully) -->
+4. When the target already exists, startup leaves it unchanged and does not invoke Git. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: rejects option-leading refs and refuses an existing target without invoking git) -->
+
+**Constraints:** Clone authentication continues to use the per-mode credential path defined by [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
+
+**Verification:** Automated container configuration and entrypoint tests
 
 **Status:** Implemented
 

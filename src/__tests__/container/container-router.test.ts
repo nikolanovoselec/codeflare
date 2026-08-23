@@ -113,7 +113,7 @@ describe('CF-016 dispatchInternalRoute', () => {
 
   // The Worker calls the same idempotent config route before every start. A woken
   // Durable Object already has its bucket but not the memory-only clone fields.
-  it('REQ-GITHUB-004 AC6: restores the clone directive when a stopped session resumes with a fresh container', async () => {
+  it('REQ-GITHUB-014 AC1: restores the clone directive when a stopped session resumes with a fresh container', async () => {
     const host = makeHost({
       _bucketName: 'b',
       _gitCloneRepo: null,

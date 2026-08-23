@@ -401,7 +401,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(mockLogger.warn).toHaveBeenCalled();
     });
 
-    it('REQ-GITHUB-004 AC7: blocks resume when clone restoration returns an unexpected status', async () => {
+    it('REQ-GITHUB-014 AC2: blocks resume when clone restoration returns an unexpected status', async () => {
       mockGetStoredBucketName.mockResolvedValue('test-bucket');
       mockContainer.fetch.mockResolvedValue(new Response('failed', { status: 500 }));
 
@@ -412,7 +412,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       })).rejects.toThrow();
     });
 
-    it('REQ-GITHUB-004 AC7: blocks resume when clone restoration cannot reach the container', async () => {
+    it('REQ-GITHUB-014 AC2: blocks resume when clone restoration cannot reach the container', async () => {
       mockGetStoredBucketName.mockResolvedValue('test-bucket');
       mockContainer.fetch.mockRejectedValue(new Error('network error'));
 

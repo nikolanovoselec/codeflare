@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-23
 
-- **Clone-created sessions retry their repository clone after an ephemeral stop** ([REQ-GITHUB-004](github.md#req-github-004-clone-a-repository-into-a-session) AC6-AC7 added; remains Implemented). Session KV already retained the validated repository and ref, but the idempotent Durable Object reconfiguration path discarded them after a wake. Resume now re-applies that in-memory startup directive and blocks if configuration restoration fails; entrypoint then attempts its established best-effort clone before agent startup, while the collision guard preserves an existing or workspace-synced target.
+- **Clone-created sessions retry their repository clone after an ephemeral stop** ([REQ-GITHUB-014](github.md#req-github-014-clone-created-session-resume) added; Implemented). Session KV already retained the validated repository and ref, but the idempotent Durable Object reconfiguration path discarded them after a wake. Resume now re-applies that in-memory startup directive and blocks if configuration restoration fails; entrypoint then attempts its established best-effort clone before agent startup, while the collision guard preserves an existing or workspace-synced target.
 
 ## 2026-08-22
 
