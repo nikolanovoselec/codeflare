@@ -559,7 +559,7 @@ An authenticated onboarding user with no active tier is recorded as a pending ac
 <a id="github-clone-data-flow-req-github-004"></a>
 ### GitHub Clone Data Flow
 
-A session created from a repository keeps its clone directive in session metadata and re-applies it before every container start. A missing ephemeral workspace is cloned again; an existing or workspace-synced target is left untouched by the collision guard. A running session uses the authenticated host clone endpoint. Enterprise mode injects the user's GitHub token at the Worker egress boundary; other modes provide the existing container credential. [API Reference](api-reference.md#github-integration) owns outcomes and validation.
+A session created from a repository keeps its clone directive in session metadata and re-applies it before every container start; failure blocks startup. A missing ephemeral workspace is cloned again; an existing or workspace-synced target is left untouched by the collision guard. A running session uses the authenticated host clone endpoint. Enterprise mode injects the user's GitHub token at the Worker egress boundary; other modes provide the existing container credential. [API Reference](api-reference.md#github-integration) owns outcomes and validation.
 
 **Requirements:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)
 

@@ -401,6 +401,27 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(mockLogger.warn).toHaveBeenCalled();
     });
 
+    it('REQ-GITHUB-004 AC6: blocks resume when clone restoration returns an unexpected status', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      mockContainer.fetch.mockResolvedValue(new Response('failed', { status: 500 }));
+
+      await expect(configureContainerDO({
+        ...baseParams,
+        gitCloneRepo: 'octo/repo',
+        gitCloneRef: 'develop',
+      })).rejects.toThrow();
+    });
+
+    it('REQ-GITHUB-004 AC6: blocks resume when clone restoration cannot reach the container', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      mockContainer.fetch.mockRejectedValue(new Error('network error'));
+
+      await expect(configureContainerDO({
+        ...baseParams,
+        gitCloneRepo: 'octo/repo',
+      })).rejects.toThrow();
+    });
+
     it('includes LLM keys in setBucketName body when provided', async () => {
       mockGetStoredBucketName.mockResolvedValue('old-bucket');
 

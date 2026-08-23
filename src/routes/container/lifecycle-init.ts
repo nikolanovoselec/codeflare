@@ -311,7 +311,7 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
   const needsBucketUpdate = storedBucketName !== bucketName;
 
   try {
-    await getContainerInternalCB(containerId).execute(() =>
+    const response = await getContainerInternalCB(containerId).execute(() =>
       container.fetch(
         new Request('http://container/_internal/setBucketName', {
           method: 'POST',
@@ -320,13 +320,16 @@ export async function configureContainerDO(params: ContainerConfigPayload & {
         })
       )
     );
+    if (response.status !== 200 && response.status !== 409) {
+      throw new Error(`setBucketName returned ${response.status}`);
+    }
     if (needsBucketUpdate) {
       await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
     }
     logger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
   } catch (error) {
-    if (needsBucketUpdate) {
-      logger.error('Failed to set bucket name', toError(error));
+    if (needsBucketUpdate || params.gitCloneRepo) {
+      logger.error('Failed to configure container before start', toError(error));
       throw new ContainerError('set_bucket_name', toErrorMessage(error));
     }
     logger.warn('Failed to store sessionId via setBucketName', { sessionId: params.sessionId });
