@@ -82,6 +82,7 @@ describe('entrypoint Browser Run MCP wiring', () => {
     assert.ok(wsEndpoint, '--wsEndpoint arg present');
     assert.ok(wsEndpoint.includes('acct123'), 'CDP endpoint carries the account id');
     assert.ok(wsEndpoint.includes('browser-rendering/devtools/browser'), 'points at the Browser Run CDP /devtools socket');
+    assert.equal(new URL(wsEndpoint.slice('--wsEndpoint='.length)).searchParams.get('keep_alive'), '30000', 'closes an inactive browser after 30 seconds');
     const wsHeaders = cd.args.find((a) => a.startsWith('--wsHeaders='));
     assert.ok(wsHeaders && wsHeaders.includes('Bearer tok_abc'), 'API token passed as Authorization: Bearer via --wsHeaders');
   });
@@ -104,7 +105,9 @@ describe('entrypoint Browser Run MCP wiring', () => {
     assert.equal(cd.command, CHROME_DEVTOOLS_MCP_BIN, 'uses the same image-baked chrome-devtools-mcp bin as Claude');
     assert.equal(cd.lifecycle, 'lazy', 'lazy so an idle session does not hold a remote browser open');
     assert.ok(!cd.args.some((a) => a.includes('chrome-devtools-mcp@')), 'Pi runtime args do not invoke npx package resolution');
-    assert.ok(cd.args.some((a) => a.startsWith('--wsEndpoint=')), 'Pi points at the same CDP endpoint');
+    const wsEndpoint = cd.args.find((a) => a.startsWith('--wsEndpoint='));
+    assert.ok(wsEndpoint, 'Pi points at the same CDP endpoint');
+    assert.equal(new URL(wsEndpoint.slice('--wsEndpoint='.length)).searchParams.get('keep_alive'), '30000', 'Pi closes an inactive browser after 30 seconds');
     assert.ok(cd.args.some((a) => a.startsWith('--wsHeaders=')), 'Pi carries the bearer header');
   });
 
