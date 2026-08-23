@@ -509,6 +509,10 @@ Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only chec
 no file-count limit, and runs them at low priority for at most three minutes; Node
 syntax checks use the same deadline.
 
+Canonical guidance projects to both runtime skill paths. Pi keeps the skill in its
+compact instruction index for explicit invocation while suppressing duplicate native
+catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-157 AC5: canonical safe-check guidance reaches each lazy skill projection) --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (keeps indexed skills explicitly invocable while omitting duplicate native XML entries) -->
+
 Mutation, watch, output-file, cache-writing, and analyzer-concurrency flags fail
 closed. Shell composition beyond one optional leading `cd … &&` prefix, or any
 redirection, cannot turn an allowed wrapper invocation into a write. Builds, tests,
