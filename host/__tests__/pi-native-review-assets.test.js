@@ -106,12 +106,19 @@ function expectedCanonicalSkill(skillName) {
 
 function expectedPiContent(relativePath) {
   const source = readFileSync(join(repoRoot, 'preseed/agents/pi', relativePath), 'utf8');
-  return source.replace(/^<!-- @include-skill ([a-z0-9-]+) -->$/gm, (_directive, skillName) => {
+  const expanded = source.replace(/^<!-- @include-skill ([a-z0-9-]+) -->$/gm, (_directive, skillName) => {
     const skill = documents.find(
       (document) => document.key === `.pi/agent/skills/${skillName}/SKILL.md`,
     );
     assert.ok(skill, `seeded skill ${skillName} not found`);
     return `<embedded-skill name="${skillName}">\n${skill.content}</embedded-skill>`;
+  });
+  if (!/^skills\/[^/]+\/SKILL\.md$/.test(relativePath)) return expanded;
+  return expanded.replace(/^---\n([\s\S]*?)\n---\n/, (_match, frontmatter) => {
+    const hidden = /^disable-model-invocation:/m.test(frontmatter)
+      ? frontmatter.replace(/^disable-model-invocation:.*$/m, 'disable-model-invocation: true')
+      : `${frontmatter}\ndisable-model-invocation: true`;
+    return `---\n${hidden}\n---\n`;
   });
 }
 

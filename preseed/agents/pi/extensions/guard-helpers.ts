@@ -244,11 +244,67 @@ function isSafeLocalCheckWords(words: string[]): boolean {
   return nodeIndex >= 0 && SAFE_LOCAL_CHECK_PATH.test(words[nodeIndex + 1] ?? "");
 }
 
+function topLevelShellSeparators(command: string): string[] {
+  const source = withoutHeredocBodies(command);
+  const separators: string[] = [];
+  const skipSubstitution = (start: number): number => {
+    let depth = 1;
+    let quote = "";
+    let escaped = false;
+    for (let index = start; index < source.length; index += 1) {
+      const char = source[index] ?? "";
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\" && quote !== "'") { escaped = true; continue; }
+      if (quote) {
+        if (char === quote) quote = "";
+        continue;
+      }
+      if (char === "'" || char === '"') { quote = char; continue; }
+      if (char === "(") depth += 1;
+      else if (char === ")" && --depth === 0) return index;
+    }
+    return source.length;
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (char === "\\") { index += 1; continue; }
+    if (char === "'" || char === '"') {
+      const quote = char;
+      for (index += 1; index < source.length && source[index] !== quote; index += 1) {
+        if (quote === '"' && source[index] === "\\") index += 1;
+      }
+      continue;
+    }
+    if (char === "`") {
+      for (index += 1; index < source.length && source[index] !== "`"; index += 1) {
+        if (source[index] === "\\") index += 1;
+      }
+      continue;
+    }
+    if (char === "$" && source[index + 1] === "(") {
+      index = skipSubstitution(index + 2);
+      continue;
+    }
+    if (char === "&" || char === "|") {
+      const separator = source[index + 1] === char ? `${char}${char}` : char;
+      separators.push(separator);
+      if (separator.length === 2) index += 1;
+    } else if (char === ";" || char === "\n" || char === "\r" || "(){}".includes(char)) {
+      separators.push(char);
+    }
+  }
+  return separators;
+}
+
 export function isManagedSafeLocalCheckCommand(command: string): boolean {
   if (/[<>]/u.test(withoutHeredocBodies(command))) return false;
   const commands = executableShellCommands(command);
   if (commands.length === 1) return isSafeLocalCheckWords(commands[0] ?? []);
+  const separators = topLevelShellSeparators(command);
   return commands.length === 2
+    && separators.length === 1
+    && separators[0] === "&&"
     && shellCommandExecutable(commands[0] ?? []) === "cd"
     && isSafeLocalCheckWords(commands[1] ?? []);
 }

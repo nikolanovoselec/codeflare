@@ -55,15 +55,16 @@ describe('engineering constitution preseed', () => {
 
   it('delivers Git Workflow in both modes and the constitution only in advanced mode', () => {
     const expectedByMode = {
-      default: `${piGitWorkflow.trim()}\n\n---\n\n${localExecutionGate.trim()}\n`,
-      advanced: `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}\n`,
+      default: `${piGitWorkflow.trim()}\n\n---\n\n${localExecutionGate.trim()}`,
+      advanced: `${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}`,
     };
     for (const mode of ['default', 'advanced']) {
       const instructions = generatedDocuments.find(
         (document) => document.key === '.pi/agent/AGENTS.md' && document.modes.includes(mode),
       );
       assert.ok(instructions, `Pi ${mode} AGENTS.md must exist`);
-      assert.equal(instructions.content, expectedByMode[mode], `${mode} Pi policy composition drifted`);
+      const policy = instructions.content.split('\n## Skills\n')[0]?.trimEnd();
+      assert.equal(policy, expectedByMode[mode], `${mode} Pi policy composition drifted`);
     }
   });
 });

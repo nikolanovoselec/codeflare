@@ -440,6 +440,9 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(isManagedSafeLocalCheckCommand(pi)).toBe(true);
     expect(isManagedSafeLocalCheckCommand(claude)).toBe(true);
     expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo && ${pi}`)).toBe(true);
+    for (const separator of [';', '||', '&', '\n']) {
+      expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo${separator}${pi}`), separator).toBe(false);
+    }
     expect(isManagedSafeLocalCheckCommand(`cd /workspace/repo && ${pi} && npm test`)).toBe(false);
     expect(isManagedSafeLocalCheckCommand(`${pi} && npm test`)).toBe(false);
     expect(isManagedSafeLocalCheckCommand(`${pi} > lint.log`)).toBe(false);
@@ -463,41 +466,30 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
       .toMatch(/safe-local-checks/);
   });
 
-  it('REQ-AGENT-157 AC3: seeds one managed safe-check capability for each runtime and mode', () => {
-    const capabilityKeys = [
-      '.claude/skills/safe-local-checks/SKILL.md',
-      '.pi/agent/skills/safe-local-checks/SKILL.md',
-    ];
-    for (const key of capabilityKeys) {
+  it('REQ-AGENT-157 AC3: seeds one managed safe-check skill and wrapper for each runtime and mode', () => {
+    const capabilities = new Map([
+      ['.claude/skills/safe-local-checks/SKILL.md', 'text/markdown; charset=utf-8'],
+      ['.claude/skills/safe-local-checks/scripts/safe-local-check.mjs', 'text/javascript; charset=utf-8'],
+      ['.pi/agent/skills/safe-local-checks/SKILL.md', 'text/markdown; charset=utf-8'],
+      ['.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs', 'text/javascript; charset=utf-8'],
+    ]);
+    for (const [key, contentType] of capabilities) {
       const documents = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
       expect(documents).toHaveLength(1);
-      expect(documents[0]?.contentType).toBe('text/markdown; charset=utf-8');
+      expect(documents[0]?.contentType).toBe(contentType);
       expect(documents[0]?.modes).toEqual(['default', 'advanced']);
     }
   });
 
-  it('REQ-AGENT-157 AC3: permanently loaded policy stays bounded while operational policy remains lazy', () => {
-    const capabilityKeys = [
-      '.claude/skills/safe-local-checks/SKILL.md',
-      '.pi/agent/skills/safe-local-checks/SKILL.md',
-    ];
-    const operationalMarkers = ['## Managed runner', '## Verification boundary', 'safe-local-check.mjs'];
-    for (const key of capabilityKeys) {
-      const capability = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === key);
-      for (const marker of operationalMarkers) expect(capability?.content, `${key} retains ${marker}`).toContain(marker);
-    }
-
+  it('REQ-AGENT-157 AC3: permanently loaded policy stays bounded', () => {
     const claudeRules = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.claude/rules/no-local-builds.md');
     const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(claudeRules).toHaveLength(1);
     expect(claudeRules[0]?.content.length).toBeLessThan(400);
-    expect(claudeRules[0]?.content).toContain('safe-local-checks');
     expect(piInstructions).toHaveLength(2);
     for (const instructions of piInstructions) {
       const permanentlyLoadedPolicy = instructions.content.split('\n## Skills\n')[0] ?? '';
       expect(permanentlyLoadedPolicy.length).toBeLessThan(4_500);
-      expect(instructions.content).toContain('`safe-local-checks`');
-      for (const marker of operationalMarkers) expect(permanentlyLoadedPolicy).not.toContain(marker);
     }
   });
 

@@ -210,26 +210,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
         const isAdvanced = entry.modes.includes('advanced');
-        // Pi owns a native Git workflow in both modes, while its engineering
-        // constitution is advanced-only. Assert canonical rule projection
-        // rather than pinning headings that compression may legitimately rename.
-        if (key === '.pi/agent/AGENTS.md') {
-          const workflow = AGENTS_SEEDED_CONFIGS.find(
-            (doc) => doc.key === '.pi/agent/rules/git-workflow.md' && doc.modes.includes(isAdvanced ? 'advanced' : 'default'),
-          );
-          const constitution = AGENTS_SEEDED_CONFIGS.find(
-            (doc) => doc.key === '.pi/agent/rules/engineering-constitution.md' && doc.modes.includes(isAdvanced ? 'advanced' : 'default'),
-          );
-          expect(workflow, `${entry.modes.join(',')} owns a Git workflow`).toBeDefined();
-          expect(entry.content).toContain(workflow!.content.trim());
-          if (isAdvanced) {
-            expect(constitution).toBeDefined();
-            expect(entry.content).toContain(constitution!.content.trim());
-          } else {
-            expect(constitution).toBeUndefined();
-          }
-          continue;
-        }
+        // Pi's exact canonical rule assembly and mode split are covered by the
+        // host engineering-constitution contract, including the compact index boundary.
+        if (key === '.pi/agent/AGENTS.md') continue;
 
         const requiredHeadings = isAdvanced
           ? ['Work continuity', 'Review push gate', 'Review-result handoff gate', 'CI-result handoff gate']
