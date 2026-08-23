@@ -98,6 +98,8 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/verify-pi-lockstep.mjs',
+      'scripts/verify-pi-prompt.mjs',
+      'scripts/pi-prompt-contract.mjs',
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',

@@ -481,7 +481,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     }
   });
 
-  it('REQ-AGENT-157 AC3: permanently loaded policy stays bounded', () => {
+  it('REQ-AGENT-157 AC4: permanently loaded policy stays bounded', () => {
     const claudeRules = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.claude/rules/no-local-builds.md');
     const piInstructions = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(claudeRules).toHaveLength(1);

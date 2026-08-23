@@ -138,6 +138,22 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
     }
   });
 
+  it('REQ-AGENT-157 AC5: canonical safe-check guidance reaches each lazy skill projection', () => {
+    const canonical = readFileSync(
+      join(repoRoot, 'preseed/agents/claude/skills/safe-local-checks/SKILL.md'),
+      'utf8',
+    );
+    const claude = documents.find(
+      (document) => document.key === '.claude/skills/safe-local-checks/SKILL.md',
+    );
+    const pi = documents.find(
+      (document) => document.key === '.pi/agent/skills/safe-local-checks/SKILL.md',
+    );
+    assert.equal(claude?.content, canonical, 'Claude lazy guidance must preserve its canonical bytes');
+    assert.equal(pi?.content, expectedCanonicalSkill('safe-local-checks'),
+      'Pi lazy guidance must use the deterministic canonical adaptation');
+  });
+
   it('REQ-AGENT-085/REQ-AGENT-040: the canonical review programs reach Pi byte-identically', () => {
     // Both are one canonical source in the Claude tree; Pi receives them
     // through the ordinary transform rather than owning a second copy. Two
