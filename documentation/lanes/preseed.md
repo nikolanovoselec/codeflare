@@ -420,22 +420,22 @@ After a relevant private content change reaches `main`, the protected release wo
 
 ### Spotlight: how `runtimeDependencyHash` binds a release to its image
 
-A managed release may replace agent code without rebuilding the container. That freedom needs a hard compatibility check. A valid signature proves who published the bytes; it does not prove that the installed Pi packages can run them. `runtimeDependencyHash` closes that gap. See [REQ-AGENT-147 AC2-AC3](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) and [REQ-AGENT-150 AC4](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation).
+A managed release may replace agent code without rebuilding the container. That freedom needs a hard compatibility check. A valid signature proves who published the bytes; it does not prove that the image has the npm packages the managed content expects. `runtimeDependencyHash` closes that gap. See [REQ-AGENT-147 AC2-AC3](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases) and [REQ-AGENT-150 AC4](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation).
 
-1. [`codeflare-curation/config/compiler.json`](https://github.com/nikolanovoselec/codeflare-curation/blob/d4ad0245596fc5dffb6f3cafcbc9f637cf516049/config/compiler.json) pins one exact Codeflare commit, which owns the compiler and Pi runtime contract.
-2. Publication [checks out that commit](https://github.com/nikolanovoselec/codeflare-curation/blob/d4ad0245596fc5dffb6f3cafcbc9f637cf516049/.github/workflows/release.yml#L31-L36); the [private compiler wrapper](https://github.com/nikolanovoselec/codeflare-curation/blob/d4ad0245596fc5dffb6f3cafcbc9f637cf516049/scripts/lib/compiler.mjs#L33-L43) copies its Pi lockfile into the staged source.
-3. The shared compiler calculates SHA-256 over the complete lockfile bytes. Whitespace and dependency-tree changes count because npm installs from that exact lock. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash -->
-4. Release construction writes the digest to `runtimeDependencyHash` inside `seed-v1.json.gz`. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease -->
+1. `codeflare-curation/config/compiler.json` pins one exact Codeflare commit, which owns the compiler and managed npm runtime contract.
+2. Publication checks out that commit and copies its shared npm-tools, Claude Browser Run MCP, and Pi lockfiles into the staged source.
+3. The shared compiler hashes every byte of each lockfile, then hashes the three fixed-order digests into one runtime identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash -->
+4. Release construction writes that identity to `runtimeDependencyHash` inside `seed-v1.json.gz`. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease -->
 5. Publication signs the exact deterministic compressed bundle and publishes it with its raw 64-byte Ed25519 signature. <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle -->
-6. Every Codeflare image contains `PRESEED_RUNTIME_DEPENDENCY_HASH`, generated from the Pi lockfile used to build that image. <!-- @impl: scripts/agent-seed-core.mjs::toGeneratedModuleSource -->
+6. Every Codeflare image contains `PRESEED_RUNTIME_DEPENDENCY_HASH`, generated from the same three lockfiles used to build that image. <!-- @impl: scripts/agent-seed-core.mjs::toGeneratedModuleSource -->
 7. On its periodic release check, the Worker verifies immutable metadata, asset digests, signature, schema, sequence, and runtime hash before activation. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream -->
 8. The Worker scans at most ten 100-record history pages and activates the first release whose verified runtime hash equals the deployment's build hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 Only a runtime-hash mismatch continues discovery. Any other managed-release validation failure stops it; unrelated published releases are ignored. See [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery). <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
-The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and each image compares that value with its own generated constant. A content-only release that keeps the same Pi lockfile keeps the same hash and needs no image redeploy. Builds from different branches with byte-identical Pi lockfiles intentionally share the same newest compatible seed. A new npm or native dependency changes the lock, so each environment independently remains on the newest release matching its deployed image.
+The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and each image compares that value with its own generated constant. A content-only release that keeps all three lockfiles unchanged keeps the same hash and needs no image redeploy. Builds from different branches with byte-identical managed npm locks intentionally share the same newest compatible seed.
 
-This is deliberately narrower than a full Codeflare source hash. The exact compiler commit makes compilation reproducible; the Pi lockfile digest answers the runtime question. Treating those as one concept would force image deployments for harmless prose changes, which would defeat managed curation.
+This is deliberately narrower than a full Codeflare source or image hash. The exact compiler commit makes compilation reproducible; the three-lock identity answers whether the image has the npm packages managed content may use. New native or other image-owned requirements must ship through Codeflare before managed content relies on them.
 
 <a id="preseed-deployment"></a>
 ## Runtime Delivery Pipeline
@@ -452,8 +452,8 @@ All preseed content is deployed via the manifest pipeline:
    wrapper; it generates `src/lib/agent-seed.generated.ts` with the
    `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH` (deterministic SHA-256
    over all documents sorted by key, truncated to 16 hex chars). The shared core
-   also exposes the full Pi lockfile digest that binds managed releases to the
-   runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+   also exposes the combined managed npm lock identity that binds managed
+   releases to the runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2

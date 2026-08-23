@@ -718,9 +718,18 @@ export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
 // Main
 // ---------------------------------------------------------------------------
 
+const MANAGED_RUNTIME_LOCK_PATHS = Object.freeze([
+  'preseed/npm-tools/package-lock.json',
+  'preseed/agents/claude/browser-run-mcp/package-lock.json',
+  'preseed/agents/pi/package-lock.json',
+]);
+
 export async function computeAgentRuntimeHash(rootDir = DEFAULT_ROOT_DIR) {
-  const lockBytes = await fs.readFile(path.join(rootDir, 'preseed/agents/pi/package-lock.json'));
-  return createHash('sha256').update(lockBytes).digest('hex');
+  const lockDigests = await Promise.all(MANAGED_RUNTIME_LOCK_PATHS.map(async (relativePath) => {
+    const lockBytes = await fs.readFile(path.join(rootDir, relativePath));
+    return createHash('sha256').update(lockBytes).digest('hex');
+  }));
+  return createHash('sha256').update(lockDigests.join('\n')).digest('hex');
 }
 
 export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {

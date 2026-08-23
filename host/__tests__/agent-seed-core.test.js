@@ -61,21 +61,31 @@ describe('shared agent seed compiler', () => {
     }
   });
 
-  it('binds the release ABI to the Pi runtime dependency lock', async () => {
+  it('binds the release ABI to every managed npm runtime lock', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agent-runtime-hash-'));
-    const lockPath = join(dir, 'preseed/agents/pi/package-lock.json');
+    const lockPaths = [
+      'preseed/npm-tools/package-lock.json',
+      'preseed/agents/claude/browser-run-mcp/package-lock.json',
+      'preseed/agents/pi/package-lock.json',
+    ];
+    const baseline = '{"lockfileVersion":3,"packages":{}}\n';
     try {
-      await mkdir(dirname(lockPath), { recursive: true });
-      await writeFile(lockPath, '{"lockfileVersion":3,"packages":{}}\n');
+      for (const relativePath of lockPaths) {
+        const lockPath = join(dir, relativePath);
+        await mkdir(dirname(lockPath), { recursive: true });
+        await writeFile(lockPath, baseline);
+      }
       const { computeAgentRuntimeHash } = await import(coreUrl);
       const first = await computeAgentRuntimeHash(dir);
 
-      await writeFile(lockPath, '{"lockfileVersion":3,"packages":{"node_modules/example":{"version":"1.0.0"}}}\n');
-      const second = await computeAgentRuntimeHash(dir);
-
       assert.match(first, /^[0-9a-f]{64}$/);
-      assert.match(second, /^[0-9a-f]{64}$/);
-      assert.notEqual(second, first);
+      for (const relativePath of lockPaths) {
+        const lockPath = join(dir, relativePath);
+        await writeFile(lockPath, '{"lockfileVersion":3,"packages":{"node_modules/example":{"version":"1.0.0"}}}\n');
+        assert.notEqual(await computeAgentRuntimeHash(dir), first, `${relativePath} must participate in compatibility`);
+        await writeFile(lockPath, baseline);
+        assert.equal(await computeAgentRuntimeHash(dir), first, 'unchanged runtime locks retain compatibility');
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
