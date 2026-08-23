@@ -397,7 +397,7 @@ function latestReleaseResponse(input: Parameters<typeof releaseMetadata>[0]): Re
   });
 }
 
-function releaseListResponse(releases: ReturnType<typeof releaseMetadata>[]): Response {
+function releaseListResponse(releases: unknown[]): Response {
   return new Response(JSON.stringify(releases), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -487,7 +487,11 @@ describe('managed release resolver', () => {
       }))
       .mockResolvedValueOnce(new Response(latest.compressed, { status: 200 }))
       .mockResolvedValueOnce(new Response(latest.signature, { status: 200 }))
-      .mockResolvedValueOnce(releaseListResponse([latestMetadata, compatibleMetadata]))
+      .mockResolvedValueOnce(releaseListResponse([
+        latestMetadata,
+        { id: 90, tag_name: 'ordinary-v1', immutable: false, draft: false, prerelease: false, assets: [] },
+        compatibleMetadata,
+      ]))
       .mockResolvedValueOnce(new Response(compatible.compressed, { status: 200 }))
       .mockResolvedValueOnce(new Response(compatible.signature, { status: 200 }));
 
@@ -508,6 +512,46 @@ describe('managed release resolver', () => {
     expect(resolved.active?.sequence).toBe(8);
     expect(resolved.active?.runtimeDependencyHash).toBe('c'.repeat(64));
     expect(fetcher.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/releases'))).toBe(true);
+  });
+
+  it('bounds compatible-release discovery to ten complete history pages', async () => {
+    const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
+    const ordinaryPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      tag_name: `ordinary-${index + 1}`,
+      immutable: false,
+      draft: false,
+      prerelease: false,
+      assets: [],
+    }));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(latestReleaseResponse({
+        bundleDigest: await sha256(fixture.compressed),
+        signatureDigest: await sha256(fixture.signature),
+      }))
+      .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }));
+    for (let page = 0; page < 10; page += 1) fetcher.mockResolvedValueOnce(releaseListResponse(ordinaryPage));
+
+    await expect(resolveManagedEnvironmentRelease({
+      kv: createMockKV() as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache().cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: fixture.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+      requireFresh: true,
+    })).rejects.toThrow(/No immutable managed release matches/i);
+
+    const historyUrls = fetcher.mock.calls
+      .map(([request]) => (request as Request).url)
+      .filter((url) => url.includes('/releases?'));
+    expect(historyUrls).toHaveLength(10);
+    expect(historyUrls.at(-1)).toContain('page=10');
   });
 
   it('uses a complete verified cache without GitHub I/O inside the five-minute freshness window', async () => {

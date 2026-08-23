@@ -628,17 +628,23 @@ const GithubReleaseSchema = z.object({
   prerelease: z.literal(false).optional(),
   assets: z.array(GithubAssetSchema),
 }).passthrough();
-const GithubReleaseListSchema = z.array(GithubReleaseSchema).max(100);
-
 function publishedReleasePage(value: unknown): { releases: z.infer<typeof GithubReleaseSchema>[]; full: boolean } {
   if (!Array.isArray(value) || value.length > 100) throw new Error('GitHub release history metadata is invalid');
-  const decoded = GithubReleaseListSchema.safeParse(value.filter((release) => (
-    release && typeof release === 'object'
-    && (release as Record<string, unknown>).draft === false
-    && (release as Record<string, unknown>).prerelease === false
-  )));
-  if (!decoded.success) throw new Error(`GitHub release history contains invalid immutable metadata: ${decoded.error.issues[0]?.path.join('.') || 'root'}`);
-  return { releases: decoded.data, full: value.length === 100 };
+  const releases: z.infer<typeof GithubReleaseSchema>[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    if (record.draft !== false || record.prerelease !== false || !Array.isArray(record.assets)) continue;
+    const advertisesManagedAsset = record.assets.some((asset) => (
+      asset && typeof asset === 'object'
+      && ['seed-v1.json.gz', 'seed-v1.sig'].includes(String((asset as Record<string, unknown>).name))
+    ));
+    if (!advertisesManagedAsset) continue;
+    const decoded = GithubReleaseSchema.safeParse(entry);
+    if (!decoded.success) throw new Error(`GitHub managed release history contains invalid immutable metadata: ${decoded.error.issues[0]?.path.join('.') || 'root'}`);
+    releases.push(decoded.data);
+  }
+  return { releases, full: value.length === 100 };
 }
 
 function exactReleaseAssets(release: z.infer<typeof GithubReleaseSchema>): {
