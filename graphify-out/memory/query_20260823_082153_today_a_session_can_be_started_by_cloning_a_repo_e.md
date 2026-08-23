@@ -11,7 +11,7 @@ source_nodes: ["ClonePickerNewSession()", "Session", "container/lifecycle.ts", "
 
 ## Answer
 
-Yes. Clone-created sessions already persist the validated repository and optional ref in the Session record in KV, and the Worker forwards them on each start. The gap is the idempotent Durable Object reconfiguration path: after a wake it keeps the persisted bucket identity but ignores the re-sent memory-only clone fields, so GIT_CLONE_REPO is absent from the new container. Reapplying those fields in memory on restart lets the established entrypoint clone a missing ephemeral workspace before agent startup; its existing collision guard leaves a restored or still-present workspace untouched. Credentials remain on the existing per-start injection path and are not added to persisted clone metadata.
+Yes. Clone-created sessions already persist the validated repository and optional ref in the Session record in KV, and the Worker forwards them on each start. The gap is the idempotent Durable Object reconfiguration path: after a wake it keeps the persisted bucket identity but ignores the re-sent memory-only clone fields, so GIT_CLONE_REPO is absent from the new container. Reapplying those fields in memory on restart lets the established entrypoint retry its best-effort clone for a missing ephemeral workspace before agent startup; its existing collision guard leaves a restored or still-present workspace untouched. Credentials remain on the existing per-start injection path and are not added to persisted clone metadata.
 
 ## Outcome
 

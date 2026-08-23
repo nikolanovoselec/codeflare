@@ -295,7 +295,7 @@ export async function ensureBucketAndSeed(params: {
  * Configure the container Durable Object: set bucket name, R2 creds, and preferences.
  * Returns whether the bucket name needed an update.
  *
- * @throws ContainerError if setBucketName fails on a needed update
+ * @throws ContainerError if setBucketName fails on a needed bucket update or clone restoration
  */
 export async function configureContainerDO(params: ContainerConfigPayload & {
   container: { fetch: (req: Request) => Promise<Response> };
