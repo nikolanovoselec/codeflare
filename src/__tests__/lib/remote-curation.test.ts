@@ -454,7 +454,7 @@ describe('managed release resolver', () => {
     expect(JSON.stringify(persisted)).not.toContain('secret-pat');
   });
 
-  it('REQ-AGENT-154 AC2: activates the newest signed release matching this build hash', async () => {
+  it('REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed', async () => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const latest = await signedFixture(release({
       sequence: 9,
@@ -464,6 +464,11 @@ describe('managed release resolver', () => {
     const compatible = await signedFixture(release({
       sequence: 8,
       source: { repositoryId: 123456, commitSha: '8'.repeat(40), releaseTag: 'release-8', compilerCommit: 'c'.repeat(40) },
+      runtimeDependencyHash: 'c'.repeat(64),
+    }), keyPair);
+    const olderCompatible = await signedFixture(release({
+      sequence: 7,
+      source: { repositoryId: 123456, commitSha: '7'.repeat(40), releaseTag: 'release-7', compilerCommit: 'b'.repeat(40) },
       runtimeDependencyHash: 'c'.repeat(64),
     }), keyPair);
     const latestMetadata = releaseMetadata({
@@ -478,6 +483,12 @@ describe('managed release resolver', () => {
       bundleDigest: await sha256(compatible.compressed),
       signatureDigest: await sha256(compatible.signature),
     });
+    const olderCompatibleMetadata = releaseMetadata({
+      releaseId: 77,
+      releaseTag: 'release-7',
+      bundleDigest: await sha256(olderCompatible.compressed),
+      signatureDigest: await sha256(olderCompatible.signature),
+    });
     const fetcher = vi.fn()
       .mockResolvedValueOnce(latestReleaseResponse({
         releaseId: 99,
@@ -491,6 +502,7 @@ describe('managed release resolver', () => {
         latestMetadata,
         { id: 90, tag_name: 'ordinary-v1', immutable: false, draft: false, prerelease: false, assets: [] },
         compatibleMetadata,
+        olderCompatibleMetadata,
       ]))
       .mockResolvedValueOnce(new Response(compatible.compressed, { status: 200 }))
       .mockResolvedValueOnce(new Response(compatible.signature, { status: 200 }));
@@ -512,9 +524,41 @@ describe('managed release resolver', () => {
     expect(resolved.active?.sequence).toBe(8);
     expect(resolved.active?.runtimeDependencyHash).toBe('c'.repeat(64));
     expect(fetcher.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/releases'))).toBe(true);
+    expect(fetcher.mock.calls.some(([request]) => (request as Request).url.endsWith('/assets/771'))).toBe(false);
   });
 
-  it('REQ-AGENT-154 AC1+AC4: bounds compatible-release discovery to ten complete history pages', async () => {
+  it('REQ-AGENT-154 AC5: stops when an advertised history release fails validation', async () => {
+    const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
+    const bundleDigest = await sha256(fixture.compressed);
+    const signatureDigest = await sha256(fixture.signature);
+    const state = resolverCache();
+    const advertisedInvalid = {
+      ...releaseMetadata({ releaseId: 66, releaseTag: 'release-6', bundleDigest, signatureDigest }),
+      immutable: false,
+    };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(latestReleaseResponse({ bundleDigest, signatureDigest }))
+      .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }))
+      .mockResolvedValueOnce(releaseListResponse([advertisedInvalid]));
+
+    await expect(resolveManagedEnvironmentRelease({
+      kv: createMockKV() as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: state.cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: fixture.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+      requireFresh: true,
+    })).rejects.toThrow(/managed release history contains invalid immutable metadata/i);
+    expect(state.active()).toBeUndefined();
+  });
+
+  it('REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const ordinaryPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -1375,7 +1419,7 @@ describe('managed release resolver', () => {
     expect(kv._store.get('managed-environment:retained-history')).toBe('keep');
   });
 
-  it('REQ-AGENT-154 AC3: rejects mutable releases and changed immutable asset bytes without moving the active pointer', async () => {
+  it('rejects mutable releases and changed immutable asset bytes without moving the active pointer', async () => {
     const fixture = await signedFixture();
     const bundleDigest = await sha256(fixture.compressed);
     const signatureDigest = await sha256(fixture.signature);
