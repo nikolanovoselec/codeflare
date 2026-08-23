@@ -1,6 +1,6 @@
 ---
 name: pi-mcp-adapter
-description: Reach configured MCP (Model Context Protocol) servers from Pi via a single mcp proxy tool. Use when a task needs a capability exposed by an MCP server (databases, SaaS APIs, chrome-devtools, etc.). Works regardless of whether context-mode is on.
+description: Use configured MCP servers through Pi's lazy mcp proxy when no native tool covers the required external capability.
 ---
 
 # MCP Adapter (Pi)

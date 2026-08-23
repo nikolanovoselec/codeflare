@@ -124,6 +124,7 @@ const PI_MODEL_HIDDEN_SKILLS = new Set([
   'doc-enforce-lanes',
   'doc-enforce-shape',
   'doc-enforce-truth',
+  'sandbox-migrate-to-next',
   'sdd-clean',
   'sdd-init',
   'spec-driven-development',
