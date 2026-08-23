@@ -763,32 +763,54 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-024: Pi native terminal notification producer
 
-**Intent:** Pi emits fixed attention signals backed by native interactive provenance and structured lifecycle state only after the root has remained idle.
+**Intent:** Pi emits only fixed inert attention signals and does not interfere with RPC transport.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pi emits one fixed `input-required` signal for the validated ask-user event and ignores question content. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC1: emits one fixed input-required frame without question content) -->
-2. Pi completion requires interactive lineage, a settled structured success, and five uninterrupted minutes without new input or agent activity. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: emits completion only after five idle minutes) -->
-3. Pi failure requires interactive lineage and a settled structured error, then waits for five uninterrupted minutes without new input or agent activity. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: delays structured failure until five idle minutes) -->
-4. Completion and failure frames contain only fixed inert text and exclude provider prose. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC4: terminal frames are fixed and exclude provider prose) -->
-5. New input or agent activity restarts the five-minute inactivity interval after the continuation settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC5: reactivation restarts five idle minutes after settlement) -->
-6. Cancellation, abort before delayed delivery, and absent interactive lineage emit neither completion nor failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC6: absent interactive lineage emits no terminal signal) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC6: cancellation and abort emit neither completion nor failure) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC6: post-settlement abort suppresses pending output) -->
-7. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC7: registers nothing and writes no bytes in RPC mode) -->
+2. Completion and failure frames contain only their fixed constants and exclude provider prose. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::READY_FOR_INPUT --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::TASK_FAILED --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: completion and failure frames are fixed and inert) -->
+3. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode) -->
 
-**Notes:** Partial pending a fresh terminal-one record of Pi input-required, structured completion/failure, and silence for abort or continuation residue.
+**Notes:** Partial pending a fresh terminal-one record of Pi input-required and fixed completion/failure frames.
 
-**Constraints:**
-
-- Producer frames contain fixed inert text only.
-- Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
+**Constraints:** Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery)
 
 **Verification:** Automated Pi extension tests plus deployed interactive-run verification.
+
+**Status:** Partial
+
+---
+
+### REQ-TERM-029: Pi inactivity-gated terminal completion
+
+**Intent:** Pi emits completion or failure only after the interactive root has remained inactive.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Completion requires interactive lineage, a settled structured success, and five uninterrupted minutes without new input or agent activity. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC1: emits completion only after five idle minutes) -->
+2. Failure requires interactive lineage and a settled structured error, then waits for the same uninterrupted interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC2: delays structured failure until five idle minutes) -->
+3. New input or agent activity restarts the five-minute inactivity interval after the continuation settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC3: reactivation restarts five idle minutes after settlement) -->
+4. A cancelled input request emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC4: cancelled input emits no terminal signal) -->
+5. An aborted run emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC5: aborted run emits no terminal signal) -->
+6. A settled run without interactive lineage emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC6: absent interactive lineage emits no terminal signal) -->
+
+**Notes:** Partial pending deployed evidence for delayed delivery and silence through a continuation.
+
+**Constraints:** Input-required signals remain immediate under REQ-TERM-024.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
+
+**Verification:** Automated Pi extension timing tests plus deployed interactive-run verification.
 
 **Status:** Partial
 
