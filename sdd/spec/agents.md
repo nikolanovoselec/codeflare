@@ -4133,6 +4133,40 @@ None.
 
 ---
 
+### REQ-AGENT-156: Bounded lossless Pi prompt
+
+**Intent:** Default and advanced Pi sessions retain Codeflare's behavioral and safety contract while sending no more than 14,000 characters of effective system prompt before provider invocation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The migration fixture records the measured 32,416-character provider-boundary baseline and its base/tool, global instruction, visible skill catalog, and framing components. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_BASELINE_CHARS --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: pins provider-boundary baseline and separate schemas) -->
+2. Real Pi resource loading for public fallback and signed managed default and advanced projections produces an effective provider-boundary prompt of at most 14,000 characters. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_MAX_CHARS --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: enforces prompt boundary independently of schemas) -->
+3. Serialized tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: enforces prompt boundary independently of schemas) -->
+4. A repository-owned rule ledger maps every baseline system, global instruction, skill-catalog, and tool-contract surface to one owner and one retained destination: `SYSTEM.md`, `AGENTS.md`, lazy skill, tool schema, runtime guard, or evidence-backed removal. <!-- @impl: documentation/decisions/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: maps every baseline instruction surface) -->
+5. Both Pi modes receive exactly one Codeflare-owned `SYSTEM.md` and one `AGENTS.md`; project-owned context files remain additive and byte-unaltered. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: seeds SYSTEM and AGENTS in both public modes) -->
+6. Codeflare owns Pi prompt assembly, executable guards, image fallback, compiler support, and declared shared policy; codeflare-curation owns private skill inventory, invocation visibility, mode membership, signed projections, and managed prompt verification. <!-- @impl: documentation/decisions/pi-prompt-rule-ledger.json::ownership --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: maps every baseline instruction surface) -->
+7. Shared prompt policy flows only from an exact successful Codeflare deployment through the declared curation synchronization allowlist and guarded curation CI; private curation content never reverse-syncs. <!-- @impl: documentation/decisions/pi-prompt-rule-ledger.json::ownership -->
+8. Prompt reduction removes no capability without a ledger destination and does not transfer prose into tool schemas merely to satisfy the prompt cap. <!-- @impl: documentation/decisions/pi-prompt-rule-ledger.json::entries --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-156: maps every baseline instruction surface) -->
+
+**Constraints:**
+
+- Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata. Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
+- The cap excludes serialized tool schemas but includes Pi base/custom system text, all applicable context-file framing and content, visible skill catalog framing and descriptions, and working-directory framing.
+- Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
+- Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-OPS-046](operations.md#req-ops-046-deployment-derived-shared-preseed-synchronization)
+
+**Verification:** Automated contract, compiler, real-resource-loader, public fallback, and signed managed projection tests
+
+**Status:** Partial
+
+---
+
 ### REQ-AGENT-151: Bounded managed-release streaming
 
 **Intent:** Managed-release validation and application remain memory-bounded without changing signed document bytes.
