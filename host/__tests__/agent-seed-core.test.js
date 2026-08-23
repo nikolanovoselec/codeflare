@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,6 +10,21 @@ const repoRoot = resolve(here, '../..');
 const coreUrl = pathToFileURL(join(repoRoot, 'scripts/agent-seed-core.mjs')).href;
 const wrapperUrl = pathToFileURL(join(repoRoot, 'scripts/generate-agent-seed.mjs')).href;
 const generatedPath = join(repoRoot, 'src/lib/agent-seed.generated.ts');
+
+async function copyCompilerFixture(root) {
+  for (const agent of ['claude', 'pi']) {
+    const manifestPath = `preseed/agents/${agent}/manifest.json`;
+    const manifest = JSON.parse(await readFile(join(repoRoot, manifestPath), 'utf8'));
+    for (const relativePath of [manifestPath, ...Object.keys(manifest).map((key) => `preseed/agents/${agent}/${key}`)]) {
+      const destination = join(root, relativePath);
+      await mkdir(dirname(destination), { recursive: true });
+      await copyFile(join(repoRoot, relativePath), destination);
+    }
+  }
+  const sharedLock = 'preseed/npm-tools/package-lock.json';
+  await mkdir(dirname(join(root, sharedLock)), { recursive: true });
+  await copyFile(join(repoRoot, sharedLock), join(root, sharedLock));
+}
 
 // REQ-AGENT-147: the image generator and the private release workflow share
 // one side-effect-free compiler. These tests cross the public module boundary;
@@ -56,6 +71,24 @@ describe('shared agent seed compiler', () => {
       assert.ok(licenses.length >= 2);
       assert.ok(licenses.every((document) => document.contentType === 'text/plain; charset=utf-8'));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-AGENT-157 AC4: rejects a Claude safe-check rule at the 400-character boundary', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-seed-policy-limit-'));
+    try {
+      await copyCompilerFixture(dir);
+      await writeFile(
+        join(dir, 'preseed/agents/claude/rules/no-local-builds.md'),
+        'x'.repeat(400),
+      );
+      const { compileAgentSeed } = await import(coreUrl);
+      await assert.rejects(
+        compileAgentSeed({ rootDir: dir }),
+        /Claude permanently loaded safe-check rule must remain below 400 characters/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

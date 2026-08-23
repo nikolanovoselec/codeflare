@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..');
+export const MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS = 400;
 
 // ---------------------------------------------------------------------------
 // Agent configurations
@@ -847,6 +848,13 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
     }
     const category = classifyFile(withinClaude);
     sourceFiles.push({ withinClaude, content, modes: entry.modes, category });
+  }
+
+  const claudeSafeCheckPolicy = sourceFiles.find(
+    ({ withinClaude }) => withinClaude === 'rules/no-local-builds.md',
+  );
+  if (claudeSafeCheckPolicy && claudeSafeCheckPolicy.content.length >= MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS) {
+    throw new Error(`Claude permanently loaded safe-check rule must remain below ${MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS} characters`);
   }
 
   // An agent that ships its lane's skills needs no Skill tool, and without one
