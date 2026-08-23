@@ -47,13 +47,16 @@ export default function nativeNotifications(
     if (clearLineage) hasInteractiveLineage = false;
   };
 
-  const scheduleIdleNotification = (sequence: string): void => {
+  const scheduleIdleNotification = (
+    sequence: string,
+    signal: AbortSignal | undefined,
+  ): void => {
     cancelIdleTimer(false);
     hasInteractiveLineage = true;
     idleTimer = setTimeout(() => {
       idleTimer = undefined;
       hasInteractiveLineage = false;
-      emit(sequence);
+      if (signal?.aborted !== true) emit(sequence);
     }, PI_IDLE_NOTIFICATION_DELAY_MS);
     (idleTimer as { unref?: () => void }).unref?.();
   };
@@ -145,6 +148,7 @@ export default function nativeNotifications(
     if (!settledRun.interactiveInput && !hasInteractiveLineage) return;
     scheduleIdleNotification(
       settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT,
+      settledRun.signal,
     );
   });
 }
