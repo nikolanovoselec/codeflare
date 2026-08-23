@@ -804,7 +804,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Notes:** Partial pending deployed evidence for delayed delivery and silence through a continuation.
 
-**Constraints:** Input-required signals remain immediate under REQ-TERM-024.
+**Constraints:** Input-required signals remain immediate under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
 
 **Priority:** P1
 
