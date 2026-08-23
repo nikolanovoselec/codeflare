@@ -17,18 +17,23 @@ function requireNonNegativeInteger(value, label) {
   return value;
 }
 
-export function measurePiPromptBudget({ effectivePrompt, serializedToolSchemas }) {
-  if (typeof effectivePrompt !== 'string') {
-    throw new TypeError('effectivePrompt must be a string');
+export function measurePiPromptBudget({ controlledPrompt, additiveProjectContext, serializedToolSchemas }) {
+  if (typeof controlledPrompt !== 'string') {
+    throw new TypeError('controlledPrompt must be a string');
+  }
+  if (typeof additiveProjectContext !== 'string') {
+    throw new TypeError('additiveProjectContext must be a string');
   }
   if (typeof serializedToolSchemas !== 'string') {
     throw new TypeError('serializedToolSchemas must be a string');
   }
 
-  const promptChars = effectivePrompt.length;
+  const promptChars = controlledPrompt.length;
+  const projectContextChars = additiveProjectContext.length;
   const toolSchemaChars = serializedToolSchemas.length;
   return Object.freeze({
     promptChars,
+    projectContextChars,
     toolSchemaChars,
     maxPromptChars: PI_PROMPT_MAX_CHARS,
     withinPromptBudget: promptChars <= PI_PROMPT_MAX_CHARS,
@@ -54,6 +59,9 @@ export function validatePiPromptBaseline(fixture) {
   if (totalChars !== PI_PROMPT_BASELINE_CHARS || componentTotal !== totalChars) {
     throw new Error('baseline component total must equal the captured 32,416-character prompt');
   }
+  if (fixture.projectContext?.includedInPromptChars !== false) {
+    throw new Error('additive project context must be measured outside the controlled prompt budget');
+  }
   if (fixture.toolSchemas?.includedInPromptChars !== false) {
     throw new Error('serialized tool schemas must be measured outside the prompt budget');
   }
@@ -66,6 +74,11 @@ export function validatePiPromptRuleLedger(ledger) {
   }
   if (ledger.baselineChars !== PI_PROMPT_BASELINE_CHARS || ledger.maxPromptChars !== PI_PROMPT_MAX_CHARS) {
     throw new Error('rule ledger must pin the captured baseline and 14,000-character cap');
+  }
+  if (ledger.coverageGuarantee !== 'controlled-surface-categories'
+    || ledger.projectContextMeasuredSeparately !== true
+    || ledger.toolSchemasMeasuredSeparately !== true) {
+    throw new Error('rule ledger must cover controlled surface categories and report additive inputs separately');
   }
   if (ledger.ownership?.sharedFlow !== 'codeflare-deployment-to-curation') {
     throw new Error('rule ledger must retain one-way deployment-derived shared policy flow');

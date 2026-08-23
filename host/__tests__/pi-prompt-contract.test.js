@@ -32,22 +32,25 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
 
   it('enforces the 14,000-character boundary independently of serialized tool schemas', () => {
     const atLimit = measurePiPromptBudget({
-      effectivePrompt: 'p'.repeat(PI_PROMPT_MAX_CHARS),
+      controlledPrompt: 'p'.repeat(PI_PROMPT_MAX_CHARS),
+      additiveProjectContext: 'x'.repeat(75_000),
       serializedToolSchemas: 's'.repeat(50_000),
     });
     assert.equal(atLimit.withinPromptBudget, true);
     assert.equal(atLimit.promptChars, PI_PROMPT_MAX_CHARS);
+    assert.equal(atLimit.projectContextChars, 75_000);
     assert.equal(atLimit.toolSchemaChars, 50_000);
 
     const overLimit = measurePiPromptBudget({
-      effectivePrompt: 'p'.repeat(PI_PROMPT_MAX_CHARS + 1),
+      controlledPrompt: 'p'.repeat(PI_PROMPT_MAX_CHARS + 1),
+      additiveProjectContext: '',
       serializedToolSchemas: '',
     });
     assert.equal(overLimit.withinPromptBudget, false);
     assert.equal(overLimit.promptChars, PI_PROMPT_MAX_CHARS + 1);
   });
 
-  it('maps every baseline instruction surface to one retained owner and destination', () => {
+  it('maps every baseline controlled surface category to one retained owner and destination', () => {
     const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
     const result = validatePiPromptRuleLedger(ledger);
     assert.equal(result.entryCount, ledger.entries.length);

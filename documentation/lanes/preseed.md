@@ -122,7 +122,7 @@ For an open, non-bypassed review, the first settled recovery defers when no revi
 
 ### Pi prompt ownership and budget
 
-The measured pre-reduction Pi provider-boundary system prompt is 32,416 characters. The coordinated replacement is capped at 14,000 characters in both modes for both the image fallback and signed managed projection. Serialized tool descriptions and parameter schemas are reported separately and cannot be used to claim prompt reduction.
+The measured pre-reduction Pi provider-boundary system prompt is 32,416 characters in an isolated working directory. The coordinated Codeflare-controlled replacement is capped at 14,000 characters in both modes for both the image fallback and signed managed projection. Serialized tool schemas and additive project context are reported separately; project context remains byte-unaltered and cannot make the controlled prompt fail its cap.
 
 Codeflare owns Pi prompt assembly, `SYSTEM.md`, compact shared `AGENTS.md`, executable hard-policy guards, compiler support, and the image fallback. `codeflare-curation` owns private skill inventory, modes, invocation visibility, managed projection measurement, and signed publication. Declared shared prompt files flow one way from an exact successful Codeflare deployment into guarded curation CI; private managed content never flows back. The lossless migration ledger is `documentation/decisions/pi-prompt-rule-ledger.json` ([REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt)).
 

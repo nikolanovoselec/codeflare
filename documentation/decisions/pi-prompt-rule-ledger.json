@@ -2,6 +2,8 @@
   "baselineChars": 32416,
   "maxPromptChars": 14000,
   "toolSchemasMeasuredSeparately": true,
+  "projectContextMeasuredSeparately": true,
+  "coverageGuarantee": "controlled-surface-categories",
   "ownership": {
     "codeflare": [
       "Pi prompt assembly",

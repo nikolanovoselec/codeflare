@@ -1,5 +1,5 @@
 {
-  "capture": "effective Pi system prompt immediately before provider invocation",
+  "capture": "Codeflare-controlled Pi system prompt immediately before provider invocation in an isolated working directory",
   "piVersion": "0.84.1",
   "totalChars": 32416,
   "components": {
@@ -7,6 +7,10 @@
     "globalAgentsFraming": 8739,
     "visibleSkillCatalog": 18307,
     "otherFraming": 379
+  },
+  "projectContext": {
+    "includedInPromptChars": false,
+    "status": "additive, byte-unaltered, and reported separately"
   },
   "toolSchemas": {
     "includedInPromptChars": false,
