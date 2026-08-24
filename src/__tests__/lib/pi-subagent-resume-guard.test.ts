@@ -27,6 +27,30 @@ describe('REQ-AGENT-159: active subagent resume guard', () => {
     expect(subagentResumeGuard({ on() {} })).toBeUndefined();
   });
 
+  it('captures service status during session_start before guarding later tool calls', async () => {
+    let status = 'running';
+    let sessionStart: (() => Promise<void>) | undefined;
+    let toolCall: ((event: ToolCallEvent) => ToolCallResult) | undefined;
+    subagentResumeGuard({
+      on(event, candidate) {
+        if (event === 'session_start') {
+          sessionStart = async () => { await candidate({} as never, {} as never); };
+        }
+        if (event === 'tool_call') {
+          toolCall = (toolEvent) => candidate(toolEvent as never, {} as never) as ToolCallResult;
+        }
+      },
+    }, async () => ({ getRecord: (id) => ({ id, status }) }));
+    if (!sessionStart || !toolCall) throw new Error('resume guard lifecycle handlers were not registered');
+
+    await sessionStart();
+    expect(toolCall({ toolName: 'subagent', input: { resume: 'agent-1' } })?.block).toBe(true);
+    status = 'queued';
+    expect(toolCall({ toolName: 'subagent', input: { resume: 'agent-1' } })?.block).toBe(true);
+    status = 'completed';
+    expect(toolCall({ toolName: 'subagent', input: { resume: 'agent-1' } })).toBeUndefined();
+  });
+
   it.each(['queued', 'running'] as const)('blocks %s records before upstream resume execution', (status) => {
     const block = harness((id) => ({ id, status }))({
       toolName: 'subagent',

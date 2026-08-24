@@ -9,6 +9,17 @@ export type SubagentRecordLookup = (id: string) => {
   status: string;
 } | undefined;
 
+export type SubagentsServiceLoader = () => Promise<{
+  getRecord(id: string): ReturnType<SubagentRecordLookup>;
+} | undefined>;
+
+async function loadSubagentsService(): ReturnType<SubagentsServiceLoader> {
+  const { getSubagentsService } = await import(SUBAGENTS_SERVICE_ENTRYPOINT) as {
+    getSubagentsService(): Awaited<ReturnType<SubagentsServiceLoader>>;
+  };
+  return getSubagentsService();
+}
+
 type ToolCallEvent = {
   toolName: string;
   input: unknown;
@@ -48,15 +59,15 @@ export function registerSubagentResumeGuard(
   });
 }
 
-export default function subagentResumeGuard(pi: GuardPi): void {
+export default function subagentResumeGuard(
+  pi: GuardPi,
+  loadService: SubagentsServiceLoader = loadSubagentsService,
+): void {
   let lookup: SubagentRecordLookup | undefined;
   // All extensions have initialized before session_start, so this captures the
   // root service before any in-process child can replace the global accessor.
   pi.on("session_start", async () => {
-    const { getSubagentsService } = await import(SUBAGENTS_SERVICE_ENTRYPOINT) as {
-      getSubagentsService(): { getRecord(id: string): ReturnType<SubagentRecordLookup> } | undefined;
-    };
-    const service = getSubagentsService();
+    const service = await loadService();
     lookup = service ? (id) => service.getRecord(id) : undefined;
   });
   pi.on("tool_call", (event: ToolCallEvent) => {
