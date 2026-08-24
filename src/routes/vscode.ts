@@ -255,16 +255,6 @@ export async function handleVscodeRequest(
       }
     }
 
-    // Keep the session alive on IDE activity, out of band (same as
-    // terminal/vault): editing in the IDE should reset idle the same way.
-    ctx.waitUntil((async () => {
-      const fresh = await env.KV.get<Session>(sessionKey, 'json');
-      if (fresh) {
-        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await putSessionWithMetadata(env.KV, sessionKey, touched);
-      }
-    })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
-
     // Preserve the public path/query and body for the container host, but never
     // trust client-supplied forwarding identity. The request URL has already
     // passed the route and Origin/auth chain, so its URL is canonical for the
@@ -291,6 +281,24 @@ export async function handleVscodeRequest(
     // a same-origin value here would neutralize that defense-in-depth check.
     if (!request.headers.has('Origin')) forwardedRequest.headers.delete('Origin');
     const response = await container.fetch(forwardedRequest);
+
+    // Successful editor traffic is direct evidence that the editor is ready.
+    // Re-read inside the background task so an older route snapshot cannot
+    // overwrite a concurrent rename, metrics update, or lifecycle transition.
+    if (response.status < 400) {
+      ctx.waitUntil((async () => {
+        const fresh = await env.KV.get<Session>(sessionKey, 'json');
+        if (fresh) {
+          const { editorReadyError, ...current } = fresh;
+          void editorReadyError;
+          await putSessionWithMetadata(env.KV, sessionKey, {
+            ...current,
+            editorReady: true,
+            lastAccessedAt: new Date().toISOString(),
+          });
+        }
+      })().catch((err) => logger.warn('Failed to reassert editor readiness', { error: toErrorMessage(err) })));
+    }
     return response;
   } catch (err) {
     logger.error('vscode proxy failed', toError(err));

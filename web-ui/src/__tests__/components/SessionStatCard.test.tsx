@@ -124,6 +124,18 @@ describe('SessionStatCard', () => {
       const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--success');
       expect(dot).toBeInTheDocument();
     });
+
+    it.each([
+      [{ status: 'running', editorReady: true }, 'success'],
+      [{ status: 'running', editorReady: false }, 'warning'],
+      [{ status: 'stopping', editorReady: true }, 'warning'],
+      [{ status: 'stopped', editorReady: true }, 'default'],
+      [{ status: 'running', editorReady: false, editorReadyError: true }, 'error'],
+    ] as const)('REQ-IDE-050 AC1: maps VS Code readiness %o to %s', (overrides, variant) => {
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', ...overrides })} />);
+      expect(screen.getByTestId('session-stat-card-test-1').querySelector(`.session-stat-card__dot--${variant}`)).toBeInTheDocument();
+    });
   });
 
   describe('Metrics for running sessions', () => {
@@ -175,41 +187,34 @@ describe('SessionStatCard', () => {
       fireEvent.click(screen.getByTestId('session-stat-card-test-1'));
       expect(onSelect).toHaveBeenCalled();
     });
-  });
 
-  describe('VS Code workspace action', () => {
-    it('runs explicit action without selecting the card', () => {
+    it('REQ-IDE-050 AC1: makes a ready VS Code card the only Open interaction surface', () => {
       const onSelect = vi.fn();
-      const onClick = vi.fn();
-      render(() => (
-        <SessionStatCard
-          {...defaultProps}
-          session={createSession({ workspace: 'vscode', editorReady: true })}
-          onSelect={onSelect}
-          workspaceAction={{ label: 'Open', onClick }}
-        />
-      ));
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
 
-      fireEvent.click(screen.getByTestId('session-stat-card-test-1-workspace-action'));
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(screen.queryByText('Open')).not.toBeInTheDocument();
+      fireEvent.click(card);
+      expect(onSelect).toHaveBeenCalledOnce();
+    });
 
-      expect(onClick).toHaveBeenCalledOnce();
+    it('REQ-IDE-050 AC1: ignores a preparing VS Code card', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: false })} onSelect={onSelect} />);
+
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it('disables Preparing without invoking action', () => {
-      const onClick = vi.fn();
-      render(() => (
-        <SessionStatCard
-          {...defaultProps}
-          session={createSession({ workspace: 'vscode', status: 'initializing' })}
-          workspaceAction={{ label: 'Preparing…', disabled: true, onClick }}
-        />
-      ));
+    it('REQ-IDE-050 AC1: activates an actionable card from the keyboard', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopped' })} onSelect={onSelect} />);
 
-      const action = screen.getByTestId('session-stat-card-test-1-workspace-action');
-      expect(action).toBeDisabled();
-      fireEvent.click(action);
-      expect(onClick).not.toHaveBeenCalled();
+      const card = screen.getByTestId('session-stat-card-test-1');
+      fireEvent.keyDown(card, { key: 'Enter' });
+      expect(onSelect).toHaveBeenCalledOnce();
     });
   });
 

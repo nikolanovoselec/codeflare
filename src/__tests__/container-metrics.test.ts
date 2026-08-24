@@ -21,13 +21,14 @@ const testState = vi.hoisted(() => ({
     mem: '1024MB',
     hdd: '2.5GB',
     syncStatus: 'success',
-  } as Record<string, string>,
+  } as Record<string, string | boolean>,
   tcpFetchShouldFail: false,
   hostProbeCalls: 0,
   activityFetchShouldFail: false,
   healthFetchShouldFail: false,
   activityStatus: 200,
   healthStatus: 200,
+  beforeHealthResponse: undefined as (() => void) | undefined,
   stopCalls: 0,
   stopFailuresRemaining: 0,
   scheduleCalls: [] as Array<[number, string]>,
@@ -124,6 +125,7 @@ vi.mock('@cloudflare/containers', () => {
                   init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
                 });
               }
+              if (url.includes('/health')) testState.beforeHealthResponse?.();
               const body = url.includes('/activity')
                 ? testState.activityResult
                 : testState.healthResult;
@@ -278,6 +280,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.healthFetchShouldFail = false;
     testState.activityStatus = 200;
     testState.healthStatus = 200;
+    testState.beforeHealthResponse = undefined;
     testState.activityHangs = false;
     testState.activityResult = {
       hasActiveConnections: true,
@@ -535,6 +538,34 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.healthResult.syncStatus = 'success';
       await containerInstance.collectMetrics();
       expect(mockLogger.warn).not.toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', expect.anything());
+    });
+
+    it('REQ-IDE-049 AC4: reasserts readiness without rolling back a concurrent session update', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      testState.healthResult.editorReady = true;
+      const initial: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        workspace: 'vscode',
+        status: 'running',
+        editorReady: false,
+        editorReadyError: true,
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set(key, initial);
+
+      testState.beforeHealthResponse = () => {
+        mockKV._set(key, { ...initial, name: 'Renamed during health probe', metrics: { cpu: '42%' } });
+      };
+
+      await containerInstance.collectMetrics();
+
+      const stored = await mockKV.get(key, 'json') as Session;
+      expect(stored.name).toBe('Renamed during health probe');
+      expect(stored.editorReady).toBe(true);
+      expect(stored.editorReadyError).toBeUndefined();
     });
 
     it('should fetch health data from TCP port and write metrics to KV', async () => {

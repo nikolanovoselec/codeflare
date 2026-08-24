@@ -1530,7 +1530,7 @@ export async function collectMetrics(
       // Don't parse — just log and re-arm below.
       logger.info('collectMetrics: health non-OK', { status: res.status });
     } else {
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean };
 
       if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
         // Surface in-container bisync failures in Workers logs: the integration
@@ -1542,7 +1542,7 @@ export async function collectMetrics(
       }
 
       if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
-      const { sessionId, bucketName, session } = trustedTickSession;
+      const { sessionId, bucketName } = trustedTickSession;
 
       if (!sessionId || !bucketName) {
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
@@ -1552,6 +1552,9 @@ export async function collectMetrics(
         // branch, after a successful /health fetch). The normal write touches
         // .metrics and mirrors lastActiveAt; .status is normally left alone.
         const key = getSessionKey(bucketName, sessionId);
+        // The activity and health probes can outlive concurrent lifecycle or UI
+        // writes. Merge only into a fresh record so this tick cannot roll them back.
+        const session = await env.KV.get<Session>(key, 'json');
         if (session) {
           const metrics = {
             cpu: health.cpu,
@@ -1563,6 +1566,12 @@ export async function collectMetrics(
           const lastActiveAt = state.lastSeenInputAt
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
+          let withEditorReadiness = session;
+          if (health.editorReady === true && session.workspace === 'vscode') {
+            const { editorReadyError, ...current } = session;
+            void editorReadyError;
+            withEditorReadiness = { ...current, editorReady: true };
+          }
 
           if (session.status === 'stopped') {
             // KV reads stopped while the container is demonstrably alive. Read
@@ -1583,10 +1592,10 @@ export async function collectMetrics(
               // next start. (idle-stop returns before this block; onStop
               // deleteSchedules the loop, so those deliberate paths never reach here.)
               logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
-              await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+              await putSessionWithMetadata(env.KV, key, { ...withEditorReadiness, status: 'running' as const, metrics, lastActiveAt });
             }
           } else {
-            await putSessionWithMetadata(env.KV, key, { ...session, metrics, lastActiveAt });
+            await putSessionWithMetadata(env.KV, key, { ...withEditorReadiness, metrics, lastActiveAt });
           }
         }
       }
