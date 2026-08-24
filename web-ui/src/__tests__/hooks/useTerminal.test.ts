@@ -695,6 +695,13 @@ describe('useTerminal hook', () => {
       expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(connectCleanup).not.toHaveBeenCalled();
 
+      vi.mocked(terminalStore.clearPendingResizeAuthority).mockClear();
+      setFocused(false);
+
+      await vi.waitFor(() => expect(terminalStore.clearPendingResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
+      expect(connectCleanup).not.toHaveBeenCalled();
+
       dispose();
       expect(connectCleanup).toHaveBeenCalledTimes(1);
     });
