@@ -78,6 +78,7 @@ describe('REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot', ()
   it.each([
     ['missing preferences', undefined],
     ['missing workspace preference', { sessionMode: 'advanced' }],
+    ['invalid workspace preference', { sessionMode: 'advanced', defaultWorkspace: 'browser' }],
     ['default mode', { sessionMode: 'default', defaultWorkspace: 'vscode' }],
     ['Terminal preference', { sessionMode: 'advanced', defaultWorkspace: 'terminal' }],
   ])('resolves %s to Terminal without persisting a terminal marker', async (_label, preferences) => {
