@@ -93,8 +93,9 @@ mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
 
 configure_pi_jiti_runtime_cache() {
-    local runtime_tmp="${1:-/run/codeflare/pi-tmp}"
-    local image_cache="${2:-/opt/codeflare/jiti-cache}"
+    local isolation_root="${1:-}"
+    local runtime_tmp="$isolation_root/run/codeflare/pi-tmp"
+    local image_cache="$isolation_root/opt/codeflare/jiti-cache"
     mkdir -p "$runtime_tmp"
     if [ -L "$runtime_tmp/jiti" ] && [ ! -e "$runtime_tmp/jiti" ]; then
         rm "$runtime_tmp/jiti"

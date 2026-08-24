@@ -17,14 +17,13 @@ function startupPrefix() {
 
 function observeBridgeIdleEnv(inherited) {
   const home = mkdtempSync(join(tmpdir(), 'entrypoint-context-mode-'));
-  const runtimeTmp = join(home, 'run/codeflare/pi-tmp');
-  const imageCache = join(home, 'image-jiti-cache');
+  const imageCache = join(home, 'opt/codeflare/jiti-cache');
   mkdirSync(imageCache, { recursive: true });
   const prefix = startupPrefix()
     .replace('USER_HOME="/home/user"', `USER_HOME=${JSON.stringify(home)}`)
     .replace(
       '\nconfigure_pi_jiti_runtime_cache\n',
-      `\nconfigure_pi_jiti_runtime_cache ${JSON.stringify(runtimeTmp)} ${JSON.stringify(imageCache)}\n`,
+      `\nconfigure_pi_jiti_runtime_cache ${JSON.stringify(home)}\n`,
     );
   const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"`;
   const env = { ...process.env, USER_TIMEZONE: '' };
