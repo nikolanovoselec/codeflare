@@ -262,6 +262,30 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-161: Pi Startup Header Terminal Width Safety
+
+**Intent:** Pi must start reliably when an embedded terminal gives its startup header a narrow viewport.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::installHeader --> <!-- @test: src/__tests__/lib/startup-header.test.ts (REQ-AGENT-161: Pi startup header terminal width safety) -->
+
+**Constraints:**
+
+- Width adaptation remains cosmetic and must never terminate Pi startup.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Pi startup-header behavioral test across desktop, narrow mobile, and degenerate widths
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
 
 **Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.
