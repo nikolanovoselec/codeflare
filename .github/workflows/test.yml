@@ -778,18 +778,43 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
             --pi-package-root preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent \
             --report "$RUNNER_TEMP/pi-prompt-report.json"
 
-      - name: Upload Pi prompt report
+      - name: Measure real Pi initial tool exposure
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/pi-seed" "$RUNNER_TEMP/pi-isolated"
+          mkdir -p "$RUNNER_TEMP/pi-isolated"
+          node scripts/materialize-agent-seed.mjs \
+            --seed src/lib/agent-seed.generated.ts \
+            --out "$RUNNER_TEMP/pi-seed"
+          for mode in default advanced; do
+            agent_dir="$RUNNER_TEMP/pi-seed/$mode/.pi/agent"
+            cp "$RUNNER_TEMP/pi-runtime/settings.json" "$agent_dir/settings.json"
+            mkdir -p "$agent_dir/npm"
+            ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$agent_dir/npm/node_modules"
+            (
+              cd "$RUNNER_TEMP/pi-isolated"
+              PI_AGENT_DIR="$agent_dir" \
+                node "$GITHUB_WORKSPACE/scripts/measure-pi-runtime-context.mjs" \
+                --agent-dir "$agent_dir" \
+                > "$RUNNER_TEMP/pi-runtime-context-$mode.json"
+            )
+          done
+
+      - name: Upload Pi prompt reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pi-prompt-report-pr
-          path: ${{ runner.temp }}/pi-prompt-report.json
+          path: |
+            ${{ runner.temp }}/pi-prompt-report.json
+            ${{ runner.temp }}/pi-runtime-context-default.json
+            ${{ runner.temp }}/pi-runtime-context-advanced.json
           retention-days: 14
           if-no-files-found: error
 

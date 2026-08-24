@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import {
   activateRegisteredTools,
+  activationGroup,
   initialActiveTools,
   searchCapabilities,
   type RegisteredTool,
@@ -57,25 +58,46 @@ function hasUnfinishedGoal(ctx: SessionContext): boolean {
     && UNFINISHED_GOAL_STATUSES.has(status);
 }
 
+export function registerInitialToolFilter(pi: ExtensionAPI): void {
+  pi.on("before_agent_start", (_event, ctx) => {
+    const activeBeforeFilter = new Set(pi.getActiveTools());
+    const keepGoalTools = hasUnfinishedGoal(ctx)
+      || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
+    const initial = initialActiveTools(pi);
+    if (!keepGoalTools) {
+      pi.setActiveTools(initial);
+      return;
+    }
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    pi.setActiveTools([
+      ...initial,
+      ...GOAL_TERMINAL_TOOLS.filter((name) => registered.has(name)),
+    ]);
+  });
+}
+
 export function capabilityExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "capability",
     label: "Tool Search",
-    description: "Search or activate registered Pi tools when the active tools do not cover the task.",
+    description: "Search registered Pi tools or activate one by exact name.",
     parameters: Type.Object({
-      query: Type.Optional(Type.String({ description: "Tool capability to search for." })),
-      name: Type.Optional(Type.String({ description: "Exact registered tool name to activate." })),
+      query: Type.Optional(Type.String({ description: "Capability to search for." })),
+      name: Type.Optional(Type.String({ description: "Exact tool name to activate." })),
     }),
     async execute(_id: string, params: CapabilityParams) {
       const name = params.name?.trim();
       if (name) {
         const tool = pi.getAllTools().find((candidate: RegisteredTool) => candidate.name === name);
         if (!tool) throw new Error(`Unknown tool: ${name}`);
-        const added = activateRegisteredTools(pi, [tool.name]);
+        const added = activateRegisteredTools(pi, activationGroup(tool.name));
+        const text = tool.name === "subagent"
+          ? `${added.length > 0 ? `Loaded tools: ${added.join(", ")}` : "Subagent tools already active"}. Use get_subagent_result or steer_subagent while an agent is queued or running; resume only a settled retained session.`
+          : added.length > 0 ? `Loaded tool: ${tool.name}` : `Tool already active: ${tool.name}`;
         return {
           content: [{
             type: "text",
-            text: added.length > 0 ? `Loaded tool: ${tool.name}` : `Tool already active: ${tool.name}`,
+            text,
           }],
           details: { name: tool.name, added },
         };
@@ -94,22 +116,6 @@ export function capabilityExtension(pi: ExtensionAPI): void {
         details: { matches },
       };
     },
-  });
-
-  pi.on("session_start", (_event, ctx) => {
-    const activeBeforeFilter = new Set(pi.getActiveTools());
-    const keepGoalTools = hasUnfinishedGoal(ctx)
-      || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
-    const initial = initialActiveTools(pi);
-    if (!keepGoalTools) {
-      pi.setActiveTools(initial);
-      return;
-    }
-    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-    pi.setActiveTools([
-      ...initial,
-      ...GOAL_TERMINAL_TOOLS.filter((name) => registered.has(name)),
-    ]);
   });
 }
 

@@ -8,6 +8,7 @@ import { parseGeneratedSeed } from './materialize-agent-seed.mjs';
 import { measurePiPromptBudget } from './pi-prompt-contract.mjs';
 
 const modes = new Set(['default', 'advanced']);
+const INITIAL_ACTIVE_TOOL_NAMES = ['read', 'bash', 'edit', 'write', 'capability'];
 
 async function importPiRuntime(piPackageRoot) {
   const moduleUrl = (relativePath) => pathToFileURL(path.join(piPackageRoot, relativePath)).href;
@@ -78,7 +79,7 @@ function toolSchema(tool) {
   };
 }
 
-export function serializePiToolSchemas({ builtInTools, extensionTools }) {
+function configuredTools({ builtInTools, extensionTools }) {
   const byName = new Map(
     builtInTools
       .filter((tool) => tool && typeof tool.name === 'string')
@@ -90,11 +91,16 @@ export function serializePiToolSchemas({ builtInTools, extensionTools }) {
     extensionsByName.set(tool.name, tool);
   }
   for (const [name, tool] of extensionsByName) byName.set(name, tool);
-  return JSON.stringify(
-    [...byName.values()]
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map(toolSchema),
-  );
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function serializePiToolSchemas(input) {
+  return JSON.stringify(configuredTools(input).map(toolSchema));
+}
+
+export function serializeSelectedPiToolSchemas(input, selectedNames) {
+  const selected = new Set(selectedNames);
+  return JSON.stringify(configuredTools(input).filter((tool) => selected.has(tool.name)).map(toolSchema));
 }
 
 function extensionToolDefinitions(loader) {
@@ -120,7 +126,7 @@ async function loadPrompt({ runtime, agentDir, cwd }) {
   const appendSystemPrompt = loader.getAppendSystemPrompt().join('\n\n');
   const prompt = runtime.buildSystemPrompt({
     customPrompt: loader.getSystemPrompt(),
-    selectedTools: ['read', 'bash', 'edit', 'write'],
+    selectedTools: INITIAL_ACTIVE_TOOL_NAMES,
     appendSystemPrompt,
     cwd,
     contextFiles: agentsFiles,
@@ -156,11 +162,14 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
     }
 
     const builtInTools = runtime.createCodingTools(isolatedCwd);
-    const serializedToolSchemas = serializePiToolSchemas({
+    const toolInputs = {
       builtInTools,
       extensionTools: controlled.extensionTools,
-    });
+    };
+    const serializedToolSchemas = serializePiToolSchemas(toolInputs);
     const registeredToolNames = JSON.parse(serializedToolSchemas).map(({ name }) => name);
+    const activeToolNames = INITIAL_ACTIVE_TOOL_NAMES.filter((name) => registeredToolNames.includes(name));
+    const serializedActiveToolSchemas = serializeSelectedPiToolSchemas(toolInputs, activeToolNames);
     const extensionToolNames = [...new Set(controlled.extensionTools.map(({ name }) => name))].sort();
     const budget = measurePiPromptBudget({
       controlledPrompt: controlled.prompt,
@@ -189,6 +198,8 @@ export async function verifyPiProjection({ documents, mode, runtimeAgentDir, piP
         stablePath(diagnostic.message ?? diagnostic, agentDir, root)),
       extensionToolNames,
       registeredToolNames,
+      activeToolNames,
+      activeToolSchemaChars: serializedActiveToolSchemas.length,
       skills,
     };
   } finally {

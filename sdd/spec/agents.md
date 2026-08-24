@@ -133,7 +133,7 @@ Multi-agent support, preseed system, and session modes.
 1. A zero continuation delay dispatches immediately at an eligible settled boundary. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: zero delay dispatches immediately) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: successor zero delay dispatches immediately) -->
 2. A configured positive continuation delay waits its full duration before dispatch. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: waits the configured 60 seconds before continuation dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: successor direct dispatch waits the configured interval) -->
 3. Supported continuation delays above 2147483647ms wait their full duration. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: safely re-arms delays beyond the Node timer maximum) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: successor scheduler re-arms delays beyond the Node timer maximum) -->
-4. Repeated settled events retain one pending continuation timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: keeps repeated settled events single-flight) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: successor repeated dispatch remains single-flight) -->
+4. Each later settled boundary restarts one pending continuation timer, so dispatch cannot occur until the configured interval has elapsed after the latest settled activity. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: latest settled activity restarts one pending interval) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: successor settled activity restarts one pending interval) -->
 5. Existing continuation cancellation owners remove a pending timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: cancellation prevents a delayed continuation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: successor cancellation clears its pending dispatch) -->
 6. Timer expiry rejects stale session generation, Goal identity, or continuation markers. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC6: stale menu, marker, and replacement-goal timers cannot dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC6: successor scheduler rejects a replacement continuation marker) -->
 7. Timer expiry retains intent when only idle eligibility changed. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC7: a busy timer retains intent for the next settled boundary) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC7: successor busy expiry retains intent for the next settled boundary) -->
@@ -2990,19 +2990,19 @@ None.
 
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
-**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is enabled by default through Codeflare's single foreground owner while explicit `/ctx off` and `/ctx on` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
+**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is installed but disabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On a fresh container, context-mode skills and tools are enabled through exactly one foreground owner. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and enables context-mode by default) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-089 AC1: one process owner rejects child context-mode initialization) -->
-2. A state-changing `/ctx` command reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state) --> <!-- @manual: Start a fresh container and confirm `ctx_*` tools are present; run `/ctx off` and confirm reload removes them; run `/ctx on` and confirm reload restores working tools. Container startup restores the enabled default. -->
+1. On a fresh container, startup installs context-mode but writes its disabled package marker, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state; the next container startup restores disabled. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state in both modes) --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no `ctx_*` tools are present; run `/ctx on`, reload, activate one context tool through `capability`, and confirm it works; run `/ctx off` and confirm reload removes the bridge. New container startup restores disabled. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
-4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
+4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
-7. An inherited bridge-idle override does not disable context-mode's managed idle policy. The entrypoint preserves an operator-provided nonzero timeout and creates no global override when none is supplied; the managed Pi extension clears stale disabling values before context-mode initializes. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
+7. When context-mode is explicitly enabled, an inherited bridge-idle override does not disable its managed idle policy. The entrypoint preserves an operator-provided nonzero timeout and creates no global override when none is supplied; the managed Pi extension clears stale disabling values before initialization. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
 
 **Constraints:**
 
@@ -3013,7 +3013,7 @@ None.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
 - Every Pi workflow retains an equivalent non-context fallback.
-- Container startup restores the enabled context-mode package marker regardless of a prior session's opt-out state.
+- Container startup restores the disabled context-mode package marker regardless of a prior session's opt-in state.
 - Foreground ownership and in-process subagent isolation while context-mode is enabled are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
 
 **Priority:** P1
@@ -3022,7 +3022,7 @@ None.
 
 **Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -3406,12 +3406,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. On session start, Pi activates registered basic editing, question, capability, and Graphify tools; ordinary specialized tools stay inactive. Goal terminal tools remain active only when the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+1. On each user turn, Pi activates registered basic editing and capability tools; question, Graphify, and other specialized tools stay registered but inactive until selected. Goal terminal tools remain active only when the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 2. Capability search returns matching registered tools by name or description. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 3. Capability activation additively enables only registered tools without granting authorization. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->
 5. The memory/Vault extraction launch owner activates `subagent` before delivering unchanged extraction follow-up requests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
-6. While context-mode is enabled, its registered `ctx_*` tools remain active through the foreground owner. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-096 AC6: foreground owner retains registered context-mode tools) -->
+6. While context-mode is enabled, its foreground owner registers `ctx_*` tools before the final exposure filter; those tools remain inactive until capability activation. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) -->
 
 **Constraints:**
 
@@ -4162,6 +4162,40 @@ None.
 **Verification:** Automated contract, compiler, real-resource-loader, public fallback, and signed managed projection tests
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-158: Bounded initial Pi tool exposure
+
+**Intent:** Pi keeps its complete registered tool inventory while sending only a small bootstrap set to the provider at the start of each user turn; optional tool schemas become visible through Pi's native dynamic activation only when work requires them.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. After all local dynamic registration but before provider serialization, a normal Pi user turn activates only `read`, `bash`, `edit`, `write`, and `capability` when those tools are registered. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) -->
+2. Optional tools remain registered and searchable while inactive; adding any new optional tool, including one with a large schema, does not alter initial active-tool selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: keeps only bootstrap tools regardless of optional registrations) -->
+3. Exact capability activation adds the requested registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
+4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+5. Goal terminal-tool continuity and Plan Mode's stricter tool exclusions remain authoritative over bootstrap selection. <!-- @impl: preseed/agents/pi/extensions/capability.ts::hasUnfinishedGoal --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
+6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-158 AC6: reports registered and active tool exposure separately) -->
+7. A local hook blocks `subagent` resume calls for queued or running records through the package's public service before upstream execution, while settled and unknown records retain upstream behavior; a reviewed package-version change fails compatibility evidence until maintainers remove or reaffirm the guard. <!-- @impl: preseed/agents/pi/extensions/subagent-resume-guard.ts::subagentResumeGuard --> <!-- @test: src/__tests__/lib/pi-subagent-resume-guard.test.ts (REQ-AGENT-158 AC7: active resume is blocked without package mutation) --> <!-- @test: host/__tests__/pi-subagent-resume-compat.test.js (REQ-AGENT-158 AC7: package bumps force guard compatibility review) -->
+
+**Constraints:**
+
+- Registered tools, skills, native package discovery, explicit invocation, and context-mode's explicit enablement remain available.
+- Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, XML rewrite, or package-source patch.
+- Codeflare-curation owns complete managed extension bytes and mode membership; Codeflare owns the independent embedded fallback and image/runtime inputs.
+- Tool-schema sizes are diagnostic. Existing controlled-prompt limits remain owned by [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt).
+- Working subagent max-turn behavior is unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt)
+
+**Verification:** Automated lifecycle, capability, package-compatibility, public fallback, and signed managed projection tests
+
+**Status:** Partial
 
 ---
 

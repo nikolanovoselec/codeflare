@@ -50,6 +50,24 @@
       "advanced"
     ]
   },
+  "extensions/zz-tool-exposure-finalizer.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/subagent-resume-guard.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/ctx-command.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/browser-run.ts": {
     "modes": [
       "advanced"

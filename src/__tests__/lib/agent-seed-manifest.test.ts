@@ -291,6 +291,20 @@ describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only 
     expect(out).toMatch(/Recommendation/i);
   });
 
+  it('REQ-AGENT-076 AC2: context control reaches both modes without broadening advanced commands', () => {
+    const byKey = new Map(AGENTS_SEEDED_CONFIGS.map((entry) => [entry.key, entry]));
+    expect(byKey.get('.pi/agent/extensions/ctx-command.ts')?.modes).toEqual(['default', 'advanced']);
+    expect(byKey.get('.pi/agent/extensions/subagent-resume-guard.ts')?.modes).toEqual(['default', 'advanced']);
+    expect(byKey.get('.pi/agent/extensions/zz-tool-exposure-finalizer.ts')?.modes).toEqual(['default', 'advanced']);
+    for (const key of [
+      '.pi/agent/extensions/codeflare-pi.ts',
+      '.pi/agent/extensions/codeflare-commands.ts',
+      '.pi/agent/extensions/commands-helpers.ts',
+    ]) {
+      expect(byKey.get(key)?.modes).toEqual(['advanced']);
+    }
+  });
+
   it('AC6: codeflare-commands.ts is delivered advanced-only through the seed pipeline (manifest mode-gate)', () => {
     // The mode-gate is the contract value: the generated seed must carry the
     // manifest's advanced-only gate for this extension, so Standard mode and

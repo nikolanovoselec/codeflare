@@ -16,6 +16,7 @@ import {
 } from '../../scripts/pi-prompt-contract.mjs';
 import {
   serializePiToolSchemas,
+  serializeSelectedPiToolSchemas,
   verifyPiProjection,
 } from '../../scripts/verify-pi-prompt.mjs';
 
@@ -124,6 +125,15 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
       description: 'Load tools',
       parameters: { type: 'object' },
     });
+    assert.deepEqual(JSON.parse(serializeSelectedPiToolSchemas({
+      builtInTools: [
+        { name: 'read', description: 'Read', parameters: { type: 'object' } },
+      ],
+      extensionTools: [
+        { name: 'capability', description: 'Load tools', parameters: { type: 'object' } },
+        { name: 'subagent', description: 'Delegate', parameters: { type: 'object' } },
+      ],
+    }, ['read', 'capability'])).map(({ name }) => name), ['capability', 'read']);
   });
 
   it('keeps real default and advanced resource-loader projections inside the prompt boundary', async () => {
@@ -134,7 +144,7 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
     await symlink(piNodeModules, join(runtimeAgentDir, 'npm', 'node_modules'), 'dir');
     const piDependencies = JSON.parse(readFileSync(piPackageJson, 'utf8')).dependencies;
     const packages = Object.entries(piDependencies).map(([name, version]) => (
-      name === 'context-mode' ? { source: `npm:${name}@${version}`, extensions: [] } : `npm:${name}@${version}`
+      name === 'context-mode' ? { source: `npm:${name}@${version}`, extensions: [], skills: [] } : `npm:${name}@${version}`
     ));
     await writeFile(join(runtimeAgentDir, 'settings.json'), JSON.stringify({ packages }));
     const documents = parseGeneratedSeed(readFileSync(generatedPath, 'utf8'));
@@ -143,6 +153,9 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
       const report = await verifyPiProjection({ documents, mode, runtimeAgentDir, piPackageRoot });
       assert.equal(report.withinPromptBudget, true, `${mode} prompt uses ${report.promptChars} characters`);
       assert.ok(report.toolSchemaChars > 0, `${mode} registered tool schemas must be reported`);
+      assert.ok(report.activeToolSchemaChars > 0, `${mode} active tool schemas must be reported`);
+      assert.deepEqual(report.activeToolNames, ['read', 'bash', 'edit', 'write', 'capability']);
+      assert.ok(report.activeToolSchemaChars < report.toolSchemaChars, `${mode} initial schemas must exclude registered optional tools`);
       assert.ok(report.extensionToolNames.includes('capability'), `${mode} must load the configured capability extension tool`);
       assert.ok(report.registeredToolNames.includes('capability'), `${mode} schemas must include the capability extension tool`);
     }

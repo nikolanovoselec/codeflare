@@ -21,12 +21,12 @@ const CORE_TOOL_NAMES = [
   "bash",
   "edit",
   "write",
-  "ask_user_question",
   "capability",
-  "graphify_query",
-  "graphify_path",
-  "graphify_explain",
 ] as const;
+
+const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
+  subagent: ["subagent", "get_subagent_result", "steer_subagent"],
+};
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
@@ -34,11 +34,11 @@ function unique(values: string[]): string[] {
 
 export function initialActiveTools(pi: ToolActivationPi): string[] {
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  const enabledContextTools = pi.getActiveTools().filter((name) => name.startsWith("ctx_") && registered.has(name));
-  return unique([
-    ...CORE_TOOL_NAMES.filter((name) => registered.has(name)),
-    ...enabledContextTools,
-  ]);
+  return CORE_TOOL_NAMES.filter((name) => registered.has(name));
+}
+
+export function activationGroup(name: string): string[] {
+  return [...(TOOL_ACTIVATION_GROUPS[name] ?? [name])];
 }
 
 export function activateRegisteredTools(pi: ToolActivationPi, requested: string[]): string[] {

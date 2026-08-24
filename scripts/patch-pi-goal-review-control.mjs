@@ -18,6 +18,7 @@ export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
 export const RUNTIME_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_RUNTIME';
+export const RUNTIME_SETTLED_RESTART_MARKER = 'CODEFLARE_GOAL_SETTLED_RESTART';
 export const CONTROL_CHANNEL = 'codeflare:pi-goal:control';
 
 const CONTROL_BLOCK = `
@@ -207,8 +208,8 @@ const RUNTIME_DISPATCH_PATCH = `\tdispatchContinuationIfSettled(ctx: StatusConte
 
 \t\tif (!isEligible()) return false;
 \t\tconst minIntervalMs = this.settings.continuationLimits.minIntervalMs;
-\t\tif (this.continuationTimer) return false;
 \t\tif (minIntervalMs === 0) return deliver();
+\t\tthis.clearContinuationTimer(); // CODEFLARE_GOAL_SETTLED_RESTART
 
 \t\tconst menuGeneration = this.menuGeneration;
 \t\tconst marker = intent.marker;
@@ -584,8 +585,8 @@ export function patchPiGoalRuntimeSource(source) {
               'this.continuationIntent?.marker !== marker',
               'options: { intervalElapsed?: boolean } = {}',
               'if (this.settings.continuationLimits.minIntervalMs > 0) {',
+              'this.clearContinuationDispatchTimer();',
               'return this.scheduleContinuationDispatch(ctx, intent.goalId);',
-              'if (this.continuationDispatchTimer) return false;',
               'this.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });',
             ]
           : [
@@ -593,6 +594,7 @@ export function patchPiGoalRuntimeSource(source) {
               'this.menuGeneration !== menuGeneration',
               'this.clearContinuationTimer();',
             ]),
+        RUNTIME_SETTLED_RESTART_MARKER,
         ...(usesConfigurablePauseRequest
           ? [
               'kind: "explicit_pause"; expectedGoalId: string; abortTurn?: boolean',
@@ -658,8 +660,8 @@ export function patchPiGoalRuntimeSource(source) {
         '\t\tif (ctx.isIdle?.() !== true || hasPendingMessages(ctx)) return false;',
         '',
         '\t\tif (options.intervalElapsed !== true) {',
-        '\t\t\tif (this.continuationDispatchTimer) return false;',
         '\t\t\tif (this.settings.continuationLimits.minIntervalMs > 0) {',
+        `\t\t\t\tthis.clearContinuationDispatchTimer(); // ${RUNTIME_SETTLED_RESTART_MARKER}`,
         '\t\t\t\treturn this.scheduleContinuationDispatch(ctx, intent.goalId);',
         '\t\t\t}',
         '\t\t}',

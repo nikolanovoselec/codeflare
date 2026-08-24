@@ -914,14 +914,17 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(messages.length, 1);
   });
 
-  it('REQ-AGENT-130 AC4: successor repeated dispatch remains single-flight', () => {
+  it('REQ-AGENT-130 AC4: successor settled activity restarts one pending interval', () => {
     const { runtime, scheduler, messages, ctx } = successorRuntimeHarness(25);
 
     assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
-    assert.equal(runtime.dispatchContinuationIfSettled(ctx), false);
+    scheduler.advance(20);
+    assert.equal(runtime.dispatchContinuationIfSettled(ctx), true);
     assert.equal(scheduler.pendingCount(), 1);
-    assert.deepEqual(scheduler.armedDelays(), [25]);
-    scheduler.advance(25);
+    assert.deepEqual(scheduler.armedDelays(), [25, 25]);
+    scheduler.advance(5);
+    assert.deepEqual(messages, []);
+    scheduler.advance(20);
     assert.equal(messages.length, 1);
   });
 
@@ -1011,15 +1014,17 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     ]);
   });
 
-  it('REQ-AGENT-130 AC4: keeps repeated settled events single-flight', () => {
+  it('REQ-AGENT-130 AC4: latest settled activity restarts one pending interval', () => {
     const { runtime, scheduler, messages, ctx } = runtimeHarness(60_000);
 
     runtime.dispatchContinuationIfSettled(ctx);
-    runtime.dispatchContinuationIfSettled(ctx);
+    scheduler.advance(45_000);
     runtime.dispatchContinuationIfSettled(ctx);
     assert.equal(scheduler.pendingCount(), 1);
 
-    scheduler.advance(60_000);
+    scheduler.advance(15_000);
+    assert.deepEqual(messages, []);
+    scheduler.advance(45_000);
     assert.deepEqual(messages, [
       { prompt: 'continue goal-a', options: { deliverAs: 'followUp' } },
     ]);

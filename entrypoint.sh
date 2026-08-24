@@ -2560,12 +2560,11 @@ const required = [
   'npm:@narumitw/pi-plan-mode@0.52.0',
   'npm:@narumitw/pi-usage@0.50.0',
 ];
-// Keep context-mode enabled through the managed foreground-owner bridge on every fresh container
-// start. Filtering its upstream extension avoids a second owner; omitting `skills` keeps its tools
-// and routing skill active. `/ctx off` remains an explicit per-container override until restart.
+// Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
+// fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [] },
+  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is

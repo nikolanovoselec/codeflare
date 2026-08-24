@@ -4,7 +4,7 @@
  * local faux provider. This includes the effective system prompt, active tool
  * schemas, and extension-provided per-turn context without a network request.
  *
- * Usage: node scripts/measure-pi-runtime-context.mjs [--agent-dir <path>] [--limit <tokens>]
+ * Usage: node scripts/measure-pi-runtime-context.mjs [--agent-dir <path>]
  */
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -16,7 +16,6 @@ function option(name, fallback) {
 }
 
 const agentDir = path.resolve(option('--agent-dir', path.join(homedir(), '.pi/agent')));
-const limit = Number(option('--limit', '10000'));
 const piRoot = process.env.PI_CODING_AGENT_ROOT
   ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
 const cwd = process.cwd();
@@ -53,21 +52,36 @@ const { session } = await sdk.createAgentSession({
 
 await session.bindExtensions({ mode: 'interactive' });
 
-let exitCode = 1;
 try {
   await session.prompt('Reply ok.');
   const response = [...session.messages].reverse().find((message) => message.role === 'assistant');
   const inputTokens = response?.usage?.input;
   if (!Number.isFinite(inputTokens)) throw new Error('Faux provider did not report input usage.');
+  const activeToolNames = session.getActiveToolNames();
+  const active = new Set(activeToolNames);
+  const toolSchemas = session.getAllTools()
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const serializedRegisteredSchemas = JSON.stringify(toolSchemas);
+  const activeToolSchemas = toolSchemas.filter((tool) => active.has(tool.name));
+  const serializedActiveSchemas = JSON.stringify(activeToolSchemas);
   const result = {
     inputTokens,
-    limit,
-    activeTools: session.getActiveToolNames(),
     systemPromptChars: session.systemPrompt.length,
+    registeredToolNames: toolSchemas.map((tool) => tool.name),
+    registeredToolSchemaChars: serializedRegisteredSchemas.length,
+    activeToolNames,
+    activeToolSchemaChars: serializedActiveSchemas.length,
+    activeToolSchemas: activeToolSchemas.map((tool) => ({
+      name: tool.name,
+      serializedChars: JSON.stringify(tool).length,
+    })),
   };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  exitCode = inputTokens < limit ? 0 : 1;
 } finally {
   session.dispose();
-  process.exit(exitCode);
 }

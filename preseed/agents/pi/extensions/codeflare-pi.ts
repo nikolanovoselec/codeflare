@@ -14,12 +14,6 @@ import { activateRegisteredTools, type ToolActivationPi } from "./capability-hel
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
-import {
-  CONTEXT_MODE_DISABLED_PACKAGE,
-  CONTEXT_MODE_ENABLED_PACKAGE,
-  contextModeEnabled,
-  isContextModePackage,
-} from "./context-mode-runtime";
 
 export { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 
@@ -59,18 +53,6 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const GLOBAL_MANIFEST = "/home/user/.graphify/global-manifest.json";
-const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
-
-export type PiSettings = {
-  packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
-  extensions?: string[];
-  [key: string]: unknown;
-};
-
-export type PiSettingsStore = {
-  read(): PiSettings;
-  write(settings: PiSettings): void;
-};
 
 function ensureCacheDir(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
@@ -571,63 +553,6 @@ export function reconcileGlobalGraph(repo: string): boolean {
   }
 }
 
-const PI_SETTINGS_STORE: PiSettingsStore = {
-  read() {
-    try {
-      return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
-    } catch {
-      return {};
-    }
-  },
-  write(settings) {
-    writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  },
-};
-
-export function setContextModeEnabled(
-  enabled: boolean,
-  store: PiSettingsStore = PI_SETTINGS_STORE,
-): "enabled" | "disabled" {
-  const settings = store.read();
-  const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
-  const contextModePackage = enabled ? CONTEXT_MODE_ENABLED_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE;
-  packages.push({
-    ...contextModePackage,
-    extensions: [...contextModePackage.extensions],
-    ...(enabled ? {} : { skills: [...CONTEXT_MODE_DISABLED_PACKAGE.skills] }),
-  });
-  store.write({ ...settings, packages });
-  return enabled ? "enabled" : "disabled";
-}
-
-function contextModeStatusText(store: PiSettingsStore = PI_SETTINGS_STORE): string {
-  const enabled = contextModeEnabled(store.read());
-  return enabled
-    ? "context-mode is enabled for Pi in this container. Use `/ctx off` to disable it and reload this Pi process; the next Codeflare container start restores the enabled default."
-    : "context-mode is disabled for Pi in this container. Use `/ctx on` to enable it and reload this Pi process; the next Codeflare container start restores the enabled default.";
-}
-
-export async function handleContextModeCommand(
-  args: string,
-  ctx: ExtensionCommandContext,
-  store: PiSettingsStore = PI_SETTINGS_STORE,
-): Promise<void> {
-  const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
-  if (["on", "enable", "enabled"].includes(action)) {
-    setContextModeEnabled(true, store);
-    ctx.ui.notify("context-mode enabled in Pi settings; reloading this Pi process...", "info");
-    await ctx.reload();
-    return;
-  }
-  if (["off", "disable", "disabled"].includes(action)) {
-    setContextModeEnabled(false, store);
-    ctx.ui.notify("context-mode disabled in Pi settings; reloading this Pi process...", "info");
-    await ctx.reload();
-    return;
-  }
-  ctx.ui.notify(contextModeStatusText(store), "info");
-}
-
 function newestVaultMtime(): number | undefined {
   if (!existsSync(VAULT_ROOT)) return undefined;
   let newest = 0;
@@ -719,11 +644,6 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       await sendWorkflowMessage(pi, ctx, `/note ${args}`.trim(), `${skillPrompt("vault-note-capture", "Capture the user's note into ~/Vault/Notes.")}\n\nNote text: ${args}`);
     },
-  });
-
-  pi.registerCommand("ctx", {
-    description: "Show, enable, or disable context-mode in this container's Pi settings. Usage: /ctx status|on|off",
-    handler: (args, ctx) => handleContextModeCommand(args, ctx),
   });
 
   pi.on("session_start", (_event, ctx) => {

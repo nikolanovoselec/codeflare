@@ -345,7 +345,7 @@ jobs:
               set -eu
               mkdir -p /tmp/pi-runtime/npm
               ln -s /opt/codeflare/pi-agent/npm/node_modules /tmp/pi-runtime/npm/node_modules
-              node -e '\''const fs=require("fs");const p=require("/workspace/preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync("/tmp/pi-runtime/settings.json",JSON.stringify({packages}));'\''
+              node -e '\''const fs=require("fs");const p=require("/workspace/preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync("/tmp/pi-runtime/settings.json",JSON.stringify({packages}));'\''
               node /workspace/scripts/verify-pi-prompt.mjs \
                 --generated /workspace/src/lib/agent-seed.generated.ts \
                 --runtime-agent-dir /tmp/pi-runtime \

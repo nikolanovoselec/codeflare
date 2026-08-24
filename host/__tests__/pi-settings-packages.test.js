@@ -1,7 +1,7 @@
 // Runs the real embedded Node program from entrypoint.sh that assembles Pi's
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
-//   - context-mode being enabled by default while remaining controllable through explicit /ctx off/on,
+//   - context-mode being disabled by default while remaining controllable through explicit /ctx off/on,
 //   - the managed extension packages, including Goal, Usage, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
@@ -168,7 +168,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
 });
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages and enables context-mode by default', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
@@ -176,13 +176,13 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     const contextMode = settings.packages.find((entry) => sourceOf(entry) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [] });
+    assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
   });
 
-  it('startup restores the enabled default while preserving managed and unrelated packages', () => {
+  it('startup restores the disabled default while preserving managed and unrelated packages', () => {
     const initial = JSON.stringify({
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+        { source: 'npm:context-mode@1.0.169', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
@@ -190,7 +190,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });
+    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
     // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');
