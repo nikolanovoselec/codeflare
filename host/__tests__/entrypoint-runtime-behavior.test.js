@@ -304,7 +304,7 @@ exec "$REAL_NODE" "$@"
     assert.equal(readFileSync(managed, 'utf8'), '{"dismissed_version":"operator-owned"}\n');
   });
 
-  it('REQ-AGENT-001 AC5: gives Pi a stable writable Jiti cache outside disposable /tmp', () => {
+  it('REQ-AGENT-160 AC1: keeps late Pi extension output writable outside disposable /tmp', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-jiti-runtime-'));
     const runtimeTmp = join(fixture, 'run/codeflare/pi-tmp');
     const imageCache = join(fixture, 'image-jiti-cache');
@@ -313,8 +313,8 @@ exec "$REAL_NODE" "$@"
     const result = runFunction(
       'configure_pi_jiti_runtime_cache',
       '',
-      'configure_pi_jiti_runtime_cache; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
-      { PI_RUNTIME_TMPDIR: runtimeTmp, PI_JITI_IMAGE_CACHE: imageCache },
+      'configure_pi_jiti_runtime_cache "$TEST_RUNTIME_TMP" "$TEST_IMAGE_CACHE"; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
+      { TEST_RUNTIME_TMP: runtimeTmp, TEST_IMAGE_CACHE: imageCache },
     );
 
     assert.equal(result.status, 0, result.stderr);

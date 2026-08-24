@@ -41,7 +41,7 @@ Multi-agent support, preseed system, and session modes.
 2. The supported agent-type values are schema-validated at the request boundary. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 3. Each coding-agent CLI selected for a deployment is installed in the container image from a committed lock-backed npm tree or a checksum-pinned native artifact; an unspecified selection installs the full supported set. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
 4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time; Codex and Copilot pay the compile cost on first launch. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
-5. Pi extension npm dependencies and the writable Jiti transpile cache are available from image-owned caches without overwriting restored user package metadata or depending on disposable `/tmp` state. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5: gives Pi a stable writable Jiti cache outside disposable /tmp) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
+5. Pi extension npm dependencies are available from the image cache without overwriting restored user package metadata. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
 6. The image build fails if either committed pre-warmed Pi SDK dependency/override pin differs from the lock-backed runtime-agent pin or installed version. <!-- @impl: Dockerfile::verify-pi-lockstep --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiLockstep --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-001 AC6: Pi image lockstep fails closed) -->
 7. When Claude Code is selected, the image build verifies that its shared CLI can start; official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
 
@@ -233,6 +233,30 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
 **Verification:** Package assembly, startup-policy, JITI cache, and Goal/Plan integration tests; manual reload smoke test; deployment image build
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-160: Durable Late Pi Extension Loading
+
+**Intent:** Interactive Pi features first loaded after startup must remain usable when disposable temporary files are removed during the session.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A running Pi session can persist late-loaded extension output after disposable temporary files are removed, without restarting the container. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-160 AC1: keeps late Pi extension output writable outside disposable /tmp) -->
+
+**Constraints:**
+
+- The fix must retain image-prewarmed extension startup and must not patch Plan Mode or Jiti package source.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
+
+**Verification:** Entrypoint runtime behavior test; manual Plan Mode completion after disposable temporary-file cleanup
 
 **Status:** Implemented
 
