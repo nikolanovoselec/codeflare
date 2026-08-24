@@ -2558,7 +2558,7 @@ const required = [
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.53.0',
   'npm:@narumitw/pi-plan-mode@0.52.0',
-  'npm:@narumitw/pi-usage@0.50.0',
+  'npm:@narumitw/pi-usage@0.52.0',
 ];
 // Keep context-mode enabled through the managed foreground-owner bridge on every fresh container
 // start. Filtering its upstream extension avoids a second owner; omitting `skills` keeps its tools
