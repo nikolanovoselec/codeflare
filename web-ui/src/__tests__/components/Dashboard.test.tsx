@@ -30,6 +30,16 @@ vi.mock('../../components/SessionStatCard', () => ({
     <div data-testid={`session-card-${props.session.id}`}>
       <span data-testid="session-name">{props.session.name}</span>
       <button data-testid={`select-${props.session.id}`} onClick={props.onSelect}>Select</button>
+      <button data-testid={`menu-${props.session.id}`} onClick={(event) => props.onMenuClick?.(event, props.session)}>Menu</button>
+      {props.workspaceAction && (
+        <button
+          data-testid={`workspace-action-${props.session.id}`}
+          disabled={props.workspaceAction.disabled}
+          onClick={props.workspaceAction.onClick}
+        >
+          {props.workspaceAction.label}
+        </button>
+      )}
     </div>
   )
 }));
@@ -213,6 +223,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     sessions: mockSessions,
     onCreateSession: vi.fn(),
     onStartSession: vi.fn(),
+    onOpenVscodeSession: vi.fn(),
     onStopSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onOpenSessionById: vi.fn(),
@@ -268,6 +279,56 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   // === Initialization Tests ===
+
+  it('REQ-IDE-048 AC4: gives stopped VS Code sessions an explicit Start action', () => {
+    const sessions: SessionWithStatus[] = [{
+      id: 'editor', name: 'Editor', workspace: 'vscode', status: 'stopped',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }];
+    render(() => <Dashboard {...defaultProps} sessions={sessions} />);
+
+    const action = screen.getByTestId('workspace-action-editor');
+    expect(action).toHaveTextContent('Start');
+    fireEvent.click(action);
+
+    expect(defaultProps.onStartSession).toHaveBeenCalledWith('editor');
+    expect(defaultProps.onOpenVscodeSession).not.toHaveBeenCalled();
+  });
+
+  it('REQ-IDE-048 AC4: enables explicit Open only after editor readiness', () => {
+    const sessions: SessionWithStatus[] = [{
+      id: 'editor', name: 'Editor', workspace: 'vscode', status: 'running', editorReady: false,
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }];
+    render(() => <Dashboard {...defaultProps} sessions={sessions} />);
+
+    expect(screen.getByTestId('workspace-action-editor')).toHaveTextContent('Preparing…');
+    expect(screen.getByTestId('workspace-action-editor')).toBeDisabled();
+
+    cleanup();
+    render(() => <Dashboard {...defaultProps} sessions={[{ ...sessions[0], editorReady: true }]} />);
+    const action = screen.getByTestId('workspace-action-editor');
+    expect(action).toHaveTextContent('Open');
+    fireEvent.click(action);
+    expect(defaultProps.onOpenVscodeSession).toHaveBeenCalledWith('editor');
+  });
+
+  it('REQ-IDE-048 AC4: editor failure exposes Retry plus Stop and Delete operations', () => {
+    const sessions: SessionWithStatus[] = [{
+      id: 'editor', name: 'Editor', workspace: 'vscode', status: 'error', editorReadyError: true,
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }];
+    render(() => <Dashboard {...defaultProps} sessions={sessions} />);
+
+    const retry = screen.getByTestId('workspace-action-editor');
+    expect(retry).toHaveTextContent('Retry');
+    fireEvent.click(retry);
+    expect(defaultProps.onStartSession).toHaveBeenCalledWith('editor');
+
+    fireEvent.click(screen.getByTestId('menu-editor'));
+    expect(screen.getByTestId('context-menu-stop')).toBeInTheDocument();
+    expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
+  });
 
   it('REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action', () => {
     mockMultiView = {

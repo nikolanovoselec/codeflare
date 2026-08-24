@@ -4,7 +4,7 @@
  * Extracted from Container DO (index.ts) to reduce file size.
  * All functions receive explicit state/context parameters instead of `this`.
  */
-import type { Env, TabConfig } from '../types';
+import type { Env, SessionWorkspace, TabConfig } from '../types';
 import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
@@ -41,6 +41,7 @@ export interface ContainerEnvState {
   _cloudflareAccountId: string | null;
   _encryptionKey: string | null;
   _sessionMode: string;
+  _sessionWorkspace: SessionWorkspace;
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
@@ -87,6 +88,7 @@ interface RestartPrefsInput {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
+  sessionWorkspace?: SessionWorkspace;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
   userTimezone?: string;
@@ -117,6 +119,7 @@ export interface SetBucketNameCreds {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
+  sessionWorkspace?: SessionWorkspace;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -142,8 +145,9 @@ export function validateBucketNameInput(input: {
   workspaceSyncEnabled?: unknown;
   fastStartEnabled?: unknown;
   sessionMode?: unknown;
+  sessionWorkspace?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode } = input;
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
@@ -162,6 +166,9 @@ export function validateBucketNameInput(input: {
   }
   if (sessionMode !== undefined && typeof sessionMode !== 'string') {
     return 'sessionMode must be a string when provided';
+  }
+  if (sessionWorkspace !== undefined && sessionWorkspace !== 'terminal' && sessionWorkspace !== 'vscode') {
+    return 'sessionWorkspace must be terminal or vscode when provided';
   }
   if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
     return 'r2AccountId must be a non-empty string when provided';
@@ -316,6 +323,7 @@ export function buildEnvVars(
     ...(state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
+    CODEFLARE_SESSION_WORKSPACE: state._sessionWorkspace,
     // REQ-MEM-001 AC4: user's IANA timezone. The capture haiku resolves
     // wall-clock time as TZ="$USER_TIMEZONE" date '+%Y-%m-%dT...'; only
     // emit when set so the entrypoint's existing fallback chain ($TZ ->
@@ -414,6 +422,11 @@ export async function applyBucketName(
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
+
+  if (r2Creds?.sessionWorkspace) {
+    await storage.put('sessionWorkspace', r2Creds.sessionWorkspace);
+    state._sessionWorkspace = r2Creds.sessionWorkspace;
+  }
 
   // REQ-MEM-001 AC4: persist userTimezone so the capture pipeline sees
   // the user's IANA zone on subsequent DO wakes too (the env var flows
@@ -582,6 +595,11 @@ export async function applyPrefsOnRestart(
   }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;
+    changed = true;
+  }
+  if (input.sessionWorkspace && input.sessionWorkspace !== state._sessionWorkspace) {
+    await storage.put('sessionWorkspace', input.sessionWorkspace);
+    state._sessionWorkspace = input.sessionWorkspace;
     changed = true;
   }
 

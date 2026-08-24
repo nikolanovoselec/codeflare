@@ -33,6 +33,7 @@ interface DashboardProps {
   sessions: SessionWithStatus[];
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
+  onOpenVscodeSession: (id: string) => void;
   onOpenSessionById: (id: string) => void;
   onOpenMultiView?: () => void;
   onStopSession: (id: string) => void;
@@ -231,6 +232,20 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   const handleSessionSelect = (session: SessionWithStatus) => {
     props.onOpenSessionById(session.id);
+  };
+
+  const vscodeWorkspaceAction = (session: SessionWithStatus) => {
+    if (session.workspace !== 'vscode') return undefined;
+    if (session.status === 'stopped') {
+      return { label: 'Start', onClick: () => props.onStartSession(session.id) };
+    }
+    if (session.status === 'error' || session.editorReadyError === true) {
+      return { label: 'Retry', onClick: () => props.onStartSession(session.id) };
+    }
+    if (session.status === 'running' && session.editorReady === true) {
+      return { label: 'Open', onClick: () => props.onOpenVscodeSession(session.id) };
+    }
+    return { label: 'Preparing…', disabled: true, onClick: () => {} };
   };
 
   const handlePreviewBack = () => {
@@ -440,6 +455,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         onSelect={() => handleSessionSelect(session)}
                         onStop={() => props.onStopSession(session.id)}
                         onDelete={() => props.onDeleteSession(session.id)}
+                        workspaceAction={vscodeWorkspaceAction(session)}
                         onMenuClick={handleMenuClick}
                       />
                     )}
@@ -449,7 +465,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <SessionContextMenu
                     isOpen={menuState().isOpen}
                     position={menuState().position}
-                    canStop={menuState().session ? (menuState().session!.status === 'running' || menuState().session!.status === 'initializing') : false}
+                    canStop={menuState().session ? (menuState().session!.status === 'running' || menuState().session!.status === 'initializing' || (menuState().session!.workspace === 'vscode' && menuState().session!.status === 'error')) : false}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

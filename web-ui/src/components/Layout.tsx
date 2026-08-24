@@ -20,8 +20,12 @@ import { checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 import { dashboardPath, parseSessionPath, sessionPath } from '../lib/session-path';
+import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
+
+const BROWSER_IDE_POPUP_BLOCKED_ERROR = 'Browser blocked the Browser IDE window. Allow pop-ups and try again.';
+const BROWSER_IDE_INVALID_SESSION_ERROR = 'Browser IDE could not open because the session ID is invalid.';
 
 export function clearPrewarmingVaultStatus(
   statuses: Record<string, VaultPrewarmStatus>,
@@ -65,6 +69,7 @@ interface LayoutProps {
  * +------------------------------------------------------------------+
  */
 const Layout: Component<LayoutProps> = (props) => {
+  const openBrowserIdeWindow = createBrowserIdeWindowOpener();
   const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
@@ -274,14 +279,21 @@ const Layout: Component<LayoutProps> = (props) => {
     window.open(`/api/vault/${sid}/.codeflare-bootstrap`, '_blank', 'noopener');
   };
 
-  // Browser IDE: open the per-session OpenVSCode editor directly. The URL is
-  // session-keyed (REQ-IDE-002) and base-path native; the host lazily starts
-  // OpenVSCode on this first request and returns a warming state until it is up,
-  // so no client-side readiness gate is needed (unlike the vault prewarm).
-  const handleVscodeOpen = () => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return;
-    window.open(`/api/vscode/${sid}/`, '_blank', 'noopener');
+  // Keep browser opening synchronous and isolated behind one explicit gesture
+  // seam. Startup, selection, readiness, and routing never call this.
+  const openVscodeSession = (sessionId: string) => {
+    const result = openBrowserIdeWindow(sessionId);
+    if (result === 'blocked') {
+      setTerminalError(BROWSER_IDE_POPUP_BLOCKED_ERROR);
+    } else if (result === 'invalid-session') {
+      setTerminalError(BROWSER_IDE_INVALID_SESSION_ERROR);
+    } else {
+      setTerminalError((error) => (
+        error === BROWSER_IDE_POPUP_BLOCKED_ERROR || error === BROWSER_IDE_INVALID_SESSION_ERROR
+          ? null
+          : error
+      ));
+    }
   };
 
   const handleVaultOpen = () => {
@@ -474,10 +486,13 @@ const Layout: Component<LayoutProps> = (props) => {
   const showTerminal = createMemo(() => viewState() === 'terminal' || viewState() === 'expanding');
   const showDashboard = createMemo(() => viewState() === 'dashboard' || viewState() === 'collapsing');
 
-  // Sync viewState with session store
+  // Sync viewState with terminal-owned session state. Missing workspace fields
+  // are historical Terminal sessions; only explicit `vscode` stays dashboard-owned.
   createEffect(() => {
     const session = sessionStore.getActiveSession();
-    const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
+    const hasActiveTerminal = session
+      && session.workspace !== 'vscode'
+      && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
     const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
@@ -518,13 +533,46 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   };
 
-  const openSessionWorkspace = (id: string, shouldStart = false, updateHistory = true) => {
+  const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => {
+    terminalWorkspaceStore.setDashboardWorkspace();
+    setShowTilingOverlay(false);
+    clearViewTransitionTimer();
+    sessionStore.setActiveSession(null);
+    setViewState('dashboard');
+    if (historyMode) writeHistoryPath(dashboardPath(), historyMode);
+  };
+
+  const openSessionWorkspace = (
+    id: string,
+    options: { shouldStart?: boolean; updateHistory?: boolean; explicitVscodeOpen?: boolean } = {},
+  ) => {
+    const session = sessionStore.sessions.find((candidate) => candidate.id === id);
+    if (!session) return;
+    const { shouldStart = false, updateHistory = true, explicitVscodeOpen = false } = options;
+
+    if (explicitVscodeOpen) {
+      openVscodeSession(id);
+      return;
+    }
+
+    if (session.workspace === 'vscode') {
+      keepDashboardOwnership(updateHistory ? 'push' : undefined);
+      if (shouldStart) void sessionStore.startSession(id).catch(() => {});
+      return;
+    }
+
     const terminalId = shouldStart ? '1' : sessionStore.getTerminalsForSession(id)?.activeTabId || '1';
     sessionStore.setActiveSession(id);
-    terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId);
+    terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId, session);
     enterTerminalView();
     if (updateHistory) writeSessionHistoryPath(id, 'push');
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
+  };
+
+  const handleVscodeOpen = () => {
+    const session = sessionStore.getActiveSession();
+    if (!session) return;
+    openSessionWorkspace(session.id, { explicitVscodeOpen: true, updateHistory: false });
   };
 
   const handleSelectSession = (id: string) => {
@@ -532,15 +580,22 @@ const Layout: Component<LayoutProps> = (props) => {
     if (session?.status === 'running' || session?.status === 'initializing') {
       openSessionWorkspace(id);
     } else if (session?.status === 'stopped') {
-      openSessionWorkspace(id, true);
+      openSessionWorkspace(id, { shouldStart: true });
     }
   };
 
   const handleStartSession = async (id: string) => {
-    sessionStore.setActiveSession(id);
-    terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
-    enterTerminalView();
-    writeSessionHistoryPath(id, 'push');
+    const session = sessionStore.sessions.find((candidate) => candidate.id === id);
+    if (!session) return;
+
+    if (session.workspace === 'vscode') {
+      keepDashboardOwnership('push');
+    } else {
+      sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1', session);
+      enterTerminalView();
+      writeSessionHistoryPath(id, 'push');
+    }
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -558,17 +613,21 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
     const session = await sessionStore.createSession(name, agentType, tabConfig);
-    if (session) {
+    if (!session) return;
+
+    if (session.workspace === 'vscode') {
+      keepDashboardOwnership('push');
+    } else {
       sessionStore.setActiveSession(session.id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
+      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1', session);
       enterTerminalView();
       writeSessionHistoryPath(session.id, 'push');
-      // Update preferences with last-used agent type
-      if (agentType) {
-        sessionStore.updatePreferences({ lastAgentType: agentType });
-      }
-      await sessionStore.startSession(session.id);
     }
+    // Update preferences with last-used agent type
+    if (agentType) {
+      sessionStore.updatePreferences({ lastAgentType: agentType });
+    }
+    await sessionStore.startSession(session.id);
   };
 
   const handleOpenMultiView = () => {
@@ -596,11 +655,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const setDashboardWorkspaceFromLocation = () => {
-    terminalWorkspaceStore.setDashboardWorkspace();
-    setShowTilingOverlay(false);
-    clearViewTransitionTimer();
-    sessionStore.setActiveSession(null);
-    setViewState('dashboard');
+    keepDashboardOwnership();
   };
 
   const reconcileLocation = (fromHistory: boolean) => {
@@ -618,8 +673,11 @@ const Layout: Component<LayoutProps> = (props) => {
       : undefined;
 
     if (requestedSessionId && requestedSession) {
-      if (requestedSession.status === 'running' || requestedSession.status === 'initializing') {
-        openSessionWorkspace(requestedSessionId, false, false);
+      if (requestedSession.workspace === 'vscode') {
+        keepDashboardOwnership();
+        writeHistoryPath(dashboardPath(), 'replace');
+      } else if (requestedSession.status === 'running' || requestedSession.status === 'initializing') {
+        openSessionWorkspace(requestedSessionId, { updateHistory: false });
       } else {
         // A canonical link may identify a session that stopped after the
         // notification was sent. Keep the trusted selection without waking it.
@@ -628,6 +686,7 @@ const Layout: Component<LayoutProps> = (props) => {
         terminalWorkspaceStore.setSingleSessionWorkspace(
           requestedSessionId,
           sessionStore.getTerminalsForSession(requestedSessionId)?.activeTabId || '1',
+          requestedSession,
         );
         setViewState('dashboard');
       }
@@ -660,8 +719,8 @@ const Layout: Component<LayoutProps> = (props) => {
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
-      // entrypoint.sh which restores files from R2 before starting the terminal.
-      openSessionWorkspace(sessionId, true);
+      // entrypoint.sh, restoring files before the selected workspace becomes ready.
+      openSessionWorkspace(sessionId, { shouldStart: true });
     }
   };
 
@@ -791,6 +850,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onDashboardSessionSelect={handleDashboardSessionSelect}
           onCreateSession={handleCreateSession}
           onStartSession={handleStartSession}
+          onOpenVscodeSession={openVscodeSession}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           onTerminalError={setTerminalError}

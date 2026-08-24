@@ -306,6 +306,25 @@ describe('Session Store', () => {
       expect(terminals!.tabs.length).toBeGreaterThan(0);
     });
 
+    it('REQ-IDE-048 AC2: does not initialize terminal state for a running VS Code session', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'editor-session',
+        name: 'Editor Session',
+        workspace: 'vscode',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'editor-session': { status: 'running', ptyActive: false, editorReady: true } },
+        maxSessions: 3,
+      } as never);
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: true });
+      expect(sessionStore.getTerminalsForSession('editor-session')).toBeNull();
+    });
+
     it('should keep already-running sessions running regardless of startupStage', async () => {
       const mockSessions = [
         {
@@ -581,6 +600,66 @@ describe('Session Store', () => {
 
       expect(result).toBeNull();
       expect(sessionStore.error).toBe('Create failed');
+    });
+  });
+
+  describe('createSessionWithClone', () => {
+    it('REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership', async () => {
+      mockGetSessions.mockResolvedValue([]);
+      await sessionStore.loadSessions();
+      sessionStore.setActiveSession(null);
+      mockCreateSession.mockResolvedValue({
+        id: 'clone-editor',
+        name: 'hello',
+        workspace: 'vscode',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      let completeStart: (() => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+        completeStart = onComplete;
+        return () => {};
+      });
+
+      const creating = sessionStore.createSessionWithClone('octocat/hello', 'pi');
+      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled());
+
+      expect(sessionStore.activeSessionId).toBeNull();
+      expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
+      completeStart?.();
+      await creating;
+
+      expect(sessionStore.activeSessionId).toBeNull();
+      expect(sessionStore.sessions.find((session) => session.id === 'clone-editor')).toMatchObject({
+        status: 'running', workspace: 'vscode', editorReady: true,
+      });
+      expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
+    });
+
+    it('keeps cloned historical sessions on the existing Terminal activation path', async () => {
+      mockGetSessions.mockResolvedValue([]);
+      await sessionStore.loadSessions();
+      sessionStore.setActiveSession(null);
+      mockCreateSession.mockResolvedValue({
+        id: 'clone-terminal',
+        name: 'hello',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      let completeStart: (() => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+        completeStart = onComplete;
+        return () => {};
+      });
+
+      const creating = sessionStore.createSessionWithClone('octocat/hello', 'pi');
+      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled());
+
+      expect(sessionStore.activeSessionId).toBe('clone-terminal');
+      completeStart?.();
+      await creating;
+
+      expect(sessionStore.getTerminalsForSession('clone-terminal')).not.toBeNull();
     });
   });
 
@@ -862,6 +941,33 @@ describe('Session Store', () => {
       sessionStore.dismissInitProgressForSession('session-1');
 
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+    });
+
+    it('REQ-IDE-048 AC4: completes VS Code startup without creating terminal state', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Editor', workspace: 'vscode',
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'stopped', ptyActive: false, editorReady: false } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      let completeStart: (() => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+        completeStart = onComplete;
+        return () => {};
+      });
+
+      const starting = sessionStore.startSession('session-1');
+      expect(sessionStore.sessions[0].editorReady).toBe(false);
+      expect(sessionStore.isSessionInitializing('session-1')).toBe(true);
+      completeStart?.();
+      await starting;
+
+      expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', editorReady: true });
+      expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+      expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
     });
 
     it('refreshes managed release status immediately after an update-pending start failure', async () => {

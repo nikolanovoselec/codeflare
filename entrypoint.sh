@@ -1287,10 +1287,10 @@ start_silverbullet_supervisor() {
 # from the Codeflare UI through the Worker proxy at /api/vscode/:sid/. It stays
 # loopback-only; the Worker and container bearer chain are the auth boundary.
 #
-# LAZY START: the server is NOT launched at boot. The supervisor waits until
-# init is complete AND the host has recorded a first /api/vscode request (the
-# trigger file host/src/vscode-proxy.ts writes), so sessions that never open the
-# IDE never pay for it. Supervised by a restart loop like SilverBullet.
+# WORKSPACE START: VS Code workspaces launch eagerly after init. Terminal
+# workspaces keep the existing first-/api/vscode-request trigger, so sessions
+# that never open the IDE pay no editor-process cost. Supervised by a restart
+# loop like SilverBullet.
 #
 # SESSION ISOLATION: the browser retains /api/vscode/<SESSION_ID>, while the host
 # strips only that exact prefix before code-server. --user-data-dir and the fixed
@@ -1416,13 +1416,15 @@ kill_pidfile_subtree() {
 }
 
 # Gate: may the IDE launch yet? Requires a resolved session id (so the host can
-# strip the exact public prefix), a completed init, and a first-request trigger.
-# Fail-safe: with no session id, never launch.
-# REQ-IDE-003 AC1, REQ-IDE-002.
+# strip the exact public prefix) and completed init. VS Code workspaces then
+# launch eagerly; Terminal (including absent/invalid values) retains the
+# first-request trigger. Fail-safe: with no session id, never launch.
+# REQ-IDE-003 AC1, REQ-IDE-002, REQ-IDE-048 AC3.
 _openvscode_should_launch() {
     [ -n "${SESSION_ID:-}" ] \
         && [ -f "${CODEFLARE_INIT_FLAG_FILE:-/tmp/codeflare-init-complete}" ] \
-        && [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]
+        && { [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ] \
+            || [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]; }
 }
 
 # Closed, non-executing IDE-agent classification. TAB_CONFIG continues to own
@@ -1632,7 +1634,7 @@ start_openvscode_supervisor() {
         return 0
     fi
 
-    echo "[entrypoint] Arming Browser IDE supervisor (code-server, lazy-start on first /api/vscode request)..."
+    echo "[entrypoint] Arming Browser IDE supervisor (code-server, workspace launch gate)..."
 
     # setsid creates a new session + process group so the shutdown handler can
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
@@ -3769,6 +3771,13 @@ complete_managed_curation_startup() {
     # restored transcripts first, then release the agent PTY as one testable step.
     release_agent_pty_after_cleanup
 
+    # VS Code workspaces warm the editor as soon as initialization completes.
+    # Terminal workspaces retain the existing lazy first-request launch below.
+    if [ "${SESSION_MODE:-default}" = "advanced" ] \
+       && [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ]; then
+        start_openvscode_supervisor
+    fi
+
     # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
     # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
     # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
@@ -3806,7 +3815,9 @@ complete_managed_curation_startup() {
             if [ "${SESSION_MODE:-default}" = "advanced" ]; then
                 start_vault_monitor_daemon
                 start_silverbullet_supervisor
-                start_openvscode_supervisor
+                if [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" != "vscode" ]; then
+                    start_openvscode_supervisor
+                fi
             fi
         ) &
         BISYNC_INIT_PID=$!

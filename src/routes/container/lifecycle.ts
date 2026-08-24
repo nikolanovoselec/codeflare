@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys } from '../../types';
+import { resolveSessionWorkspace } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -115,7 +116,12 @@ export async function startOrRestartContainer(params: {
     const base = destroyedForRestart
       ? (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData
       : sessionData;
-    const updated = { ...base, status: 'running' as const };
+    const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
+    const updated = {
+      ...sessionWithoutReadiness,
+      status: 'running' as const,
+      ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
+    };
     await putSessionWithMetadata(env.KV, sessionKey, updated);
   }
 
@@ -328,6 +334,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       workspaceSyncEnabled,
       fastStartEnabled,
       sessionMode,
+      sessionWorkspace: resolveSessionWorkspace(sessionData.workspace),
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
       // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).

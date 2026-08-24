@@ -107,10 +107,9 @@ const ClonePicker: Component<ClonePickerProps> = (props) => {
     }
   };
 
-  // Create a new session that clones the repo at start, then open it via the
-  // existing dashboard new-session path (store.createSessionWithClone mirrors
-  // Layout.handleCreateSession). On success the picker closes — navigation has
-  // already switched to the new session.
+  // Create a new session that clones the repo at start. Workspace routing stays
+  // server-owned: Terminal follows its existing activation path, while VS Code
+  // starts on the dashboard. On success the picker closes.
   const handleCloneIntoNewSession = async (agentType: AgentType) => {
     if (busy()) return;
     setState({ phase: 'busy' });

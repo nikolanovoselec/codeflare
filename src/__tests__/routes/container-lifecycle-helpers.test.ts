@@ -356,6 +356,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       workspaceSyncEnabled: true,
       fastStartEnabled: false,
       sessionMode: 'default',
+      sessionWorkspace: 'terminal' as const,
       sleepAfter: '30m',
       logger: mockLogger as any,
     };
@@ -477,6 +478,15 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       const body = await fetchCall.json() as Record<string, unknown>;
       expect(body.sessionMode).toBe('advanced');
     });
+
+    it('transports the immutable session workspace', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+
+      await configureContainerDO({ ...baseParams, sessionWorkspace: 'vscode' });
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      expect(await fetchCall.json()).toMatchObject({ sessionWorkspace: 'vscode' });
+    });
   });
 
   describe('startOrRestartContainer', () => {
@@ -538,6 +548,22 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
       expect(stored.status).toBe('running');
+    });
+
+    it('REQ-IDE-048 AC4: clears stale editor readiness before restarting a stopped VS Code session', async () => {
+      const container = createMockContainer('stopped');
+      const params = baseParams(container, {
+        sessionData: {
+          id: 'session1234', name: 'Editor', status: 'stopped', workspace: 'vscode',
+          editorReady: true, editorReadyError: true, createdAt: '2024-01-01T00:00:00Z',
+        } as Session,
+      });
+
+      await startOrRestartContainer(params);
+
+      const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
+      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false });
+      expect(stored.editorReadyError).toBeUndefined();
     });
 
     it('handles getState failure gracefully and starts container', async () => {

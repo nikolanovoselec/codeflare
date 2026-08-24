@@ -32,6 +32,12 @@ import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
+import {
+  EDITOR_WARMING_BUDGET_MS,
+  resolveSessionWorkspace,
+  startWorkspaceServices,
+  waitForEditorReady,
+} from './workspace-readiness.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
 
@@ -65,6 +71,7 @@ const PORT = parseInt(process.env.TERMINAL_PORT ?? '8080', 10);
 const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? '/bin/bash';
 const TERMINAL_ARGS = process.env.TERMINAL_ARGS ?? '-l';  // Login shell flag
 const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
+const SESSION_WORKSPACE = resolveSessionWorkspace(process.env.CODEFLARE_SESSION_WORKSPACE);
 
 // PTY persistence settings - safety-net floor only. The authoritative idle
 // policy lives in collectMetrics (container DO) keyed off `lastInputAt`. This
@@ -218,6 +225,10 @@ let initFlagObserved = false;
 // state (no .claude.json yet, no .bashrc autostart yet — which would land
 // the user in bare bash instead of their configured agent).
 let terminalServiceReady = false;
+// VS Code workspaces have no host PTY readiness. This flips only after the
+// eager editor answers its private loopback health probe.
+let editorReady = false;
+let editorReadyTimedOut = false;
 
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
@@ -226,7 +237,7 @@ const server = http.createServer(createRequestHandler({
   activityTracker: state.activityTracker,
   log,
   serverStartTime: SERVER_START_TIME,
-  readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady }),
+  readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,
   drainAgentEvents: (request) => {
@@ -272,7 +283,7 @@ const parsedTabConfig: TabConfigEntry[] = (() => {
   try { return JSON.parse(process.env.TAB_CONFIG ?? '[]') as TabConfigEntry[]; } catch { return []; }
 })();
 const prewarmConfig = getPrewarmConfig(parsedTabConfig);
-const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider ready after 20s regardless
+const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider terminal ready after 20s regardless
 const PREWARM_ORPHAN_MS = 120000;     // Kill pre-warmed session if not adopted within 2min
 // Init-flag wait must exceed entrypoint's SYNC_TIMEOUT (120s in initial_sync_from_r2)
 // + slack, so a legitimately-slow R2 sync never trips the fallback. If the
@@ -322,10 +333,28 @@ server.listen(PORT, '0.0.0.0', async () => {
 
   await waitForInitFlag();
 
-  // Pre-warm tab 1 PTY so the first client connect is instant
-  const prewarmSession = new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions);
-  sessionManager.sessions.set(state.prewarmSessionId, prewarmSession);
-  prewarmSession.start();
+  let prewarmSession: Session | undefined;
+  while (!prewarmSession) {
+    const startup = await startWorkspaceServices(SESSION_WORKSPACE, {
+      createTerminalSession: () => new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions),
+      insertTerminalSession: (session) => sessionManager.sessions.set(state.prewarmSessionId, session),
+      startTerminalSession: (session) => session.start(),
+      waitForEditor: () => waitForEditorReady({ host: '127.0.0.1', port: OPENVSCODE.port }),
+    });
+    if (startup.kind === 'terminal') {
+      prewarmSession = startup.session;
+      break;
+    }
+
+    editorReady = startup.ready;
+    prewarmReady = editorReady;
+    editorReadyTimedOut = !editorReady;
+    log(editorReady ? 'info' : 'warn', editorReady
+      ? 'Browser IDE ready'
+      : 'Browser IDE did not become ready within warming budget');
+    if (editorReady) return;
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
   // Open the /terminal WS gate AFTER prewarm.start() returns so any client
   // that gets through finds a Session with ptyProcess already spawned (no
   // TOCTOU window where adoption races against the PTY fork). Fresh

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   AgentTypeSchema,
+  SessionWorkspaceSchema,
+  UserPreferencesSchema,
+  SessionSchema,
   BatchSessionStatusResponseSchema,
   StorageStatsResponseSchema,
   StoragePreviewTextResponseSchema,
@@ -54,6 +57,35 @@ describe('AgentTypeSchema', () => {
     if (!result.success) {
       expect(result.error).toBeDefined();
     }
+  });
+});
+
+describe('default workspace preference schema', () => {
+  it.each(['terminal', 'vscode'] as const)('accepts %s as a session workspace', (workspace) => {
+    expect(SessionWorkspaceSchema.parse(workspace)).toBe(workspace);
+    expect(UserPreferencesSchema.parse({ defaultWorkspace: workspace })).toEqual({ defaultWorkspace: workspace });
+  });
+
+  it('rejects unsupported workspaces', () => {
+    expect(SessionWorkspaceSchema.safeParse('browser').success).toBe(false);
+  });
+});
+
+describe('session workspace and readiness schemas', () => {
+  it('defaults historical sessions to Terminal and preserves VS Code readiness', () => {
+    const base = { id: 'session-1', name: 'Session', createdAt: '2026-01-01', lastAccessedAt: '2026-01-01' };
+    expect(SessionSchema.parse(base).workspace).toBe('terminal');
+    expect(SessionSchema.parse({ ...base, workspace: 'vscode', editorReady: true })).toMatchObject({
+      workspace: 'vscode', editorReady: true,
+    });
+  });
+
+  it('carries editor readiness through batch status', () => {
+    const parsed = BatchSessionStatusResponseSchema.parse({
+      statuses: { 'session-1': { status: 'running', ptyActive: false, editorReady: true } },
+      maxSessions: 3,
+    });
+    expect(parsed.statuses['session-1'].editorReady).toBe(true);
   });
 });
 

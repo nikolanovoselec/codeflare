@@ -54,6 +54,8 @@ export interface HealthData {
   prewarmReady?: boolean;
   initFlagObserved?: boolean;
   terminalServiceReady?: boolean;
+  editorReady?: boolean;
+  editorReadyTimedOut?: boolean;
   cpu?: string;
   mem?: string;
   hdd?: string;

@@ -70,6 +70,18 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     expect(body.sessionMode).toBe('advanced');
   });
 
+  it('REQ-IDE-048 AC1: enterprise users may select VS Code without a stored session mode', async () => {
+    const app = createApp({ ENTERPRISE_MODE: 'active' });
+    const res = await app.request('/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultWorkspace: 'vscode' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ sessionMode: 'advanced', defaultWorkspace: 'vscode' });
+    expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({ defaultWorkspace: 'vscode' });
+  });
+
   // ── AC2: enterprise rejects lastAgentType outside the allowlist ──
   it("AC2: lastAgentType='codex' (not allowlisted) is rejected 400 when ENTERPRISE_MODE=active", async () => {
     const app = createApp({ ENTERPRISE_MODE: 'active' });

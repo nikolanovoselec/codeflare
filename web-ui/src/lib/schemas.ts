@@ -15,8 +15,9 @@ export const TabConfigSchema = z.object({
   label: z.string().max(50),
 });
 
-// Session mode enum
+// Session mode and startup workspace enums
 export const SessionModeSchema = z.enum(['default', 'advanced']);
+export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export const SubscriptionTierSchema = z.enum([
@@ -57,6 +58,7 @@ export const UserPreferencesSchema = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  defaultWorkspace: SessionWorkspaceSchema.optional(),
   sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h']).optional(),
   userTimezone: z.string().optional(),
   managedEnvironmentApplied: z.object({
@@ -76,6 +78,9 @@ export const SessionSchema = z.object({
   lastAccessedAt: z.string(),
   status: z.enum(['stopped', 'running']).optional(),
   agentType: AgentTypeSchema.optional(),
+  workspace: SessionWorkspaceSchema.default('terminal'),
+  editorReady: z.boolean().optional(),
+  editorReadyError: z.boolean().optional(),
   tabConfig: z.array(TabConfigSchema).optional(),
 });
 
@@ -131,6 +136,7 @@ export const StartupStatusResponseSchema = z.object({
     syncError: z.string().nullable().optional(),
     healthServerOk: z.boolean().optional(),
     terminalServerOk: z.boolean().optional(),
+    editorReady: z.boolean().optional(),
     cpu: z.string().optional(),
     mem: z.string().optional(),
     hdd: z.string().optional(),
@@ -146,6 +152,8 @@ export const BatchSessionStatusResponseSchema = z.object({
     startupStage: z.string().optional(),
     lastStartedAt: z.string().nullable().optional(),
     lastActiveAt: z.string().nullable().optional(),
+    editorReady: z.boolean().optional(),
+    editorReadyError: z.boolean().optional(),
     metrics: z.object({
       cpu: z.string().optional(),
       mem: z.string().optional(),

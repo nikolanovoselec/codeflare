@@ -110,7 +110,7 @@ app.get('/batch-status', async (c) => {
   // Fallback to KV.get for pre-migration keys without metadata.
   const keys = await listAllKvKeys(c.env.KV, prefix);
 
-  const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
+  const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
   let hasOwningSession = false;
 

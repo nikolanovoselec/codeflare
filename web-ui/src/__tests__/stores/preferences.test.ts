@@ -55,6 +55,16 @@ describe('Preferences Store', () => {
       expect(mockSetPreferences).toHaveBeenCalledWith(updated);
     });
 
+    it('persists workspace returned by the preferences API', async () => {
+      const updated = { sessionMode: 'advanced' as const, defaultWorkspace: 'vscode' as const };
+      mockUpdatePreferences.mockResolvedValue(updated);
+
+      await updateUserPreferences({ defaultWorkspace: 'vscode' });
+
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ defaultWorkspace: 'vscode' });
+      expect(mockSetPreferences).toHaveBeenCalledWith(updated);
+    });
+
     it('logs warning on failure', async () => {
       mockUpdatePreferences.mockRejectedValue(new Error('API error'));
 

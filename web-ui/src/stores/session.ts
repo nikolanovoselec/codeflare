@@ -83,6 +83,8 @@ type BatchStatusEntry = {
   startupStage?: string;
   lastStartedAt?: string;
   lastActiveAt?: string;
+  editorReady?: boolean;
+  editorReadyError?: boolean;
   metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string };
 };
 
@@ -315,6 +317,8 @@ async function loadSessions(): Promise<void> {
         if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
         setState('sessions', idx, 'ptyActive', batchStatus.ptyActive);
         setState('sessions', idx, 'startupStage', batchStatus.startupStage);
+        if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
+        setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
       }
 
       // Populate sessionMetrics from batch-status metrics
@@ -327,7 +331,7 @@ async function loadSessions(): Promise<void> {
       if (batchStatus.status === 'running') {
         const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, 'running');
-        if (!wasRunning) {
+        if (!wasRunning && session.workspace !== 'vscode') {
           initializeTerminalsForSession(session.id);
         }
       } else {
@@ -370,10 +374,10 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
   }
 }
 
-// Create a new session that clones `repo` at container start, then open it via
-// the same create → activate → start path the dashboard "New Session" flow uses
-// (mirrors Layout.handleCreateSession). `ref` is omitted so the backend clones
-// the repo's default branch. Returns the session, or null on create failure.
+// Create a new session that clones `repo` at container start, then route it by
+// its server-selected workspace: historical/Terminal sessions keep activation,
+// while VS Code sessions start without taking terminal ownership. `ref` is omitted
+// so the backend clones the repo's default branch. Returns null on create failure.
 async function createSessionWithClone(repo: string, agentType?: AgentType): Promise<SessionWithStatus | null> {
   // Name the session after the repo (owner/name -> name). An empty name would be
   // rejected by the backend (name is min(1) when present; only OMISSION falls
@@ -381,7 +385,9 @@ async function createSessionWithClone(repo: string, agentType?: AgentType): Prom
   const name = repo.split('/')[1] || repo;
   const session = await createSession(name, agentType, undefined, { repo });
   if (!session) return null;
-  setActiveSession(session.id);
+  if (session.workspace !== 'vscode') {
+    setActiveSession(session.id);
+  }
   if (agentType) {
     void updateUserPreferences({ lastAgentType: agentType });
   }
@@ -453,7 +459,17 @@ function startSession(id: string): Promise<void> {
       () => {
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
-        initializeTerminalsForSession(id);
+        const index = state.sessions.findIndex((session) => session.id === id);
+        if (index !== -1 && state.sessions[index].workspace === 'vscode') {
+          setState('sessions', index, 'editorReady', true);
+          setState('sessions', index, 'editorReadyError', false);
+          setState(produce((s) => {
+            delete s.initializingSessionIds[id];
+            delete s.initProgressBySession[id];
+          }));
+        } else {
+          initializeTerminalsForSession(id);
+        }
         resolve();
       },
       (error, code) => {

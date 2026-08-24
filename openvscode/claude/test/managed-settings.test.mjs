@@ -91,13 +91,12 @@ test("REQ-IDE-009 + REQ-IDE-021 + REQ-IDE-024: base settings suppress the legacy
   });
 });
 
-test("REQ-IDE-047: Browser IDE terminals default to Bash and keep the session agent selectable", () => {
-
+test("REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable", () => {
   for (const settings of [
-    buildBaseOpenVscodeSettings(),
-    buildPiOpenVscodeSettings(),
-    buildUnsupportedOpenVscodeSettings(),
-    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"),
+    buildBaseOpenVscodeSettings([], "terminal"),
+    buildPiOpenVscodeSettings([], "terminal"),
+    buildUnsupportedOpenVscodeSettings([], "terminal"),
+    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", [], "terminal"),
   ]) {
     assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Bash");
     assert.deepEqual(settings["terminal.integrated.profiles.linux"], EXPECTED_TERMINAL_PROFILES);
@@ -105,6 +104,24 @@ test("REQ-IDE-047: Browser IDE terminals default to Bash and keep the session ag
 
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.defaultProfile.linux"), true);
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.profiles.linux"), true);
+});
+
+test("REQ-IDE-047: VS Code workspaces default every inventory to the session agent profile", () => {
+  for (const settings of [
+    buildBaseOpenVscodeSettings([], "vscode"),
+    buildPiOpenVscodeSettings([], "vscode"),
+    buildUnsupportedOpenVscodeSettings([], "vscode"),
+    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", [], "vscode"),
+  ]) {
+    assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Codeflare Session Agent");
+    assert.deepEqual(settings["terminal.integrated.profiles.linux"], EXPECTED_TERMINAL_PROFILES);
+  }
+});
+
+test("REQ-IDE-047: invalid workspace values fail safely to the terminal default", () => {
+  for (const workspace of [undefined, "", "unknown", "VSCODE", null]) {
+    assert.equal(buildBaseOpenVscodeSettings([], workspace)["terminal.integrated.defaultProfile.linux"], "Bash");
+  }
 });
 
 test("REQ-IDE-018 + REQ-IDE-019 AC6 + REQ-IDE-021 AC1 + REQ-IDE-033: Pi settings keep Inline edits in the invoking editor", () => {

@@ -393,6 +393,37 @@ describe('API Client', () => {
         })
       );
     });
+
+    it('REQ-IDE-048 AC1: keeps cloned-session workspace selection server-owned', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({
+          session: {
+            id: 'new-session',
+            name: 'hello',
+            workspace: 'vscode',
+            createdAt: '2024-01-01T00:00:00Z',
+            lastAccessedAt: '2024-01-01T00:00:00Z',
+          },
+        })),
+      });
+
+      const session = await createSession('hello', 'pi', undefined, { repo: 'octocat/hello' });
+
+      expect(session.workspace).toBe('vscode');
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/sessions',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'hello',
+            agentType: 'pi',
+            clone: { repo: 'octocat/hello' },
+          }),
+        }),
+      );
+    });
   });
 
   describe('deleteSession', () => {

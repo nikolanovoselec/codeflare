@@ -28,13 +28,17 @@ function extensionAllowance(managedExtensions = []) {
   ]);
 }
 
-export function buildBaseOpenVscodeSettings(managedExtensions = []) {
+function defaultTerminalProfile(sessionWorkspace) {
+  return sessionWorkspace === "vscode" ? "Codeflare Session Agent" : "Bash";
+}
+
+export function buildBaseOpenVscodeSettings(managedExtensions = [], sessionWorkspace = "terminal") {
   return {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": extensionAllowance(managedExtensions),
     "workbench.startupEditor": "none",
-    "terminal.integrated.defaultProfile.linux": "Bash",
+    "terminal.integrated.defaultProfile.linux": defaultTerminalProfile(sessionWorkspace),
     "terminal.integrated.profiles.linux": {
       Bash: {
         path: "/bin/bash",
@@ -50,9 +54,9 @@ export function buildBaseOpenVscodeSettings(managedExtensions = []) {
   };
 }
 
-export function buildPiOpenVscodeSettings(managedExtensions = []) {
+export function buildPiOpenVscodeSettings(managedExtensions = [], sessionWorkspace = "terminal") {
   return {
-    ...buildBaseOpenVscodeSettings(managedExtensions),
+    ...buildBaseOpenVscodeSettings(managedExtensions, sessionWorkspace),
     "chat.disableAIFeatures": true,
     "accessibility.openChatEditedFiles": false,
     "chat.notifyWindowOnResponseReceived": "windowNotFocused",
@@ -63,9 +67,9 @@ export function buildPiOpenVscodeSettings(managedExtensions = []) {
   };
 }
 
-export function buildUnsupportedOpenVscodeSettings(managedExtensions = []) {
+export function buildUnsupportedOpenVscodeSettings(managedExtensions = [], sessionWorkspace = "terminal") {
   return {
-    ...buildBaseOpenVscodeSettings(managedExtensions),
+    ...buildBaseOpenVscodeSettings(managedExtensions, sessionWorkspace),
     "chat.disableAIFeatures": true,
   };
 }
@@ -94,14 +98,14 @@ export const MANAGED_OPENVSCODE_SETTING_KEYS = Object.freeze([
   "claudeCode.usePythonEnvironment",
 ]);
 
-export function buildOpenVscodeSettings(claudeConfigDirectory, managedExtensions = []) {
+export function buildOpenVscodeSettings(claudeConfigDirectory, managedExtensions = [], sessionWorkspace = "terminal") {
   if (typeof claudeConfigDirectory !== "string" || !isAbsolute(claudeConfigDirectory) || claudeConfigDirectory.includes("\0")) {
     throw new TypeError("Claude config directory must be absolute");
   }
   const normalized = resolve(claudeConfigDirectory);
   if (normalized === "/") throw new TypeError("Claude config directory cannot be root");
   return {
-    ...buildBaseOpenVscodeSettings(managedExtensions),
+    ...buildBaseOpenVscodeSettings(managedExtensions, sessionWorkspace),
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
       { name: "CLAUDE_CONFIG_DIR", value: normalized },

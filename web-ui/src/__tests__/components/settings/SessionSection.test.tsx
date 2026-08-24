@@ -19,16 +19,20 @@ vi.mock('../../../lib/mobile', () => ({
 type ModeChange = (mode: 'default' | 'advanced') => void;
 
 function renderSection(overrides: {
+  enterpriseMode?: boolean;
   saasMode?: boolean;
   currentSessionMode?: 'default' | 'advanced';
+  defaultWorkspace?: 'terminal' | 'vscode';
   canUseAdvanced?: boolean;
   canChangeSleepAfter?: boolean;
   onSessionModeChange?: ModeChange;
+  onDefaultWorkspaceChange?: (workspace: 'terminal' | 'vscode') => void;
 } = {}) {
   const props = {
-    enterpriseMode: () => false,
+    enterpriseMode: () => overrides.enterpriseMode ?? false,
     saasMode: () => overrides.saasMode ?? true,
     currentSessionMode: () => overrides.currentSessionMode ?? 'default',
+    defaultWorkspace: () => overrides.defaultWorkspace ?? 'terminal',
     canUseAdvanced: () => overrides.canUseAdvanced ?? true,
     fastStartEnabled: () => true,
     workspaceSyncEnabled: () => false,
@@ -44,6 +48,7 @@ function renderSection(overrides: {
     recreateAgentMessage: () => null,
     recreateAgentError: () => null,
     onSessionModeChange: overrides.onSessionModeChange ?? (() => {}),
+    onDefaultWorkspaceChange: overrides.onDefaultWorkspaceChange ?? (() => {}),
     onFastStartToggle: () => {},
     onWorkspaceSyncToggle: () => {},
     onEnableAgentNotifications: () => {},
@@ -105,6 +110,40 @@ describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () =>
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-default')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-advanced')).not.toBeInTheDocument();
+  });
+});
+
+describe('default workspace selection', () => {
+  afterEach(() => cleanup());
+
+  it('renders Terminal and VS Code controls for Advanced mode with Terminal selected by default', () => {
+    renderSection({ currentSessionMode: 'advanced' });
+
+    const control = screen.getByTestId('default-workspace-control');
+    expect(control).toHaveAttribute('role', 'radiogroup');
+    expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
+    expect(screen.getByTestId('default-workspace-vscode')).not.toBeChecked();
+  });
+
+  it('hides workspace controls in Standard mode', () => {
+    renderSection({ currentSessionMode: 'default' });
+
+    expect(screen.queryByTestId('default-workspace-control')).not.toBeInTheDocument();
+  });
+
+  it('renders workspace controls for enterprise-forced Advanced mode', () => {
+    renderSection({ enterpriseMode: true, currentSessionMode: 'default' });
+
+    expect(screen.getByTestId('default-workspace-control')).toBeInTheDocument();
+  });
+
+  it('reports VS Code selection through preference callback', () => {
+    const onDefaultWorkspaceChange = vi.fn();
+    renderSection({ currentSessionMode: 'advanced', onDefaultWorkspaceChange });
+
+    fireEvent.change(screen.getByTestId('default-workspace-vscode'));
+
+    expect(onDefaultWorkspaceChange).toHaveBeenCalledWith('vscode');
   });
 });
 

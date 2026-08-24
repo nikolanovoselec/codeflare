@@ -19,9 +19,14 @@ export { activateExtensionPersistence } from './extension-persistence.ts';
 
 const OPEN_WELCOME_COMMAND = 'codeflare.welcome.open';
 const OPEN_DELAY_MS = 250;
+const SESSION_AGENT_TERMINAL = 'Codeflare Session Agent';
 let persistenceActivation: Promise<(() => Promise<void>) | undefined> = Promise.resolve(undefined);
 
 export function activate(context: ExtensionContext): void {
+  const sessionAgentTerminal = process.env.CODEFLARE_SESSION_WORKSPACE === 'vscode'
+    ? window.terminals.find(({ name }) => name === SESSION_AGENT_TERMINAL)
+      ?? window.createTerminal({ name: SESSION_AGENT_TERMINAL })
+    : undefined;
   persistenceActivation = activateExtensionPersistence(context).catch(() => undefined);
   const presentation = buildWelcomePresentation(
     normalizeIdeAgentKind(process.env.CODEFLARE_SIDEBAR_AGENT),
@@ -61,7 +66,10 @@ export function activate(context: ExtensionContext): void {
     });
   };
 
-  const startupTimer = setTimeout(openWelcome, OPEN_DELAY_MS);
+  const startupTimer = setTimeout(() => {
+    openWelcome();
+    sessionAgentTerminal?.show(false);
+  }, OPEN_DELAY_MS);
   context.subscriptions.push(
     commands.registerCommand(OPEN_WELCOME_COMMAND, openWelcome),
     { dispose: () => clearTimeout(startupTimer) },

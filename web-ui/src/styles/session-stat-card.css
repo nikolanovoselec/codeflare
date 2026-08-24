@@ -131,6 +131,24 @@
   }
 }
 
+.session-stat-card__workspace-action {
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-muted);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.session-stat-card__workspace-action:disabled {
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
 /* Progress bar for initializing */
 .session-stat-card__progress {
   margin-top: 4px;

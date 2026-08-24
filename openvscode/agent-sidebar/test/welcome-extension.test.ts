@@ -16,6 +16,9 @@ const host = vi.hoisted(() => ({
   executed: [] as Array<{ command: string; arguments: unknown[] }>,
   html: '',
   panel: undefined as { iconPath?: { fsPath: string } } | undefined,
+  terminalCreates: [] as Array<{ name: string }>,
+  terminals: [] as Array<{ name: string; show(preserveFocus?: boolean): void }>,
+  terminalShows: [] as Array<{ name: string; preserveFocus?: boolean }>,
 }));
 
 vi.mock('node:crypto', () => ({
@@ -46,6 +49,18 @@ vi.mock('vscode', () => ({
     },
   },
   window: {
+    get terminals() { return host.terminals; },
+    createTerminal: (options: { name: string }) => {
+      host.terminalCreates.push(options);
+      const terminal = {
+        name: options.name,
+        show: (preserveFocus?: boolean) => {
+          host.terminalShows.push({ name: options.name, preserveFocus });
+        },
+      };
+      host.terminals.push(terminal);
+      return terminal;
+    },
     createWebviewPanel: () => {
       host.created += 1;
       const webview = {
@@ -81,6 +96,7 @@ import { activate, deactivate } from '../src/welcome-extension.ts';
 afterEach(() => {
   vi.useRealTimers();
   delete process.env.CODEFLARE_SIDEBAR_AGENT;
+  delete process.env.CODEFLARE_SESSION_WORKSPACE;
   host.commandHandler = undefined;
   host.messageHandler = undefined;
   host.disposeHandler = undefined;
@@ -89,6 +105,9 @@ afterEach(() => {
   host.executed = [];
   host.html = '';
   host.panel = undefined;
+  host.terminalCreates = [];
+  host.terminals = [];
+  host.terminalShows = [];
   persistence.activations = 0;
   persistence.deactivations = 0;
   persistence.pending = undefined;
@@ -124,6 +143,62 @@ test('REQ-IDE-036 AC5: welcome deactivation flushes extension persistence', asyn
 
   assert.equal(persistence.deactivations, 1);
   for (const subscription of subscriptions) subscription.dispose();
+});
+
+test('REQ-IDE-048 AC6: VS Code activation reuses and focuses a surviving session-agent terminal', () => {
+  vi.useFakeTimers();
+  process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
+  host.terminals.push({
+    name: 'Codeflare Session Agent',
+    show: (preserveFocus?: boolean) => {
+      host.terminalShows.push({ name: 'Codeflare Session Agent', preserveFocus });
+    },
+  });
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+  vi.runAllTimers();
+
+  assert.deepEqual(host.terminalCreates, []);
+  assert.deepEqual(host.terminalShows, [{
+    name: 'Codeflare Session Agent',
+    preserveFocus: false,
+  }]);
+  for (const subscription of subscriptions) subscription.dispose();
+});
+
+test('REQ-IDE-048 AC6: reconnect creates exactly one managed session-agent terminal', () => {
+  vi.useFakeTimers();
+  process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
+  const firstSubscriptions: Array<{ dispose(): void }> = [];
+  const reconnectSubscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions: firstSubscriptions } as never);
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions: reconnectSubscriptions } as never);
+  vi.runAllTimers();
+
+  assert.deepEqual(host.terminalCreates, [{ name: 'Codeflare Session Agent' }]);
+  assert.deepEqual(host.terminalShows, [
+    { name: 'Codeflare Session Agent', preserveFocus: false },
+    { name: 'Codeflare Session Agent', preserveFocus: false },
+  ]);
+  for (const subscription of [...firstSubscriptions, ...reconnectSubscriptions]) subscription.dispose();
+});
+
+test('REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal', () => {
+  vi.useFakeTimers();
+
+  for (const workspace of [undefined, 'terminal', 'unknown']) {
+    if (workspace === undefined) delete process.env.CODEFLARE_SESSION_WORKSPACE;
+    else process.env.CODEFLARE_SESSION_WORKSPACE = workspace;
+    const subscriptions: Array<{ dispose(): void }> = [];
+    activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+    for (const subscription of subscriptions) subscription.dispose();
+  }
+
+  vi.runAllTimers();
+  assert.deepEqual(host.terminalCreates, []);
+  assert.deepEqual(host.terminalShows, []);
 });
 
 test('REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon', async () => {

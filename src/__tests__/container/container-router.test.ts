@@ -42,6 +42,7 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     _vaultKey: null,
     _sessionId: null,
     _userEmail: null,
+    _sessionWorkspace: 'terminal',
     ...(overrides as any),
   } as ContainerHost;
 }
