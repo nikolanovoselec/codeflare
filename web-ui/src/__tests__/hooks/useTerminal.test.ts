@@ -691,6 +691,11 @@ describe('useTerminal hook', () => {
       await vi.waitFor(() => expect(terminalStore.claimResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
       expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 80, 24);
+      const claimOrder = vi.mocked(terminalStore.claimResizeAuthority).mock.invocationCallOrder[0];
+      const resizeOrder = vi.mocked(terminalStore.resize).mock.invocationCallOrder[0];
+      expect(claimOrder).toBeDefined();
+      expect(resizeOrder).toBeDefined();
+      expect(claimOrder!).toBeLessThan(resizeOrder!);
       expect(mockFocus).toHaveBeenCalled();
       expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(connectCleanup).not.toHaveBeenCalled();
