@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-24
 
+- **Caveman uses lite response compression by default** ([REQ-AGENT-155](agents.md#req-agent-155-image-owned-caveman-response-policy) AC2 amended; remains Implemented). The image-owned, fail-closed startup policy now restores lite mode instead of full mode while keeping status/footer output disabled and preserving package, seed-exclusion, and JITI warm-cache ownership.
+
 - **Tiled terminal focus preserves every visible pane** ([REQ-TERM-030](terminal.md#req-term-030-tiled-pane-focus-lifecycle) added as Implemented). Tiled panes now retain stable keyed descriptors while only their reactive focus state changes, matching the established MultiView lifecycle. Switching focus inside one session no longer remounts terminal components, reconnects their WebSockets, or reloads the other visible tiles; real tab ID additions, removals, and reordering still reconcile the affected pane tree.
 
 - **Goal continuation pacing restarts after the latest settled activity** ([REQ-AGENT-130](agents.md#req-agent-130-goal-continuation-runtime-pacing) AC4 amended; remains Implemented, with exact-head CI owning regression verification). The existing positive interval could remain anchored to an earlier transient settled boundary while later Goal work continued, allowing an automatic continuation only seconds after the final visible stop. Each later settled boundary now clears and re-arms the one pending timer, preserving cancellation, stale-marker, long-delay, and zero-delay behavior while enforcing the full configured interval after the latest activity.

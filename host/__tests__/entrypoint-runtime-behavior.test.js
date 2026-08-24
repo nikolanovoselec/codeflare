@@ -161,7 +161,7 @@ describe('entrypoint production helpers', () => {
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
   });
 
-  it('REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start', () => {
+  it('REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-'));
     const configPath = join(fixture, '.pi/agent/caveman.json');
     const conflictingPath = join(fixture, 'legacy/caveman.json');
@@ -174,7 +174,7 @@ describe('entrypoint production helpers', () => {
     const first = runStartupInvocation('configure_pi_caveman', env);
     assert.equal(first.status, 0, first.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      defaultLevel: 'full',
+      defaultLevel: 'lite',
       showStatus: false,
     });
     assert.equal(existsSync(conflictingPath), false);
@@ -195,7 +195,7 @@ exec "$REAL_NODE" "$@"
     });
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      defaultLevel: 'full',
+      defaultLevel: 'lite',
       showStatus: false,
     });
   });

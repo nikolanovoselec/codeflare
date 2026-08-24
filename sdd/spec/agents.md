@@ -4103,14 +4103,14 @@ None.
 
 ### REQ-AGENT-155: Image-owned Caveman response policy
 
-**Intent:** Every Pi session uses the reviewed Caveman extension in full compression mode without adding animated footer noise or relying on an ephemeral runtime install.
+**Intent:** Every Pi session uses the reviewed Caveman extension in lite compression mode without adding animated footer noise or relying on an ephemeral runtime install.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pi's required package set, integrity lock, and generated package metadata contain the same exact `pi-caveman` release. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-caveman --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: keeps Caveman image-owned and out of agent seeds) -->
-2. Before each successful container startup, Caveman configuration is atomically replaced with full mode and status display disabled. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start) -->
+2. Before each successful container startup, Caveman configuration is atomically replaced with lite mode and status display disabled. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start) -->
 3. An unwritable Caveman policy blocks container startup. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC3: fails startup when the authoritative Caveman policy cannot be written) -->
 4. Caveman configuration is absent from default, advanced, and managed agent seeds; the image carries the validated policy used at startup. <!-- @impl: image/pi/caveman.json --> <!-- @impl: Dockerfile::image/pi/caveman.json --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-155 AC1/AC4: keeps Caveman image-owned and out of agent seeds) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC4: fails startup when the image-owned Caveman policy is absent) -->
 5. Image construction includes Caveman in the warm path so new images load it without first-session compilation. <!-- @impl: Dockerfile::caveman_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
