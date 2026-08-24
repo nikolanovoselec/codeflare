@@ -247,7 +247,7 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
     });
   });
 
-  // AC4: Response returns session object with status 201
+  // AC5: Response returns session object with status 201
   describe('REQ-SESSION-001 AC5: response returns session object with status 201', () => {
     it('responds with HTTP 201 and session object', async () => {
       const app = createApp();
@@ -277,8 +277,8 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
     });
   });
 
-  // AC5: Session creation is rate-limited (10/min per user)
-  describe('REQ-SESSION-001 AC5: session creation is rate-limited', () => {
+  // AC6: Session creation is rate-limited (10/min per user)
+  describe('REQ-SESSION-001 AC6: session creation is rate-limited', () => {
     it('returns 429 when rate limit is exceeded', async () => {
       rateLimiterState.block = true;
       const app = createApp();

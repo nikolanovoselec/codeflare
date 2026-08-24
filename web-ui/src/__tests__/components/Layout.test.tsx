@@ -467,7 +467,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-049 AC5: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
+    it('REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
       const sessionId = 'abcdef0123456789';
       mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
       mockActiveSessionId = sessionId;
@@ -1170,21 +1170,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-049 AC7: keeps Storage and Settings dashboard-owned for a VS Code session', async () => {
+    it('REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
       mockActiveSessionId = null;
       mockActiveWorkspace = { kind: 'dashboard' };
 
       render(() => <Layout />);
-      await waitFor(() => expect((window as any).__headerProps).toBeDefined());
-      (window as any).__headerProps.onSettingsClick();
-      (window as any).__headerProps.onStoragePanelToggle();
+      (window as any).__terminalAreaProps.onSettingsClick();
 
-      await waitFor(() => {
-        expect((window as any).__settingsPanelProps.isOpen).toBe(true);
-        expect((window as any).__storagePanelProps.isOpen).toBe(true);
-      });
+      await waitFor(() => expect((window as any).__settingsPanelProps.isOpen).toBe(true));
+      expect((window as any).__storagePanelProps.isOpen).toBe(false);
       expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
       expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalled();
       expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });

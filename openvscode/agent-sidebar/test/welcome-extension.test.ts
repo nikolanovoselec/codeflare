@@ -185,7 +185,7 @@ test('REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent termi
   for (const subscription of [...firstSubscriptions, ...reconnectSubscriptions]) subscription.dispose();
 });
 
-test('REQ-IDE-048 AC5: non-VS Code workspaces never create or focus an agent terminal', () => {
+test('REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal', () => {
   vi.useFakeTimers();
 
   for (const workspace of [undefined, 'terminal', 'unknown']) {

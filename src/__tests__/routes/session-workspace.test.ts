@@ -40,7 +40,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect(response.status).toBe(400);
   });
 
-  it('REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists the immutable workspace snapshot', async () => {
+  it('REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists and retrieves the immutable workspace snapshot', async () => {
     mockKV._set('user-prefs:test-bucket', {
       sessionMode: 'advanced',
       defaultWorkspace: 'vscode',
@@ -52,6 +52,11 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect(session.workspace).toBe('vscode');
     const stored = await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session;
     expect(stored.workspace).toBe('vscode');
+
+    const restartedApp = createApp();
+    const retrieved = await restartedApp.request(`/sessions/${session.id}`);
+    expect(retrieved.status).toBe(200);
+    expect((await retrieved.json() as { session: Session }).session.workspace).toBe('vscode');
   });
 
   it('honors the enterprise Advanced entitlement without a stored session mode', async () => {

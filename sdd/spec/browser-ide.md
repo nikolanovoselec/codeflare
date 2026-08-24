@@ -1374,7 +1374,8 @@ A full code-server browser editor for an advanced running session. The editor op
 2. A VS Code session remains dashboard-owned during creation, startup, selection, cloning, and deep links; it does not enter terminal routes, open terminal WebSockets, or join terminal MultiView. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: dashboard selection keeps a running VS Code session dashboard-owned) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (normalizes a VS Code session deep link to the dashboard without terminal or popup ownership) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) -->
 3. After container initialization, a VS Code session starts the editor without creating a host terminal, while a Terminal session retains its existing terminal prewarm and lazy editor behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-048 AC3: emits the immutable session workspace) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-048 AC3: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)) -->
 4. A VS Code workbench activates the existing `Codeflare Session Agent` profile exactly once. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent terminal) -->
-5. A Terminal workbench defaults to Bash and creates no agent terminal automatically. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC5: non-VS Code workspaces never create or focus an agent terminal) -->
+5. A Terminal workbench defaults to the managed Bash profile. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) -->
+6. A Terminal workbench creates no agent terminal automatically. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal) -->
 
 **Constraints:**
 
@@ -1392,32 +1393,53 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-049: Dashboard Browser IDE interactions
+### REQ-IDE-049: Dashboard VS Code startup and recovery
 
-**Intent:** A dashboard-owned VS Code session exposes explicit, recoverable editor actions without creating a second lifecycle or authentication boundary.
+**Intent:** A dashboard-owned VS Code session exposes explicit startup and recovery actions without entering terminal ownership.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Starting a stopped VS Code session keeps the user on the dashboard. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1: gives stopped VS Code sessions an explicit Start action) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC1: explicit stopped-session start stays dashboard-owned for VS Code) -->
-2. Open remains an explicit action enabled only after editor readiness. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-049 AC2: reports VS Code ready and mirrors readiness into session metadata) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC2: enables explicit Open only after editor readiness) -->
-3. After readiness failure, the user can Retry, Stop, or Delete; Retry returns the session to Preparing while the next probe runs. <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC3: editor failure exposes Retry plus Stop and Delete operations) -->
-4. Every Open action focuses or creates one stable browser tab for that session. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-049 AC4: focuses a live retained handle without navigation or a second open) -->
-5. A blocked popup is reported through the existing dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC5: surfaces bounded popup-blocked feedback through the existing Layout error seam) -->
-6. Browser IDE tabs open only during the user's synchronous Open action. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-049 AC6: opens every explicit gesture synchronously) -->
-7. Stop, delete, clone, Storage, and Settings retain their existing ownership and authentication boundaries. <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (does not close a retained Browser IDE window when its session stops or is deleted) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC7: keeps Storage and Settings dashboard-owned for a VS Code session) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: a healthy container takes the episode start back out of the tab URL) -->
+2. A readiness failure preserves Retry, Stop, and Delete actions. <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC2: editor failure exposes Retry plus Stop and Delete operations) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance) -->
+3. Retry returns the session to Preparing while the next editor probe runs. <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry) -->
 
-**Constraints:**
-
-- Existing `/api/vscode/:sessionId/`, code-server supervision, warming-page, and session-agent startup contracts remain authoritative.
-- No new API, origin, agent launcher, or persistence system is introduced.
+**Constraints:** No replacement container, host terminal, or terminal workspace is created during editor recovery.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
+**Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Host readiness tests; backend startup-status tests; frontend dashboard, card, Layout, and window-ownership tests
+**Verification:** Host readiness tests; backend startup-status tests; frontend dashboard and polling tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-050: Explicit Browser IDE open and ownership
+
+**Intent:** Opening and managing a ready Browser IDE preserves one user-gesture-owned window and the existing dashboard and authentication boundaries.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Open remains an explicit action enabled only after editor readiness. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-050 AC1: reports VS Code ready and mirrors readiness into session metadata) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-050 AC1: enables explicit Open only after editor readiness) -->
+2. Every Open action focuses or creates one stable browser tab for that session. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
+3. A blocked popup is reported through the existing dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam) -->
+4. Browser IDE tabs open only during the user's synchronous Open action. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC4: opens every explicit gesture synchronously) -->
+5. Stopping or deleting a session does not close its retained Browser IDE window. <!-- @impl: web-ui/src/components/Layout.tsx::handleStopSession --> <!-- @impl: web-ui/src/components/Layout.tsx::handleDeleteSession --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (does not close a retained Browser IDE window when its session stops or is deleted) -->
+6. Opening Settings from the dashboard leaves dashboard storage and terminal ownership unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleSettingsClick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel) -->
+7. Browser IDE requests retain the existing session proxy authentication boundary. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: a healthy container takes the episode start back out of the tab URL) -->
+
+**Constraints:** No new API, origin, agent launcher, or persistence system is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery)
+
+**Verification:** Backend authentication tests; frontend dashboard, Layout, and window-ownership tests
 
 **Status:** Implemented
 

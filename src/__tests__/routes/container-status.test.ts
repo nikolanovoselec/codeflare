@@ -347,7 +347,7 @@ describe('Container Status Routes', () => {
       expect(body.details.terminalServerOk).toBe(true);
     });
 
-    it('REQ-IDE-049 AC2: keeps a VS Code session mounting until editor readiness', async () => {
+    it('REQ-IDE-050 AC1: keeps a VS Code session mounting until editor readiness', async () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
@@ -368,7 +368,7 @@ describe('Container Status Routes', () => {
       expect(testState.container!.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('REQ-IDE-049 AC2: reports VS Code ready and mirrors readiness into session metadata', async () => {
+    it('REQ-IDE-050 AC1: reports VS Code ready and mirrors readiness into session metadata', async () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
@@ -388,7 +388,7 @@ describe('Container Status Routes', () => {
       expect(stored.editorReady).toBe(true);
     });
 
-    it('REQ-IDE-049 AC2: preserves concurrent session fields when persisting readiness', async () => {
+    it('REQ-IDE-050 AC1: preserves concurrent session fields when persisting readiness', async () => {
       const app = createStatusApp();
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       const session = {
@@ -411,7 +411,7 @@ describe('Container Status Routes', () => {
       expect(stored).toMatchObject({ name: 'Renamed concurrently', editorReady: true, metrics: { cpu: '42%' } });
     });
 
-    it('REQ-IDE-049 AC2: does not recreate a session deleted while readiness resolves', async () => {
+    it('REQ-IDE-050 AC1: does not recreate a session deleted while readiness resolves', async () => {
       const app = createStatusApp();
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       mockKV._set(key, {
@@ -433,7 +433,7 @@ describe('Container Status Routes', () => {
       expect(await mockKV.get(key, 'json')).toBeNull();
     });
 
-    it('REQ-IDE-049 AC3: surfaces bounded editor warm-up failure with retry guidance', async () => {
+    it('REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance', async () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
