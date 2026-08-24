@@ -4,7 +4,7 @@ import type { AccessUser, Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
-describe('REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot', () => {
+describe('REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -118,7 +118,7 @@ describe('REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot', () => 
     expect((await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session).workspace).toBeUndefined();
   });
 
-  it('REQ-SESSION-001 AC4: historical sessions resolve to Terminal', async () => {
+  it('REQ-SESSION-001 AC4 / REQ-IDE-052 AC4: historical sessions resolve to Terminal', async () => {
     const historical: Session = {
       id: 'historical12345678',
       name: 'Historical',

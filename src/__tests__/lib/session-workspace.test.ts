@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SessionWorkspaceSchema, resolveSessionWorkspace } from '../../types';
 
-describe('REQ-IDE-052 AC1/AC3: session workspace contract', () => {
+describe('REQ-IDE-052 AC4: session workspace contract', () => {
   it('accepts only Terminal and VS Code workspace values', () => {
     expect(SessionWorkspaceSchema.parse('terminal')).toBe('terminal');
     expect(SessionWorkspaceSchema.parse('vscode')).toBe('vscode');

@@ -1394,9 +1394,10 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. New sessions snapshot the resolved default workspace. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot) -->
+1. New sessions snapshot the resolved default workspace. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot) -->
 2. Later preference or mode changes do not alter an existing session's workspace snapshot. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (keeps an existing VS Code snapshot unchanged after a Standard downgrade) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) -->
-3. Missing, invalid, historical, or no-longer-entitled workspace values resolve to Terminal. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/types.ts::resolveSessionWorkspace --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot) --> <!-- @test: src/__tests__/lib/session-workspace.test.ts (REQ-IDE-052 AC1/AC3: session workspace contract) -->
+3. New sessions with missing, invalid, or no-longer-entitled defaults snapshot Terminal. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot) -->
+4. Historical sessions without a valid workspace snapshot resolve to Terminal. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/types.ts::resolveSessionWorkspace --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC4 / REQ-IDE-052 AC4: historical sessions resolve to Terminal) --> <!-- @test: src/__tests__/lib/session-workspace.test.ts (REQ-IDE-052 AC4: session workspace contract) -->
 
 **Constraints:**
 
