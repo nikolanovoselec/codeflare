@@ -6,7 +6,7 @@
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@gotgenes/pi-subagents": "19.2.1",
     "@juicesharp/rpiv-advisor": "2.4.0",
-    "@juicesharp/rpiv-ask-user-question": "2.4.0",
+    "@juicesharp/rpiv-ask-user-question": "2.6.0",
     "@juicesharp/rpiv-todo": "2.4.0",
     "@narumitw/pi-goal": "0.53.0",
     "@narumitw/pi-plan-mode": "0.52.0",

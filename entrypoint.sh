@@ -2550,7 +2550,7 @@ const required = [
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.4.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.4.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.6.0',
   'npm:@juicesharp/rpiv-todo@2.4.0',
   'npm:pi-web-access@0.18.0',
   'npm:pi-mcp-adapter@2.21.0',
