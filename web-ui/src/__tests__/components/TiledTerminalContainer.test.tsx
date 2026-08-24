@@ -213,7 +213,7 @@ describe('TiledTerminalContainer Component', () => {
       expect(slot2).toHaveClass('tiled-terminal-slot--active');
     });
 
-    it('REQ-TERM-030 AC1: changes tiled-tab focus without remounting terminal panes', async () => {
+    it('REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes', async () => {
       const terminals = createTerminals(2);
       const [activeTabId, setActiveTabId] = createSignal<string | null>('1');
       const mounted: string[] = [];
@@ -231,13 +231,14 @@ describe('TiledTerminalContainer Component', () => {
           tabOrder={['1', '2']}
           layout="2-split"
           activeTabId={activeTabId()}
-          onTileClick={mockOnTileClick}
+          onTileClick={setActiveTabId}
           renderTerminal={(tabId) => <PaneProbe id={tabId} />}
         />
       ));
 
       expect(mounted).toEqual(['1', '2']);
-      setActiveTabId('2');
+      expect(screen.getByTestId('tiled-slot-1')).toHaveAttribute('data-active', 'true');
+      fireEvent.click(screen.getByTestId('tiled-slot-2'));
 
       await waitFor(() => expect(screen.getByTestId('tiled-slot-2')).toHaveAttribute('data-active', 'true'));
       expect(screen.getByTestId('terminal-pane-1')).toBeInTheDocument();

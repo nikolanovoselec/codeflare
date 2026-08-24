@@ -296,7 +296,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. Clicking between visible tiles changes focus without remounting terminal panes or reconnecting their WebSockets. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::orderedPanes --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1: changes tiled-tab focus without remounting terminal panes) -->
+1. Clicking a visible tile moves focus to that tile. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::TiledTerminalContainer --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
+2. Moving focus between visible tiles does not remount any terminal pane. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::orderedPanes --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
+3. Moving focus between visible connected panes does not reconnect their WebSockets. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
 
 **Constraints:**
 
