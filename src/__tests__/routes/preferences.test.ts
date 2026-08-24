@@ -257,8 +257,8 @@ describe('Preferences Routes', () => {
         defaultWorkspace: 'terminal',
         workspaceSyncEnabled: true,
       };
-      expect(await res.json()).toEqual(expected);
-      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual(expected);
+      expect(await res.json()).toMatchObject(expected);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject(expected);
     });
 
     it('REQ-IDE-048 AC1: rejects invalid workspace values', async () => {

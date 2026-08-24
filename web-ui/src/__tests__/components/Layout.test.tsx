@@ -29,11 +29,17 @@ vi.mock('../../components/SplashCursor', () => ({
 }));
 
 vi.mock('../../components/SettingsPanel', () => ({
-  default: (_props: any) => <div data-testid="settings-panel" />
+  default: (props: any) => {
+    (window as any).__settingsPanelProps = props;
+    return <div data-testid="settings-panel" />;
+  }
 }));
 
 vi.mock('../../components/StoragePanel', () => ({
-  default: (_props: any) => <div data-testid="storage-panel" />
+  default: (props: any) => {
+    (window as any).__storagePanelProps = props;
+    return <div data-testid="storage-panel" />;
+  }
 }));
 
 const vaultProbeMock = vi.hoisted(() => ({
@@ -1162,6 +1168,23 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       } finally {
         openSpy.mockRestore();
       }
+    });
+
+    it('REQ-IDE-048 AC7: keeps Storage and Settings dashboard-owned for a VS Code session', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'dashboard' };
+
+      render(() => <Layout />);
+      (window as any).__headerProps.onSettingsClick();
+      (window as any).__headerProps.onStoragePanelToggle();
+
+      expect((window as any).__settingsPanelProps.isOpen).toBe(true);
+      expect((window as any).__storagePanelProps.isOpen).toBe(true);
+      expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalled();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
     });
 
     it('REQ-IDE-048 AC4: stopped VS Code selection starts while remaining on dashboard', async () => {
