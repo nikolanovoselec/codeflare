@@ -213,7 +213,7 @@ describe('TiledTerminalContainer Component', () => {
       expect(slot2).toHaveClass('tiled-terminal-slot--active');
     });
 
-    it('REQ-TERM-007 AC8: changes tiled-tab focus without remounting terminal panes', async () => {
+    it('REQ-TERM-030 AC1: changes tiled-tab focus without remounting terminal panes', async () => {
       const terminals = createTerminals(2);
       const [activeTabId, setActiveTabId] = createSignal<string | null>('1');
       const mounted: string[] = [];
