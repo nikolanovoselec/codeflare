@@ -145,7 +145,7 @@ test('REQ-IDE-036 AC5: welcome deactivation flushes extension persistence', asyn
   for (const subscription of subscriptions) subscription.dispose();
 });
 
-test('REQ-IDE-048 AC4: VS Code activation reuses and focuses a surviving session-agent terminal', () => {
+test('REQ-IDE-048 AC6: VS Code activation reuses and focuses a surviving session-agent terminal', () => {
   vi.useFakeTimers();
   process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
   host.terminals.push({
@@ -167,7 +167,7 @@ test('REQ-IDE-048 AC4: VS Code activation reuses and focuses a surviving session
   for (const subscription of subscriptions) subscription.dispose();
 });
 
-test('REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent terminal', () => {
+test('REQ-IDE-048 AC6: reconnect creates exactly one managed session-agent terminal', () => {
   vi.useFakeTimers();
   process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
   const firstSubscriptions: Array<{ dispose(): void }> = [];
@@ -185,7 +185,7 @@ test('REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent termi
   for (const subscription of [...firstSubscriptions, ...reconnectSubscriptions]) subscription.dispose();
 });
 
-test('REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal', () => {
+test('REQ-IDE-048 AC7: non-VS Code workspaces never create or focus an agent terminal', () => {
   vi.useFakeTimers();
 
   for (const workspace of [undefined, 'terminal', 'unknown']) {

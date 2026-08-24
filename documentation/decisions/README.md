@@ -3914,6 +3914,6 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Consequences:** VS Code sessions become editor-ready without duplicate host PTYs, while Terminal startup remains unchanged. Startup status has workspace-specific readiness semantics, and restart must clear stale editor readiness before a replacement container begins warming.
 
-**Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions).
+**Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-dashboard-owned-vs-code-session-lifecycle), and [REQ-IDE-051](../../sdd/spec/browser-ide.md#req-ide-051-default-workspace-preference-and-immutable-session-snapshot).
 
 ---

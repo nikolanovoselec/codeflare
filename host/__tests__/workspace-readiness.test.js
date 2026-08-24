@@ -10,7 +10,7 @@ import {
   waitForEditorReady,
 } from '../dist/workspace-readiness.js';
 
-describe('REQ-IDE-048 AC3: host workspace startup selection', () => {
+describe('REQ-IDE-048 AC4/AC5: host workspace startup selection', () => {
   it('defaults missing and invalid workspace values to the existing Terminal prewarm path', () => {
     assert.equal(resolveSessionWorkspace(undefined), 'terminal');
     assert.equal(resolveSessionWorkspace(''), 'terminal');
@@ -29,7 +29,7 @@ describe('REQ-IDE-048 AC3: host workspace startup selection', () => {
   });
 });
 
-describe('REQ-IDE-048 AC3: host startup composition', () => {
+describe('REQ-IDE-048 AC4/AC5: host startup composition', () => {
   it('constructs, inserts, and starts exactly one Terminal prewarm session', async () => {
     const calls = [];
     const session = { id: 'prewarm-1' };
@@ -95,7 +95,7 @@ describe('REQ-IDE-048 AC3: host startup composition', () => {
   });
 });
 
-describe('REQ-IDE-048 AC3 + REQ-IDE-050 AC1: bounded loopback editor readiness', () => {
+describe('REQ-IDE-048 AC4 + REQ-IDE-050 AC1: bounded loopback editor readiness', () => {
   it('becomes ready only after the code-server health endpoint succeeds', async () => {
     let probes = 0;
     const server = http.createServer((req, res) => {
