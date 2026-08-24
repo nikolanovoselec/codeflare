@@ -4,7 +4,7 @@ import type { AccessUser, Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
-describe('REQ-IDE-052 AC1/AC2: immutable session workspace snapshot', () => {
+describe('REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

@@ -1374,6 +1374,8 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Preference updates persist Terminal or entitled VS Code values and reject invalid or unentitled values. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-051 AC2: accepts VS Code only for an Advanced preference) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (REQ-IDE-051 AC2: enterprise users may select VS Code without a stored session mode) -->
 3. Switching to Standard atomically resets only the future workspace default to Terminal. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-051 AC3: resets VS Code default atomically when switching to Standard) -->
 
+**Constraints:** None.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
@@ -1392,8 +1394,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. New sessions snapshot the resolved default, while missing, invalid, historical, or no-longer-entitled values resolve to Terminal. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/types.ts::resolveSessionWorkspace --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2: immutable session workspace snapshot) --> <!-- @test: src/__tests__/lib/session-workspace.test.ts (REQ-IDE-052 AC1: session workspace contract) -->
+1. New sessions snapshot the resolved default workspace. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot) -->
 2. Later preference or mode changes do not alter an existing session's workspace snapshot. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (keeps an existing VS Code snapshot unchanged after a Standard downgrade) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) -->
+3. Missing, invalid, historical, or no-longer-entitled workspace values resolve to Terminal. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/types.ts::resolveSessionWorkspace --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3: immutable session workspace snapshot) --> <!-- @test: src/__tests__/lib/session-workspace.test.ts (REQ-IDE-052 AC1/AC3: session workspace contract) -->
 
 **Constraints:**
 
@@ -1422,6 +1425,8 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Creating or cloning a VS Code session returns to the dashboard rather than opening a session surface. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) -->
 3. A VS Code session creates no terminal connection, terminal pane, or grouped terminal view. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC3: does not initialize terminal state for a running VS Code session) -->
 
+**Constraints:** None.
+
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-052](#req-ide-052-immutable-session-workspace-snapshot)
@@ -1440,7 +1445,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. After initialization, a VS Code session prepares its editor while no terminal surface appears. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-053 AC1: emits the immutable session workspace) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-053 AC1/AC2: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
+1. After initialization, a VS Code session prepares its editor. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-053 AC1: emits the immutable session workspace) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-053 AC1/AC2: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
 2. A Terminal session retains prompt terminal availability while its editor remains on demand. <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-053 AC1/AC2: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
 3. A VS Code workbench activates the existing `Codeflare Session Agent` profile exactly once. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-053 AC3: reconnect creates exactly one managed session-agent terminal) -->
 4. A Terminal workbench creates no agent terminal automatically. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-053 AC4: non-VS Code workspaces never create or focus an agent terminal) -->
