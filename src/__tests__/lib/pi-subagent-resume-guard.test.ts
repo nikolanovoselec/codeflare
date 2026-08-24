@@ -13,14 +13,16 @@ function harness(lookup: SubagentRecordLookup) {
   let handler: ((event: ToolCallEvent) => ToolCallResult) | undefined;
   registerSubagentResumeGuard({
     on(event, candidate) {
-      if (event === 'tool_call') handler = candidate;
+      if (event === 'tool_call') {
+        handler = (toolEvent) => candidate(toolEvent as never, {} as never) as ToolCallResult;
+      }
     },
   }, lookup);
   if (!handler) throw new Error('tool_call guard was not registered');
   return handler;
 }
 
-describe('REQ-AGENT-158 AC7: active subagent resume guard', () => {
+describe('REQ-AGENT-159: active subagent resume guard', () => {
   it('loads as a side-effect-free extension when the package service is unavailable', () => {
     expect(subagentResumeGuard({ on() {} })).toBeUndefined();
   });

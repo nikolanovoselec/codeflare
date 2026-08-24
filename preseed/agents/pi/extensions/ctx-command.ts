@@ -93,9 +93,12 @@ export async function handleContextModeCommand(
   ctx.ui.notify(contextModeStatusText(store), "info");
 }
 
-export default function contextModeCommand(pi: ExtensionAPI): void {
+export default function contextModeCommand(
+  pi: ExtensionAPI,
+  store: PiSettingsStore = PI_SETTINGS_STORE,
+): void {
   pi.registerCommand("ctx", {
     description: "Show, enable, or disable context-mode in this container's Pi settings. Usage: /ctx status|on|off",
-    handler: (args, ctx) => handleContextModeCommand(args, ctx),
+    handler: (args, ctx) => handleContextModeCommand(args, ctx, store),
   });
 }

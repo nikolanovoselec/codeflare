@@ -7,6 +7,7 @@ import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { parseGeneratedSeed } from '../../scripts/materialize-agent-seed.mjs';
+import { validateInitialToolExposure } from '../../scripts/measure-pi-runtime-context.mjs';
 import {
   PI_PROMPT_BASELINE_CHARS,
   PI_PROMPT_MAX_CHARS,
@@ -134,6 +135,22 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
         { name: 'subagent', description: 'Delegate', parameters: { type: 'object' } },
       ],
     }, ['read', 'capability'])).map(({ name }) => name), ['capability', 'read']);
+  });
+
+  it('REQ-AGENT-158 AC6: rejects invalid real initial tool exposure without a token threshold', () => {
+    const valid = {
+      activeToolNames: ['read', 'bash', 'edit', 'write', 'capability'],
+      registeredToolNames: ['read', 'bash', 'edit', 'write', 'capability', 'subagent'],
+    };
+    assert.doesNotThrow(() => validateInitialToolExposure(valid));
+    assert.throws(
+      () => validateInitialToolExposure({ ...valid, activeToolNames: [...valid.activeToolNames, 'subagent'] }),
+      /initial active tools must be read, bash, edit, write, capability/,
+    );
+    assert.throws(
+      () => validateInitialToolExposure({ ...valid, registeredToolNames: valid.activeToolNames }),
+      /registered optional tools must remain inactive/,
+    );
   });
 
   it('keeps real default and advanced resource-loader projections inside the prompt boundary', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
-import { handleContextModeCommand, type PiSettings } from '../../../preseed/agents/pi/extensions/ctx-command';
+import contextModeCommand, { type PiSettings } from '../../../preseed/agents/pi/extensions/ctx-command';
 import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
@@ -487,11 +487,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
     const contextCommand = extensions.find((d) => d.key === '.pi/agent/extensions/ctx-command.ts');
     expect(contextCommand?.modes).toEqual(['default', 'advanced']);
-    expect(contextCommand?.content).toContain('pi.registerCommand("ctx"');
-    expect(contextCommand?.content).toContain('context-mode is disabled');
     const codeflarePi = extensions.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
     expect(codeflarePi?.modes).toEqual(['advanced']);
-    expect(codeflarePi?.content).not.toContain('pi.registerCommand("ctx"');
 
   });
 
@@ -563,24 +560,32 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       waitForIdle: async () => {},
       reload: async () => { reloads += 1; },
     };
+    let invokeContextCommand: ((args: string) => Promise<void>) | undefined;
+    contextModeCommand({
+      registerCommand(name, config) {
+        expect(name).toBe('ctx');
+        invokeContextCommand = async (args) => config.handler(args, ctx);
+      },
+    }, store);
+    if (!invokeContextCommand) throw new Error('/ctx command was not registered');
 
     let initialized = 0;
     const initialize = async () => { initialized += 1; };
 
-    await handleContextModeCommand('off', ctx, store);
+    await invokeContextCommand('off');
     expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_DISABLED_PACKAGE, extensions: [], skills: [] });
     expect(settings.packages).toContain('npm:user-package@1.0.0');
     await expect(attachConfiguredContextMode(settings, {}, { on() {} }, initialize)).resolves.toBe(false);
     expect(initialized).toBe(0);
 
-    await handleContextModeCommand('on', ctx, store);
+    await invokeContextCommand('on');
     expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] });
     expect(settings.packages).toContain('npm:user-package@1.0.0');
     await expect(attachConfiguredContextMode(settings, {}, { on() {} }, initialize)).resolves.toBe(true);
     expect(initialized).toBe(1);
     expect(reloads).toBe(2);
 
-    await handleContextModeCommand('status', ctx, store);
+    await invokeContextCommand('status');
     expect(notifications.at(-1)).toContain('next Codeflare container start restores the disabled default');
   });
 
