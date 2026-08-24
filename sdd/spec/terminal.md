@@ -272,17 +272,19 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. A best-layout helper resolves the highest layout compatible with a given tab count so the UI can land users on the most spacious view by default. <!-- @impl: web-ui/src/stores/tiling.ts::getBestLayoutForTabCount --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
 6. Layout state is persisted per session and restored on reconnection. <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (should return tiling state for initialized session) -->
 7. Applying an incompatible layout (insufficient tabs) or targeting a missing session fails cleanly rather than partially applying. <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Store Integration) -->
+8. Clicking between visible tiles changes focus without remounting terminal panes or reconnecting their WebSockets. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::orderedPanes --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-007 AC8: changes tiled-tab focus without remounting terminal panes) -->
 
 **Constraints:**
 
 - The tiling store accesses the session store lazily to avoid a circular dependency between the two pieces of UI state.
 - Layout changes trigger terminal resize events so the rendering library reflows content.
+- Focus changes preserve mounted pane identity; adding, removing, or reordering tab IDs may reconcile the affected pane subtree.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Automated test ([tiling](../../web-ui/src/__tests__/stores/tiling.test.ts))
+**Verification:** Automated test ([tiling](../../web-ui/src/__tests__/stores/tiling.test.ts), [tiled terminal container](../../web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx))
 
 **Status:** Implemented
 
