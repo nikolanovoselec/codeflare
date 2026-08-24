@@ -140,7 +140,60 @@ setInterval(() => {}, 1_000);
 `);
 }
 
-describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => {
+describe('complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace launch)', () => {
+  it('arms VS Code immediately after init instead of waiting for background baseline work', () => {
+    const script = `
+${extractFn('complete_managed_curation_startup')}
+relay_managed_pi_extensions() { :; }
+release_agent_pty_after_cleanup() { printf 'init\\n'; }
+start_openvscode_supervisor() { printf 'editor\\n'; }
+RCLONE_CONFIG_RESULT=1
+STEP1_RESULT=1
+SESSION_MODE=advanced
+CODEFLARE_SESSION_WORKSPACE=vscode
+complete_managed_curation_startup
+`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'init\neditor\n');
+  });
+
+  it('keeps an existing VS Code session usable after its future default is downgraded', () => {
+    const script = `
+${extractFn('complete_managed_curation_startup')}
+relay_managed_pi_extensions() { :; }
+release_agent_pty_after_cleanup() { printf 'init\\n'; }
+start_openvscode_supervisor() { printf 'editor\\n'; }
+RCLONE_CONFIG_RESULT=1
+STEP1_RESULT=1
+SESSION_MODE=default
+CODEFLARE_SESSION_WORKSPACE=vscode
+complete_managed_curation_startup
+`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'init\neditor\n');
+  });
+
+  it('does not eagerly arm Browser IDE for Terminal workspaces', () => {
+    const script = `
+${extractFn('complete_managed_curation_startup')}
+relay_managed_pi_extensions() { :; }
+release_agent_pty_after_cleanup() { printf 'init\\n'; }
+start_openvscode_supervisor() { printf 'editor\\n'; }
+RCLONE_CONFIG_RESULT=1
+STEP1_RESULT=1
+SESSION_MODE=advanced
+CODEFLARE_SESSION_WORKSPACE=terminal
+complete_managed_curation_startup
+`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'init\n');
+  });
+});
+
+describe('_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)', () => {
   let dir, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-gate-');
@@ -156,26 +209,31 @@ describe('_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)', () => 
     return r.stdout.trim();
   }
 
-  it('does NOT launch when the trigger file is absent (even with a session id + init flag)', () => {
+  it('keeps the default Terminal workspace lazy when the trigger file is absent', () => {
     writeFileSync(flag, '');
-    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger }), 'RC=1');
+    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_SESSION_WORKSPACE: '' }), 'RC=1');
+  });
+
+  it('eagerly launches a VS Code workspace after init without a browser trigger', () => {
+    writeFileSync(flag, '');
+    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_SESSION_WORKSPACE: 'vscode' }), 'RC=0');
   });
 
   it('does NOT launch when init is incomplete (no init flag)', () => {
     writeFileSync(trigger, '');
-    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger }), 'RC=1');
+    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_SESSION_WORKSPACE: 'vscode' }), 'RC=1');
   });
 
   it('does NOT launch when there is no session id (fail-safe against a base-path mismatch)', () => {
     writeFileSync(flag, '');
     writeFileSync(trigger, '');
-    assert.equal(gate({ SESSION_ID: '', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger }), 'RC=1');
+    assert.equal(gate({ SESSION_ID: '', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_SESSION_WORKSPACE: 'vscode' }), 'RC=1');
   });
 
-  it('launches only when session id + init flag + trigger are ALL present', () => {
+  it('launches a Terminal workspace only when session id + init flag + trigger are ALL present', () => {
     writeFileSync(flag, '');
     writeFileSync(trigger, '');
-    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger }), 'RC=0');
+    assert.equal(gate({ SESSION_ID: 'abcd1234', CODEFLARE_INIT_FLAG_FILE: flag, OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_SESSION_WORKSPACE: 'terminal' }), 'RC=0');
   });
 });
 

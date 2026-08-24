@@ -20,6 +20,7 @@ function validBucketNameBody(): Record<string, unknown> {
     workspaceSyncEnabled: true,
     fastStartEnabled: false,
     sessionMode: 'pro',
+    sessionWorkspace: 'terminal',
     sleepAfter: '30m',
   };
 }
@@ -81,6 +82,17 @@ describe('CF-046: SetBucketNameBodySchema', () => {
         tabConfig: { id: '1' },
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts only Terminal or VS Code session workspaces', () => {
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        sessionWorkspace: 'vscode',
+      }).success).toBe(true);
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        sessionWorkspace: 'browser',
+      }).success).toBe(false);
     });
   });
 

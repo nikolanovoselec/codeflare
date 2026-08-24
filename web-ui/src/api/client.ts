@@ -144,7 +144,7 @@ export async function deleteSession(id: string): Promise<void> {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const path = options?.includePreseedCheck ? '/sessions/batch-status?includePreseedCheck=true' : '/sessions/batch-status';
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
   return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
@@ -163,7 +163,8 @@ export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
   onComplete: () => void,
-  onError: (error: string, code?: string) => void
+  onError: (error: string, code?: string) => void,
+  options: { retryEditorTimeout?: boolean } = {},
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -203,7 +204,10 @@ export function startSession(
       logger.debug('Container start request (transient, proceeding to poll):', err);
     }
 
-    // Start polling for status
+    // A running VS Code host exposes the prior timeout until its automatic
+    // retry probe begins. Retry ignores only that stale state; once mounting is
+    // observed, a later timeout is a new failure.
+    let ignorePriorEditorTimeout = options.retryEditorTimeout === true;
     let consecutiveErrors = 0;
 
     const poll = async () => {
@@ -221,8 +225,14 @@ export function startSession(
           if (pollInterval) clearInterval(pollInterval);
           onComplete();
         } else if (status.stage === 'error') {
-          if (pollInterval) clearInterval(pollInterval);
-          onError(status.error || 'Container startup failed');
+          const isPriorEditorTimeout = ignorePriorEditorTimeout
+            && status.error === 'VS Code did not become ready. Retry starting the session.';
+          if (!isPriorEditorTimeout) {
+            if (pollInterval) clearInterval(pollInterval);
+            onError(status.error || 'Container startup failed');
+          }
+        } else {
+          ignorePriorEditorTimeout = false;
         }
       } catch (err) {
         consecutiveErrors++;

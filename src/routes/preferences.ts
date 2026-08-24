@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
+import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError, BucketMigratingError, ManagedEnvironmentUpdatePendingError } from '../lib/error-types';
@@ -54,6 +54,7 @@ const UpdatePreferencesBody = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  defaultWorkspace: SessionWorkspaceSchema.optional(),
   sleepAfter: z.enum(SleepAfterOptions as unknown as [string, ...string[]]).optional(),
   userTimezone: z.string().min(1).max(64).refine(isValidIanaTz, {
     message: 'Invalid IANA timezone',
@@ -102,9 +103,16 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // REQ-ENTERPRISE-001 AC2: enterprise never honors a client-supplied session-mode
   // downgrade — the write path is coerced to Pro so a stale client cannot regress
   // the stored value or trigger a default-mode reconcile of a live bucket.
-  const body = parsedBody.sessionMode && isEnterpriseMode(c.env)
+  const enterpriseBody = parsedBody.sessionMode && isEnterpriseMode(c.env)
     ? { ...parsedBody, sessionMode: 'advanced' as const }
     : parsedBody;
+  const body = enterpriseBody.sessionMode === 'default'
+    ? { ...enterpriseBody, defaultWorkspace: 'terminal' as const }
+    : enterpriseBody;
+
+  const key = getPreferencesKey(bucketName);
+  const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
+  const existing = withoutLegacyPresetId(stored);
 
   // Enterprise deploys restrict the selectable agent set to the wizard-chosen
   // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
@@ -113,9 +121,17 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     throw new ValidationError(`Agent type '${body.lastAgentType}' is not available in this deployment`);
   }
 
+  const enterprise = isEnterpriseMode(c.env);
+  const effectiveRequestedMode = enterprise
+    ? 'advanced'
+    : body.sessionMode ?? existing.sessionMode ?? 'default';
+  if (body.defaultWorkspace === 'vscode' && effectiveRequestedMode !== 'advanced') {
+    throw new ValidationError("Workspace 'vscode' requires Advanced session mode");
+  }
+
   // Enterprise deploys grant advanced mode to every user, so the SaaS
   // advanced-mode availability gate is bypassed. No-op when the flag is unset.
-  if (body.sessionMode && isSaasModeActive(c.env.SAAS_MODE) && !isEnterpriseMode(c.env)) {
+  if ((body.sessionMode || body.defaultWorkspace === 'vscode') && isSaasModeActive(c.env.SAAS_MODE) && !enterprise) {
     const user = c.get('user');
     // Gate on the billing-derived effective tier's allowed modes, so a user
     // whose subscription lapsed (canceled/past_due/expired) loses advanced mode
@@ -125,11 +141,10 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     if (body.sessionMode === 'advanced' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
       throw new ValidationError(`Session mode '${body.sessionMode}' not available for your subscription`);
     }
+    if (body.defaultWorkspace === 'vscode' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
+      throw new ValidationError("Workspace 'vscode' not available for your subscription");
+    }
   }
-
-  const key = getPreferencesKey(bucketName);
-  const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
-  const existing = withoutLegacyPresetId(stored);
 
   // REQ-ENTERPRISE-020: a sessionMode change triggers an R2 agent-config reconcile below;
   // refuse it while the bucket's encryption regime is migrating so configs are never written

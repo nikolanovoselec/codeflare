@@ -31,6 +31,7 @@ interface SessionStatCardProps {
   onSelect: () => void;
   onStop: () => void;
   onDelete: () => void;
+  workspaceAction?: { label: string; disabled?: boolean; onClick: () => void };
   onMenuClick?: (e: MouseEvent, session: SessionWithStatus) => void;
 }
 
@@ -38,7 +39,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
   const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
   const dotVariant = () => {
-    if (props.session.status === 'running' && wsState() !== 'connected') {
+    if (props.session.workspace !== 'vscode' && props.session.status === 'running' && wsState() !== 'connected') {
       return 'warning'; // Yellow — container alive, WS disconnected
     }
     return statusDotVariant[props.session.status];
@@ -142,6 +143,23 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
             <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
           </div>
         </div>
+      </Show>
+
+      <Show when={props.workspaceAction}>
+        {(action) => (
+          <button
+            type="button"
+            class="session-stat-card__workspace-action"
+            data-testid={`session-stat-card-${props.session.id}-workspace-action`}
+            disabled={action().disabled === true}
+            onClick={(event) => {
+              event.stopPropagation();
+              action().onClick();
+            }}
+          >
+            {action().label}
+          </button>
+        )}
       </Show>
 
       <Show when={props.session.status === 'initializing'}>

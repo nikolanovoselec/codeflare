@@ -212,11 +212,19 @@ async function writeOpenVscodeProfileState(serverDataRoot) {
   }
 }
 
+function inheritedSessionWorkspace() {
+  const workspace = process.env.CODEFLARE_SESSION_WORKSPACE;
+  return workspace === "vscode" || workspace === "terminal" ? workspace : "terminal";
+}
+
 export async function prepareOpenVscodeSettings(options) {
   const serverDataRoot = validateRoot(options?.serverDataRoot, "OpenVSCode data");
   const claudeConfigRoot = validateRoot(options?.claudeConfigRoot, "Claude config");
   const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
-  await writeOpenVscodeUserSettings(serverDataRoot, buildOpenVscodeSettings(claudeConfigRoot, managedExtensions));
+  await writeOpenVscodeUserSettings(
+    serverDataRoot,
+    buildOpenVscodeSettings(claudeConfigRoot, managedExtensions, inheritedSessionWorkspace()),
+  );
 }
 
 // Seed the kind-independent base settings for the pi and none inventories,
@@ -224,13 +232,19 @@ export async function prepareOpenVscodeSettings(options) {
 export async function prepareBaseOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
   const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
-  await writeOpenVscodeUserSettings(root, buildPiOpenVscodeSettings(managedExtensions));
+  await writeOpenVscodeUserSettings(
+    root,
+    buildPiOpenVscodeSettings(managedExtensions, inheritedSessionWorkspace()),
+  );
 }
 
 export async function prepareUnsupportedOpenVscodeSettings(serverDataRoot, options = {}) {
   const root = validateRoot(serverDataRoot, "OpenVSCode data");
   const managedExtensions = await loadManagedExtensions(options?.managedExtensionsPath, options?.managedReleaseDigest, options?.managedManifestDigest);
-  await writeOpenVscodeUserSettings(root, buildUnsupportedOpenVscodeSettings(managedExtensions));
+  await writeOpenVscodeUserSettings(
+    root,
+    buildUnsupportedOpenVscodeSettings(managedExtensions, inheritedSessionWorkspace()),
+  );
 }
 
 async function validatePreparedSidebarConfig(targetRoot) {

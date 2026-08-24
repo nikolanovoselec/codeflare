@@ -347,6 +347,139 @@ describe('Container Status Routes', () => {
       expect(body.details.terminalServerOk).toBe(true);
     });
 
+    it('REQ-IDE-050 AC1: keeps a VS Code session mounting until editor readiness', async () => {
+      const app = createStatusApp();
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
+        status: 'healthy', syncStatus: 'success', editorReady: false,
+      }), { status: 200 }));
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+      const body = await res.json() as { stage: string; message: string; details: { editorReady: boolean; terminalServerOk: boolean } };
+
+      expect(body).toMatchObject({
+        stage: 'mounting', message: 'Preparing VS Code...',
+        details: { editorReady: false, terminalServerOk: false },
+      });
+      expect(testState.container!.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-IDE-050 AC1: reports VS Code ready and mirrors readiness into session metadata', async () => {
+      const app = createStatusApp();
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode', editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
+        status: 'healthy', syncStatus: 'success', editorReady: true,
+      }), { status: 200 }));
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+      const body = await res.json() as { stage: string; details: { editorReady: boolean; terminalServerOk: boolean } };
+      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean };
+
+      expect(body).toMatchObject({ stage: 'ready', details: { editorReady: true, terminalServerOk: false } });
+      expect(stored.editorReady).toBe(true);
+    });
+
+    it('REQ-IDE-050 AC1: preserves concurrent session fields when persisting readiness', async () => {
+      const app = createStatusApp();
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      const session = {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode' as const, editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      };
+      mockKV._set(key, session);
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockImplementation(async () => {
+        mockKV._set(key, { ...session, name: 'Renamed concurrently', metrics: { cpu: '42%' } });
+        return new Response(JSON.stringify({
+          status: 'healthy', syncStatus: 'success', editorReady: true,
+        }), { status: 200 });
+      });
+
+      await app.request(`/container/startup-status${sessionQuery}`);
+      const stored = await mockKV.get(key, 'json') as { name: string; editorReady?: boolean; metrics?: { cpu?: string } };
+
+      expect(stored).toMatchObject({ name: 'Renamed concurrently', editorReady: true, metrics: { cpu: '42%' } });
+    });
+
+    it('REQ-IDE-050 AC1: does not recreate a session deleted while readiness resolves', async () => {
+      const app = createStatusApp();
+      const key = 'session:test-bucket:abcdef1234567890abcdef12';
+      mockKV._set(key, {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode', editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockImplementation(async () => {
+        await mockKV.delete(key);
+        return new Response(JSON.stringify({
+          status: 'healthy', syncStatus: 'success', editorReady: true,
+        }), { status: 200 });
+      });
+
+      const response = await app.request(`/container/startup-status${sessionQuery}`);
+
+      expect((await response.json() as { stage: string }).stage).toBe('ready');
+      expect(await mockKV.get(key, 'json')).toBeNull();
+    });
+
+    it('REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance', async () => {
+      const app = createStatusApp();
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
+        status: 'healthy', syncStatus: 'success', editorReady: false, editorReadyTimedOut: true,
+      }), { status: 200 }));
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+      const body = await res.json() as { stage: string; message: string };
+      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReadyError?: boolean };
+
+      expect(body.stage).toBe('error');
+      expect(body.message).toContain('Retry');
+      expect(stored.editorReadyError).toBe(true);
+    });
+
+    it('REQ-IDE-049 AC3: a successful retry clears the persisted readiness error', async () => {
+      const app = createStatusApp();
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
+        workspace: 'vscode', editorReady: false,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      testState.container!.fetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          status: 'healthy', syncStatus: 'success', editorReady: false, editorReadyTimedOut: true,
+        }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          status: 'healthy', syncStatus: 'success', editorReady: true, editorReadyTimedOut: false,
+        }), { status: 200 }));
+
+      await app.request(`/container/startup-status${sessionQuery}`);
+      const failed = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
+      expect(failed).toMatchObject({ editorReady: false, editorReadyError: true });
+
+      const retry = await app.request(`/container/startup-status${sessionQuery}`);
+      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
+      expect((await retry.json() as { stage: string }).stage).toBe('ready');
+      expect(stored.editorReady).toBe(true);
+      expect(stored.editorReadyError).toBeUndefined();
+    });
+
     it('skips mounting stage when health server is ok after sync (single port architecture)', async () => {
       // After A6 fix: the redundant second health fetch was removed.
       // Since the terminal server IS the health server (port 8080), if the

@@ -189,6 +189,11 @@ export interface Session {
   lastStartedAt?: string;
   lastActiveAt?: string;
   agentType?: AgentType;
+  workspace?: SessionWorkspace;
+  /** Runtime Browser IDE readiness mirrored into KV list metadata. */
+  editorReady?: boolean;
+  /** Latest bounded Browser IDE warm-up exhausted; cleared on retry/readiness. */
+  editorReadyError?: boolean;
   tabConfig?: TabConfig[];
   /** REQ-GITHUB-004: GitHub repo to clone into the workspace at container start. */
   clone?: { repo: string; ref?: string };
@@ -209,6 +214,14 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
+
+export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
+export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+
+export function resolveSessionWorkspace(value: unknown): SessionWorkspace {
+  const parsed = SessionWorkspaceSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'terminal';
+}
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export type AccessTier = z.infer<typeof AccessTierSchema>;
@@ -285,6 +298,7 @@ export interface UserPreferences {
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
+  defaultWorkspace?: SessionWorkspace;
   sleepAfter?: SleepAfterOption;
   /** REQ-MEM-001 AC4: user's IANA timezone, captured from the browser. */
   userTimezone?: string;
@@ -395,6 +409,7 @@ export interface ContainerConfigPayload {
   workspaceSyncEnabled: boolean;
   fastStartEnabled: boolean;
   sessionMode: string;
+  sessionWorkspace: SessionWorkspace;
   sleepAfter?: string;
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode — this bucket's effective R2 SSE-C-disabled

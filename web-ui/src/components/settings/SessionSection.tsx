@@ -11,6 +11,7 @@ import {
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
 import type { AgentNotificationEnablement } from '../../lib/agent-notifications';
+import type { SessionWorkspace } from '../../types';
 import { isTouchDevice, needsHomeScreenInstallForNotifications } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
 
@@ -18,6 +19,7 @@ interface SessionSectionProps {
   enterpriseMode?: Accessor<boolean>;
   saasMode?: Accessor<boolean>;
   currentSessionMode: Accessor<'default' | 'advanced'>;
+  defaultWorkspace: Accessor<SessionWorkspace>;
   canUseAdvanced: Accessor<boolean>;
   fastStartEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
@@ -34,6 +36,7 @@ interface SessionSectionProps {
   recreateAgentMessage: Accessor<string | null>;
   recreateAgentError: Accessor<string | null>;
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
+  onDefaultWorkspaceChange: (workspace: SessionWorkspace) => void;
   onFastStartToggle: () => void;
   onWorkspaceSyncToggle: () => void;
   onEnableAgentNotifications: () => void;
@@ -102,6 +105,52 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </span>
         </div>
       </section>
+      </Show>
+
+      <Show when={props.enterpriseMode?.() || props.currentSessionMode() === 'advanced'}>
+        <section class="settings-section">
+          <div class="settings-section-header">
+            <h3 class="settings-section-title type-section-header">Default workspace</h3>
+          </div>
+          <div
+            class="session-mode-control"
+            role="radiogroup"
+            aria-label="Default workspace"
+            data-testid="default-workspace-control"
+          >
+            <label class={`session-mode-option ${props.defaultWorkspace() === 'terminal' ? 'session-mode-option--selected' : ''}`}>
+              <input
+                type="radio"
+                name="default-workspace"
+                value="terminal"
+                checked={props.defaultWorkspace() === 'terminal'}
+                onChange={() => props.onDefaultWorkspaceChange('terminal')}
+                role="radio"
+                aria-checked={props.defaultWorkspace() === 'terminal'}
+                data-testid="default-workspace-terminal"
+              />
+              Terminal
+            </label>
+            <label class={`session-mode-option ${props.defaultWorkspace() === 'vscode' ? 'session-mode-option--selected' : ''}`}>
+              <input
+                type="radio"
+                name="default-workspace"
+                value="vscode"
+                checked={props.defaultWorkspace() === 'vscode'}
+                onChange={() => props.onDefaultWorkspaceChange('vscode')}
+                role="radio"
+                aria-checked={props.defaultWorkspace() === 'vscode'}
+                data-testid="default-workspace-vscode"
+              />
+              VS Code
+            </label>
+          </div>
+          <div class="setting-row setting-row--column-gap">
+            <span class="settings-hint type-hint" data-testid="default-workspace-hint">
+              Applies to new sessions. Existing sessions keep their current workspace.
+            </span>
+          </div>
+        </section>
       </Show>
 
       {/* Agent Startup / Fast Start */}

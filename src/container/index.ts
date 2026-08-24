@@ -27,7 +27,7 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
-import type { Env, TabConfig } from '../types';
+import type { Env, SessionWorkspace, TabConfig } from '../types';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -144,6 +144,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _cloudflareAccountId: string | null = null;
   _encryptionKey: string | null = null;
   _sessionMode: string = 'default';
+  _sessionWorkspace: SessionWorkspace = 'terminal';
   _containerAuthToken: string | null = null;
   /**
    * Per-session vault encryption key (REQ-VAULT-008 AC1). 32 random
@@ -216,6 +217,8 @@ export class container extends Container<Env> implements ContainerEnvState {
         this._fastStartEnabled = storedFastStartEnabled;
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
+      const storedSessionWorkspace = await this.ctx.storage.get<SessionWorkspace>('sessionWorkspace');
+      this._sessionWorkspace = storedSessionWorkspace === 'vscode' ? 'vscode' : 'terminal';
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;

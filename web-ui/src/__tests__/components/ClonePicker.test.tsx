@@ -141,14 +141,13 @@ describe('ClonePicker', () => {
     expect('ref' in arg).toBe(false);
   });
 
-  it('selecting an agent creates a session with the repo and triggers the open path', async () => {
+  it('selecting an agent delegates cloned-session workspace routing to the store', async () => {
     renderPicker();
 
     fireEvent.click(screen.getByTestId('clone-picker-agent-pi'));
 
     await waitFor(() => expect(mockCreateSessionWithClone).toHaveBeenCalledTimes(1));
-    // createSessionWithClone(repo, agentType) — the store method that runs the
-    // existing create → activate → start (navigate) sequence.
+    // Store owns server-selected workspace routing after creation.
     expect(mockCreateSessionWithClone.mock.calls[0][0]).toBe('octocat/hello');
     expect(mockCreateSessionWithClone.mock.calls[0][1]).toBe('pi');
   });

@@ -241,11 +241,58 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(expanded.ptyActive).toBe(true);
     });
 
+    it('keeps Terminal metadata free of editor readiness while reporting PTY activity', () => {
+      const session = makeSession('aabbccdd11223344', 'running');
+      const meta = buildSessionMetadata(session);
+      const expanded = expandSessionMetadata(meta);
+
+      expect(meta.er).toBeUndefined();
+      expect(meta.ee).toBeUndefined();
+      expect(expanded).toMatchObject({ status: 'running', ptyActive: true });
+      expect(expanded.editorReady).toBeUndefined();
+      expect(expanded.editorReadyError).toBeUndefined();
+    });
+
     it('expandSessionMetadata maps "s" to status=stopped with ptyActive=false', () => {
       const meta: SessionListMetadata = { s: 's' };
       const expanded = expandSessionMetadata(meta);
       expect(expanded.status).toBe('stopped');
       expect(expanded.ptyActive).toBe(false);
+    });
+
+    it('REQ-IDE-050 AC1: carries editor readiness without claiming a VS Code PTY', async () => {
+      const session = { ...makeSession('aabbccdd11223344', 'running'), workspace: 'vscode' as const, editorReady: true };
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { editorReady?: boolean; ptyActive: boolean }> };
+
+      expect(body.statuses.aabbccdd11223344).toMatchObject({ editorReady: true, ptyActive: false });
+    });
+
+    it('REQ-IDE-049 AC2: carries bounded editor failure for dashboard retry', async () => {
+      const session = {
+        ...makeSession('aabbccdd11223344', 'running'),
+        workspace: 'vscode' as const,
+        editorReady: false,
+        editorReadyError: true,
+      };
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { editorReady?: boolean; editorReadyError?: boolean }> };
+
+      expect(body.statuses.aabbccdd11223344).toMatchObject({ editorReady: false, editorReadyError: true });
+
+      const { editorReadyError: _clearedError, ...recovered } = session;
+      const ready = { ...recovered, editorReady: true };
+      mockKV._set('session:test-bucket:aabbccdd11223344', ready, buildSessionMetadata(ready));
+      const retryResponse = await app.request('/sessions/batch-status');
+      const retryBody = await retryResponse.json() as { statuses: Record<string, { editorReady?: boolean; editorReadyError?: boolean }> };
+      expect(retryBody.statuses.aabbccdd11223344).toMatchObject({ editorReady: true });
+      expect(retryBody.statuses.aabbccdd11223344.editorReadyError).toBeUndefined();
     });
 
     it('batch-status response does not include initializing/stopping/error status values', async () => {

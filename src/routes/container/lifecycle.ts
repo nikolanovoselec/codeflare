@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys } from '../../types';
+import { resolveSessionWorkspace } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -63,7 +64,6 @@ export async function startOrRestartContainer(params: {
   const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
-  let destroyedForRestart = false;
   let currentState;
   try {
     currentState = await container.getState();
@@ -86,7 +86,6 @@ export async function startOrRestartContainer(params: {
       // declines by design, and the 4503 gate then refuses every terminal upgrade
       // until the user starts the session by hand (REQ-SESSION-020 AC3).
       currentState = { status: 'stopped' };
-      destroyedForRestart = true;
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -101,31 +100,25 @@ export async function startOrRestartContainer(params: {
     }
   }
 
-  // Mark session as running in KV. sessionData is a pre-destroy snapshot, so
-  // after a destroy-driven restart it still reads 'running' while the record
-  // itself now reads 'stopped' (destroy() writes it). Trusting the snapshot there
-  // would leave the record stopped for the whole boot, and the terminal upgrade's
-  // 4503 gate is non-retryable — the tab would give up rather than back off
-  // (REQ-SESSION-020 AC5).
-  if (sessionData.status !== 'running' || destroyedForRestart) {
-    // On the restart path the snapshot is also stale in the other direction:
-    // destroy() refreshed lastActiveAt on its way out, and a tick may have written
-    // metrics, both of which spreading the snapshot would revert. Re-read there,
-    // as the start-failure rollback below already does.
-    const base = destroyedForRestart
-      ? (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData
-      : sessionData;
-    const updated = { ...base, status: 'running' as const };
-    await putSessionWithMetadata(env.KV, sessionKey, updated);
-  }
-
-  // If container is already running/healthy with correct bucket, return immediately
+  // If container is already running/healthy with correct bucket, return immediately.
+  // This preserves readiness for the live editor and avoids an unnecessary KV write.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
     return {
       status: 'already_running',
       containerState: currentState.status,
     };
   }
+
+  // Every path below starts a replacement container. Re-read KV so concurrent
+  // activity/metrics survive, then clear editor readiness before startup polling
+  // can expose Open for an editor that no longer exists.
+  const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
+  const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
+  await putSessionWithMetadata(env.KV, sessionKey, {
+    ...sessionWithoutReadiness,
+    status: 'running' as const,
+    ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
+  });
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -328,6 +321,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       workspaceSyncEnabled,
       fastStartEnabled,
       sessionMode,
+      sessionWorkspace: resolveSessionWorkspace(sessionData.workspace),
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
       // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).

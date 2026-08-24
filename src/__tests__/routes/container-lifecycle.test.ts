@@ -263,6 +263,29 @@ describe('Container Lifecycle Routes', () => {
       expect(body.workspaceSyncEnabled).toBe(true);
     });
 
+    it('REQ-IDE-048 AC2: starts from the immutable session workspace instead of current preferences', async () => {
+      const fetch = createLifecycleApp('my-bucket');
+      mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12',
+        name: 'VS Code Session',
+        userId: 'my-bucket',
+        status: 'stopped',
+        workspace: 'vscode',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      mockKV._set('user-prefs:my-bucket', { defaultWorkspace: 'terminal' });
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ bucketName: null }), { status: 200 }))
+        .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      const setBucketRequest = container().fetch.mock.calls[1]?.[0] as Request;
+      expect(await setBucketRequest.json()).toMatchObject({ sessionWorkspace: 'vscode' });
+    });
+
     it('REQ-ENTERPRISE-001 AC2: enterprise start resolves sessionMode=advanced with no stored preference (JIT user)', async () => {
       const fetch = createLifecycleApp('my-bucket', { ENTERPRISE_MODE: 'active' } as Partial<Env>);
       mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {

@@ -262,6 +262,30 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-161: Pi Startup Header Terminal Width Safety
+
+**Intent:** Pi must start reliably when an embedded terminal gives its startup header a narrow viewport.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::installHeader --> <!-- @test: src/__tests__/lib/startup-header.test.ts (REQ-AGENT-161: Pi startup header terminal width safety) -->
+
+**Constraints:**
+
+- Width adaptation remains cosmetic and must never terminate Pi startup.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Pi startup-header behavioral test across desktop, narrow mobile, and degenerate widths
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
 
 **Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.
@@ -4169,14 +4193,15 @@ None.
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (reports registered extension tool schemas separately from the controlled prompt) -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (indexes every model-invocable seed skill exactly once per mode without removing its file) --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (seeds one SYSTEM and AGENTS prompt input for both public Pi modes) -->
-6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, and managed prompt verification. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
-7. Curation advances its compiler pin only from an exact successful Codeflare deployment and verifies both managed modes before publication; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin and both managed-mode prompt reports in protected codeflare-curation CI -->
+6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, managed prompt verification, and the declared synchronization duty for shared manifest-owned fallback paths. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
+7. Curation advances its compiler pin only from an exact successful Codeflare deployment and verifies both managed modes plus matching bytes for every shared manifest-owned fallback path before publication; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin, shared manifest-owned fallback bytes, and both managed-mode prompt reports in protected codeflare-curation CI -->
 
 **Constraints:**
 
 - Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata. Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
 - The cap excludes serialized tool schemas and arbitrary additive project context. It includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing. Project context is measured separately and never truncated.
 - Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
+- A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes; image-owned paths and curation-private content remain independently owned.
 - Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
 
 **Priority:** P1

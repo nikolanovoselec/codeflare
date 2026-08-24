@@ -34,6 +34,7 @@ export const SetBucketNameBodySchema = z.object({
   remoteCurationReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   remoteCurationManifestDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   sessionMode: z.string(),
+  sessionWorkspace: z.enum(['terminal', 'vscode']),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
   userGroups: z.array(z.string()).optional(),

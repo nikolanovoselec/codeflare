@@ -39,6 +39,7 @@ function baseState(): ContainerEnvState {
     _cloudflareAccountId: null,
     _encryptionKey: null,
     _sessionMode: 'default',
+    _sessionWorkspace: 'terminal',
     _containerAuthToken: 'tok',
     _sessionId: 'oldsession12345678',
     _userEmail: 'user@example.com',

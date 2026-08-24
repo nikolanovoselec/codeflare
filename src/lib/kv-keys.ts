@@ -17,6 +17,10 @@ export interface SessionListMetadata {
   la?: string;
   /** lastStartedAt ISO string */
   sa?: string;
+  /** Browser IDE editor readiness: 1 = ready, 0 = warming/failed. */
+  er?: 0 | 1;
+  /** Browser IDE bounded warm-up failure. */
+  ee?: 1;
   /** metrics */
   m?: {
     /** cpu */
@@ -46,6 +50,8 @@ export function buildSessionMetadata(session: Session): SessionListMetadata {
     s: session.status === 'running' ? 'r' : 's',
     la: session.lastActiveAt,
     sa: session.lastStartedAt,
+    ...(typeof session.editorReady === 'boolean' && { er: session.editorReady ? 1 : 0 }),
+    ...(session.editorReadyError === true && { ee: 1 }),
   };
   if (session.metrics) {
     meta.m = {
@@ -65,14 +71,18 @@ export function expandSessionMetadata(meta: SessionListMetadata): {
   ptyActive: boolean;
   lastActiveAt: string | null;
   lastStartedAt: string | null;
+  editorReady?: boolean;
+  editorReadyError?: boolean;
   metrics?: Session['metrics'];
 } {
   const isRunning = meta.s === 'r';
   return {
     status: isRunning ? 'running' : 'stopped',
-    ptyActive: isRunning,
+    ptyActive: isRunning && meta.er === undefined,
     lastActiveAt: meta.la || null,
     lastStartedAt: meta.sa || null,
+    ...(meta.er !== undefined && { editorReady: meta.er === 1 }),
+    ...(meta.ee === 1 && { editorReadyError: true }),
     ...(meta.m && {
       metrics: {
         ...(meta.m.c && { cpu: meta.m.c }),

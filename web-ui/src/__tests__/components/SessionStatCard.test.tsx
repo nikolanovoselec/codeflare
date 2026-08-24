@@ -177,6 +177,42 @@ describe('SessionStatCard', () => {
     });
   });
 
+  describe('VS Code workspace action', () => {
+    it('runs explicit action without selecting the card', () => {
+      const onSelect = vi.fn();
+      const onClick = vi.fn();
+      render(() => (
+        <SessionStatCard
+          {...defaultProps}
+          session={createSession({ workspace: 'vscode', editorReady: true })}
+          onSelect={onSelect}
+          workspaceAction={{ label: 'Open', onClick }}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('session-stat-card-test-1-workspace-action'));
+
+      expect(onClick).toHaveBeenCalledOnce();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('disables Preparing without invoking action', () => {
+      const onClick = vi.fn();
+      render(() => (
+        <SessionStatCard
+          {...defaultProps}
+          session={createSession({ workspace: 'vscode', status: 'initializing' })}
+          workspaceAction={{ label: 'Preparing…', disabled: true, onClick }}
+        />
+      ));
+
+      const action = screen.getByTestId('session-stat-card-test-1-workspace-action');
+      expect(action).toBeDisabled();
+      fireEvent.click(action);
+      expect(onClick).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Kebab menu trigger', () => {
     it('calls onMenuClick with event and session when kebab button is clicked', () => {
       const onMenuClick = vi.fn();

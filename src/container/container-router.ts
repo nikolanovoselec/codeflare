@@ -11,7 +11,7 @@
  * request/response shapes the Worker fan-out and the previous Map dispatch
  * used. Only the in-process dispatch mechanism is typed.
  */
-import type { TabConfig } from '../types';
+import type { SessionWorkspace, TabConfig } from '../types';
 import { toError } from '../lib/error-types';
 import { SetSessionIdBodySchema } from '../lib/container-config-schema';
 import { validateBucketNameInput, applyPrefsOnRestart } from './container-env';
@@ -63,6 +63,7 @@ interface SetBucketNameBody {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   sessionMode?: string;
+  sessionWorkspace?: SessionWorkspace;
   // REQ-MEM-001 AC4: user's IANA timezone forwarded by the Worker from
   // preferences.userTimezone. applyBucketName persists it and buildEnvVars
   // surfaces it to the container as USER_TIMEZONE; entrypoint.sh applies the
@@ -160,7 +161,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, sessionWorkspace, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -173,7 +174,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
-        encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, userTimezone,
+        encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, sessionWorkspace, userTimezone,
         gitCloneRepo, gitCloneRef,
       });
 
@@ -197,7 +198,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     // FIX-15: Validate inputs
     const validationError = validateBucketNameInput({
       bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-      workspaceSyncEnabled, fastStartEnabled, sessionMode,
+      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace,
     });
     if (validationError) {
       return new Response(JSON.stringify({ error: validationError }), {
@@ -276,6 +277,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       remoteCurationReleaseDigest,
       remoteCurationManifestDigest,
       sessionMode,
+      sessionWorkspace,
       userTimezone,
       // REQ-GITHUB-004: clone directive for a session created from a repository.
       // The restart path also re-applies it so an ephemeral workspace can be rebuilt.

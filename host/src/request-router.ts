@@ -66,6 +66,8 @@ export interface ReadinessFlags {
   prewarmReady: boolean;
   initFlagObserved: boolean;
   terminalServiceReady: boolean;
+  editorReady: boolean;
+  editorReadyTimedOut: boolean;
 }
 
 export interface RequestRouterDeps {
@@ -209,7 +211,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);
-      const { prewarmReady, initFlagObserved, terminalServiceReady } = deps.readiness();
+      const { prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut } = deps.readiness();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
@@ -223,6 +225,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           prewarmReady,
           initFlagObserved,
           terminalServiceReady,
+          editorReady,
+          editorReadyTimedOut,
           cpu: sysMetrics.cpu,
           mem: sysMetrics.mem,
           hdd: sysMetrics.hdd,

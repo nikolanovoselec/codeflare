@@ -393,6 +393,37 @@ describe('API Client', () => {
         })
       );
     });
+
+    it('REQ-IDE-048 AC1: keeps cloned-session workspace selection server-owned', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({
+          session: {
+            id: 'new-session',
+            name: 'hello',
+            workspace: 'vscode',
+            createdAt: '2024-01-01T00:00:00Z',
+            lastAccessedAt: '2024-01-01T00:00:00Z',
+          },
+        })),
+      });
+
+      const session = await createSession('hello', 'pi', undefined, { repo: 'octocat/hello' });
+
+      expect(session.workspace).toBe('vscode');
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/sessions',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'hello',
+            agentType: 'pi',
+            clone: { repo: 'octocat/hello' },
+          }),
+        }),
+      );
+    });
   });
 
   describe('deleteSession', () => {
@@ -592,6 +623,61 @@ describe('API Client', () => {
 
       expect(onError).toHaveBeenCalledWith('Failed to start container');
       expect(onComplete).not.toHaveBeenCalled();
+
+      cleanup();
+    });
+
+    it('REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe', async () => {
+      const onProgress = vi.fn();
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const details = {
+        userId: 'user-123',
+        container: 'container-abc',
+        bucket: 'bucket-xyz',
+        bucketName: 'my-bucket',
+        path: '/workspace',
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({
+            stage: 'error',
+            progress: 0,
+            message: 'VS Code did not become ready. Retry starting the session.',
+            error: 'VS Code did not become ready. Retry starting the session.',
+            details,
+          })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({
+            stage: 'mounting', progress: 90, message: 'Preparing VS Code...', details,
+          })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({
+            stage: 'ready', progress: 100, message: 'Container ready', details,
+          })),
+        });
+
+      const cleanup = startSession(
+        'session00123', onProgress, onComplete, onError, { retryEditorTimeout: true },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'mounting' }));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(onComplete).toHaveBeenCalledOnce();
+      expect(onError).not.toHaveBeenCalled();
 
       cleanup();
     });

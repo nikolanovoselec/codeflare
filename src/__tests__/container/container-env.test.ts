@@ -26,6 +26,7 @@ function baseState(): ContainerEnvState {
     _cloudflareAccountId: null,
     _encryptionKey: null,
     _sessionMode: 'default',
+    _sessionWorkspace: 'terminal',
     _containerAuthToken: 'tok',
     _sessionId: 'sid-abcdef12',
     _userEmail: 'user@example.com',
@@ -67,6 +68,15 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     (state as unknown as { _userTimezone: string | null })._userTimezone = '';
     const vars = buildEnvVars(state, baseEnv);
     expect(vars.USER_TIMEZONE).toBeUndefined();
+  });
+
+  it('REQ-IDE-048 AC3: emits the immutable session workspace', () => {
+    const terminalVars = buildEnvVars(baseState(), baseEnv);
+    const vscodeState = baseState();
+    vscodeState._sessionWorkspace = 'vscode';
+
+    expect(terminalVars.CODEFLARE_SESSION_WORKSPACE).toBe('terminal');
+    expect(buildEnvVars(vscodeState, baseEnv).CODEFLARE_SESSION_WORKSPACE).toBe('vscode');
   });
 
   it('does not affect other env vars (regression guard)', () => {
@@ -344,6 +354,28 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     });
     expect(changed).toBe(false);
     expect(writes.userTimezone).toBeUndefined();
+  });
+
+  it('REQ-IDE-048 AC3: persists workspace on first configuration', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { sessionWorkspace: 'vscode' });
+
+    expect(state._sessionWorkspace).toBe('vscode');
+    expect(writes.sessionWorkspace).toBe('vscode');
+  });
+
+  it('REQ-IDE-048 AC3: replaces stale workspace state on restart', async () => {
+    const state = baseState();
+    state._sessionWorkspace = 'vscode';
+    const { writes, storage } = makeStorage();
+
+    const changed = await applyPrefsOnRestart(state, storage, { sessionWorkspace: 'terminal' });
+
+    expect(changed).toBe(true);
+    expect(state._sessionWorkspace).toBe('terminal');
+    expect(writes.sessionWorkspace).toBe('terminal');
   });
 
   // REQ-ENTERPRISE-004 (revised): userGroups restart compare uses JSON.stringify

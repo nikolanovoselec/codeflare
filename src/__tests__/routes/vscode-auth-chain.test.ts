@@ -190,7 +190,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
   });
 
-  it('REQ-IDE-001: returns 401 AUTH_FAILED when authenticateRequest throws AuthError', async () => {
+  it('REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
     const { AuthError } = await import('../../lib/error-types');
     mockAuthResult.error = new AuthError('Unauthorized');
     const request = vscodeRequest();
@@ -210,7 +210,26 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-001: returns 404 SESSION_NOT_FOUND when the user does not own the session', async () => {
+  it('REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier', async () => {
+    (mockEnv as unknown as { SAAS_MODE: string }).SAAS_MODE = 'active';
+    mockAuthResult.result = {
+      user: {
+        email: 'test@example.com', authenticated: true,
+        accessTier: 'pending', subscriptionTier: 'pending',
+      },
+      bucketName: 'test-bucket',
+    };
+
+    const request = vscodeRequest();
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+
+    expect(response.status).toBe(403);
+    expect((await response.json() as { code: string }).code).toBe('PENDING');
+    expect(mockKV.get).not.toHaveBeenCalledWith(SESSION_KEY, 'json');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own', async () => {
     mockKV._clear();
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));

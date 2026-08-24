@@ -27,7 +27,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-001: Session creation with name and agent type
 
-**Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
+**Intent:** A user can create a named session associated with a specific AI agent and immutable workspace snapshot, producing a unique session record stored in KV.
 
 **Applies To:** User
 
@@ -35,9 +35,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, antigravity, opencode, copilot, bash, pi). <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
 2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-3. The session record is persisted durably and retrievable by the user. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-4. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC4: response returns session object with status 201) -->
-5. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
+3. The session record, including its immutable workspace snapshot, is persisted durably and retrievable across restarts. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists and retrieves the immutable workspace snapshot) -->
+4. A session record without a workspace snapshot resolves to Terminal. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC4: historical sessions resolve to Terminal) -->
+5. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC5: response returns session object with status 201) -->
+6. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC6: session creation is rate-limited) -->
 
 **Constraints:**
 
@@ -48,7 +49,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-creation.test.ts))
+**Verification:** Automated tests ([Creation integration](../../src/__tests__/routes/session-creation.test.ts); [workspace snapshot](../../src/__tests__/routes/session-workspace.test.ts))
 
 **Status:** Implemented
 

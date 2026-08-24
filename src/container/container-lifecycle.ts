@@ -254,6 +254,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       host.ctx.storage.delete('workspaceSyncEnabled'),
       host.ctx.storage.delete('fastStartEnabled'),
       host.ctx.storage.delete('tabConfig'),
+      host.ctx.storage.delete('sessionWorkspace'),
       host.ctx.storage.delete('sleepAfter'),
       host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY),
       // Drop auth and vault keys before the next lifecycle can reuse this DO.
@@ -276,6 +277,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     host._remoteCurationReleaseDigest = null;
     host._remoteCurationManifestDigest = null;
     host._sessionMode = 'default';
+    host._sessionWorkspace = 'terminal';
     host.logger.info('Operational storage cleared');
   } catch (err) {
     host.logger.error('Failed to clear storage', toError(err));

@@ -12,7 +12,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier, SubscriptionTier } from '../types';
+import type { AccessTier, SessionWorkspace, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
@@ -168,6 +168,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
+  const defaultWorkspace = () => sessionStore.preferences.defaultWorkspace ?? 'terminal';
   const isFreeUser = () => {
     const tier = liveAccessTier();
     return tier === 'free';
@@ -224,7 +225,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const handleSessionModeChange = async (mode: 'default' | 'advanced') => {
     if (mode === currentSessionMode()) return;
     try {
-      await sessionStore.updatePreferences({ sessionMode: mode });
+      await sessionStore.updatePreferences(mode === 'default'
+        ? { sessionMode: mode, defaultWorkspace: 'terminal' }
+        : { sessionMode: mode });
       // Show feedback — auto-reconcile runs server-side as part of the PATCH
       if (currentSessionMode() === mode) {
         setRecreateAgentMessage(`Agent skills updated for ${mode === 'advanced' ? 'Pro' : 'Standard'} mode. Takes effect in new sessions.`);
@@ -232,6 +235,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     } catch {
       // updatePreferences handles its own errors
     }
+  };
+
+  const handleDefaultWorkspaceChange = (workspace: SessionWorkspace) => {
+    if (workspace === defaultWorkspace()) return;
+    void sessionStore.updatePreferences({ defaultWorkspace: workspace });
   };
 
   const handleSleepAfterChange = (value: string) => {
@@ -370,6 +378,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               enterpriseMode={() => props.enterpriseMode === true}
               saasMode={() => sessionStore.saasMode}
               currentSessionMode={currentSessionMode}
+              defaultWorkspace={defaultWorkspace}
               canUseAdvanced={canUseAdvanced}
               fastStartEnabled={fastStartEnabled}
               workspaceSyncEnabled={workspaceSyncEnabled}
@@ -386,6 +395,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               recreateAgentMessage={recreateAgentMessage}
               recreateAgentError={recreateAgentError}
               onSessionModeChange={handleSessionModeChange}
+              onDefaultWorkspaceChange={handleDefaultWorkspaceChange}
               onFastStartToggle={handleFastStartToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
               onEnableAgentNotifications={() => { void handleAgentNotificationsToggle(); }}

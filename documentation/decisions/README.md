@@ -159,6 +159,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD138](#ad138-context-mode-is-on-by-default-in-pi)~~ | ~~Enable context-mode by default in Pi~~ | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) restores disabled startup after provider-boundary measurement showed default context schemas outweighed prompt compaction. | Agents, Architecture, Reliability | Superseded |
 | [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
+| [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
 ---
 
 ## Decisions
@@ -3473,7 +3474,7 @@ The third result is why the sweep is shaped as it is: the marker can only be rea
 
 **Category:** Architecture, Security, Build / Container
 
-**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) and [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
+**Status:** Accepted (2026-07-28); amended by [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity), [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory), and [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot). Amends [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault), supersedes [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), and amends [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration).
 
 **Context:** OpenVSCode Server no longer provides a sufficiently current base for further Browser IDE investment. Codeflare must replace it without changing the authenticated session route, isolation boundary, lazy lifecycle, ephemeral editor state, owned native Pi integration, or exact official Claude integration.
 
@@ -3896,5 +3897,23 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Consequences:** Optional tools add schema cost only after selection. `/ctx on` pays context-mode startup cost only for containers that request it, and `/ctx off` or a new container restores the disabled state. Codeflare-curation remains the complete managed source while Codeflare carries an independent embedded fallback and image/runtime ownership. Existing subagent max-turn behavior is unchanged.
 
 **Related REQs:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt), [REQ-AGENT-158](../../sdd/spec/agents.md#req-agent-158-bounded-initial-pi-tool-exposure), and [REQ-AGENT-159](../../sdd/spec/agents.md#req-agent-159-active-subagent-resume-guard).
+
+---
+
+### AD141: Browser IDE startup follows the session workspace snapshot
+
+**Category:** Architecture, Build / Container
+
+**Status:** Accepted (2026-08-24). Amends [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
+
+**Context:** AD119 retained request-lazy code-server startup for Terminal sessions. A user-selected VS Code workspace instead needs editor readiness on the dashboard and must not create an unused host browser-terminal PTY. The workspace choice is captured immutably on each session, including across later preference or entitlement changes. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+
+**Decision:** Use the immutable session workspace snapshot to select startup. Terminal sessions keep host PTY prewarm and request-lazy code-server startup. VS Code sessions skip host PTY creation, arm the existing code-server supervisor after initialization, and expose bounded editor readiness through the existing startup-status path. A preserved VS Code session continues using this lifecycle after the user's future default returns to Terminal or Standard mode. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace launch)) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-048 AC3: host workspace startup selection) -->
+
+**Alternatives rejected:** Create both a browser-terminal PTY and code-server for every session; infer workspace from mutable `SESSION_MODE`; migrate existing VS Code sessions on downgrade; add a second editor process owner; or open the editor asynchronously from dashboard polling.
+
+**Consequences:** VS Code sessions become editor-ready without duplicate host PTYs, while Terminal startup remains unchanged. Startup status has workspace-specific readiness semantics, and restart must clear stale editor readiness before a replacement container begins warming.
+
+**Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions).
 
 ---

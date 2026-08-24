@@ -43,6 +43,14 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 <a id="browser-ide"></a>
 **Browser IDE**
 
+### VS Code session stays on Preparing or opens another tab ([REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-explicit-browser-ide-open-and-ownership))
+
+**Symptom:** A VS Code session never enables **Open**, shows **Retry**, enters a terminal view, or creates another editor tab each time **Open** is clicked.
+
+**Cause:** The stored session workspace may not have reached `CODEFLARE_SESSION_WORKSPACE`, host editor readiness may have timed out, or the browser may have blocked the stable named window. Terminal panes or WebSockets for that session indicate stale frontend routing rather than an editor problem.
+
+**Fix:** Keep the session on the dashboard. Use **Retry** after a readiness failure and allow pop-ups for the Codeflare origin if the dashboard reports blocking. Inspect the session record, container environment, private host `/health`, code-server supervisor log, and the `Codeflare Session Agent` integrated terminal. Do not convert the session by changing **Default workspace**, create a fallback host PTY, attach the editor to terminal tab 1, or force-close the retained browser tab. Stop and delete remain available throughout recovery.
+
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
 **Symptom:** The Browser IDE connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.

@@ -140,6 +140,62 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: official Claude launch writes isolated 
   assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
 });
 
+test("REQ-IDE-047: inherited VS Code workspace selects the session agent for every inventory", async () => {
+  const previousWorkspace = process.env.CODEFLARE_SESSION_WORKSPACE;
+  process.env.CODEFLARE_SESSION_WORKSPACE = "vscode";
+  try {
+    const { sourceRoot, targetRoot } = await fixture();
+    const roots = {
+      pi: join(sourceRoot, "pi-data"),
+      unsupported: join(sourceRoot, "unsupported-data"),
+      claude: join(sourceRoot, "claude-data"),
+    };
+
+    await prepareBaseOpenVscodeSettings(roots.pi);
+    await prepareUnsupportedOpenVscodeSettings(roots.unsupported);
+    await prepareOfficialClaudeIde({ sourceRoot, targetRoot, serverDataRoot: roots.claude });
+
+    for (const root of Object.values(roots)) {
+      const settings = JSON.parse(await readFile(join(root, "data", "User", "settings.json"), "utf8"));
+      assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Codeflare Session Agent");
+      assert.deepEqual(settings["terminal.integrated.profiles.linux"], {
+        Bash: {
+          path: "/bin/bash",
+          args: ["-l"],
+          env: { MANUAL_TAB: "1" },
+        },
+        "Codeflare Session Agent": {
+          path: "/bin/bash",
+          args: ["-l"],
+        },
+      });
+    }
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.CODEFLARE_SESSION_WORKSPACE;
+    else process.env.CODEFLARE_SESSION_WORKSPACE = previousWorkspace;
+  }
+});
+
+test("REQ-IDE-047: absent or unknown inherited workspace fails safely to the terminal default", async () => {
+  const previousWorkspace = process.env.CODEFLARE_SESSION_WORKSPACE;
+  try {
+    for (const workspace of [undefined, "unknown"]) {
+      if (workspace === undefined) delete process.env.CODEFLARE_SESSION_WORKSPACE;
+      else process.env.CODEFLARE_SESSION_WORKSPACE = workspace;
+      const { sourceRoot } = await fixture();
+      const serverDataRoot = join(sourceRoot, "openvscode-data");
+
+      await prepareBaseOpenVscodeSettings(serverDataRoot);
+
+      const settings = JSON.parse(await readFile(join(serverDataRoot, "data", "User", "settings.json"), "utf8"));
+      assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Bash");
+    }
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.CODEFLARE_SESSION_WORKSPACE;
+    else process.env.CODEFLARE_SESSION_WORKSPACE = previousWorkspace;
+  }
+});
+
 test("REQ-IDE-007 AC3: official Claude restart restores unrestricted managed settings", async () => {
   const { sourceRoot, targetRoot } = await fixture();
   const serverDataRoot = join(sourceRoot, "..", "openvscode-data");

@@ -29,11 +29,17 @@ vi.mock('../../components/SplashCursor', () => ({
 }));
 
 vi.mock('../../components/SettingsPanel', () => ({
-  default: (_props: any) => <div data-testid="settings-panel" />
+  default: (props: any) => {
+    (window as any).__settingsPanelProps = props;
+    return <div data-testid="settings-panel" />;
+  }
 }));
 
 vi.mock('../../components/StoragePanel', () => ({
-  default: (_props: any) => <div data-testid="storage-panel" />
+  default: (props: any) => {
+    (window as any).__storagePanelProps = props;
+    return <div data-testid="storage-panel" />;
+  }
 }));
 
 const vaultProbeMock = vi.hoisted(() => ({
@@ -245,9 +251,29 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
 
       await waitFor(() => expect(mockActiveSessionId).toBe(sessionId));
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith(sessionId, '1');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith(sessionId, '1', expect.objectContaining({ id: sessionId }));
       expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
       expect(window.location.pathname).toBe(`/app/session/${sessionId}`);
+    });
+
+    it('normalizes a VS Code session deep link to the dashboard without terminal or popup ownership', async () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running', workspace: 'vscode' })];
+      window.history.replaceState(null, '', `/app/session/${sessionId}`);
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+
+        await waitFor(() => expect(window.location.pathname).toBe('/app/'));
+        expect(mockActiveSessionId).toBeNull();
+        expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(sessionId, expect.anything(), expect.anything());
+        expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
     });
 
     it('rejects malformed or unknown session paths to the dashboard without starting a container', async () => {
@@ -392,17 +418,98 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(typeof (window as any).__headerProps.onVscodeOpen).toBe('function');
     });
 
-    it('the passed handler opens the session-keyed /api/vscode/<sid>/ url in a new tab (REQ-IDE-002)', () => {
-      mockSessions = [createMockSession({ status: 'running' })];
-      mockActiveSessionId = 'sess1';
+    it('the passed handler synchronously opens the validated session URL with its stable named target (REQ-IDE-002)', () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      mockActiveSessionId = sessionId;
+      mockPreferences = { sessionMode: 'advanced' };
+      const handle = { closed: false, focus: vi.fn(), close: vi.fn() } as unknown as Window;
+      let invokingHandler = false;
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {
+        expect(invokingHandler).toBe(true);
+        return handle;
+      });
+
+      try {
+        render(() => <Layout />);
+        invokingHandler = true;
+        (window as any).__headerProps.onVscodeOpen();
+        invokingHandler = false;
+
+        expect(openSpy).toHaveBeenCalledWith(
+          `/api/vscode/${sessionId}/`,
+          `codeflare-vscode-${sessionId}`,
+        );
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('does not retain Browser IDE handles across Layout remounts', () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      mockActiveSessionId = sessionId;
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open')
+        .mockReturnValueOnce({ closed: false, focus: vi.fn() } as unknown as Window)
+        .mockReturnValueOnce({ closed: false, focus: vi.fn() } as unknown as Window);
+
+      try {
+        render(() => <Layout />);
+        (window as any).__headerProps.onVscodeOpen();
+        cleanup();
+        render(() => <Layout />);
+        (window as any).__headerProps.onVscodeOpen();
+
+        expect(openSpy).toHaveBeenCalledTimes(2);
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      mockActiveSessionId = sessionId;
       mockPreferences = { sessionMode: 'advanced' };
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
-      render(() => <Layout />);
-      (window as any).__headerProps.onVscodeOpen();
+      try {
+        render(() => <Layout />);
+        (window as any).__headerProps.onVscodeOpen();
+        expect(openSpy).toHaveBeenCalledOnce();
+        await waitFor(() => expect((window as any).__terminalAreaProps.error).toBeTruthy());
+        const firstFeedback = (window as any).__terminalAreaProps.error;
 
-      expect(openSpy).toHaveBeenCalledWith('/api/vscode/sess1/', '_blank', 'noopener');
-      openSpy.mockRestore();
+        (window as any).__headerProps.onVscodeOpen();
+        expect(openSpy).toHaveBeenCalledTimes(2);
+        expect((window as any).__terminalAreaProps.error).toBe(firstFeedback);
+
+        (window as any).__terminalAreaProps.onDismissError();
+        await waitFor(() => expect((window as any).__terminalAreaProps.error).toBeNull());
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('does not close a retained Browser IDE window when its session stops or is deleted', async () => {
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
+      mockActiveSessionId = sessionId;
+      mockPreferences = { sessionMode: 'advanced' };
+      const handle = { closed: false, focus: vi.fn(), close: vi.fn() } as unknown as Window;
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => handle);
+
+      try {
+        render(() => <Layout />);
+        (window as any).__headerProps.onVscodeOpen();
+        await (window as any).__terminalAreaProps.onStopSession(sessionId);
+        await (window as any).__terminalAreaProps.onDeleteSession(sessionId);
+
+        expect(handle.close).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
     });
   });
 
@@ -990,7 +1097,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect(mockActiveWorkspace).toEqual({ kind: 'session', sessionId: 'sess2' });
     });
@@ -1008,9 +1115,122 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect(sessionStore.startSession).not.toHaveBeenCalled();
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+    });
+
+    it('REQ-IDE-048 AC2: header selection returns a running VS Code session to dashboard ownership', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      const terminalSessionId = 'abcdef0123456789';
+      const vscodeSessionId = 'fedcba9876543210';
+      mockSessions = [
+        createMockSession({ id: terminalSessionId, status: 'running' }),
+        createMockSession({ id: vscodeSessionId, status: 'running', workspace: 'vscode' }),
+      ];
+      mockActiveSessionId = terminalSessionId;
+      mockActiveWorkspace = { kind: 'session', sessionId: terminalSessionId };
+      mockVisiblePanes = [{ sessionId: terminalSessionId, terminalId: '1' }];
+      window.history.replaceState(null, '', `/app/session/${terminalSessionId}`);
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        await waitFor(() => expect((window as any).__headerProps?.onSelectSession).toBeTypeOf('function'));
+
+        (window as any).__headerProps.onSelectSession(vscodeSessionId);
+
+        await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
+        expect(sessionStore.setActiveSession).toHaveBeenLastCalledWith(null);
+        expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(vscodeSessionId, expect.anything(), expect.anything());
+        expect(window.location.pathname).toBe('/app/');
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-IDE-048 AC2: dashboard selection keeps a running VS Code session dashboard-owned', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        (window as any).__terminalAreaProps.onDashboardSessionSelect('sess-vscode');
+
+        expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith('sess-vscode', expect.anything());
+        expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+        expect(window.location.pathname).toBe('/app/');
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'dashboard' };
+
+      render(() => <Layout />);
+      (window as any).__terminalAreaProps.onSettingsClick();
+
+      await waitFor(() => expect((window as any).__settingsPanelProps.isOpen).toBe(true));
+      expect((window as any).__storagePanelProps.isOpen).toBe(false);
+      expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalled();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+    });
+
+    it('REQ-IDE-049 AC1: stopped VS Code selection starts while remaining on dashboard', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess-vscode', status: 'stopped', workspace: 'vscode' })];
+      vi.mocked(sessionStore.startSession).mockReturnValue(new Promise(() => {}) as any);
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        (window as any).__terminalAreaProps.onDashboardSessionSelect('sess-vscode');
+
+        expect(sessionStore.startSession).toHaveBeenCalledWith('sess-vscode');
+        expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith('sess-vscode', expect.anything());
+        expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+        expect(window.location.pathname).toBe('/app/');
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-IDE-049 AC1: explicit stopped-session start stays dashboard-owned for VS Code', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess-vscode', status: 'stopped', workspace: 'vscode' })];
+      let resolveStart: (() => void) | undefined;
+      vi.mocked(sessionStore.startSession).mockImplementation(() => new Promise<void>((resolve) => { resolveStart = resolve; }));
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        const starting = (window as any).__terminalAreaProps.onStartSession('sess-vscode');
+        await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-vscode'));
+
+        expect(sessionStore.setActiveSession).not.toHaveBeenCalledWith('sess-vscode');
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith('sess-vscode', expect.anything());
+        expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+        expect(window.location.pathname).toBe('/app/');
+        expect(openSpy).not.toHaveBeenCalled();
+
+        resolveStart?.();
+        await starting;
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
     });
 
     it('REQ-TERM-011: dashboard button leaves terminal view immediately', async () => {
@@ -1047,7 +1267,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
@@ -1098,12 +1318,53 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-new'));
 
       expect(mockActiveSessionId).toBe('sess-new');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1', expect.objectContaining({ id: 'sess-new' }));
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
 
       resolveStart?.();
       await createPromise;
+    });
+
+    it('REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      const newSession = createMockSession({
+        id: 'sess-vscode', name: 'Editor Session', status: 'stopped', workspace: 'vscode',
+      }) as SessionWithStatus;
+      vi.mocked(sessionStore.createSession).mockImplementation(async () => {
+        mockSessions = [...mockSessions, newSession];
+        bumpSessionStoreVersion();
+        return newSession;
+      });
+      let resolveStart: (() => void) | undefined;
+      vi.mocked(sessionStore.startSession).mockImplementation(() => new Promise<void>((resolve) => { resolveStart = resolve; }));
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        await waitFor(() => expect((window as any).__headerProps?.onCreateSession).toBeTypeOf('function'));
+
+        const createPromise = (window as any).__headerProps.onCreateSession('Editor Session');
+        await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-vscode'));
+
+        expect(sessionStore.setActiveSession).toHaveBeenLastCalledWith(null);
+        expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith('sess-vscode', expect.anything());
+        expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+        expect(window.location.pathname).toBe('/app/');
+        expect(openSpy).not.toHaveBeenCalled();
+
+        resolveStart?.();
+        await createPromise;
+        expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+        expect(openSpy).not.toHaveBeenCalled();
+      } finally {
+        openSpy.mockRestore();
+      }
     });
   });
 
