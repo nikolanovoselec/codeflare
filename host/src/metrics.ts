@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import type { Logger, SyncStatus, SystemMetrics, CachedDiskMetrics } from './types.js';
+import { SYNC_STATUS_FILE } from './runtime-paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,7 @@ const execFileAsync = promisify(execFile);
  */
 export function getSyncStatus(): SyncStatus {
   try {
-    const data = fs.readFileSync('/tmp/sync-status.json', 'utf8');
+    const data = fs.readFileSync(SYNC_STATUS_FILE, 'utf8');
     return JSON.parse(data) as SyncStatus;
   } catch {
     return { status: 'pending', error: null, userPath: null };

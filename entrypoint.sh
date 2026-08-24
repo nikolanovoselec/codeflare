@@ -53,14 +53,29 @@ if [ ! -d /dev/shm ] || ! mountpoint -q /dev/shm 2>/dev/null; then
     fi
 fi
 
+# Required process-lifetime state lives under /run. `/tmp` is disposable and
+# may be cleared at any instant without breaking sync, services, or readiness.
+export CODEFLARE_RUNTIME_ROOT="/run/codeflare"
+SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
+SERVICES_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/services"
+OPENVSCODE_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/openvscode"
+LOCKS_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/locks"
+MARKERS_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/markers"
+mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
+chmod 0700 "$CODEFLARE_RUNTIME_ROOT" "$SYNC_RUNTIME_DIR" "$SYNC_RUNTIME_DIR/rclone" \
+    "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
+export CODEFLARE_SYNC_DAEMON_PIDFILE="$SYNC_RUNTIME_DIR/sync-daemon.pid"
+export CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$OPENVSCODE_RUNTIME_DIR/data/extensions"
+export CODEFLARE_GRAPH_LOCK="$LOCKS_RUNTIME_DIR/graphify-global.lock"
+
 # Check R2 environment variables (configured/missing status only)
-echo "[entrypoint] === R2 ENV STATUS ===" | tee /tmp/sync.log
-echo "R2_BUCKET_NAME: ${R2_BUCKET_NAME:+configured}" | tee -a /tmp/sync.log
-echo "R2_ENDPOINT: ${R2_ENDPOINT:+configured}" | tee -a /tmp/sync.log
-echo "R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:+configured}" | tee -a /tmp/sync.log
-echo "R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:+configured}" | tee -a /tmp/sync.log
-echo "R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:+configured}" | tee -a /tmp/sync.log
-echo "[entrypoint] === END R2 ENV STATUS ===" | tee -a /tmp/sync.log
+echo "[entrypoint] === R2 ENV STATUS ===" | tee /run/codeflare/sync/sync.log
+echo "R2_BUCKET_NAME: ${R2_BUCKET_NAME:+configured}" | tee -a /run/codeflare/sync/sync.log
+echo "R2_ENDPOINT: ${R2_ENDPOINT:+configured}" | tee -a /run/codeflare/sync/sync.log
+echo "R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:+configured}" | tee -a /run/codeflare/sync/sync.log
+echo "R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:+configured}" | tee -a /run/codeflare/sync/sync.log
+echo "R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:+configured}" | tee -a /run/codeflare/sync/sync.log
+echo "[entrypoint] === END R2 ENV STATUS ===" | tee -a /run/codeflare/sync/sync.log
 
 # Set TERM for proper terminal handling
 TERM=xterm-256color
@@ -299,7 +314,7 @@ SSEEOF
 
 # Initialize sync log
 init_sync_log() {
-    echo "=== Sync Log Started: $(date '+%Y-%m-%d %H:%M:%S') ===" > /tmp/sync.log
+    echo "=== Sync Log Started: $(date '+%Y-%m-%d %H:%M:%S') ===" > /run/codeflare/sync/sync.log
 }
 
 # Rclone config path (set after create_rclone_config)
@@ -582,7 +597,7 @@ fi
 # ============================================================================
 # Recovery filter for vanishing files
 # ============================================================================
-RECOVERY_FILTER_FILE="/tmp/rclone-recovery-filters.txt"
+RECOVERY_FILTER_FILE="/run/codeflare/sync/recovery-filters.txt"
 
 # Initialize empty recovery filter file (populated on bisync failure)
 init_recovery_filters() {
@@ -604,7 +619,7 @@ recover_vanished_files() {
 
         # Workspace files are user code — don't exclude, but still flag as recoverable (triggers retry)
         if [[ "$file_path" == workspace/* ]]; then
-            echo "[sync-recovery] Workspace file vanished: $file_path (will retry without excluding)" | tee -a /tmp/sync.log
+            echo "[sync-recovery] Workspace file vanished: $file_path (will retry without excluding)" | tee -a /run/codeflare/sync/sync.log
             recovered=1
             continue
         fi
@@ -617,7 +632,7 @@ recover_vanished_files() {
         fi
 
         echo "- $file_path" >> "$RECOVERY_FILTER_FILE"
-        echo "[sync-recovery] Excluded vanished file: $file_path" | tee -a /tmp/sync.log
+        echo "[sync-recovery] Excluded vanished file: $file_path" | tee -a /run/codeflare/sync/sync.log
         recovered=1
     done <<< "$(echo "$output" | grep 'failed to open source object.*no such file')"
 
@@ -641,7 +656,7 @@ initial_sync_from_r2() {
     if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
         COMPARE_FLAG="--checksum"
     fi
-    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a /tmp/sync.log
+    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a /run/codeflare/sync/sync.log
 
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
@@ -654,7 +669,7 @@ initial_sync_from_r2() {
         --checkers 32 \
         --contimeout 10s \
         --timeout 30s \
-        -v 2>&1 | tee -a /tmp/sync.log; then
+        -v 2>&1 | tee -a /run/codeflare/sync/sync.log; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -693,7 +708,7 @@ repair_hook_exec_bits() {
 # full download). Idempotent and mode-aware.
 lay_down_agent_seed_preseed() {
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
-        echo "[entrypoint] Managed release active: skipping baked agent seed lay-down" | tee -a /tmp/sync.log
+        echo "[entrypoint] Managed release active: skipping baked agent seed lay-down" | tee -a /run/codeflare/sync/sync.log
         return 0
     fi
     [ "${R2_SSE_DISABLED:-}" = "true" ] || return 0
@@ -702,17 +717,17 @@ lay_down_agent_seed_preseed() {
     # unset in production, set by the entrypoint tests to a tmpdir.
     local bake="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${mode}"
     if [ ! -d "$bake" ]; then
-        echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a /tmp/sync.log
+        echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a /run/codeflare/sync/sync.log
         return 0
     fi
-    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a /tmp/sync.log
+    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a /run/codeflare/sync/sync.log
     # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
     # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
     # cp -rp preserves modes, and the bake contains no .claude/hooks/ tree because
     # the seed has no key under it - the exec-bit repair that used to follow this
     # copy was left over from when it did, and could never match anything.
     cp -rp "$bake/." "$USER_HOME/"
-    echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log
+    echo "[entrypoint] Baked agent seed laid down" | tee -a /run/codeflare/sync/sync.log
 }
 
 # REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
@@ -730,7 +745,7 @@ lay_down_agent_seed_preseed() {
 # pulling the stale copy back. Idempotent and mode-aware.
 relay_managed_pi_extensions() {
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
-        echo "[entrypoint] Managed release active: preserving R2-restored Pi extensions" | tee -a /tmp/sync.log
+        echo "[entrypoint] Managed release active: preserving R2-restored Pi extensions" | tee -a /run/codeflare/sync/sync.log
         return 0
     fi
     # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
@@ -744,7 +759,7 @@ relay_managed_pi_extensions() {
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
     if [ ! -d "$warm_src" ]; then
-        echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a /tmp/sync.log
+        echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a /run/codeflare/sync/sync.log
         return 0
     fi
     [ -d "$dest" ] || return 0
@@ -759,7 +774,7 @@ relay_managed_pi_extensions() {
             if cp "$f" "$dest/$base"; then
                 relaid=$((relaid + 1))
             else
-                echo "[entrypoint] WARNING: managed-extension relay failed for ${base}" | tee -a /tmp/sync.log
+                echo "[entrypoint] WARNING: managed-extension relay failed for ${base}" | tee -a /run/codeflare/sync/sync.log
             fi
         fi
     done
@@ -777,14 +792,14 @@ relay_managed_pi_extensions() {
                 if cp "$f" "$dest/$base"; then
                     added=$((added + 1))
                 else
-                    echo "[entrypoint] WARNING: mode-bake backfill failed for ${base}" | tee -a /tmp/sync.log
+                    echo "[entrypoint] WARNING: mode-bake backfill failed for ${base}" | tee -a /run/codeflare/sync/sync.log
                 fi
             fi
         done
     else
-        echo "[entrypoint] WARNING: mode-filtered bake missing at ${bake_ext}; skipping managed-extension backfill" | tee -a /tmp/sync.log
+        echo "[entrypoint] WARNING: mode-filtered bake missing at ${bake_ext}; skipping managed-extension backfill" | tee -a /run/codeflare/sync/sync.log
     fi
-    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log
+    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /run/codeflare/sync/sync.log
 }
 
 # Step 2: Establish bisync baseline (after data is restored)
@@ -795,13 +810,14 @@ establish_bisync_baseline() {
     local MAX_RECOVERY=3
 
     for recovery_attempt in $(seq 1 $MAX_RECOVERY); do
-        echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a /tmp/sync.log
+        echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a /run/codeflare/sync/sync.log
 
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
         # the steady-state bisync below + AD88.
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
+            --workdir "$SYNC_RUNTIME_DIR/rclone" \
             "${RCLONE_FILTERS[@]}" \
             --filter-from "$RECOVERY_FILTER_FILE" \
             --resync \
@@ -820,19 +836,19 @@ establish_bisync_baseline() {
         else
             SYNC_RESULT=$?
         fi
-        cat "$BASELINE_OUTPUT" >> /tmp/sync.log
+        cat "$BASELINE_OUTPUT" >> /run/codeflare/sync/sync.log
         cat "$BASELINE_OUTPUT" >&2
 
         if [ $SYNC_RESULT -eq 0 ]; then
             rm -f "$BASELINE_OUTPUT"
-            echo "[entrypoint] Step 2 complete: Bisync baseline established" | tee -a /tmp/sync.log
-            touch /tmp/.bisync-initialized
+            echo "[entrypoint] Step 2 complete: Bisync baseline established" | tee -a /run/codeflare/sync/sync.log
+            touch /run/codeflare/sync/bisync-initialized
             SYNC_STATUS="success"
             return 0
         elif [ $SYNC_RESULT -eq 124 ]; then
             rm -f "$BASELINE_OUTPUT"
-            echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s" | tee -a /tmp/sync.log >&2
-            touch /tmp/.bisync-initialized
+            echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s" | tee -a /run/codeflare/sync/sync.log >&2
+            touch /run/codeflare/sync/bisync-initialized
             SYNC_STATUS="timeout"
             return 0  # Don't fail, just skip daemon
         fi
@@ -840,8 +856,8 @@ establish_bisync_baseline() {
         # Check if vanishing file caused the failure — recover and retry
         if recover_vanished_files "$(cat "$BASELINE_OUTPUT")"; then
             rm -f "$BASELINE_OUTPUT"
-            echo "[sync-recovery] Baseline attempt $recovery_attempt: excluded vanished file(s), retrying..." | tee -a /tmp/sync.log
-            rm -f "$HOME/.cache/rclone/bisync"/*.lck 2>/dev/null
+            echo "[sync-recovery] Baseline attempt $recovery_attempt: excluded vanished file(s), retrying..." | tee -a /run/codeflare/sync/sync.log
+            rm -f "$SYNC_RUNTIME_DIR/rclone/bisync"/*.lck 2>/dev/null
             continue
         fi
 
@@ -852,7 +868,7 @@ establish_bisync_baseline() {
 
     SYNC_ERROR="rclone bisync --resync failed with code $SYNC_RESULT"
     SYNC_STATUS="failed"
-    echo "[entrypoint] ERROR: $SYNC_ERROR" | tee -a /tmp/sync.log >&2
+    echo "[entrypoint] ERROR: $SYNC_ERROR" | tee -a /run/codeflare/sync/sync.log >&2
     return 1
 }
 
@@ -864,7 +880,7 @@ cleanup_agent_transcripts() {
     local ROOT="$2"
     local SCRIPT="${TRANSCRIPT_RETENTION_SCRIPT:-/transcript-retention.mjs}"
 
-    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a /tmp/sync.log
+    node "$SCRIPT" "$AGENT" "$ROOT" 10 2>&1 | tee -a /run/codeflare/sync/sync.log
 }
 
 cleanup_old_transcripts() {
@@ -900,21 +916,21 @@ bisync_with_r2() {
     # process failures remain non-fatal to sync.
     cleanup_main_transcripts
 
-    echo "[sync] Running bidirectional sync..." | tee -a /tmp/sync.log
+    echo "[sync] Running bidirectional sync..." | tee -a /run/codeflare/sync/sync.log
 
     # Clear stale bisync lock if no bisync is running
-    local LOCK_FILE="/home/user/.cache/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.lck"
+    local LOCK_FILE="$SYNC_RUNTIME_DIR/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.lck"
     local BISYNC_RUNNING=0
     if pgrep -f "rclone bisync" >/dev/null 2>&1; then
         BISYNC_RUNNING=1
     fi
     if [ -f "$LOCK_FILE" ] && [ "$BISYNC_RUNNING" -eq 0 ]; then
-        echo "[sync] Removing stale bisync lock: $LOCK_FILE" | tee -a /tmp/sync.log
+        echo "[sync] Removing stale bisync lock: $LOCK_FILE" | tee -a /run/codeflare/sync/sync.log
         rclone deletefile "$LOCK_FILE" 2>/dev/null || rm -f "$LOCK_FILE"
     fi
 
     # Write output to known location so daemon can read it for recovery
-    SYNC_OUTPUT="/tmp/last-bisync-output.txt"
+    SYNC_OUTPUT="/run/codeflare/sync/last-bisync-output.txt"
 
     # Run bisync (includes recovery filter for dynamically excluded vanished files).
     # --use-server-modtime: compare via R2 LastModified from the bulk --fast-list rather
@@ -922,6 +938,7 @@ bisync_with_r2() {
     # sync cost (~80%, measured: ~2,900 HEADs/cycle). --checkers 64 overlaps the rest. AD88.
     if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
+        --workdir "$SYNC_RUNTIME_DIR/rclone" \
         "${RCLONE_FILTERS[@]}" \
         --filter-from "$RECOVERY_FILTER_FILE" \
         --fast-list \
@@ -939,10 +956,10 @@ bisync_with_r2() {
     else
         RESULT=$?
     fi
-    cat "$SYNC_OUTPUT" >> /tmp/sync.log
+    cat "$SYNC_OUTPUT" >> /run/codeflare/sync/sync.log
     cat "$SYNC_OUTPUT"
 
-    # Note: SYNC_OUTPUT (/tmp/last-bisync-output.txt) is NOT deleted here.
+    # Note: SYNC_OUTPUT (/run/codeflare/sync/last-bisync-output.txt) is NOT deleted here.
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
     # Auto-clean conflict artifacts after successful bisync
@@ -960,7 +977,7 @@ bisync_with_r2() {
 #
 # Manual triggers (storage-panel Sync-now, upload-side auto-trigger)
 # arrive as SIGUSR1 sent by host /internal/bisync-trigger to the daemon
-# PID at /tmp/sync-daemon.pid. The trap toggles BISYNC_REQUESTED
+# PID at /run/codeflare/sync/sync-daemon.pid. The trap toggles BISYNC_REQUESTED
 # (interrupts the idle sleep) or BISYNC_RERUN_REQUESTED (queues exactly
 # one rerun after the current cycle), depending on whether a bisync is
 # mid-flight. N signals during one cycle coalesce to exactly one rerun
@@ -1021,12 +1038,12 @@ start_sync_daemon() {
         BISYNC_IN_FLIGHT=1
 
         # Rotate sync log if too large (keep last 256KB when exceeding 512KB)
-        if [ -f /tmp/sync.log ] && [ "$(stat -c%s /tmp/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
-            tail -c 262144 /tmp/sync.log > /tmp/sync.log.tmp && mv /tmp/sync.log.tmp /tmp/sync.log
-            echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
+        if [ -f /run/codeflare/sync/sync.log ] && [ "$(stat -c%s /run/codeflare/sync/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
+            tail -c 262144 /run/codeflare/sync/sync.log > /run/codeflare/sync/sync.log.tmp && mv /run/codeflare/sync/sync.log.tmp /run/codeflare/sync/sync.log
+            echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /run/codeflare/sync/sync.log
         fi
 
-        echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
+        echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /run/codeflare/sync/sync.log
         # Mark syncing BEFORE the run so /internal/final-sync sees a fresh
         # syncing->success transition for the bisync it triggered (REQ-SESSION-011 AC3).
         update_sync_status "syncing" "null"
@@ -1040,16 +1057,16 @@ start_sync_daemon() {
 
         if [ $SYNC_RESULT -eq 0 ]; then
             CONSECUTIVE_FAILURES=0
-            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a /tmp/sync.log
+            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a /run/codeflare/sync/sync.log
             update_sync_status "success" "null"
         else
             # Try vanishing-file recovery before counting as failure
-            if recover_vanished_files "$(cat /tmp/last-bisync-output.txt 2>/dev/null)"; then
-                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Vanished file recovered, retrying immediately..." | tee -a /tmp/sync.log
-                rm -f "$HOME/.cache/rclone/bisync"/*.lck 2>/dev/null
+            if recover_vanished_files "$(cat /run/codeflare/sync/last-bisync-output.txt 2>/dev/null)"; then
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Vanished file recovered, retrying immediately..." | tee -a /run/codeflare/sync/sync.log
+                rm -f "$SYNC_RUNTIME_DIR/rclone/bisync"/*.lck 2>/dev/null
                 if bisync_with_r2 ""; then
                     CONSECUTIVE_FAILURES=0
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Recovery bisync succeeded" | tee -a /tmp/sync.log
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Recovery bisync succeeded" | tee -a /run/codeflare/sync/sync.log
                     update_sync_status "success" "null"
                     # Clear in-flight before continue so the next
                     # iteration's trap classifies signals correctly
@@ -1060,7 +1077,7 @@ start_sync_daemon() {
             fi
 
             CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
-            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (failure $CONSECUTIVE_FAILURES/3)" | tee -a /tmp/sync.log
+            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (failure $CONSECUTIVE_FAILURES/3)" | tee -a /run/codeflare/sync/sync.log
             update_sync_status "failed" "Bisync exit code $SYNC_RESULT"
 
             # Exit code 7 with missing listing files = no prior bisync state exists.
@@ -1071,7 +1088,7 @@ start_sync_daemon() {
             ls $LISTING_GLOB >/dev/null 2>&1 && HAS_LISTINGS=true
 
             if [ "$HAS_LISTINGS" = "false" ] && [ $SYNC_RESULT -eq 7 ]; then
-                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') No listing files found — immediate resync" | tee -a /tmp/sync.log
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') No listing files found — immediate resync" | tee -a /run/codeflare/sync/sync.log
                 CONSECUTIVE_FAILURES=3  # force resync path below
             fi
 
@@ -1079,16 +1096,16 @@ start_sync_daemon() {
             # fall back to --resync to re-establish clean bisync state.
             # This merges both sides (files on only one side get copied to the other).
             if [ $CONSECUTIVE_FAILURES -ge 3 ]; then
-                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /tmp/sync.log >&2
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /run/codeflare/sync/sync.log >&2
                 update_sync_status "failed" "Resync fallback triggered"
                 if establish_bisync_baseline; then
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback succeeded — resuming normal sync" | tee -a /tmp/sync.log >&2
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback succeeded — resuming normal sync" | tee -a /run/codeflare/sync/sync.log >&2
                     CONSECUTIVE_FAILURES=0
                 else
                     local LAST_ERRORS
-                    LAST_ERRORS=$(grep -i 'error\|fatal\|failed' /tmp/sync.log | tail -3)
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a /tmp/sync.log >&2
-                    echo "$LAST_ERRORS" | tee -a /tmp/sync.log >&2
+                    LAST_ERRORS=$(grep -i 'error\|fatal\|failed' /run/codeflare/sync/sync.log | tail -3)
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a /run/codeflare/sync/sync.log >&2
+                    echo "$LAST_ERRORS" | tee -a /run/codeflare/sync/sync.log >&2
                     CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
                 fi
             fi
@@ -1103,7 +1120,7 @@ start_sync_daemon() {
     done &
 
     SYNC_DAEMON_PID=$!
-    echo "$SYNC_DAEMON_PID" > /tmp/sync-daemon.pid
+    echo "$SYNC_DAEMON_PID" > /run/codeflare/sync/sync-daemon.pid
     echo "[entrypoint] Bisync daemon started with PID $SYNC_DAEMON_PID"
 }
 
@@ -1201,12 +1218,12 @@ start_vault_monitor_daemon() {
                 printf 'CHANGED_FILES<<EOF\n%s\nEOF\n' "$CHANGED"
             } > "$TMP" 2>/dev/null
             mv "$TMP" "$VARS_FILE" 2>/dev/null || rm -f "$TMP"
-            echo "[vault-monitor] $(date '+%Y-%m-%d %H:%M:%S') Detected vault changes, marker written" | tee -a /tmp/sync.log >/dev/null
+            echo "[vault-monitor] $(date '+%Y-%m-%d %H:%M:%S') Detected vault changes, marker written" | tee -a /run/codeflare/sync/sync.log >/dev/null
         fi
     done &
 
     VAULT_MONITOR_PID=$!
-    echo "$VAULT_MONITOR_PID" > /tmp/vault-monitor.pid
+    echo "$VAULT_MONITOR_PID" > /run/codeflare/services/vault-monitor.pid
     echo "[entrypoint] Vault-monitor daemon started with PID $VAULT_MONITOR_PID"
 }
 
@@ -1268,15 +1285,15 @@ start_silverbullet_supervisor() {
                 continue
             fi
             "$SB_BIN" --hostname "$SB_HOST" --port "$SB_PORT" "$VAULT_ROOT" \
-                >> /tmp/silverbullet.log 2>&1
-            echo "[silverbullet] $(date '"'"'+%Y-%m-%d %H:%M:%S'"'"') exited (code $?), restarting in 5s..." | tee -a /tmp/silverbullet.log
+                >> /run/codeflare/services/silverbullet.log 2>&1
+            echo "[silverbullet] $(date '"'"'+%Y-%m-%d %H:%M:%S'"'"') exited (code $?), restarting in 5s..." | tee -a /run/codeflare/services/silverbullet.log
             sleep 5
         done
     ' silverbullet-supervisor "$VAULT_ROOT" "$SB_BIN" "$SB_HOST" "$SB_PORT" \
-        >> /tmp/silverbullet.log 2>&1 &
+        >> /run/codeflare/services/silverbullet.log 2>&1 &
 
     SILVERBULLET_SUPERVISOR_PID=$!
-    echo "$SILVERBULLET_SUPERVISOR_PID" > /tmp/silverbullet.pid
+    echo "$SILVERBULLET_SUPERVISOR_PID" > /run/codeflare/services/silverbullet.pid
     echo "[entrypoint] SilverBullet supervisor started with PID $SILVERBULLET_SUPERVISOR_PID"
 }
 
@@ -1422,9 +1439,9 @@ kill_pidfile_subtree() {
 # REQ-IDE-003 AC1, REQ-IDE-002, REQ-IDE-053 AC1/AC2.
 _openvscode_should_launch() {
     [ -n "${SESSION_ID:-}" ] \
-        && [ -f "${CODEFLARE_INIT_FLAG_FILE:-/tmp/codeflare-init-complete}" ] \
+        && [ -f "${CODEFLARE_INIT_FLAG_FILE:-/run/codeflare/services/init-complete}" ] \
         && { [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ] \
-            || [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]; }
+            || [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/run/codeflare/openvscode/requested}" ]; }
 }
 
 # Closed, non-executing IDE-agent classification. TAB_CONFIG continues to own
@@ -1518,7 +1535,7 @@ _openvscode_capture_extensions() {
         --extensions-dir "$1" \
         --manifest "${CODEFLARE_IDE_EXTENSIONS_MANIFEST:-$HOME/.codeflare/ide-extensions.json}" \
         --policy /opt/codeflare/openvscode/extension-persistence-policy.json \
-        --sync-pid-file "${CODEFLARE_SYNC_DAEMON_PIDFILE:-/tmp/sync-daemon.pid}"
+        --sync-pid-file "${CODEFLARE_SYNC_DAEMON_PIDFILE:-/run/codeflare/sync/sync-daemon.pid}"
 }
 
 # Launch code-server once in the foreground (the retained private supervisor
@@ -1532,7 +1549,7 @@ _openvscode_launch_once() {
     local -a proposed_api_args=()
     sidebar_agent="$(_openvscode_agent_kind)"
     base_extensions_dir="$(_openvscode_extensions_dir "$sidebar_agent")"
-    data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
+    data_dir="${OPENVSCODE_DATA_DIR:-/run/codeflare/openvscode/data}"
     extensions_dir="$data_dir/extensions"
     if ! _openvscode_seed_extension_layer "$base_extensions_dir" "$extensions_dir"; then
         echo "[openvscode] extension-layer preparation failed; refusing launch" >&2
@@ -1550,7 +1567,7 @@ _openvscode_launch_once() {
     CODEFLARE_SIDEBAR_AGENT="$sidebar_agent" \
     CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$extensions_dir" \
     CODEFLARE_IDE_EXTENSIONS_MANIFEST="${CODEFLARE_IDE_EXTENSIONS_MANIFEST:-$HOME/.codeflare/ide-extensions.json}" \
-    CODEFLARE_SYNC_DAEMON_PIDFILE="${CODEFLARE_SYNC_DAEMON_PIDFILE:-/tmp/sync-daemon.pid}" \
+    CODEFLARE_SYNC_DAEMON_PIDFILE="${CODEFLARE_SYNC_DAEMON_PIDFILE:-/run/codeflare/sync/sync-daemon.pid}" \
     exec "${OPENVSCODE_BIN:-/usr/local/bin/code-server}" \
         --bind-addr "127.0.0.1:${OPENVSCODE_PORT:-13337}" \
         --auth none \
@@ -1572,8 +1589,8 @@ _openvscode_launch_once() {
 # terminal state. REQ-IDE-003 AC4, REQ-IDE-008 AC4.
 _openvscode_supervise_loop() {
     local generation_pidfile current_pid="" current_start="" current_generation="" current_pgid="" exit_code
-    local data_dir="${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}"
-    generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation-${BASHPID}.pid}"
+    local data_dir="${OPENVSCODE_DATA_DIR:-/run/codeflare/openvscode/data}"
+    generation_pidfile="${OPENVSCODE_GENERATION_PIDFILE:-/run/codeflare/openvscode/generation-${BASHPID}.pid}"
 
     _openvscode_cleanup_current_generation() {
         [ -n "$current_pid" ] || return 0
@@ -1607,7 +1624,7 @@ _openvscode_supervise_loop() {
         current_generation="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s-%s' "$SESSION_ID" "$$" "$RANDOM")"
         CODEFLARE_OPENVSCODE_GENERATION="$current_generation" \
             setsid bash -c '_openvscode_launch_once' openvscode-generation \
-            >> /tmp/openvscode.log 2>&1 &
+            >> /run/codeflare/openvscode/openvscode.log 2>&1 &
         current_pid=$!
         current_start="$(_process_start_time "$current_pid")"
         current_pgid=""
@@ -1621,7 +1638,7 @@ _openvscode_supervise_loop() {
         mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
         if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
         _openvscode_cleanup_current_generation
-        echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> /tmp/openvscode.log
+        echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> /run/codeflare/openvscode/openvscode.log
         sleep 5
     done
 }
@@ -1640,14 +1657,14 @@ start_openvscode_supervisor() {
     # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
     # walk (same reason as the SilverBullet supervisor). export -f makes the loop
     # helpers available inside the fresh non-interactive setsid bash.
-    export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
+    export OPENVSCODE_GENERATION_PIDFILE="${OPENVSCODE_GENERATION_PIDFILE:-/run/codeflare/openvscode/generation.pid}"
     export -f walk_kill _process_start_time _process_generation _process_group _openvscode_generation_members _wait_then_kill_pid _wait_then_kill_generation kill_pidfile_subtree
     export -f _openvscode_should_launch _openvscode_agent_kind _openvscode_extensions_dir _openvscode_seed_extension_layer _openvscode_prepare_agent _openvscode_restore_ui_state _openvscode_capture_ui_state _openvscode_capture_extensions _openvscode_launch_once _openvscode_supervise_loop
     setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
-        >> /tmp/openvscode.log 2>&1 &
+        >> /run/codeflare/openvscode/openvscode.log 2>&1 &
 
     OPENVSCODE_SUPERVISOR_PID=$!
-    echo "$OPENVSCODE_SUPERVISOR_PID" > /tmp/openvscode.pid
+    echo "$OPENVSCODE_SUPERVISOR_PID" > /run/codeflare/openvscode/supervisor.pid
     echo "[entrypoint] Browser IDE supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
 }
 
@@ -1672,11 +1689,11 @@ shutdown_handler() {
         walk_kill TERM "$BISYNC_INIT_PID"
     fi
 
-    kill_pidfile_subtree /tmp/sync-daemon.pid
-    kill_pidfile_subtree /tmp/vault-monitor.pid
-    kill_pidfile_subtree /tmp/silverbullet.pid
-    kill_pidfile_subtree "${OPENVSCODE_GENERATION_PIDFILE:-/tmp/openvscode-generation.pid}"
-    kill_pidfile_subtree /tmp/openvscode.pid
+    kill_pidfile_subtree /run/codeflare/sync/sync-daemon.pid
+    kill_pidfile_subtree /run/codeflare/services/vault-monitor.pid
+    kill_pidfile_subtree /run/codeflare/services/silverbullet.pid
+    kill_pidfile_subtree "${OPENVSCODE_GENERATION_PIDFILE:-/run/codeflare/openvscode/generation.pid}"
+    kill_pidfile_subtree /run/codeflare/openvscode/supervisor.pid
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
     # is still alive when the final bisync starts, bisync_with_r2's stale-lock
@@ -1713,7 +1730,7 @@ shutdown_handler() {
     # cover the worst-case 15-minute accumulation on the final bisync.
     # See AD57 for the budget rationale.
     echo "[entrypoint] Final bisync to R2 (120s budget)..."
-    if [ -f /tmp/.bisync-initialized ]; then
+    if [ -f /run/codeflare/sync/bisync-initialized ]; then
         # Background bisync + watchdog that hard-kills at 120s. Cannot use
         # `timeout(1)` directly because bisync_with_r2 is a shell function;
         # timeout's bash -c child would not see it without `export -f` +
@@ -1789,7 +1806,7 @@ shutdown_handler() {
 # re-entry guard is per-trap, so the `exit 0` at the end of the handler fires the
 # EXIT trap, which is the same function. That is not cosmetic here. Pass 1 runs
 # the final bisync under the 108s+12s watchdog; if it hits the watchdog, rclone
-# is SIGKILLed leaving a stale lock, and pass 2 — seeing /tmp/.bisync-initialized
+# is SIGKILLed leaving a stale lock, and pass 2 — seeing /run/codeflare/sync/bisync-initialized
 # still present and no running rclone — clears the lock and starts a FRESH
 # bisync at t=120s. The DO SIGKILLs at t=135s, i.e. mid-write to R2, which is
 # precisely the state the 120/135 budget exists to prevent.
@@ -1817,10 +1834,10 @@ update_sync_status() {
     local error_val="$2"
     if [ "$error_val" = "null" ]; then
         jq -n --arg status "$1" --arg userPath "$USER_HOME" \
-            '{status: $status, error: null, userPath: $userPath, ts: (now * 1000 | floor)}' > /tmp/sync-status.json
+            '{status: $status, error: null, userPath: $userPath, ts: (now * 1000 | floor)}' > /run/codeflare/sync/sync-status.json
     else
         jq -n --arg status "$1" --arg error "$error_val" --arg userPath "$USER_HOME" \
-            '{status: $status, error: $error, userPath: $userPath, ts: (now * 1000 | floor)}' > /tmp/sync-status.json
+            '{status: $status, error: $error, userPath: $userPath, ts: (now * 1000 | floor)}' > /run/codeflare/sync/sync-status.json
     fi
 }
 
@@ -1999,7 +2016,7 @@ fi
 BASHRC_FOOTER
     fi
 
-    echo "configured" > /tmp/claude-autostart-status.txt
+    echo "configured" > /run/codeflare/services/claude-autostart-status.txt
     echo "[entrypoint] Tab auto-start configured"
     return 0
 }
@@ -2206,7 +2223,7 @@ init_user_vault() {
     # graph on disk) silent instead of emitting a deferred-add warning for a
     # file that is not supposed to exist yet.
     if command -v graphify >/dev/null 2>&1 && [ -f "$VAULT/graphify-out/vault-graph.json" ]; then
-        flock -w 5 /tmp/graphify-global.lock graphify global add \
+        flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add \
             "$VAULT/graphify-out/vault-graph.json" --as user_vault 2>/dev/null \
             || echo "[entrypoint] vault global-add deferred (graphify not ready or lock timeout)"
     fi
@@ -2265,11 +2282,11 @@ init_sync_log
 # ============================================================================
 # Start terminal server EARLY so port 8080 binds before Cloudflare's container
 # port-wait timeout (~10-15s) elapses. The server will not begin PTY pre-warm
-# until /tmp/codeflare-init-complete is written at the end of this script —
+# until /run/codeflare/services/init-complete is written at the end of this script —
 # this preserves the existing readiness contract (loading screen still waits
 # for sync + prewarm) while moving the slow init work off the port-wait path.
 # ============================================================================
-export CODEFLARE_INIT_FLAG_FILE=/tmp/codeflare-init-complete
+export CODEFLARE_INIT_FLAG_FILE=/run/codeflare/services/init-complete
 rm -f "$CODEFLARE_INIT_FLAG_FILE"
 
 echo "[entrypoint] Starting terminal server on port 8080..."
@@ -2278,7 +2295,7 @@ echo "[entrypoint] Starting terminal server on port 8080..."
     CODEFLARE_INIT_FLAG_FILE="$CODEFLARE_INIT_FLAG_FILE" \
     node dist/server.js) &
 TERMINAL_PID=$!
-echo "$TERMINAL_PID" > /tmp/terminal.pid
+echo "$TERMINAL_PID" > /run/codeflare/services/terminal.pid
 echo "[entrypoint] Terminal server started with PID $TERMINAL_PID (prewarm gated on $CODEFLARE_INIT_FLAG_FILE)"
 
 # Probe port 8080 (not just kill -0): a live node process that hasn't reached
@@ -3795,7 +3812,7 @@ complete_managed_curation_startup() {
             if establish_bisync_baseline; then
                 echo "[entrypoint] Bisync baseline established, starting daemon..."
             else
-                echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /tmp/sync.log
+                echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /run/codeflare/sync/sync.log
             fi
             # ----------------------------------------------------------------------
             # Vault skeleton + global graph seed (REQ-MEMORY-100, REQ-MEMORY-105)
@@ -3833,7 +3850,7 @@ run_managed_curation_startup
 
 echo "[entrypoint] Startup complete. Servers running:"
 echo "[entrypoint]   - Terminal server (port 8080): PID $TERMINAL_PID"
-SYNC_PID=$(cat /tmp/sync-daemon.pid 2>/dev/null || echo '')
+SYNC_PID=$(cat /run/codeflare/sync/sync-daemon.pid 2>/dev/null || echo '')
 if [ -n "$SYNC_PID" ]; then
     echo "[entrypoint]   - Sync daemon: PID $SYNC_PID"
 fi

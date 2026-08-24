@@ -89,7 +89,7 @@ const VAULT_ROOT = join(USER_HOME, "Vault");
 const CACHE_DIR = join(USER_HOME, ".cache", "codeflare-hooks");
 const MEMORY_COUNTER_DIR = "/tmp/.memory-counter";
 const PROMPTS_DIR = join(USER_HOME, ".pi", "agent", "prompts");
-const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
+const GLOBAL_GRAPH_LOCK = "/run/codeflare/locks/graphify-global.lock";
 
 const defaultDependencies: MemoryVaultDependencies = {
   paths: {

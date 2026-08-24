@@ -15,7 +15,7 @@
 // structural assertions.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -36,8 +36,6 @@ function extractFunction(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
-const BISYNC_SENTINEL = '/tmp/.bisync-initialized';
-
 /**
  * Run shutdown_once -> shutdown_handler in a real bash with stubbed
  * collaborators, mirroring production trap wiring (the EXIT trap re-fires
@@ -48,10 +46,12 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
+  const runtimeRoot = join(fixture, 'run');
+  const bisyncSentinel = join(runtimeRoot, 'sync/bisync-initialized');
   writeFileSync(logFile, '');
+  mkdirSync(dirname(bisyncSentinel), { recursive: true });
 
-  if (bisyncInitialized) writeFileSync(BISYNC_SENTINEL, '');
-  else rmSync(BISYNC_SENTINEL, { force: true });
+  if (bisyncInitialized) writeFileSync(bisyncSentinel, '');
 
   const script = [
     'exec > "$OUT_FILE" 2>&1',
@@ -67,7 +67,7 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     'sleep() { command sleep 0.01; }',
     `BISYNC_INIT_PID=${initPid ? `'${initPid}'` : "''"}`,
     `TERMINAL_PID=${terminalPid ? `'${terminalPid}'` : "''"}`,
-    extractFunction('shutdown_handler'),
+    extractFunction('shutdown_handler').replaceAll('/run/codeflare', runtimeRoot),
     extractFunction('shutdown_once'),
     'SHUTDOWN_RAN=0',
     'trap shutdown_once EXIT',
@@ -86,10 +86,10 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     },
   });
 
-  const log = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+  const log = readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
+    .map((line) => line.replaceAll(runtimeRoot, '/run/codeflare'));
   const out = existsSync(outFile) ? readFileSync(outFile, 'utf8') : '';
   rmSync(fixture, { recursive: true, force: true });
-  rmSync(BISYNC_SENTINEL, { force: true });
   return { result, log, out };
 }
 
@@ -132,7 +132,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.equal(bisyncRuns.length, 1, `the guarded handler must run exactly once (saw ${bisyncRuns.length} bisync runs)`);
   });
 
-  it('REQ-OPS-010 AC3: trap handler kills the sync daemon via PID file at /tmp/sync-daemon.pid', () => {
+  it('REQ-OPS-010 AC3: trap handler kills services through protected runtime PID files', () => {
     const { log } = runShutdown({ initPid: '4242' });
 
     // The background init subshell dies FIRST (it would otherwise restart
@@ -142,11 +142,11 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     const sweep = log.filter((line) => line.startsWith('walk_kill:') || line.startsWith('kill_pidfile_subtree:'));
     assert.deepEqual(sweep, [
       'walk_kill:TERM:4242',
-      'kill_pidfile_subtree:/tmp/sync-daemon.pid',
-      'kill_pidfile_subtree:/tmp/vault-monitor.pid',
-      'kill_pidfile_subtree:/tmp/silverbullet.pid',
-      'kill_pidfile_subtree:/tmp/openvscode-generation.pid',
-      'kill_pidfile_subtree:/tmp/openvscode.pid',
+      'kill_pidfile_subtree:/run/codeflare/sync/sync-daemon.pid',
+      'kill_pidfile_subtree:/run/codeflare/services/vault-monitor.pid',
+      'kill_pidfile_subtree:/run/codeflare/services/silverbullet.pid',
+      'kill_pidfile_subtree:/run/codeflare/openvscode/generation.pid',
+      'kill_pidfile_subtree:/run/codeflare/openvscode/supervisor.pid',
     ]);
   });
 
@@ -155,6 +155,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     // they stay structural assertions on the real function.
     assert.ok(entrypoint.includes('--ignore-checksum'), 'entrypoint.sh must pass --ignore-checksum to rclone bisync');
     assert.ok(entrypoint.includes('--max-delete 100'), 'entrypoint.sh must pass --max-delete 100 to rclone bisync');
+    assert.ok(entrypoint.includes('--workdir "$SYNC_RUNTIME_DIR/rclone"'), 'bisync listings and locks must stay under protected runtime state');
 
     // Behavioral: with the baseline sentinel present, the handler runs the
     // final bisync and classifies a zero exit as success.
@@ -168,10 +169,10 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     // The flag must be touched on both the success path AND the timeout/error
     // path of establish_bisync_baseline (structural: that function's runtime
     // needs a real rclone).
-    const allTouches = [...entrypoint.matchAll(/touch \/tmp\/\.bisync-initialized/g)];
+    const allTouches = [...entrypoint.matchAll(/touch \/run\/codeflare\/sync\/bisync-initialized/g)];
     assert.ok(
       allTouches.length >= 2,
-      'entrypoint.sh must touch /tmp/.bisync-initialized on both the success path and the timeout/error path'
+      'entrypoint.sh must touch protected bisync state on both the success path and the timeout/error path'
     );
 
     // Behavioral: the handler gates the final bisync on the sentinel — absent

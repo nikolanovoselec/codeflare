@@ -355,7 +355,7 @@ async function main() {
   }
   await prepareOfficialClaudeIde({
     sourceRoot: "/home/user/.claude",
-    targetRoot: "/tmp/codeflare-sidebar/claude/config",
+    targetRoot: "/run/codeflare/openvscode/sidebar/claude/config",
     serverDataRoot,
   });
 }

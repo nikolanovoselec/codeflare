@@ -76,8 +76,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | Path | Synced | Reason |
 |------|--------|--------|
 | `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
-| `/tmp/codeflare-sidebar/**` | **NO** | Browser IDE temporary runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
-| `/tmp/openvscode-data/**` | **NO** | Live session-isolated editor databases, user extension package directories, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
+| `/run/codeflare/openvscode/sidebar/**` | **NO** | Browser IDE temporary runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
+| `/run/codeflare/openvscode/data/**` | **NO** | Live session-isolated editor databases, user extension package directories, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
 | `~/.codeflare/ide-ui-state.json` | Yes | Bounded Browser IDE continuity for theme, keyboard layout, Explorer, and open files ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-bounded-ide-state-capture-and-restore-ordering)). <!-- @impl: scripts/browser-ide-ui-state.py::capture --> |
 | `~/.codeflare/ide-extensions.json` | Yes | Maximum-64-KiB Browser IDE intent manifest containing at most 50 extension identities plus bounded contributed global settings; no VSIX or extracted package bytes ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions)). <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> |
 | `~/.gitconfig` | Yes | Git configuration |
@@ -184,21 +184,21 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **After consecutive failure recovery:** Transient file errors (encryption mismatch, size mismatch, hash mismatch) are handled by `--resilient` + `--recover` flags and the resync fallback in the daemon. Vanishing-file errors are handled by the per-session recovery filter (see below). A planned `nuke_corrupted_r2_files` function that would scan all R2 objects and delete unrecoverable ones was considered but not implemented; encryption-mismatch orphans from older sessions remain in R2 until manually deleted.
 
-**Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop. Both functions redirect with `> "$FILE" 2>&1` (not `2>&1 > "$FILE"`). The old order sent stderr to the parent process's stdout (lost) and only captured stdout in the file. rclone outputs errors and verbose info to stderr, so all diagnostic output was invisible in `/tmp/sync.log`.
+**Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop. Both functions redirect with `> "$FILE" 2>&1` (not `2>&1 > "$FILE"`). The old order sent stderr to the parent process's stdout (lost) and only captured stdout in the file. rclone outputs errors and verbose info to stderr, so all diagnostic output was invisible in `/run/codeflare/sync/sync.log`.
 
-**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the final shutdown sync to be skipped - losing any files created during the session.
+**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/run/codeflare/sync/bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the final shutdown sync to be skipped - losing any files created during the session.
 
 ### Vanishing-file recovery
 
 When bisync/resync fails because a transient file was listed but deleted before rclone could copy it (error: `failed to open source object: lstat ... no such file or directory`), the system automatically:
 1. Parses the rclone error output for the failing file path
-2. Adds it to a session-scoped recovery filter at `/tmp/rclone-recovery-filters.txt`
+2. Adds it to a session-scoped recovery filter at `/run/codeflare/sync/recovery-filters.txt`
 3. Clears stale bisync locks
 4. Retries the same operation (up to 3 recovery attempts)
 
 Only non-workspace files are auto-excluded. If the vanishing file is under `workspace/` (user code), the system retries without excluding - the file likely reappeared after a save operation completed. Known ephemeral files (`.claude/mcp-*.json` - MCP auth cache that exists for milliseconds) are statically excluded to prevent the race condition entirely.
 
-The recovery filter file starts empty on every container start and is never synced to R2. All rclone bisync/resync invocations include `--filter-from /tmp/rclone-recovery-filters.txt` in addition to the static filters.
+The recovery filter file starts empty on every container start and is never synced to R2. All rclone bisync/resync invocations include `--filter-from /run/codeflare/sync/recovery-filters.txt` in addition to the static filters.
 
 **Daemon always starts:** The bisync daemon starts unconditionally after the baseline attempt - even if all baseline recovery attempts fail. A dead daemon means zero sync for the entire session. The daemon has its own recovery loop (vanishing-file recovery on each cycle + consecutive failure → resync fallback after 3 failures). This ensures sync can recover mid-session even if startup sync was disrupted.
 
@@ -218,7 +218,7 @@ When listing state exists, resilient/recover handling and vanished-file repair r
 
 - **`lstat: no such file or directory` bisync failure**
 
-    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/tmp/rclone-recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/tmp/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
+    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/run/codeflare/sync/recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/run/codeflare/sync/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.

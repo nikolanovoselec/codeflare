@@ -16,7 +16,7 @@
 # Anchored-token regex (not substring) rejects echoed false positives
 # like `echo "git clone foo"`.
 #
-# Idempotency: marker file under /tmp/codeflare-graphify-prompted-<session_id>/
+# Idempotency: marker file under /run/codeflare/markers/graphify-prompted-<session_id>/
 # keyed on the cloned directory. Truly per-session - the marker dir is
 # scoped by the session_id from the hook envelope, so a fresh session
 # (or container restart) wipes the prompt state and the agent triages
@@ -150,7 +150,7 @@ fi
 # state does not persist across sessions or container restarts.
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="ppid-$PPID"
-MARKER_DIR="/tmp/codeflare-graphify-prompted-$SESSION_ID"
+MARKER_DIR="/run/codeflare/markers/graphify-prompted-$SESSION_ID"
 if [ -n "$TARGET_DIR" ]; then
   mkdir -p "$MARKER_DIR" 2>/dev/null || true
   MARKER="$MARKER_DIR/$(echo "$TARGET_DIR" | tr '/ ' '__')"

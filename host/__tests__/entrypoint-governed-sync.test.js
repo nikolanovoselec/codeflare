@@ -43,7 +43,7 @@ const createRcloneConfig = () =>
 const layDownFn = () =>
   extractBetween(
     'lay_down_agent_seed_preseed() {',
-    '    echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Baked agent seed laid down" | tee -a /run/codeflare/sync/sync.log\n}',
     'lay_down_agent_seed_preseed',
   );
 
@@ -57,7 +57,7 @@ const compareFlagFragment = () =>
 const relayFn = () =>
   extractBetween(
     'relay_managed_pi_extensions() {',
-    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /run/codeflare/sync/sync.log\n}',
     'relay_managed_pi_extensions',
   );
 

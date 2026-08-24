@@ -169,7 +169,7 @@ After build/refresh, verify:
 Merge into the global graph:
 
 ```bash
-flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
+flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
 ```
 
 Commit only durable outputs when the user can push:

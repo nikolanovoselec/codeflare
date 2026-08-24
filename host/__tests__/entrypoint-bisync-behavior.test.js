@@ -71,10 +71,9 @@ function buildHarness({
     // surfacing the regression rather than silently running the real
     // 15-minute sleep.
     .replace(/sleep [0-9]+(?!\d)/g, 'sleep 1')
-    // Also remove the log-rotation block (depends on /tmp/sync.log
-    // size that we control separately) — it touches /tmp paths we
-    // don't want to mutate from the harness.
-    .replace(/if \[ -f \/tmp\/sync\.log \].*?fi$/ms, ':');
+    // Also remove the log-rotation block; harnesses must not mutate shared
+    // process-lifetime state under /run.
+    .replace(/if \[ -f \/run\/codeflare\/sync\/sync\.log \].*?fi$/ms, ':');
 
   // Stub bodies, indexed by behavior selector.
   const bisyncStub =

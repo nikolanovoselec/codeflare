@@ -272,9 +272,9 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
       '--app-name',
       'Codeflare',
       '--user-data-dir',
-      '/tmp/openvscode-data/data',
+      '/run/codeflare/openvscode/data/data',
       '--extensions-dir',
-      '/tmp/openvscode-data/extensions',
+      '/run/codeflare/openvscode/data/extensions',
       workspace,
       '---',
     ]);
@@ -930,7 +930,7 @@ describe('kill_pidfile_subtree / REQ-IDE-003 AC5 (shutdown releases the IDE port
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('kills the pidfile-tracked process subtree (the mechanism shutdown_handler uses for /tmp/openvscode.pid)', () => {
+  it('kills the pidfile-tracked process subtree (the mechanism shutdown_handler uses for /run/codeflare/openvscode/supervisor.pid)', () => {
     // Start a real long sleeper, record its PID as the "supervisor" pidfile,
     // then run the extracted teardown helpers and assert the process is gone.
     const script = `
