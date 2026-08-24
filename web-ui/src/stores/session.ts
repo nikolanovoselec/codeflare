@@ -303,6 +303,10 @@ async function loadSessions(): Promise<void> {
     for (const session of sessionsWithStatus) {
       if (thisGen !== loadSessionsGeneration) return;
 
+      if (session.workspace === 'vscode') {
+        cleanupTerminalsForSession(session.id);
+      }
+
       const batchStatus = batchStatuses[session.id];
       if (!batchStatus) {
         continue;

@@ -944,6 +944,8 @@ describe('Session Store', () => {
     });
 
     it('REQ-IDE-048 AC4: completes VS Code startup without creating terminal state', async () => {
+      sessionStore.initializeTerminalsForSession('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Editor', workspace: 'vscode',
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),

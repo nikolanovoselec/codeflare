@@ -158,6 +158,23 @@ complete_managed_curation_startup
     assert.equal(result.stdout, 'init\neditor\n');
   });
 
+  it('keeps an existing VS Code session usable after its future default is downgraded', () => {
+    const script = `
+${extractFn('complete_managed_curation_startup')}
+relay_managed_pi_extensions() { :; }
+release_agent_pty_after_cleanup() { printf 'init\\n'; }
+start_openvscode_supervisor() { printf 'editor\\n'; }
+RCLONE_CONFIG_RESULT=1
+STEP1_RESULT=1
+SESSION_MODE=default
+CODEFLARE_SESSION_WORKSPACE=vscode
+complete_managed_curation_startup
+`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'init\neditor\n');
+  });
+
   it('does not eagerly arm Browser IDE for Terminal workspaces', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}

@@ -3773,8 +3773,7 @@ complete_managed_curation_startup() {
 
     # VS Code workspaces warm the editor as soon as initialization completes.
     # Terminal workspaces retain the existing lazy first-request launch below.
-    if [ "${SESSION_MODE:-default}" = "advanced" ] \
-       && [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ]; then
+    if [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" = "vscode" ]; then
         start_openvscode_supervisor
     fi
 

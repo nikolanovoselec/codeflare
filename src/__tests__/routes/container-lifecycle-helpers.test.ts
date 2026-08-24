@@ -566,6 +566,22 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(stored.editorReadyError).toBeUndefined();
     });
 
+    it('clears stale readiness when KV says running but the container is stopped', async () => {
+      const container = createMockContainer('stopped');
+      const sessionData = {
+        id: 'session1234', name: 'Editor', status: 'running', workspace: 'vscode',
+        editorReady: true, createdAt: '2024-01-01T00:00:00Z',
+      } as Session;
+      mockKV._set('session:bucket:session1234', { ...sessionData, lastActiveAt: '2024-01-02T00:00:00Z' });
+      const params = baseParams(container, { sessionData });
+
+      await startOrRestartContainer(params);
+
+      const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
+      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
+      expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
+    });
+
     it('handles getState failure gracefully and starts container', async () => {
       const container = createMockContainer('stopped');
       container.getState.mockRejectedValue(new Error('state unavailable'));
