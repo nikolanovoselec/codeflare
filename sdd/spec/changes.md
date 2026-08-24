@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-24
 
+- **Pi Jiti cache no longer depends on disposable `/tmp` state** ([REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) AC5 amended; remains Implemented). Startup now exports a stable `/run/codeflare/pi-tmp` root before the terminal host starts and exposes the image-baked writable Jiti cache beneath it. Interactive Plan Mode chunks and other late transpiles therefore remain writable even if `/tmp` is cleaned during a running container.
+
 - **Goal startup enforces a three-minute continuation interval** ([REQ-AGENT-129](agents.md#req-agent-129-goal-continuation-settings-policy) AC1-AC3 amended; remains Implemented). Every successful container start now writes `continuationLimits.minIntervalMs: 180000`, replacing persisted zero or shorter values that caused immediate repeated continuations while preserving unrelated Goal preferences. The latest-settled timer restart, stale-marker guards, cancellation, and upstream zero-delay compatibility remain unchanged; an already running Pi process must restart to load the corrected policy.
 
 - **Caveman uses lite response compression by default** ([REQ-AGENT-155](agents.md#req-agent-155-image-owned-caveman-response-policy) AC2 amended; remains Implemented). The image-owned, fail-closed startup policy now restores lite mode instead of full mode while keeping status/footer output disabled and preserving package, seed-exclusion, and JITI warm-cache ownership.
