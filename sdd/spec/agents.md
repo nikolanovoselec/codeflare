@@ -3020,9 +3020,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts))
+**Verification:** Automated test ([Agent seed manifest tests](../../src/__tests__/lib/agent-seed-multi-agent.test.ts)); deployed Standard and Advanced acceptance
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -4191,9 +4191,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt)
 
-**Verification:** Automated lifecycle, capability, public fallback, and signed managed projection tests
+**Verification:** Automated lifecycle, capability, public fallback, and signed managed projection tests; deployed Standard and Advanced acceptance
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -4218,9 +4218,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure)
 
-**Verification:** Automated runtime-guard and package-version compatibility tests
+**Verification:** Automated runtime-guard and package-version compatibility tests; deployed managed acceptance
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
