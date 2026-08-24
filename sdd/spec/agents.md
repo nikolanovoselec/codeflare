@@ -92,15 +92,15 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-129: Goal Continuation Settings Policy
 
-**Intent:** Codeflare must configure continuation pacing without overriding valid user-owned Goal settings.
+**Intent:** Codeflare must enforce its continuation cadence without overriding unrelated valid user-owned Goal settings.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Missing Goal configuration receives lazy tool visibility, 10 automatic turns, and a 60000ms continuation delay. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
-2. Startup preserves explicit Goal values while adding missing owned values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences) -->
-3. Startup preserves unknown Goal settings while adding missing owned values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences) -->
+1. Missing Goal configuration receives lazy tool visibility, 10 automatic turns, and a 180000ms continuation delay. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
+2. Startup replaces any persisted continuation delay with 180000ms while preserving unrelated explicit Goal values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: enforces three-minute pacing while preserving unrelated preferences) -->
+3. Startup preserves unknown Goal settings while adding missing owned values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: enforces three-minute pacing while preserving unrelated preferences) -->
 4. Startup leaves malformed Goal configuration byte-for-byte unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte) -->
 5. `minIntervalMs` accepts only non-negative safe integers. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC5: rejects invalid minIntervalMs values) -->
 6. A missing `minIntervalMs` normalizes to zero. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC6: defaults a missing delay to zero) -->

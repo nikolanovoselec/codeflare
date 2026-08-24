@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-24
 
+- **Goal startup enforces a three-minute continuation interval** ([REQ-AGENT-129](agents.md#req-agent-129-goal-continuation-settings-policy) AC1-AC3 amended; remains Implemented). Every successful container start now writes `continuationLimits.minIntervalMs: 180000`, replacing persisted zero or shorter values that caused immediate repeated continuations while preserving unrelated Goal preferences. The latest-settled timer restart, stale-marker guards, cancellation, and upstream zero-delay compatibility remain unchanged; an already running Pi process must restart to load the corrected policy.
+
 - **Caveman uses lite response compression by default** ([REQ-AGENT-155](agents.md#req-agent-155-image-owned-caveman-response-policy) AC2 amended; remains Implemented). The image-owned, fail-closed startup policy now restores lite mode instead of full mode while keeping status/footer output disabled and preserving package, seed-exclusion, and JITI warm-cache ownership.
 
 - **Tiled terminal focus preserves every visible pane** ([REQ-TERM-030](terminal.md#req-term-030-tiled-pane-focus-lifecycle) added as Implemented). Tiled panes now retain stable keyed descriptors while only their reactive focus state changes, matching the established MultiView lifecycle. Switching focus inside one session no longer remounts terminal components, reconnects their WebSockets, or reloads the other visible tiles; real tab ID additions, removals, and reordering still reconcile the affected pane tree.

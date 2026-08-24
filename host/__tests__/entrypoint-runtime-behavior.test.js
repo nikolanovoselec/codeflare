@@ -77,12 +77,12 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { automaticTurns: 10, minIntervalMs: 60_000 },
+      continuationLimits: { automaticTurns: 10, minIntervalMs: 180_000 },
     });
     assert.equal(existsSync(conflictingPath), false);
   });
 
-  it('REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences', () => {
+  it('REQ-AGENT-129 AC2/AC3: enforces three-minute pacing while preserving unrelated preferences', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
     const env = { USER_HOME: fixture };
@@ -106,14 +106,14 @@ describe('entrypoint production helpers', () => {
         automaticTurns: null,
         noProgressTurns: 8,
         customLimit: 'keep',
-        minIntervalMs: 60_000,
+        minIntervalMs: 180_000,
       },
       rpc: { enabled: true, customTransport: 'keep' },
       unknownRoot: { enabled: null },
     });
 
     writeFileSync(configPath, JSON.stringify({
-      continuationLimits: { minIntervalMs: 1_250 },
+      continuationLimits: { minIntervalMs: 0 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     }));
@@ -121,7 +121,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(missing.status, 0, missing.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { minIntervalMs: 1_250, automaticTurns: 10 },
+      continuationLimits: { minIntervalMs: 180_000, automaticTurns: 10 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     });
