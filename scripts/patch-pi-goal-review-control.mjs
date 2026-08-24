@@ -780,17 +780,28 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     throw new Error(`${directory}: pi-goal package layout is incomplete for ${expectedVersion}`);
   }
 
-  let actualVersion;
+  let packageManifest;
   try {
-    actualVersion = JSON.parse(readFileSync(paths.packageJson, 'utf8')).version;
+    packageManifest = JSON.parse(readFileSync(paths.packageJson, 'utf8'));
   } catch (error) {
     throw new Error(
       `${paths.packageJson}: cannot read pi-goal version: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  if (actualVersion !== expectedVersion) {
-    throw new Error(`pi-goal ${actualVersion ?? 'missing'} != expected ${expectedVersion}`);
+  if (packageManifest.version !== expectedVersion) {
+    throw new Error(`pi-goal ${packageManifest.version ?? 'missing'} != expected ${expectedVersion}`);
   }
+  const declaredEntrypoints = packageManifest.pi?.extensions;
+  const entrypointIsSupported = Array.isArray(declaredEntrypoints)
+    && declaredEntrypoints.length === 1
+    && (declaredEntrypoints[0] === './dist/index.ts' || declaredEntrypoints[0] === './src/index.ts');
+  if (!entrypointIsSupported) {
+    throw new Error(`${directory}: pi-goal ${expectedVersion} declares an unsupported Pi extension entrypoint`);
+  }
+  const patchedPackageManifest = `${JSON.stringify({
+    ...packageManifest,
+    pi: { ...packageManifest.pi, extensions: ['./src/index.ts'] },
+  }, null, '\t')}\n`;
 
   const originals = {
     commands: readFileSync(paths.commands, 'utf8'),
@@ -822,6 +833,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     }
   }
 
+  writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of ['commands', 'goal', sessionSourceName, 'runtime', 'settings']) {
     writeFileSync(paths[name], patched[name]);
   }

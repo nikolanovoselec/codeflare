@@ -747,13 +747,15 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111 AC6/AC7: pinned Goal and Plan Mode refuse overlap and release ownership', async () => {
+  it('REQ-AGENT-111 AC2/AC6/AC7: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
     extractPinnedFixturePackage(goalRoot);
     extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
-    const goalExtension = await bundleFixture(join(goalRoot, 'src/index.ts'), join(goalRoot, 'goal.mjs'));
+    const goalManifest = JSON.parse(readFileSync(join(goalRoot, 'package.json'), 'utf8'));
+    assert.deepEqual(goalManifest.pi?.extensions, ['./src/index.ts']);
+    const goalExtension = await bundleFixture(join(goalRoot, goalManifest.pi.extensions[0]), join(goalRoot, 'goal.mjs'));
     const planExtension = await bundleFixture(join(planRoot, 'dist/index.ts'), join(planRoot, 'plan.mjs'));
     const harness = createExtensionHarness();
     goalExtension(harness.api, { settingsPath: join(goalRoot, 'settings.json') });
@@ -1155,6 +1157,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(EXPECTED_PI_GOAL_VERSION, '0.53.0');
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
+    assert.deepEqual(JSON.parse(first['package.json']).pi.extensions, ['./src/index.ts']);
     assert.match(first['src/commands.ts'], new RegExp(COMMANDS_PATCH_MARKER));
     assert.match(first['src/commands.ts'], /abortTurn: options\.abortTurn/);
     assert.match(first['src/commands.ts'], /options\.sendPrompt === false \|\| await this\.runtime\.sendOwnedGoalPrompt/);
@@ -1211,6 +1214,21 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       new RegExp(`review-control patch supports only pi-goal ${expected}`),
     );
     assert.deepEqual(readFixturePackage(versionDrift, 'lifecycle'), versionBytes);
+
+    const entrypointDrift = mkdtempSync(join(tmpdir(), 'pi-goal-entrypoint-drift-'));
+    extractPinnedFixturePackage(entrypointDrift);
+    const entrypointManifestPath = join(entrypointDrift, 'package.json');
+    const entrypointManifest = JSON.parse(readFileSync(entrypointManifestPath, 'utf8'));
+    writeFileSync(entrypointManifestPath, `${JSON.stringify({
+      ...entrypointManifest,
+      pi: { ...entrypointManifest.pi, extensions: ['./dist/unknown.ts'] },
+    }, null, '\t')}\n`);
+    const entrypointBytes = readFixturePackage(entrypointDrift, 'lifecycle');
+    assert.throws(
+      () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, entrypointDrift),
+      /declares an unsupported Pi extension entrypoint/,
+    );
+    assert.deepEqual(readFixturePackage(entrypointDrift, 'lifecycle'), entrypointBytes);
 
     const sourceDrift = mkdtempSync(join(tmpdir(), 'pi-goal-source-drift-'));
     extractPinnedFixturePackage(sourceDrift);
