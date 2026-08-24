@@ -77,12 +77,22 @@ describe('REQ-AGENT-156: bounded lossless Pi prompt', () => {
     assert.equal(result.ids.size, ledger.entries.length);
     assert.equal(Object.hasOwn(ledger.ownership, 'sharedFlow'), false);
     assert.ok(ledger.ownership['codeflare-curation'].includes('complete managed policy inventory'));
+    assert.ok(ledger.ownership['codeflare-curation'].includes('shared manifest-owned fallback synchronization'));
 
     const missingCurationOwnership = structuredClone(ledger);
     missingCurationOwnership.ownership['codeflare-curation'] = [];
     assert.throws(
       () => validatePiPromptRuleLedger(missingCurationOwnership),
       /complete managed policy inventory/,
+    );
+
+    const missingSharedSynchronization = structuredClone(ledger);
+    missingSharedSynchronization.ownership['codeflare-curation'] =
+      missingSharedSynchronization.ownership['codeflare-curation']
+        .filter((item) => item !== 'shared manifest-owned fallback synchronization');
+    assert.throws(
+      () => validatePiPromptRuleLedger(missingSharedSynchronization),
+      /shared manifest-owned fallback synchronization/,
     );
 
     const legacySharedFlow = structuredClone(ledger);

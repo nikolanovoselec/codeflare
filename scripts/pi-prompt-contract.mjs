@@ -84,6 +84,9 @@ export function validatePiPromptRuleLedger(ledger) {
     || !ledger.ownership['codeflare-curation'].includes('complete managed policy inventory')) {
     throw new Error('rule ledger must assign the complete managed policy inventory to curation');
   }
+  if (!ledger.ownership['codeflare-curation'].includes('shared manifest-owned fallback synchronization')) {
+    throw new Error('rule ledger must require shared manifest-owned fallback synchronization with curation');
+  }
   if (Object.hasOwn(ledger.ownership, 'sharedFlow')) {
     throw new Error('rule ledger must not declare shared-preseed policy flow');
   }

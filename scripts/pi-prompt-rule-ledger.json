@@ -13,6 +13,7 @@
     ],
     "codeflare-curation": [
       "complete managed policy inventory",
+      "shared manifest-owned fallback synchronization",
       "mode and invocation visibility",
       "signed managed projections",
       "managed prompt verification"
