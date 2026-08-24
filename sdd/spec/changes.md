@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-24
 
-- **Shared managed seed paths require curation synchronization** ([REQ-AGENT-156](agents.md#req-agent-156-bounded-lossless-pi-prompt) AC6 and constraints amended; remains Implemented). Delivery of a Codeflare fallback seed change is now explicitly incomplete when the same manifest-owned path remains stale in `codeflare-curation`. The ownership ledger fails closed when this synchronization duty is absent; image-owned paths and private curation content remain independently owned.
+- **Shared managed seed paths require curation synchronization** ([REQ-AGENT-156](agents.md#req-agent-156-bounded-lossless-pi-prompt) AC6-AC7 and constraints amended; remains Implemented). Delivery of a Codeflare fallback seed change is now explicitly incomplete when the same manifest-owned path remains stale in `codeflare-curation`. The ownership ledger fails closed when this synchronization duty is absent, while protected curation verification owns the pre-publication byte check; image-owned paths and private curation content remain independently owned.
 
 - **Pi startup headers fit narrow Browser IDE terminals** ([REQ-AGENT-161](agents.md#req-agent-161-pi-startup-header-terminal-width-safety) added as Implemented). The custom startup header now treats Pi's supplied terminal width as authoritative instead of enforcing a 44-cell inner minimum that produced a 46-cell line in a 44-cell mobile pane and terminated Pi. Behavioral coverage exercises desktop, narrow mobile, and degenerate widths.
 
