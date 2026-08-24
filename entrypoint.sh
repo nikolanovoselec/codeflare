@@ -92,6 +92,22 @@ USER_CLAUDE_JSON="$USER_HOME/.claude.json"
 mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
 
+configure_pi_jiti_runtime_cache() {
+    local isolation_root="${1:-}"
+    local runtime_tmp="$isolation_root/run/codeflare/pi-tmp"
+    local image_cache="$isolation_root/opt/codeflare/jiti-cache"
+    mkdir -p "$runtime_tmp"
+    if [ -L "$runtime_tmp/jiti" ] && [ ! -e "$runtime_tmp/jiti" ]; then
+        rm "$runtime_tmp/jiti"
+    fi
+    if [ -d "$image_cache" ] && [ ! -e "$runtime_tmp/jiti" ]; then
+        ln -s "$image_cache" "$runtime_tmp/jiti"
+        echo "[entrypoint] Pi jiti transpile cache symlinked under stable runtime tmp"
+    fi
+    export TMPDIR="$runtime_tmp"
+}
+configure_pi_jiti_runtime_cache
+
 # REQ-MEM-001 AC3 + AC9: propagate the user's IANA timezone (set by the
 # Worker from the browser via /api/preferences) into the container's
 # clock surface. Without this, every `date` inside the container
@@ -2526,18 +2542,6 @@ warm_pi_npm_dependencies() {
     else
         ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
         echo "[entrypoint] Pi extension npm dependencies symlinked"
-    fi
-
-    # Expose the image-baked jiti transpile cache at jiti's tmpdir fallback
-    # path (this pi build ignores a path-valued JITI_FS_CACHE env; it caches
-    # under $TMPDIR/jiti). The cache is content-addressed, so entries baked at
-    # image build hit for the seeded extensions + npm packages and the first
-    # Pi launch loads warm (~4s instead of ~9s of cold transpile) — keeping
-    # the host pre-warm under its 20s cap. Skipped if something already
-    # created a real /tmp/jiti (its entries would be newer truth).
-    if [ -d /opt/codeflare/jiti-cache ] && [ ! -e /tmp/jiti ]; then
-        ln -s /opt/codeflare/jiti-cache /tmp/jiti
-        echo "[entrypoint] Pi jiti transpile cache symlinked (image-baked warm cache)"
     fi
 
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"

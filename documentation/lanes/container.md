@@ -84,7 +84,8 @@ Pi is warmed at Docker build time by running `pi --version`, which triggers V8 t
 
 `pi --version` does **not** load extensions, so the V8 warm-up above leaves Pi's TypeScript extension set cold. A dedicated build layer pre-transpiles the full Pi extension set (npm packages + local preseed extensions) into a baked jiti cache. Without it, every fresh container paid ~9s of cold jiti transpile before Pi's first PTY output, pushing the host's pre-warm past its 20s hard cap. Mechanics:
 
-- jiti caches transpiles under `$TMPDIR/jiti`, so the warm run redirects `TMPDIR` and moves the result to `/opt/codeflare/jiti-cache`; `entrypoint.sh` symlinks `/tmp/jiti` → there at boot (same pattern as the npm preseed symlink).
+- jiti caches transpiles under `$TMPDIR/jiti`; the warm run redirects `TMPDIR` and moves the result to `/opt/codeflare/jiti-cache`. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR -->
+- Before the terminal host starts, entrypoint exports `TMPDIR=/run/codeflare/pi-tmp` and links its `jiti` child to the image cache. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache -->
 - jiti's cache key is **path-sensitive** — the async entry filename encodes `hash(realpath)`, while the compiled output embeds a source/version marker that rejects stale content. Identical bytes at two different paths therefore produce entries that never hit each other.
 
     The warm run therefore transpiles each extension at exactly the path Pi loads it from at runtime (`/home/user/.pi/agent/extensions/`), using the real `PI_CODING_AGENT_DIR`/`HOME` — not a throwaway tmpdir. npm packages hit regardless because warm and runtime both resolve through the same symlink realpath (`/opt/codeflare/pi-agent/npm`). The entrypoint's `relay_managed_pi_extensions()` keeps the on-disk extension bytes equal to the build so the embedded content marker validates in all deployment modes.

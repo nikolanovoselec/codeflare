@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,14 @@ function startupPrefix() {
 
 function observeBridgeIdleEnv(inherited) {
   const home = mkdtempSync(join(tmpdir(), 'entrypoint-context-mode-'));
-  const prefix = startupPrefix().replace('USER_HOME="/home/user"', `USER_HOME=${JSON.stringify(home)}`);
+  const imageCache = join(home, 'opt/codeflare/jiti-cache');
+  mkdirSync(imageCache, { recursive: true });
+  const prefix = startupPrefix()
+    .replace('USER_HOME="/home/user"', `USER_HOME=${JSON.stringify(home)}`)
+    .replace(
+      '\nconfigure_pi_jiti_runtime_cache\n',
+      `\nconfigure_pi_jiti_runtime_cache ${JSON.stringify(home)}\n`,
+    );
   const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"`;
   const env = { ...process.env, USER_TIMEZONE: '' };
   if (inherited === undefined) delete env.CONTEXT_MODE_BRIDGE_IDLE_MS;

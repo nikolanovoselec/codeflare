@@ -238,6 +238,30 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-160: Durable Late Pi Extension Loading
+
+**Intent:** Interactive Pi features first loaded after startup must remain usable when disposable temporary files are removed during the session.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A running Pi session can persist late-loaded extension output after disposable temporary files are removed, without restarting the container. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-160 AC1: keeps late Pi extension output writable outside disposable /tmp) -->
+
+**Constraints:**
+
+- The fix must retain image-prewarmed extension startup and must not patch Plan Mode or Jiti package source.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
+
+**Verification:** Entrypoint runtime behavior test; manual Plan Mode completion after disposable temporary-file cleanup
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
 
 **Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.

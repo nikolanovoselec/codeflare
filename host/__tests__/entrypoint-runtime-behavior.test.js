@@ -304,6 +304,28 @@ exec "$REAL_NODE" "$@"
     assert.equal(readFileSync(managed, 'utf8'), '{"dismissed_version":"operator-owned"}\n');
   });
 
+  it('REQ-AGENT-160 AC1: keeps late Pi extension output writable outside disposable /tmp', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-jiti-runtime-'));
+    const runtimeTmp = join(fixture, 'run/codeflare/pi-tmp');
+    const imageCache = join(fixture, 'opt/codeflare/jiti-cache');
+    const disposableTmp = join(fixture, 'tmp');
+    mkdirSync(imageCache, { recursive: true });
+    mkdirSync(join(disposableTmp, 'jiti'), { recursive: true });
+
+    const result = runFunction(
+      'configure_pi_jiti_runtime_cache',
+      '',
+      'configure_pi_jiti_runtime_cache "$TEST_ISOLATION_ROOT"; rm -rf "$TEST_ISOLATION_ROOT/tmp"; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
+      { TEST_ISOLATION_ROOT: fixture },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.endsWith(runtimeTmp), true);
+    assert.equal(existsSync(disposableTmp), false);
+    assert.equal(readlinkSync(join(runtimeTmp, 'jiti')), imageCache);
+    assert.equal(readFileSync(join(imageCache, 'chunks-interactive-ui.test.mjs'), 'utf8'), 'compiled');
+  });
+
   it('REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-npm-warm-'));
     const preseed = join(fixture, 'preseed');

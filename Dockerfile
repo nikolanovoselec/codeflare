@@ -629,7 +629,7 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 # - jiti caches transpiles under $TMPDIR/jiti (its path-valued JITI_FS_CACHE
 #   env is ignored by this build), so the warm run redirects TMPDIR and the
 #   result is moved to /opt/codeflare/jiti-cache; the entrypoint symlinks
-#   /tmp/jiti -> there at boot (same pattern as the npm preseed symlink).
+#   $TMPDIR/jiti -> there under a stable /run root before the terminal host starts.
 # - jiti's cache key is PATH-SENSITIVE, not just content: its async cache filename
 #   is <parent>-<base>.<hash(realpath)>.mjs, while the compiled output carries the
 #   source/version marker used to reject stale content. So the warm run MUST
