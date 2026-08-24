@@ -550,7 +550,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(stored.status).toBe('running');
     });
 
-    it('REQ-IDE-048 AC4: clears stale editor readiness before restarting a stopped VS Code session', async () => {
+    it('REQ-IDE-049 AC1: clears stale editor readiness before restarting a stopped VS Code session', async () => {
       const container = createMockContainer('stopped');
       const params = baseParams(container, {
         sessionData: {

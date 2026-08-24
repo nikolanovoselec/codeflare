@@ -40,7 +40,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect(response.status).toBe(400);
   });
 
-  it('snapshots an entitled Advanced VS Code preference and persists only vscode', async () => {
+  it('REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists the immutable workspace snapshot', async () => {
     mockKV._set('user-prefs:test-bucket', {
       sessionMode: 'advanced',
       defaultWorkspace: 'vscode',
@@ -113,7 +113,7 @@ describe('REQ-IDE-048 AC1: immutable session workspace snapshot', () => {
     expect((await mockKV.get(`session:test-bucket:${session.id}`, 'json') as Session).workspace).toBeUndefined();
   });
 
-  it('normalizes historical sessions to Terminal in a mixed Terminal and VS Code list', async () => {
+  it('REQ-SESSION-001 AC4: historical sessions resolve to Terminal', async () => {
     const historical: Session = {
       id: 'historical12345678',
       name: 'Historical',

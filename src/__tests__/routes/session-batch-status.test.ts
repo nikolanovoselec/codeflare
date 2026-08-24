@@ -260,7 +260,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(expanded.ptyActive).toBe(false);
     });
 
-    it('REQ-IDE-048 AC4: carries editor readiness without claiming a VS Code PTY', async () => {
+    it('REQ-IDE-049 AC2: carries editor readiness without claiming a VS Code PTY', async () => {
       const session = { ...makeSession('aabbccdd11223344', 'running'), workspace: 'vscode' as const, editorReady: true };
       mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
 
@@ -271,7 +271,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.statuses.aabbccdd11223344).toMatchObject({ editorReady: true, ptyActive: false });
     });
 
-    it('REQ-IDE-048 AC4: carries bounded editor failure for dashboard retry', async () => {
+    it('REQ-IDE-049 AC3: carries bounded editor failure for dashboard retry', async () => {
       const session = {
         ...makeSession('aabbccdd11223344', 'running'),
         workspace: 'vscode' as const,

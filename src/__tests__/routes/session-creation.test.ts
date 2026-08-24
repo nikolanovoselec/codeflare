@@ -248,7 +248,7 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
   });
 
   // AC4: Response returns session object with status 201
-  describe('REQ-SESSION-001 AC4: response returns session object with status 201', () => {
+  describe('REQ-SESSION-001 AC5: response returns session object with status 201', () => {
     it('responds with HTTP 201 and session object', async () => {
       const app = createApp();
       const res = await app.request('/sessions', {

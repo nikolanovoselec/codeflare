@@ -163,7 +163,8 @@ export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
   onComplete: () => void,
-  onError: (error: string, code?: string) => void
+  onError: (error: string, code?: string) => void,
+  options: { retryEditorTimeout?: boolean } = {},
 ): () => void {
   if (!SESSION_ID_RE.test(id)) {
     onError('Invalid session ID format');
@@ -203,7 +204,10 @@ export function startSession(
       logger.debug('Container start request (transient, proceeding to poll):', err);
     }
 
-    // Start polling for status
+    // A running VS Code host exposes the prior timeout until its automatic
+    // retry probe begins. Retry ignores only that stale state; once mounting is
+    // observed, a later timeout is a new failure.
+    let ignorePriorEditorTimeout = options.retryEditorTimeout === true;
     let consecutiveErrors = 0;
 
     const poll = async () => {
@@ -221,8 +225,14 @@ export function startSession(
           if (pollInterval) clearInterval(pollInterval);
           onComplete();
         } else if (status.stage === 'error') {
-          if (pollInterval) clearInterval(pollInterval);
-          onError(status.error || 'Container startup failed');
+          const isPriorEditorTimeout = ignorePriorEditorTimeout
+            && status.error === 'VS Code did not become ready. Retry starting the session.';
+          if (!isPriorEditorTimeout) {
+            if (pollInterval) clearInterval(pollInterval);
+            onError(status.error || 'Container startup failed');
+          }
+        } else {
+          ignorePriorEditorTimeout = false;
         }
       } catch (err) {
         consecutiveErrors++;

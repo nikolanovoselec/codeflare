@@ -38,6 +38,7 @@ describe('REQ-IDE-048 AC3: host startup composition', () => {
       createTerminalSession: () => { calls.push('create'); return session; },
       insertTerminalSession: (value) => { assert.equal(value, session); calls.push('insert'); },
       startTerminalSession: (value) => { assert.equal(value, session); calls.push('start'); },
+      beginEditorProbe: () => calls.push('probe'),
       waitForEditor: async () => { calls.push('editor'); return true; },
     });
 
@@ -52,22 +53,29 @@ describe('REQ-IDE-048 AC3: host startup composition', () => {
       createTerminalSession: () => { calls.push('create'); return {}; },
       insertTerminalSession: () => calls.push('insert'),
       startTerminalSession: () => calls.push('start'),
+      beginEditorProbe: () => calls.push('probe'),
       waitForEditor: async () => { calls.push('editor'); return true; },
     });
 
     assert.deepEqual(result, { kind: 'vscode', ready: true });
-    assert.deepEqual(calls, ['editor']);
+    assert.deepEqual(calls, ['probe', 'editor']);
   });
 
-  it('surfaces a bounded timeout and clears it after a later successful probe', async () => {
-    const readiness = [false, true];
+  it('REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending', async () => {
     let editorReady = false;
     let editorReadyTimedOut = false;
+    let probeCount = 0;
+    let resolveRetry;
     const actions = {
       createTerminalSession: () => { throw new Error('must not create PTY'); },
       insertTerminalSession: () => { throw new Error('must not insert PTY'); },
       startTerminalSession: () => { throw new Error('must not start PTY'); },
-      waitForEditor: async () => readiness.shift(),
+      beginEditorProbe: () => { editorReadyTimedOut = false; },
+      waitForEditor: async () => {
+        probeCount += 1;
+        if (probeCount === 1) return false;
+        return new Promise((resolve) => { resolveRetry = resolve; });
+      },
     };
 
     const first = await startWorkspaceServices('vscode', actions);
@@ -76,7 +84,10 @@ describe('REQ-IDE-048 AC3: host startup composition', () => {
     editorReadyTimedOut = !editorReady;
     assert.deepEqual({ editorReady, editorReadyTimedOut }, { editorReady: false, editorReadyTimedOut: true });
 
-    const second = await startWorkspaceServices('vscode', actions);
+    const retry = startWorkspaceServices('vscode', actions);
+    assert.equal(editorReadyTimedOut, false);
+    resolveRetry(true);
+    const second = await retry;
     assert.equal(second.kind, 'vscode');
     editorReady = second.ready;
     editorReadyTimedOut = !editorReady;
@@ -84,7 +95,7 @@ describe('REQ-IDE-048 AC3: host startup composition', () => {
   });
 });
 
-describe('REQ-IDE-048 AC3+AC4: bounded loopback editor readiness', () => {
+describe('REQ-IDE-048 AC3 + REQ-IDE-049 AC2: bounded loopback editor readiness', () => {
   it('becomes ready only after the code-server health endpoint succeeds', async () => {
     let probes = 0;
     const server = http.createServer((req, res) => {

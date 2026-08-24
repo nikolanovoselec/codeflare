@@ -442,6 +442,9 @@ async function deleteSession(id: string): Promise<void> {
 }
 
 function startSession(id: string): Promise<void> {
+  const session = state.sessions.find((candidate) => candidate.id === id);
+  const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
+
   return new Promise((resolve, reject) => {
     setState(
       produce((s) => {
@@ -490,7 +493,8 @@ function startSession(id: string): Promise<void> {
           void refreshSessionStatuses(true);
         }
         reject(new Error(error));
-      }
+      },
+      { retryEditorTimeout },
     );
 
     startupCleanups.get(id)?.();

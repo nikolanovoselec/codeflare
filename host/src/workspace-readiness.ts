@@ -21,10 +21,12 @@ export async function startWorkspaceServices<T>(
     createTerminalSession(): T;
     insertTerminalSession(session: T): void;
     startTerminalSession(session: T): void;
+    beginEditorProbe(): void;
     waitForEditor(): Promise<boolean>;
   },
 ): Promise<{ kind: 'terminal'; session: T } | { kind: 'vscode'; ready: boolean }> {
   if (workspace === 'vscode') {
+    actions.beginEditorProbe();
     return { kind: 'vscode', ready: await actions.waitForEditor() };
   }
 

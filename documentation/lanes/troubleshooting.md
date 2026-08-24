@@ -43,7 +43,7 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 <a id="browser-ide"></a>
 **Browser IDE**
 
-### VS Code session stays on Preparing or opens another tab ([REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions))
+### VS Code session stays on Preparing or opens another tab ([REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-browser-ide-interactions))
 
 **Symptom:** A VS Code session never enables **Open**, shows **Retry**, enters a terminal view, or creates another editor tab each time **Open** is clicked.
 

@@ -339,6 +339,11 @@ server.listen(PORT, '0.0.0.0', async () => {
       createTerminalSession: () => new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions),
       insertTerminalSession: (session) => sessionManager.sessions.set(state.prewarmSessionId, session),
       startTerminalSession: (session) => session.start(),
+      beginEditorProbe: () => {
+        editorReady = false;
+        prewarmReady = false;
+        editorReadyTimedOut = false;
+      },
       waitForEditor: () => waitForEditorReady({ host: '127.0.0.1', port: OPENVSCODE.port }),
     });
     if (startup.kind === 'terminal') {

@@ -943,7 +943,7 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
-    it('REQ-IDE-048 AC2 + AC4: completes VS Code startup without creating terminal state', async () => {
+    it('REQ-IDE-048 AC2 + REQ-IDE-049 AC2: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       mockGetSessions.mockResolvedValue([{
@@ -970,6 +970,26 @@ describe('Session Store', () => {
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', editorReady: true });
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
       expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+    });
+
+    it('REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Editor', workspace: 'vscode', editorReadyError: true,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'running', ptyActive: false, editorReadyError: true } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      vi.mocked(api.startSession).mockReturnValue(() => {});
+
+      void sessionStore.startSession('session-1');
+
+      expect(api.startSession).toHaveBeenCalledWith(
+        'session-1', expect.any(Function), expect.any(Function), expect.any(Function),
+        { retryEditorTimeout: true },
+      );
     });
 
     it('refreshes managed release status immediately after an update-pending start failure', async () => {

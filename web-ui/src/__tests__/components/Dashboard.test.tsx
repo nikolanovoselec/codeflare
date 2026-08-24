@@ -280,7 +280,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Initialization Tests ===
 
-  it('REQ-IDE-048 AC4: gives stopped VS Code sessions an explicit Start action', () => {
+  it('REQ-IDE-049 AC1: gives stopped VS Code sessions an explicit Start action', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'stopped',
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
@@ -295,7 +295,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onOpenVscodeSession).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-048 AC4: enables explicit Open only after editor readiness', () => {
+  it('REQ-IDE-049 AC2: enables explicit Open only after editor readiness', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'running', editorReady: false,
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
@@ -313,7 +313,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onOpenVscodeSession).toHaveBeenCalledWith('editor');
   });
 
-  it('REQ-IDE-048 AC4: editor failure exposes Retry plus Stop and Delete operations', () => {
+  it('REQ-IDE-049 AC3: editor failure exposes Retry plus Stop and Delete operations', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'error', editorReadyError: true,
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
