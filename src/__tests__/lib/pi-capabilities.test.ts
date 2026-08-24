@@ -97,13 +97,28 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     if (!capability) throw new Error('capability tool was not registered');
 
     expect(await capability.execute('search', { query: 'background specialist' })).toEqual({
-      content: [{ type: 'text', text: 'subagent — Launch a background specialist' }],
+      content: [{
+        type: 'text',
+        text: 'get_subagent_result — Check a background specialist\nsteer_subagent — Steer a background specialist\nsubagent — Launch a background specialist',
+      }],
       details: {
-        matches: [{
-          kind: 'tool',
-          name: 'subagent',
-          description: 'Launch a background specialist',
-        }],
+        matches: [
+          {
+            kind: 'tool',
+            name: 'get_subagent_result',
+            description: 'Check a background specialist',
+          },
+          {
+            kind: 'tool',
+            name: 'steer_subagent',
+            description: 'Steer a background specialist',
+          },
+          {
+            kind: 'tool',
+            name: 'subagent',
+            description: 'Launch a background specialist',
+          },
+        ],
       },
     });
     expect(await capability.execute('activate', { name: 'subagent' })).toEqual({
@@ -201,6 +216,8 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     });
 
     expect(matches.map((match) => [match.kind, match.name])).toEqual([
+      ['tool', 'get_subagent_result'],
+      ['tool', 'steer_subagent'],
       ['tool', 'subagent'],
     ]);
   });

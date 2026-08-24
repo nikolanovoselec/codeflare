@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-// pi-subagents exports this public accessor from this exact reviewed entrypoint. Seed
-// extensions resolve through the adjacent Pi npm cache rather than Node's root lookup.
-// @ts-expect-error Repository sources do not materialize the runtime-only adjacent npm cache.
-import { getSubagentsService } from "../npm/node_modules/@gotgenes/pi-subagents/src/service/service.ts";
+
+// pi-subagents exports its public accessor from this exact reviewed entrypoint. Seed
+// extensions resolve it through the adjacent Pi npm cache at session start.
+const SUBAGENTS_SERVICE_ENTRYPOINT = "../npm/node_modules/@gotgenes/pi-subagents/src/service/service.ts";
 
 export type SubagentRecordLookup = (id: string) => {
   id: string;
@@ -52,7 +52,10 @@ export default function subagentResumeGuard(pi: GuardPi): void {
   let lookup: SubagentRecordLookup | undefined;
   // All extensions have initialized before session_start, so this captures the
   // root service before any in-process child can replace the global accessor.
-  pi.on("session_start", () => {
+  pi.on("session_start", async () => {
+    const { getSubagentsService } = await import(SUBAGENTS_SERVICE_ENTRYPOINT) as {
+      getSubagentsService(): { getRecord(id: string): ReturnType<SubagentRecordLookup> } | undefined;
+    };
     const service = getSubagentsService();
     lookup = service ? (id) => service.getRecord(id) : undefined;
   });

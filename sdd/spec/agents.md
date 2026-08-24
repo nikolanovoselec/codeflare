@@ -4186,6 +4186,7 @@ None.
 - Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, XML rewrite, or package-source patch.
 - Codeflare-curation owns complete managed extension bytes and mode membership; Codeflare owns the independent embedded fallback and image/runtime inputs.
 - Tool-schema sizes are diagnostic. Existing controlled-prompt limits remain owned by [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt).
+
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt)
@@ -4204,13 +4205,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. A local hook blocks `subagent` resume calls for queued or running records through the package's public service before upstream execution. <!-- @impl: preseed/agents/pi/extensions/subagent-resume-guard.ts::subagentResumeGuard --> <!-- @test: src/__tests__/lib/pi-subagent-resume-guard.test.ts (REQ-AGENT-159: active subagent resume guard) -->
+1. Resume attempts for queued or running retained subagents are rejected before their state can be mutated. <!-- @impl: preseed/agents/pi/extensions/subagent-resume-guard.ts::subagentResumeGuard --> <!-- @test: src/__tests__/lib/pi-subagent-resume-guard.test.ts (REQ-AGENT-159: active subagent resume guard) -->
 2. Settled and unknown records retain upstream resume and not-found behavior. <!-- @impl: preseed/agents/pi/extensions/subagent-resume-guard.ts::subagentResumeBlockReason --> <!-- @test: src/__tests__/lib/pi-subagent-resume-guard.test.ts (allows upstream resume handling for %s records) --> <!-- @test: src/__tests__/lib/pi-subagent-resume-guard.test.ts (allows upstream not-found handling for an unknown record) -->
-3. A reviewed `@gotgenes/pi-subagents` version change fails compatibility evidence until maintainers remove or reaffirm the guard. <!-- @test: host/__tests__/pi-subagent-resume-compat.test.js (REQ-AGENT-159 AC3: pi-subagents active-resume compatibility) -->
 
 **Constraints:**
 
 - The guard uses the reviewed public `getSubagentsService()` accessor without package-source changes.
+- A reviewed `@gotgenes/pi-subagents` version change must fail compatibility evidence until maintainers remove or reaffirm the guard. <!-- @test: host/__tests__/pi-subagent-resume-compat.test.js (REQ-AGENT-159: pi-subagents active-resume compatibility) -->
 - Subagent max-turn and turn-loop behavior remain unchanged.
 
 **Priority:** P1

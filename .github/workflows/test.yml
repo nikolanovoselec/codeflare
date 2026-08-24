@@ -801,6 +801,7 @@ jobs:
             (
               cd "$RUNNER_TEMP/pi-isolated"
               PI_AGENT_DIR="$agent_dir" \
+              PI_CODING_AGENT_ROOT="$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent" \
                 node "$GITHUB_WORKSPACE/scripts/measure-pi-runtime-context.mjs" \
                 --agent-dir "$agent_dir" \
                 > "$RUNNER_TEMP/pi-runtime-context-$mode.json"

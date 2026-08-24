@@ -17,7 +17,7 @@ const REVIEW_MESSAGE = [
   'REVIEWED_GUARDED_VERSION with behavioral evidence.',
 ].join(' ');
 
-describe('REQ-AGENT-159 AC3: pi-subagents active-resume compatibility', () => {
+describe('REQ-AGENT-159: pi-subagents active-resume compatibility', () => {
   it('forces explicit guard review whenever the exact dependency changes', () => {
     const version = pkg.dependencies['@gotgenes/pi-subagents'];
     assert.equal(version, REVIEWED_GUARDED_VERSION, REVIEW_MESSAGE);
