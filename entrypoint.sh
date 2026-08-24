@@ -1419,7 +1419,7 @@ kill_pidfile_subtree() {
 # strip the exact public prefix) and completed init. VS Code workspaces then
 # launch eagerly; Terminal (including absent/invalid values) retains the
 # first-request trigger. Fail-safe: with no session id, never launch.
-# REQ-IDE-003 AC1, REQ-IDE-002, REQ-IDE-048 AC3.
+# REQ-IDE-003 AC1, REQ-IDE-002, REQ-IDE-053 AC1/AC2.
 _openvscode_should_launch() {
     [ -n "${SESSION_ID:-}" ] \
         && [ -f "${CODEFLARE_INIT_FLAG_FILE:-/tmp/codeflare-init-complete}" ] \

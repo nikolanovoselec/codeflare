@@ -394,7 +394,7 @@ describe('API Client', () => {
       );
     });
 
-    it('REQ-IDE-051 AC4: keeps cloned-session workspace selection server-owned', async () => {
+    it('REQ-IDE-052 AC1: keeps cloned-session workspace selection server-owned', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,

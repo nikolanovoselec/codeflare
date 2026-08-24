@@ -166,7 +166,7 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 ### code-server (Browser IDE)
 
-**Workspace-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-dashboard-owned-vs-code-session-lifecycle)):** `entrypoint.sh`'s retained private `start_openvscode_supervisor` launches code-server on `127.0.0.1:13337` against the session's `~/workspace`, supervised by the existing crash-restart loop. A VS Code session arms the supervisor when initialization completes. A Terminal session still waits for the host's first `/api/vscode` request, so Terminal-only work pays no editor-process cost.
+**Workspace-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-053](../../sdd/spec/browser-ide.md#req-ide-053-workspace-specific-editor-startup)):** `entrypoint.sh`'s retained private `start_openvscode_supervisor` launches code-server on `127.0.0.1:13337` against the session's `~/workspace`, supervised by the existing crash-restart loop. A VS Code session arms the supervisor when initialization completes. A Terminal session still waits for the host's first `/api/vscode` request, so Terminal-only work pays no editor-process cost.
 
 code-server receives `--auth none` only behind the Worker's Access/ownership chain and the container bearer check; it also receives disabled telemetry, updates, built-in proxying, Getting Started override, and workspace trust. Its exact ephemeral user-data path is `/tmp/openvscode-data/data`, whose User settings are prepared at `/tmp/openvscode-data/data/User`; fixed extensions remain under `/opt/codeflare/openvscode/extensions/{pi,claude,none}`.
 

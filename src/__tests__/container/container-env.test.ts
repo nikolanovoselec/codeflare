@@ -70,7 +70,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.USER_TIMEZONE).toBeUndefined();
   });
 
-  it('REQ-IDE-048 AC4: emits the immutable session workspace', () => {
+  it('REQ-IDE-053 AC1: emits the immutable session workspace', () => {
     const terminalVars = buildEnvVars(baseState(), baseEnv);
     const vscodeState = baseState();
     vscodeState._sessionWorkspace = 'vscode';
@@ -356,7 +356,7 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(writes.userTimezone).toBeUndefined();
   });
 
-  it('REQ-IDE-048 AC4: persists workspace on first configuration', async () => {
+  it('persists workspace on first configuration', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();
 
@@ -366,7 +366,7 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(writes.sessionWorkspace).toBe('vscode');
   });
 
-  it('REQ-IDE-048 AC4: replaces stale workspace state on restart', async () => {
+  it('replaces stale workspace state on restart', async () => {
     const state = baseState();
     state._sessionWorkspace = 'vscode';
     const { writes, storage } = makeStorage();

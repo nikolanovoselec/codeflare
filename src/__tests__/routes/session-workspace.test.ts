@@ -4,7 +4,7 @@ import type { AccessUser, Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
-describe('REQ-IDE-051 AC4/AC5: immutable session workspace snapshot', () => {
+describe('REQ-IDE-052 AC1/AC2: immutable session workspace snapshot', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -40,7 +40,7 @@ describe('REQ-IDE-051 AC4/AC5: immutable session workspace snapshot', () => {
     expect(response.status).toBe(400);
   });
 
-  it('REQ-SESSION-001 AC3 / REQ-IDE-051 AC4: persists and retrieves the immutable workspace snapshot', async () => {
+  it('REQ-SESSION-001 AC3 / REQ-IDE-052 AC1: persists and retrieves the immutable workspace snapshot', async () => {
     mockKV._set('user-prefs:test-bucket', {
       sessionMode: 'advanced',
       defaultWorkspace: 'vscode',
