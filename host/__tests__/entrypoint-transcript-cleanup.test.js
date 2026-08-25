@@ -28,8 +28,9 @@ const RETENTION_SCRIPT = join(REPO_ROOT, 'transcript-retention.mjs');
 
 function shellEnv(base) {
   const runtimeRoot = join(base, '.runtime');
-  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot };
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  mkdirSync(syncRuntimeDir, { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, SYNC_RUNTIME_DIR: syncRuntimeDir };
 }
 
 function extractShellFunction(name) {

@@ -140,10 +140,13 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
   it('idempotent: a second invocation does NOT re-append the marker block', () => {
     const dir = mkdtempSync(join(tmpdir(), 'tab-autostart-idempotent-'));
     const body = extractConfigureBody();
+    const runtimeRoot = join(dir, 'runtime');
     const script = [
       '#!/usr/bin/env bash',
       'set -e',
       `export USER_HOME='${dir}'`,
+      `export CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+      `mkdir -p '${runtimeRoot}/services'`,
       body,
       'configure_tab_autostart',
       'configure_tab_autostart',

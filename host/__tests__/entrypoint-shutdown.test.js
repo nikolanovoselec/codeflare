@@ -169,7 +169,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     // The flag must be touched on both the success path AND the timeout/error
     // path of establish_bisync_baseline (structural: that function's runtime
     // needs a real rclone).
-    const allTouches = [...entrypoint.matchAll(/touch \/run\/codeflare\/sync\/bisync-initialized/g)];
+    const allTouches = [...entrypoint.matchAll(/touch \$CODEFLARE_RUNTIME_ROOT\/sync\/bisync-initialized/g)];
     assert.ok(
       allTouches.length >= 2,
       'entrypoint.sh must touch protected bisync state on both the success path and the timeout/error path'
