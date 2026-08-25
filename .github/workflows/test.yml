@@ -369,19 +369,22 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 7
+      max-parallel: 10
       matrix:
-        # Six Workers shards keep coverage-instrumented legs near the
-        # 30-60 second target measured from run 32801555205. The unshardable
-        # Node-runtime suite remains its own short leg. Coverage is emitted by
+        # Nine Workers shards are intended to reduce the 43-75 second suite spread observed in
+        # run 32803831721 while the unshardable Node-runtime suite remains its
+        # own short leg. Coverage is emitted by
         # these shards and merged later; no standalone test rerun exists.
         include:
-          - { shard: '1/6', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '2/6', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '3/6', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '4/6', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '5/6', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '6/6', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '1/9', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '2/9', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '3/9', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '4/9', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '5/9', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '6/9', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '7/9', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '8/9', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '9/9', slug: shard-9, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { shard: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -599,7 +602,8 @@ jobs:
       - uses: ./.github/actions/merge-coverage
         with:
           artifact-pattern: 'backend-shard-*'
-          expected-shards: '6'
+          artifact-prefix: 'backend-shard'
+          expected-shards: '9'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -625,6 +629,7 @@ jobs:
       - uses: ./.github/actions/merge-coverage
         with:
           artifact-pattern: 'frontend-shard-*'
+          artifact-prefix: 'frontend-shard'
           expected-shards: '3'
           slug: frontend
           package-root: web-ui

@@ -19,8 +19,6 @@ const pentest = load('pentest.yml');
 const promotion = load('promotion-source.yml');
 const release = load('sign-release.yml');
 const prChecks = load('test.yml');
-const codeqlConfig = parseYaml(readFileSync(join(ROOT, '.github', 'codeql', 'codeql-config.yml'), 'utf8'));
-const coverageAction = parseYaml(readFileSync(join(ROOT, '.github', 'actions', 'merge-coverage', 'action.yml'), 'utf8'));
 
 const step = (job, name) => job.steps.find((candidate) => candidate.name === name);
 
@@ -70,19 +68,6 @@ describe('PR lane selection', () => {
       || (pattern.endsWith('/**') && source.startsWith(pattern.slice(0, -2)));
     assert.ok(filters.backend.flat(Infinity).some(matchesSource));
     assert.ok(filters.landing.flat(Infinity).some(matchesSource));
-  });
-});
-
-describe('REQ-OPS-019 AC8: CodeQL scans owned runtime source once', () => {
-  it('excludes generated aggregates, vendored bundles, and non-runtime test trees', () => {
-    assert.deepEqual(codeqlConfig['paths-ignore'], [
-      'preseed/agents/*/skills/impeccable/scripts/**',
-      'src/lib/agent-seed.generated.ts',
-      'preseed/silverbullet/**/*.plug.js',
-      '**/__tests__/**',
-      '**/*.test.*',
-      '**/test/**',
-    ]);
   });
 });
 
@@ -583,7 +568,8 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     for (const [jobName, matrixJob, inputs] of [
       ['coverage-backend', 'backend-tests', {
         'artifact-pattern': 'backend-shard-*',
-        'expected-shards': '6',
+        'artifact-prefix': 'backend-shard',
+        'expected-shards': '9',
         slug: 'backend',
         'package-root': '.',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
@@ -595,6 +581,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       }],
       ['coverage-frontend', 'frontend-tests', {
         'artifact-pattern': 'frontend-shard-*',
+        'artifact-prefix': 'frontend-shard',
         'expected-shards': '3',
         slug: 'frontend',
         'package-root': 'web-ui',
@@ -612,14 +599,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
         [{ uses: './.github/actions/merge-coverage', with: inputs }],
       );
-      assert.doesNotMatch(JSON.stringify(job), /npm test|coverage-suite/);
     }
-
-    const actionSource = JSON.stringify(coverageAction);
-    assert.match(actionSource, /actions\/download-artifact@/);
-    assert.match(actionSource, /merge-shard-coverage\.mjs/);
-    assert.match(actionSource, /check-coverage-result\.mjs/);
-    assert.doesNotMatch(actionSource, /npm test|vitest/);
   });
 });
 

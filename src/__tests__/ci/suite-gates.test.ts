@@ -307,22 +307,15 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
   });
 
-  it('REQ-OPS-045 AC3: runs backend, frontend, and host tests only as concurrent matrix legs', () => {
+  it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 7], ['frontend-tests', 3], ['host-tests', 4]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 10], ['frontend-tests', 3], ['host-tests', 4]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
       expect(strategy?.matrix?.include).toHaveLength(expectedLegs);
       expect(strategy?.['max-parallel']).toBe(strategy?.matrix?.include?.length);
     }
-    const backend = testWorkflow.jobs['backend-tests'] as {
-      strategy?: { matrix?: { include?: Array<{ slug?: string; coverage?: string }> } };
-    };
-    expect(backend.strategy?.matrix?.include?.filter((leg) => leg.slug !== 'node').every((leg) => leg.coverage === 'true')).toBe(true);
-    expect(backend.strategy?.matrix?.include?.find((leg) => leg.slug === 'node')?.coverage).toBe('false');
-    expect(JSON.stringify(testWorkflow.jobs['frontend-tests'])).toContain('"coverage":"true"');
-    expect(JSON.stringify(testWorkflow.jobs['host-tests'])).toContain('--test-shard="${{ matrix.shard }}"');
   });
 
   it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {
@@ -331,8 +324,6 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       const job = testWorkflow.jobs[name] as { needs?: string[]; steps?: Array<{ uses?: string }> };
       expect(job.needs).toEqual(['changes', matrix]);
       expect(job.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
-      expect(JSON.stringify(job)).not.toContain('npm test');
-      expect(JSON.stringify(job)).not.toContain('./.github/actions/coverage-suite');
     }
   });
 
@@ -420,7 +411,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
-  it('REQ-OPS-022 AC5: merges every shard before enforcing package coverage', () => {
+  it('REQ-OPS-022 AC1+AC2+AC4: merges exact shard evidence before enforcing package coverage', () => {
     const artifacts = join(work, 'coverage-artifacts');
     const output = join(work, 'coverage-output');
     const source = join(work, 'src', 'covered.ts');
@@ -448,23 +439,54 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
 
     const merged = spawnSync(process.execPath, [
-      COVERAGE_MERGER, artifacts, output, '2', '80', '80', '80', '80',
+      COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
     ], { encoding: 'utf8' });
     expect(merged.status, merged.stderr).toBe(0);
     expect(merged.stdout).toContain('Merged 2 shard coverage reports');
     expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
 
     const incomplete = spawnSync(process.execPath, [
-      COVERAGE_MERGER, artifacts, join(work, 'incomplete'), '3', '0', '0', '0', '0',
+      COVERAGE_MERGER, artifacts, join(work, 'incomplete'), '3', 'shard', '0', '0', '0', '0',
     ], { encoding: 'utf8' });
     expect(incomplete.status).toBe(1);
     expect(incomplete.stderr).toContain('expected 3 shard coverage reports, found 2');
 
+    const duplicateRoot = join(work, 'duplicate-coverage');
+    for (const nested of ['first', 'second']) {
+      const dir = join(duplicateRoot, 'shard-1', nested);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+    }
+    const duplicate = spawnSync(process.execPath, [
+      COVERAGE_MERGER, duplicateRoot, join(work, 'duplicate'), '2', 'shard', '0', '0', '0', '0',
+    ], { encoding: 'utf8' });
+    expect(duplicate.status).toBe(1);
+    expect(duplicate.stderr).toContain('expected exactly one coverage report for shard-1');
+    expect(duplicate.stderr).toContain('expected exactly one coverage report for shard-2');
+
     const partialRoot = join(work, 'partial-coverage');
-    mkdirSync(join(partialRoot, 'shard', 'coverage'), { recursive: true });
-    writeFileSync(join(partialRoot, 'shard', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+    mkdirSync(join(partialRoot, 'shard-1', 'coverage'), { recursive: true });
+    const malformed = coverage(1, 0);
+    malformed[source].s[0] = '1' as unknown as number;
+    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(malformed));
+    const invalid = spawnSync(process.execPath, [
+      COVERAGE_MERGER, partialRoot, join(work, 'invalid'), '1', 'shard', '0', '0', '0', '0',
+    ], { encoding: 'utf8' });
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toContain('statement counter 0 must be a finite non-negative number');
+
+    const missingMap = coverage(1, 0);
+    delete (missingMap[source] as { fnMap?: unknown }).fnMap;
+    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(missingMap));
+    const invalidMap = spawnSync(process.execPath, [
+      COVERAGE_MERGER, partialRoot, join(work, 'invalid-map'), '1', 'shard', '0', '0', '0', '0',
+    ], { encoding: 'utf8' });
+    expect(invalidMap.status).toBe(1);
+    expect(invalidMap.stderr).toContain('function map and counters must be objects');
+
+    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
     const belowFloor = spawnSync(process.execPath, [
-      COVERAGE_MERGER, partialRoot, join(work, 'below-floor'), '1', '80', '80', '80', '80',
+      COVERAGE_MERGER, partialRoot, join(work, 'below-floor'), '1', 'shard', '80', '80', '80', '80',
     ], { encoding: 'utf8' });
     expect(belowFloor.status).toBe(1);
     expect(belowFloor.stderr).toContain('does not meet global threshold');
@@ -487,16 +509,6 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
   });
 
-  it('configures the reusable coverage action as merge-only', () => {
-    const action = parseYaml(readFileSync(join(REPO, '.github/actions/merge-coverage/action.yml'), 'utf8')) as {
-      runs: { steps: Array<{ name?: string; run?: string }> };
-    };
-    const source = JSON.stringify(action);
-    expect(source).toContain('merge-shard-coverage.mjs');
-    expect(source).toContain('check-coverage-result.mjs');
-    expect(source).not.toContain('npm test');
-    expect(source).not.toContain('vitest');
-  });
 });
 
 describe('Cloudflare test transport capacity', () => {

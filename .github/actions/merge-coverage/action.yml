@@ -4,6 +4,9 @@ inputs:
   artifact-pattern:
     description: 'Artifact pattern containing shard coverage-final.json files.'
     required: true
+  artifact-prefix:
+    description: 'Exact artifact directory prefix; identities must be prefix-1 through prefix-N.'
+    required: true
   expected-shards:
     description: 'Exact number of coverage reports required.'
     required: true
@@ -59,6 +62,7 @@ runs:
       env:
         SLUG: ${{ inputs.slug }}
         EXPECTED_SHARDS: ${{ inputs.expected-shards }}
+        ARTIFACT_PREFIX: ${{ inputs.artifact-prefix }}
         PACKAGE_ROOT: ${{ inputs.package-root }}
         CHANGED_BASE: ${{ inputs.changed-base }}
         CHANGED_LINE_THRESHOLD: ${{ inputs.changed-line-threshold }}
@@ -73,7 +77,7 @@ runs:
         log="$RUNNER_TEMP/${SLUG}-coverage.log"
         status=0
         node "$GITHUB_WORKSPACE/scripts/ci/merge-shard-coverage.mjs" \
-          "$shard_root" "$output" "$EXPECTED_SHARDS" \
+          "$shard_root" "$output" "$EXPECTED_SHARDS" "$ARTIFACT_PREFIX" \
           "$STATEMENTS_THRESHOLD" "$BRANCHES_THRESHOLD" \
           "$FUNCTIONS_THRESHOLD" "$LINES_THRESHOLD" \
           2>&1 | tee "$log" || status=$?
