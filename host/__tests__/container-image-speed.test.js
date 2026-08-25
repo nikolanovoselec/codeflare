@@ -66,7 +66,7 @@ describe('REQ-OPS-050: hosted image-build speed', () => {
     assert.equal(steps[evidenceIndex].with.path, '/tmp/buildkit.log');
   });
 
-  it('makes Trivy cache metadata restorable by the runner account', () => {
+  it('makes Trivy scratch and cache directories writable by the runner account', () => {
     const provisionIndex = stepIndex('Provision scan scratch space and free disk');
     const restoreIndex = stepIndex('Restore Trivy vulnerability DB cache');
     const body = steps[provisionIndex].run;

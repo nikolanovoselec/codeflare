@@ -384,9 +384,9 @@ jobs:
       fail-fast: false
       max-parallel: 9
       matrix:
-        # Run 32890939456 supplies current per-file durations. With the calibrated
-        # 1.6-second per-file Workers startup cost, longest-first assignment targets
-        # eight roughly 48-second test groups plus the independent Node-runtime leg.
+        # Run 32892058211 supplies current per-file durations from the eight-group
+        # matrix. With the calibrated 1.6-second per-file Workers startup cost,
+        # longest-first assignment targets eight roughly 49-second groups plus Node.
         include:
           - { balance-group: '1/8', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '2/8', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
@@ -614,7 +614,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '6'
+          expected-shards: '8'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}

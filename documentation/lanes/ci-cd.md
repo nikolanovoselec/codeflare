@@ -180,14 +180,14 @@ Application test suites are not re-run in deployment—the exact SHA already pas
 <a id="test-workflow-detail"></a>
 ## Pull Request Verification
 
-Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
+Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all nine and three legs concurrently. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
 
 - **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` means "no diff was filtered, run everything".
   - If GitHub cannot produce the PR-files diff, exact checked-out commits are verified locally and every lane runs. API failure can add work but never skip coverage. <!-- @impl: scripts/ci/path-filter-fallback.sh --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
   - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`) ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
+- **backend-tests** — eight duration-weighted Workers jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
 - **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.

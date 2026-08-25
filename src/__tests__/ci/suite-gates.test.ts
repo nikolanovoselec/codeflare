@@ -429,6 +429,13 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
       '1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8', '',
     ]);
+    const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
+    const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
+      steps: Array<{ uses?: string; with?: Record<string, string> }>;
+    };
+    const coverageMerge = coverageBackend.steps.find((step) => step.uses === './.github/actions/merge-coverage');
+    expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
+
     const host = testWorkflow.jobs['host-tests'] as {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };

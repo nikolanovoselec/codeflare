@@ -5,8 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
 
+import { MANAGED_RUNTIME_LOCK_PATHS } from '../../scripts/agent-seed-core.mjs';
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
+const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
 const rootPackage = readJson('package.json');
 const rootLock = readJson('package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
@@ -72,6 +75,22 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
+  });
+
+  it('image-owned Oxlint installs unconditionally for every coding-agent selection', () => {
+    const oxlintInstall = dockerfile.indexOf('RUN cd /opt/codeflare/oxlint');
+    const selectedToolsInstall = dockerfile.indexOf('RUN cd /opt/codeflare/npm-tools');
+    assert.ok(oxlintInstall > -1 && oxlintInstall < selectedToolsInstall);
+    const installBlock = dockerfile.slice(oxlintInstall, selectedToolsInstall);
+    assert.doesNotMatch(installBlock, /CODEFLARE_CODING_AGENTS/);
+    assert.match(installBlock, /ln -sf .* \/usr\/local\/bin\/oxlint/);
+    assert.match(installBlock, /oxlint --version/);
+  });
+
+  it('image-owned Oxlint stays outside managed and shared runtime manifests', () => {
+    assert.equal(npmToolsPackage.dependencies.oxlint, undefined);
+    assert.equal(piPackage.dependencies.oxlint, undefined);
+    assert.equal(MANAGED_RUNTIME_LOCK_PATHS.includes('image/oxlint/package-lock.json'), false);
   });
 
   it('image-owned Oxlint has dedicated weekly dependency automation', () => {

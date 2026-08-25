@@ -1345,8 +1345,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Exact-pinned image-owned Oxlint remains available for every coding-agent selection without joining managed runtime compatibility. <!-- @impl: Dockerfile::/opt/codeflare/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
-2. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
+1. The image-owned Oxlint manifest and lock contain one exact pin with a complete integrity tree. <!-- @impl: image/oxlint/package.json::oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+2. Oxlint installs unconditionally and remains available for every coding-agent selection. <!-- @impl: Dockerfile::/opt/codeflare/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint installs unconditionally for every coding-agent selection) -->
+3. Oxlint remains outside managed and shared runtime manifests. <!-- @impl: scripts/agent-seed-core.mjs::MANAGED_RUNTIME_LOCK_PATHS --> <!-- @impl: preseed/npm-tools/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint stays outside managed and shared runtime manifests) -->
+4. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
 
 **Constraints:** Oxlint remains outside the managed seed and shared npm-tool manifest.
 
@@ -1372,8 +1374,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A failure from vulnerability scanning, CycloneDX generation, or registry-tool preparation blocks image publication. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (blocks publication when any concurrent image prerequisite fails) -->
 3. Bounded vulnerability validation completes before image push. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
 4. The SBOM uploads before image push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
-5. Trivy scratch and database-cache directories are writable and metadata-restorable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy cache metadata restorable by the runner account) --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
-6. Concurrent Trivy processes use isolated cache copies so their scan locks cannot collide. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+5. Trivy scratch and database-cache directories are writable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy scratch and cache directories writable by the runner account) -->
+6. Daily Trivy database-cache metadata restores without an ownership or timestamp warning. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
+7. Concurrent Trivy image traversals complete without a shared cache-lock collision. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
 
 **Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation.
 
