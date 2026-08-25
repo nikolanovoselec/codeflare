@@ -73,6 +73,7 @@ import {
 
 const roots: string[] = [];
 const originalHome = process.env.HOME;
+const originalTmpdir = process.env.TMPDIR;
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'codeflare-extension-persistence-'));
@@ -186,6 +187,8 @@ afterEach(() => {
   delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
+  if (originalTmpdir === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = originalTmpdir;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -886,13 +889,14 @@ test('REQ-OPS-048 AC5: captures extension state after disposable cleanup', async
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   host.extensions = [{ id: 'redhat.vscode-yaml', packageJSON: {} }];
   process.env.HOME = join(root, 'home');
+  process.env.TMPDIR = disposableTmp;
   process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR = extensionsDir;
   process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST = manifestPath;
   process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = syncPidFile;
 
   rmSync(disposableTmp, { recursive: true, force: true });
 
-  assert.equal(await captureExtensionManifest(), true);
+  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
   assert.equal(existsSync(disposableTmp), false);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['redhat.vscode-yaml'].version, '1.24.0');
 });
