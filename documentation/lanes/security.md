@@ -236,9 +236,9 @@ Under [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-e
 <a id="container-image-scanning-req-sec-011"></a>
 ### Container image vulnerability gate
 
-Fresh images are scanned for HIGH/CRITICAL findings. <!-- @impl: .github/workflows/container-image.yml::trivy-action -->
+Fresh images are scanned for HIGH/CRITICAL findings with a locked Trivy binary; scan and SBOM traversal run concurrently, but the bounded verdict still gates push. <!-- @impl: .github/workflows/container-image.yml::image -->
 
-Fixable findings have two reviewed exception paths. Trivy first applies CVE-level suppressions from [`.trivyignore`](../../.trivyignore); each matches that CVE across scanner targets. The newly added Go stdlib batch carries adjacent scope, impact, and removal rationale. <!-- @impl: .github/workflows/container-image.yml::trivy-action -->
+Fixable findings have two reviewed exception paths. Trivy first applies CVE-level suppressions from [`.trivyignore`](../../.trivyignore); each matches that CVE across scanner targets. The newly added Go stdlib batch carries adjacent scope, impact, and removal rationale. <!-- @impl: .github/workflows/container-image.yml::image -->
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 

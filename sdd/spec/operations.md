@@ -1312,3 +1312,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Status:** Implemented
 
 ---
+
+### REQ-OPS-050: Hosted image-build critical-path optimization
+
+**Intent:** Fresh container images complete as quickly as the standard GitHub-hosted runner safely permits without weakening packaged smoke, vulnerability enforcement, SBOM retention, or scan-before-push ordering.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Pi extension-only edits retain the expensive Pi dependency/toolchain layer while still invalidating extension Jiti prewarm. <!-- @impl: Dockerfile::preseed/agents/pi/extensions --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / keeps extension-only edits behind the expensive Pi dependency layer) -->
+2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / assembles IDE and seed artifacts after expensive runtime dependency layers) -->
+3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / publishes plain BuildKit timing evidence) -->
+4. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+5. Any concurrent prerequisite failure blocks image publication, and bounded vulnerability validation still completes before push. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
+6. The SBOM uploads before image push, preserving the retained inventory even when later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+7. Trivy scratch and database-cache directories are writable and metadata-restorable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (REQ-OPS-050: hosted image-build speed / makes Trivy cache metadata restorable by the runner account) --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
+
+**Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation. The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
+
+**Verification:** Workflow-order/cache-boundary tests; exact-head fresh-image deployment timing and artifact evidence
+
+**Status:** Implemented
+
+---

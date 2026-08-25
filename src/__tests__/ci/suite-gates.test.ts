@@ -333,7 +333,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const name of smokeSteps) {
       const index = stepNames.indexOf(name);
       expect(index).toBeGreaterThan(stepNames.indexOf('Build container image'));
-      expect(index).toBeLessThan(stepNames.indexOf('Scan container image for vulnerabilities'));
+      expect(index).toBeLessThan(stepNames.indexOf('Scan image, generate SBOM, and prepare push tooling'));
       expect(index).toBeLessThan(stepNames.indexOf('Push image'));
       expect(steps[index]?.if).toBe("steps.reuse.outputs.reused != 'true'");
     }
