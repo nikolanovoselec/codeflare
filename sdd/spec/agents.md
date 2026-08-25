@@ -4158,7 +4158,8 @@ None.
 **Acceptance Criteria:**
 
 1. Within the freshness window, a complete compatible active cache repairs missing freshness metadata without GitHub I/O. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-162 AC1: recovers missing freshness metadata from the verified cache without GitHub I/O) -->
-2. A failed refresh with a complete compatible active cache records the attempt and suppresses another GitHub refresh until the next freshness interval. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2: degraded diagnostics redact credentials and bound refresh retries) -->
+2. A failed refresh with a complete compatible active cache records the attempt and serves the active release as degraded. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries) -->
+3. A failed refresh with a complete compatible active cache suppresses another GitHub refresh until the next freshness interval. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries) -->
 
 **Constraints:** Missing or incompatible active cache data never suppresses discovery, and fresh-required setup validation remains fail closed.
 

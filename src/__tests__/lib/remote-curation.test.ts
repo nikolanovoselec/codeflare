@@ -762,7 +762,7 @@ describe('managed release resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2: degraded diagnostics redact credentials and bound refresh retries', async () => {
+  it('REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
