@@ -1411,9 +1411,9 @@ export async function collectMetrics(
   // a future transient blip starts a fresh streak.
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
-  // Resolve the tick's trusted session once, before either host probe. Agent
-  // delivery reuses this identity and the metrics write below reuses the same
-  // KV record, so a host response can never supply recipient or display data.
+  // Resolve trusted identity before either host probe for agent delivery. The
+  // metrics write fresh-reads session state after the probes so a slow health
+  // response cannot roll back a concurrent lifecycle or readiness update.
   const trustedTickSession = await loadTrustedTickSession(state, ctx, env);
   try {
     await deliverRunningAgentEvents(state, ctx, env, trustedTickSession);
@@ -1530,7 +1530,7 @@ export async function collectMetrics(
       // Don't parse — just log and re-arm below.
       logger.info('collectMetrics: health non-OK', { status: res.status });
     } else {
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean };
 
       if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
         // Surface in-container bisync failures in Workers logs: the integration
@@ -1542,16 +1542,17 @@ export async function collectMetrics(
       }
 
       if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
-      const { sessionId, bucketName, session } = trustedTickSession;
+      const { sessionId, bucketName } = trustedTickSession;
 
       if (!sessionId || !bucketName) {
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
         return; // Don't re-arm schedule — zombie DO, let it die
       } else if (ctx.container?.running) {
-        // Only reached while the container is demonstrably running (running
-        // branch, after a successful /health fetch). The normal write touches
-        // .metrics and mirrors lastActiveAt; .status is normally left alone.
+        // Only reached while the container is demonstrably running. Fresh-read
+        // after both host probes so this tick cannot restore stale whole-session
+        // state captured before a concurrent readiness or lifecycle write.
         const key = getSessionKey(bucketName, sessionId);
+        const session = await env.KV.get<Session>(key, 'json');
         if (session) {
           const metrics = {
             cpu: health.cpu,
@@ -1563,6 +1564,11 @@ export async function collectMetrics(
           const lastActiveAt = state.lastSeenInputAt
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
+          let nextSession: Session = { ...session, metrics, lastActiveAt };
+          if (session.workspace === 'vscode' && health.editorReady === true) {
+            const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
+            nextSession = { ...withoutEditorError, editorReady: true };
+          }
 
           if (session.status === 'stopped') {
             // KV reads stopped while the container is demonstrably alive. Read
@@ -1583,10 +1589,10 @@ export async function collectMetrics(
               // next start. (idle-stop returns before this block; onStop
               // deleteSchedules the loop, so those deliberate paths never reach here.)
               logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
-              await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+              await putSessionWithMetadata(env.KV, key, { ...nextSession, status: 'running' as const });
             }
           } else {
-            await putSessionWithMetadata(env.KV, key, { ...session, metrics, lastActiveAt });
+            await putSessionWithMetadata(env.KV, key, nextSession);
           }
         }
       }

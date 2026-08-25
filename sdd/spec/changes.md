@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-25
+
+- **VS Code readiness repair preserves authoritative session state** ([REQ-IDE-049](browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery) AC4-AC5 added; remains Implemented). Healthy editor metrics and successful proxy traffic now fresh-read the primary `session:*` record before merging readiness, activity, and metrics. Slow probes can no longer restore stale readiness or replace concurrent lifecycle and user-owned fields; recovery adds no secondary session projections or prefix scans.
+
 ## 2026-08-24
 
 - **Shared managed seed paths require curation synchronization** ([REQ-AGENT-156](agents.md#req-agent-156-bounded-lossless-pi-prompt) AC6-AC7 and constraints amended; remains Implemented). Delivery of a Codeflare fallback seed change is now explicitly incomplete when the same manifest-owned path remains stale in `codeflare-curation`. The ownership ledger fails closed when this synchronization duty is absent, while protected curation verification owns the pre-publication byte check; image-owned paths and private curation content remain independently owned.

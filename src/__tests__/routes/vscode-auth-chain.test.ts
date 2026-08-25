@@ -76,6 +76,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
   let mockKV: ReturnType<typeof createMockKV>;
   let mockEnv: Env;
   let mockCtx: ExecutionContext;
+  let waitUntilPromises: Promise<unknown>[];
 
   const SID = 'abcdef1234567890';
   const SESSION_KEY = `session:test-bucket:${SID}`;
@@ -97,8 +98,9 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
 
+    waitUntilPromises = [];
     mockCtx = {
-      waitUntil: vi.fn(),
+      waitUntil: vi.fn((promise: Promise<unknown>) => { waitUntilPromises.push(promise); }),
       passThroughOnException: vi.fn(),
     } as unknown as ExecutionContext;
 
@@ -177,6 +179,40 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(response.status).toBe(400);
     expect((await response.json() as { code: string }).code).toBe('VSCODE_WORKSPACE_SELECTOR_FORBIDDEN');
     expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-IDE-049 AC5: successful editor traffic repairs readiness on fresh primary session state', async () => {
+    mockKV._set(SESSION_KEY, {
+      id: SID,
+      name: 'Updated concurrently',
+      userId: 'test-bucket',
+      workspace: 'vscode',
+      status: 'running',
+      editorReady: false,
+      editorReadyError: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      metrics: { cpu: '42%' },
+    } as Session);
+
+    const request = vscodeRequest();
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(200);
+    await Promise.all(waitUntilPromises);
+
+    const stored = await mockKV.get(SESSION_KEY, 'json') as Session;
+    expect(stored).toMatchObject({
+      name: 'Updated concurrently',
+      workspace: 'vscode',
+      status: 'running',
+      editorReady: true,
+      metrics: { cpu: '42%' },
+    });
+    expect(stored.editorReadyError).toBeUndefined();
+    expect(stored.lastAccessedAt).not.toBe('2026-01-01T00:00:00.000Z');
+    expect(mockKV.put.mock.calls.some(
+      ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
+    )).toBe(false);
   });
 
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
