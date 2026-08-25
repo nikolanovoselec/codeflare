@@ -288,8 +288,7 @@ export async function handleVscodeRequest(
     if (response.status < 400) {
       ctx.waitUntil((async () => {
         const fresh = await env.KV.get<Session>(sessionKey, 'json');
-        if (fresh?.workspace === 'vscode'
-          && (fresh.status === 'running' || fresh.status === 'initializing')) {
+        if (fresh?.workspace === 'vscode' && fresh.status === 'running') {
           const { editorReadyError: _staleEditorError, ...withoutEditorError } = fresh;
           await putSessionWithMetadata(env.KV, sessionKey, {
             ...withoutEditorError,
