@@ -4149,6 +4149,28 @@ None.
 
 ---
 
+### REQ-AGENT-162: Session-start managed-release snapshot
+
+**Intent:** Session startup remains bounded and independent of managed-repository availability by consuming only a persisted compatible release snapshot.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Session start reads only the persisted compatible active snapshot and never performs repository or release-cache I/O; when that snapshot is unavailable, only a previously applied verified bucket release may provide degraded startup fallback. <!-- @impl: src/routes/container/lifecycle.ts --> <!-- @impl: src/lib/remote-curation.ts::readManagedEnvironmentSnapshot --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-162 AC1: reads a stale verified snapshot without repository or cache I/O) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts -->
+
+**Constraints:** Fresh-required setup validation remains fail closed, and repository refresh remains owned by the dashboard reconciliation path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery)
+
+**Verification:** Automated Worker snapshot and session-start tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-155: Image-owned Caveman response policy
 
 **Intent:** Every Pi session uses the reviewed Caveman extension in lite compression mode without adding animated footer noise or relying on an ephemeral runtime install.
