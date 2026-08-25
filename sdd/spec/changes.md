@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-25
 
+- **Browser IDE card activation replaces the separate Open control** ([REQ-IDE-049](browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery) AC1-AC2 amended, [REQ-IDE-050](browser-ide.md#req-ide-050-browser-ide-status-and-ownership) AC1-AC4 amended, and [REQ-IDE-054](browser-ide.md#req-ide-054-browser-ide-card-activation) added; all remain Implemented). Stopped, failed, and ready VS Code cards now perform Start, Retry, and Open directly; preparing and stopping cards retain enabled child controls without parent button semantics. Readiness dots follow VS Code state rather than terminal WebSocket state.
+
 - **VS Code readiness repair preserves authoritative session state** ([REQ-IDE-049](browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery) AC4-AC5 added; remains Implemented). Healthy editor metrics and successful proxy traffic now fresh-read the primary `session:*` record before merging readiness, activity, and metrics. Slow probes can no longer restore stale readiness or replace concurrent lifecycle and user-owned fields; recovery adds no secondary session projections or prefix scans.
 
 ## 2026-08-24

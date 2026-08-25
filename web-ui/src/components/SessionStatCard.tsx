@@ -31,7 +31,6 @@ interface SessionStatCardProps {
   onSelect: () => void;
   onStop: () => void;
   onDelete: () => void;
-  workspaceAction?: { label: string; disabled?: boolean; onClick: () => void };
   onMenuClick?: (e: MouseEvent, session: SessionWithStatus) => void;
 }
 
@@ -39,12 +38,30 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
   const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
   const dotVariant = () => {
-    if (props.session.workspace !== 'vscode' && props.session.status === 'running' && wsState() !== 'connected') {
+    if (props.session.workspace === 'vscode') {
+      if (props.session.status === 'error' || props.session.editorReadyError === true) return 'error';
+      if (props.session.status === 'running') return props.session.editorReady === true ? 'success' : 'warning';
+      return statusDotVariant[props.session.status];
+    }
+    if (props.session.status === 'running' && wsState() !== 'connected') {
       return 'warning'; // Yellow — container alive, WS disconnected
     }
     return statusDotVariant[props.session.status];
   };
-  const isPulsing = () => statusPulses[props.session.status];
+  const isPulsing = () => props.session.workspace === 'vscode' && dotVariant() === 'error'
+    ? false
+    : statusPulses[props.session.status];
+  const isActionable = () => props.session.workspace !== 'vscode'
+    || props.session.status === 'stopped'
+    || props.session.status === 'error'
+    || props.session.editorReadyError === true
+    || (props.session.status === 'running' && props.session.editorReady === true);
+  const isSelectionEnabled = () => isActionable()
+    && !(sessionStore.preseedUpgrading && props.session.status === 'stopped');
+  const select = () => {
+    if (!isSelectionEnabled()) return;
+    props.onSelect();
+  };
 
   // Tick signal forces timer recomputation every 15s (Date.now() isn't reactive)
   const [timerTick, setTimerTick] = createSignal(0);
@@ -65,11 +82,19 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   return (
     <div
-      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''}`}
+      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
+      role={isSelectionEnabled() ? 'button' : undefined}
+      tabIndex={isSelectionEnabled() ? 0 : undefined}
       style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
-      onClick={() => { if (sessionStore.preseedUpgrading && props.session.status === 'stopped') return; props.onSelect(); }}
+      onClick={select}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          select();
+        }
+      }}
     >
       <div class="stat-card__header">
         <span class="stat-card__icon">
@@ -143,23 +168,6 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
             <span class="stat-card__metric-value">{metrics()?.hdd || '...'}</span>
           </div>
         </div>
-      </Show>
-
-      <Show when={props.workspaceAction}>
-        {(action) => (
-          <button
-            type="button"
-            class="session-stat-card__workspace-action"
-            data-testid={`session-stat-card-${props.session.id}-workspace-action`}
-            disabled={action().disabled === true}
-            onClick={(event) => {
-              event.stopPropagation();
-              action().onClick();
-            }}
-          >
-            {action().label}
-          </button>
-        )}
       </Show>
 
       <Show when={props.session.status === 'initializing'}>

@@ -1401,8 +1401,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Starting a stopped VS Code session keeps the user on the dashboard. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1: gives stopped VS Code sessions an explicit Start action) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC1: explicit stopped-session start stays dashboard-owned for VS Code) -->
-2. A readiness failure preserves Retry, Stop, and Delete actions. <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC2: editor failure exposes Retry plus Stop and Delete operations) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance) -->
+1. Selecting a stopped VS Code session card starts it while keeping the user on the dashboard. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC1: explicit stopped-session start stays dashboard-owned for VS Code) -->
+2. A readiness failure preserves card-based Retry plus Stop and Delete actions. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC2: editor failure exposes Retry plus Stop and Delete operations) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance) -->
 3. Retry returns the session to Preparing while the next editor probe runs. <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry) -->
 4. Healthy editor metrics fresh-merge readiness into the primary session record without replacing concurrent lifecycle or user-owned fields. <!-- @impl: src/container/container-metrics.ts::doCollectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-IDE-049 AC4: fresh-merges metrics and repairs readiness after a concurrent session update) -->
 5. Successful editor traffic fresh-merges readiness and activity into the primary session record without replacing concurrent lifecycle or user-owned fields. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-049 AC5: successful editor traffic repairs readiness on fresh primary session state) -->
@@ -1419,18 +1419,18 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-050: Explicit Browser IDE open and ownership
+### REQ-IDE-050: Browser IDE status and ownership
 
-**Intent:** Opening and managing a ready Browser IDE preserves one user-gesture-owned window and the existing dashboard and authentication boundaries.
+**Intent:** Browser IDE readiness, retained windows, dashboard navigation, and authentication remain independently owned.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Open remains an explicit action enabled only after editor readiness. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/components/Dashboard.tsx::vscodeWorkspaceAction --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-050 AC1: reports VS Code ready and mirrors readiness into session metadata) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-050 AC1: enables explicit Open only after editor readiness) -->
-2. Every Open action focuses or creates one stable browser tab for that session. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
+1. The readiness dot is green when ready, yellow while preparing or stopping, gray when stopped, and red on error, independent of terminal WebSocket state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-050 AC1: maps VS Code readiness %o to %s) -->
+2. Every ready-card activation focuses or creates one stable browser tab for that session. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
 3. A blocked popup is reported through the existing dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam) -->
-4. Browser IDE tabs open only during the user's synchronous Open action. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC4: opens every explicit gesture synchronously) -->
+4. Browser IDE tabs open only during the user's synchronous ready-card activation. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC4: opens every explicit gesture synchronously) -->
 5. Stopping or deleting a session does not close its retained Browser IDE window. <!-- @impl: web-ui/src/components/Layout.tsx::handleStopSession --> <!-- @impl: web-ui/src/components/Layout.tsx::handleDeleteSession --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (does not close a retained Browser IDE window when its session stops or is deleted) -->
 6. Opening Settings from the dashboard leaves dashboard storage and terminal ownership unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleSettingsClick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel) -->
 7. Browser IDE requests retain the existing session proxy authentication boundary. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own) -->
@@ -1442,6 +1442,33 @@ A full code-server browser editor for an advanced running session. The editor op
 **Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery)
 
 **Verification:** Backend authentication tests; frontend dashboard, Layout, and window-ownership tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-054: Browser IDE card activation
+
+**Intent:** Whole-card activation performs exactly the action allowed by VS Code session state without disabling child controls.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Activating a stopped VS Code card starts that session. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) -->
+2. A preparing or stopping card has no parent button semantics or tab stop while its child controls remain enabled. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
+3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
+4. The card is the sole Open surface. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: makes a ready VS Code card the only Open interaction surface) -->
+5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
+6. A stopped card blocked by a preseed upgrade has no parent button semantics or tab stop. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks on stopped card during upgrade) -->
+
+**Constraints:** Card activation does not create terminal ownership or disable nested menu and timer controls.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
+
+**Verification:** Frontend dashboard and card tests
 
 **Status:** Implemented
 
