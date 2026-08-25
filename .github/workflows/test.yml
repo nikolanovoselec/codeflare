@@ -382,25 +382,16 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 13
+      max-parallel: 4
       matrix:
-        # Twelve Workers shards rebalance the 33-57 second suite spread observed in run
-        # 32805961771 while the unshardable Node-runtime suite remains its own short leg.
-        # Coverage is emitted by these shards and merged later; no standalone test rerun exists.
+        # Run 32806388629 supplies per-file durations for deterministic longest-first
+        # balancing. Three Workers groups each carry about 19 seconds of measured test
+        # work; the unshardable Node-runtime suite remains its own short leg.
         include:
-          - { shard: '1/12', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '2/12', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '3/12', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '4/12', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '5/12', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '6/12', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '7/12', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '8/12', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '9/12', slug: shard-9, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '10/12', slug: shard-10, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '11/12', slug: shard-11, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '12/12', slug: shard-12, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
+          - { balance-group: '1/3', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/3', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/3', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -420,7 +411,7 @@ jobs:
       - name: Run suite (fail-closed gate)
         uses: ./.github/actions/vitest-suite
         with:
-          shard: ${{ matrix.shard }}
+          balance-group: ${{ matrix.balance-group }}
           script: ${{ matrix.script }}
           artifact-name: backend-${{ matrix.slug }}
           pre-run: ${{ matrix.pre-run }}
@@ -618,7 +609,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '12'
+          expected-shards: '3'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -766,8 +757,11 @@ jobs:
         with:
           key-prefix: root
 
-      - name: Install exact Pi prompt runtime
-        run: npm ci --ignore-scripts --no-audit --no-fund --prefix preseed/agents/pi
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: preseed/agents/pi
+          key-prefix: pi-prompt
+          ignore-scripts: 'true'
 
       - name: Verify real Pi prompt budget
         run: |
@@ -831,14 +825,14 @@ jobs:
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 2
       matrix:
+        # Run 32806388629 measured the five native partitions at 37, 7, 11, 28,
+        # and 8 seconds. These two groups retain that exact one-pass partition
+        # while balancing measured work at 45 and 46 seconds.
         include:
-          - { shard: '1/5', slug: shard-1 }
-          - { shard: '2/5', slug: shard-2 }
-          - { shard: '3/5', slug: shard-3 }
-          - { shard: '4/5', slug: shard-4 }
-          - { shard: '5/5', slug: shard-5 }
+          - { shards: '1/5 5/5', slug: shard-1 }
+          - { shards: '2/5 3/5 4/5', slug: shard-2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -930,35 +924,25 @@ jobs:
 
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
-        # here. It used to hold 14 entries under one blanket rationale (graphify
-        # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
-        # accurate for a couple of them and inherited by proximity for the rest.
-        # Seven are back in the lane; each of the five that remain now carries
-        # its own reason in the file, so the list is auditable rather than
-        # inherited. Another, skill-sdd-init-contract.test.js, was excluded
-        # because it FAILED — it pinned SKILL.md prose that had since been
-        # reworded, so it went red against its own staleness while the skill
-        # behaviour it claimed to cover was intact. Deleted rather than repaired;
-        # a red test parked behind an exclusion list is what this lane exists to
-        # prevent. The file list comes from the selection step above, so it is
-        # audited.
+        # here. The file list comes from the audited selection step above. Each
+        # native 1/5 partition appears exactly once across the two measured groups.
+        env:
+          SHARDS: ${{ matrix.shards }}
         run: |
           set -euo pipefail
-          xargs -a "$RUNNER_TEMP/host-tests.txt" \
-            node --experimental-test-module-mocks --test --test-timeout=60000 \
-              --test-shard="${{ matrix.shard }}" \
-              --test-reporter=spec --test-reporter-destination=stdout \
-              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report.xml"
+          part=0
+          for shard in $SHARDS; do
+            part=$((part + 1))
+            xargs -a "$RUNNER_TEMP/host-tests.txt" \
+              node --experimental-test-module-mocks --test --test-timeout=60000 \
+                --test-shard="$shard" \
+                --test-reporter=spec --test-reporter-destination=stdout \
+                --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-${part}.xml"
+          done
 
-          # node --test exits 0 when the files it was handed define no tests at
-          # all, so "the selection was non-empty" is not the same as "assertions
-          # ran". This is the host-lane equivalent of check-vitest-report.mjs's
-          # zero-collected-tests gate.
-          # Count <testcase> elements, not the first tests="N" attribute: node's
-          # junit reporter emits one <testsuite> per file, so `head -1` reported
-          # the first FILE's count (13) rather than the run's (hundreds) — and
-          # would have fired a false alarm had that file happened to be empty.
-          COUNT=$(grep -c '<testcase' "$RUNNER_TEMP/host-report.xml" || true)
+          # node --test exits 0 when selected files define no tests. Count actual
+          # testcases across every constituent partition rather than trusting exit 0.
+          COUNT=$(grep -h -c '<testcase' "$RUNNER_TEMP"/host-report-*.xml | awk '{ total += $1 } END { print total + 0 }')
           if [ "${COUNT:-0}" -lt 1 ]; then
             echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
             exit 1

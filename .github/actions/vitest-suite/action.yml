@@ -19,6 +19,10 @@ inputs:
     description: 'Optional vitest --shard value (e.g. "1/4"). Empty runs the whole suite.'
     required: false
     default: ''
+  balance-group:
+    description: 'Optional measured backend file group (e.g. "1/3"). Mutually exclusive with shard.'
+    required: false
+    default: ''
   artifact-name:
     description: >-
       Artifact name for the report + log; also the report filename. Must be
@@ -50,6 +54,7 @@ runs:
         NO_COLOR: '1'
         FORCE_COLOR: '0'
         SHARD: ${{ inputs.shard }}
+        BALANCE_GROUP: ${{ inputs.balance-group }}
         SCRIPT: ${{ inputs.script }}
         NAME: ${{ inputs.artifact-name }}
         PRE_RUN: ${{ inputs.pre-run }}
@@ -78,9 +83,21 @@ runs:
             --coverage.thresholds.lines=0
           )
         fi
+        test_args=()
+        if [ -n "$BALANCE_GROUP" ]; then
+          if [ -n "$SHARD" ]; then
+            echo "::error::balance-group and shard are mutually exclusive"
+            exit 1
+          fi
+          mapfile -t test_args < <(node "$GITHUB_WORKSPACE/scripts/ci/select-weighted-backend-tests.mjs" "$BALANCE_GROUP")
+          if [ "${#test_args[@]}" -lt 1 ]; then
+            echo "::error::weighted backend test selection is empty"
+            exit 1
+          fi
+        fi
         set +e
         # CLI reporters replace the config ones: dot for humans, json for the gate.
-        npm run "$SCRIPT" -- ${SHARD:+--shard="$SHARD"} \
+        npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
           --reporter=dot --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
           2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
@@ -111,10 +128,11 @@ runs:
         DIR: ${{ inputs.working-directory }}
         SCRIPT: ${{ inputs.script }}
         SHARD: ${{ inputs.shard }}
+        BALANCE_GROUP: ${{ inputs.balance-group }}
       run: |
         # The run page shows a red X and 3,000 lines of dot-reporter output. Give
         # the reader the artifact link and the exact command that reproduces this
         # shard locally, so a failure is one paste away from a local repro.
-        REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}"
+        REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}${BALANCE_GROUP:+ -- weighted-group=$BALANCE_GROUP}"
         [ "$DIR" != "." ] && REPRO="(cd $DIR && $REPRO)"
         echo "::notice title=$NAME::report: ${ARTIFACT_URL:-<upload failed>} — reproduce locally with: $REPRO"

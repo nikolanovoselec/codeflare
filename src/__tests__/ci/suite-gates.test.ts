@@ -16,6 +16,7 @@ import { CLOUDFLARE_TEST_OPTIONS } from '../../../vitest.config';
 import { NODE_SUITE_FILES } from '../../../vitest.node-suite.mjs';
 import { sharedCacheEnabled } from '../../../scripts/ci/container-build-cache-policy.mjs';
 import { SUITES } from '../../../scripts/ci/suites.mjs';
+import { assignWeightedFiles } from '../../../scripts/ci/select-weighted-backend-tests.mjs';
 import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pins.mjs';
 import { updateSilverBulletPins } from '../../../scripts/ci/update-silverbullet-pins.mjs';
 
@@ -243,6 +244,27 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(matchesAny('documentation/lanes/container.md', piPatterns)).toBe(false);
   });
 
+  it('caches the exact Pi prompt runtime without enabling package scripts', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
+    };
+    const install = workflow.jobs['pi-prompt'].steps.find((step) => step.uses === './.github/actions/install-deps');
+    expect(install?.with).toEqual({
+      directory: 'preseed/agents/pi',
+      'key-prefix': 'pi-prompt',
+      'ignore-scripts': 'true',
+    });
+
+    const action = parseYaml(readFileSync(join(REPO, '.github/actions/install-deps/action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ id?: string; uses?: string; if?: string; with?: { path?: string } }> };
+    };
+    const cache = action.runs.steps.find((step) => step.id === 'cache');
+    const npmInstall = action.runs.steps.find((step) => step.if === "steps.cache.outputs.cache-hit != 'true'");
+    expect(cache?.uses).toMatch(/^actions\/cache@/);
+    expect(cache?.with?.path).toBe('${{ inputs.directory }}/node_modules');
+    expect(npmInstall).toBeDefined();
+  });
+
   it('audits production lockfiles without depending on restored node_modules trees', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string }> } };
@@ -328,13 +350,35 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 13], ['frontend-tests', 3], ['host-tests', 5]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 4], ['frontend-tests', 3], ['host-tests', 2]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
       expect(strategy?.matrix?.include).toHaveLength(expectedLegs);
       expect(strategy?.['max-parallel']).toBe(strategy?.matrix?.include?.length);
     }
+  });
+
+  it('balances backend files by measured weight and covers each native host partition once', () => {
+    expect(assignWeightedFiles(
+      ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'],
+      { 'a.test.ts': 8, 'b.test.ts': 7, 'c.test.ts': 6, 'd.test.ts': 5 },
+      2,
+    )).toEqual([
+      ['a.test.ts', 'd.test.ts'],
+      ['b.test.ts', 'c.test.ts'],
+    ]);
+
+    const { testWorkflow } = readCacheWorkflowContract();
+    const backend = testWorkflow.jobs['backend-tests'] as {
+      strategy: { matrix: { include: Array<Record<string, string>> } };
+    };
+    expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual(['1/3', '2/3', '3/3', '']);
+    const host = testWorkflow.jobs['host-tests'] as {
+      strategy: { matrix: { include: Array<{ shards: string }> } };
+    };
+    const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
+    expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
   });
 
   it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {
