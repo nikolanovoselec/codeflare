@@ -128,7 +128,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml::pull_request --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
+3. Every vitest suite runs through one composite action as parallel sharded jobs: twelve Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
@@ -1217,10 +1217,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `31314628668` completed the affected gate in 90 seconds and the workflow in 91 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
 2. Every affected test matrix and independent workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
-3. Backend, frontend, and host matrices expose all twelve, three, and four legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
+3. Backend, frontend, and host matrices expose all thirteen, three, and five legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
 5. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
 6. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
+
+**Notes:** Partial pending a green affected exact-head timing check for the current thirteen/three/five-leg topology.
 
 **Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 
@@ -1230,7 +1232,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated direct-start, matrix-only coverage, concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration and lane-alignment check
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 

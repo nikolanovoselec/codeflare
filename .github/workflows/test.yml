@@ -382,23 +382,24 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 13
       matrix:
-        # Eleven Workers shards rebalance the 26-66 second suite spread observed in run
-        # 32805508569 while the unshardable Node-runtime suite remains its own short leg.
+        # Twelve Workers shards rebalance the 33-57 second suite spread observed in run
+        # 32805961771 while the unshardable Node-runtime suite remains its own short leg.
         # Coverage is emitted by these shards and merged later; no standalone test rerun exists.
         include:
-          - { shard: '1/11', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '2/11', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '3/11', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '4/11', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '5/11', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '6/11', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '7/11', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '8/11', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '9/11', slug: shard-9, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '10/11', slug: shard-10, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { shard: '11/11', slug: shard-11, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '1/12', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '2/12', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '3/12', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '4/12', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '5/12', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '6/12', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '7/12', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '8/12', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '9/12', slug: shard-9, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '10/12', slug: shard-10, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '11/12', slug: shard-11, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '12/12', slug: shard-12, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { shard: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -617,7 +618,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '11'
+          expected-shards: '12'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -830,13 +831,14 @@ jobs:
     timeout-minutes: 5
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 5
       matrix:
         include:
-          - { shard: '1/4', slug: shard-1 }
-          - { shard: '2/4', slug: shard-2 }
-          - { shard: '3/4', slug: shard-3 }
-          - { shard: '4/4', slug: shard-4 }
+          - { shard: '1/5', slug: shard-1 }
+          - { shard: '2/5', slug: shard-2 }
+          - { shard: '3/5', slug: shard-3 }
+          - { shard: '4/5', slug: shard-4 }
+          - { shard: '5/5', slug: shard-5 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

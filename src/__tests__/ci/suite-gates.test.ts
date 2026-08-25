@@ -328,7 +328,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 12], ['frontend-tests', 3], ['host-tests', 4]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 13], ['frontend-tests', 3], ['host-tests', 5]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -444,7 +444,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         fnMap: { 0: { name: 'covered', decl: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } }, loc: { start: { line: 1, column: 0 }, end: { line: 2, column: 1 } }, line: 1 } },
         branchMap: { 0: { line: 1, type: 'if', locations: [
           { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
-          { start: { line: 2, column: 0 }, end: { line: 2, column: 1 } },
+          { start: {}, end: {} },
         ] } },
         s: { 0: first, 1: second },
         f: { 0: first + second },
@@ -500,6 +500,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       ['key-mismatch', (record) => { delete record.s['1']; }, 'statement map and counter keys differ'],
       ['statement-location', (record) => { record.statementMap['0'].start.column = -1; }, 'statement map 0 start position is invalid'],
       ['function-location', (record) => { record.fnMap!['0'].loc.start.line = -1; }, 'function location 0 start position is invalid'],
+      ['function-zero-line', (record) => { record.fnMap!['0'].loc.start.line = 0; }, 'function location 0 start position is invalid'],
+      ['branch-zero-line', (record) => { record.branchMap['0'].locations[0].start.line = 0; }, 'branch location 0[0] start position is invalid'],
       ['branch-locations', (record) => { record.branchMap['0'].locations = []; }, 'branch map 0 must have locations'],
       ['branch-cardinality', (record) => { record.b['0'] = [1]; }, 'branch counter 0 must match its locations'],
       ['branch-hit', (record) => { record.b['0'][0] = -1; }, 'branch counter 0[0] must be a finite non-negative number'],

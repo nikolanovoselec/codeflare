@@ -24,6 +24,11 @@ function validateHits(value, label) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a finite non-negative number`);
 }
 
+function isEmptyLocation(value) {
+  return isRecord(value) && isRecord(value.start) && isRecord(value.end)
+    && Object.keys(value.start).length === 0 && Object.keys(value.end).length === 0;
+}
+
 function validateLocation(value, label) {
   if (!isRecord(value) || !isRecord(value.start) || !isRecord(value.end)) throw new Error(`${label} must be a source location`);
   for (const [name, position] of [['start', value.start], ['end', value.end]]) {
@@ -59,7 +64,9 @@ function validateCoverageRecord(source, coverage) {
       }
       if (label === 'branch') {
         if (!Array.isArray(map[key].locations) || map[key].locations.length < 1) throw new Error(`${source} branch map ${key} must have locations`);
-        map[key].locations.forEach((location, index) => validateLocation(location, `${source} branch location ${key}[${index}]`));
+        map[key].locations.forEach((location, index) => {
+          if (!isEmptyLocation(location)) validateLocation(location, `${source} branch location ${key}[${index}]`);
+        });
         if (!Array.isArray(counters[key]) || counters[key].length !== map[key].locations.length) throw new Error(`${source} branch counter ${key} must match its locations`);
         counters[key].forEach((hits, index) => validateHits(hits, `${source} branch counter ${key}[${index}]`));
       } else {
