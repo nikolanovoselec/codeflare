@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-25
 
+- **Every session image includes lock-pinned Oxlint** ([REQ-OPS-039](operations.md#req-ops-039-reduced-image-capability-preservation) AC1 remains Implemented). Image-owned `oxlint` is exposed on the container-wide command path for every coding-agent selection and executed during image assembly after alternate platform bindings are pruned. Its dedicated image lock stays outside managed-seed runtime compatibility.
+
 - **Hosted image-build critical path is shorter and measurable** ([REQ-OPS-050](operations.md#req-ops-050-hosted-image-build-critical-path-optimization) added as Implemented). Pi extension, Browser IDE, and generated seed edits now retain unrelated expensive dependency/toolchain layers while invalidating their own late assembly; fresh builds upload plain BuildKit timing evidence; vulnerability scanning, CycloneDX generation, and locked Wrangler preparation run concurrently after one DB preparation; all are awaited and bounded scan enforcement plus SBOM upload still precede push. Runner-owned Trivy scratch/cache directories also restore without the prior root-owned tar metadata warning.
 
 - **Session start consumes only the persisted managed-release snapshot** ([REQ-AGENT-162](agents.md#req-agent-162-session-start-managed-release-snapshot) added as Implemented). Session start performs no managed repository or release-cache refresh, reads only the compatible persisted active pointer, and uses a previously applied verified bucket release as its sole degraded fallback. Dashboard reconciliation retains ownership of repository refresh.

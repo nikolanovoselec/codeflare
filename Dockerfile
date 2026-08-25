@@ -303,7 +303,7 @@ RUN cd /opt/codeflare/npm-tools && \
     npm prune --omit=dev --ignore-scripts --no-audit --no-fund && \
     mv /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package-lock.json package-lock.json && \
-    for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp; do \
+    for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp oxlint; do \
       [ -e "node_modules/.bin/$b" ] || { echo "ERROR: locked npm tool '$b' has no bin" >&2; exit 1; }; \
       ln -sf "$(readlink -f "node_modules/.bin/$b")" "/usr/local/bin/$b"; \
     done && \
@@ -327,6 +327,7 @@ RUN cd /opt/codeflare/npm-tools && \
     fi && \
     rm -rf node_modules/@oven && \
     bun --version && \
+    oxlint --version && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \

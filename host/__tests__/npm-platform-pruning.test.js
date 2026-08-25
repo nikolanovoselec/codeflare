@@ -28,6 +28,7 @@ describe('REQ-OPS-040: Linux coding-agent package pruning', () => {
         packageDirectory(nodeModules, '@openai', 'codex-linux-x64'),
         packageDirectory(nodeModules, '', 'opencode-ai'),
         packageDirectory(nodeModules, '', 'opencode-linux-x64'),
+        packageDirectory(nodeModules, '@oxlint', 'binding-linux-x64-gnu'),
       ];
       const remove = [
         packageDirectory(nodeModules, '@anthropic-ai', 'claude-code-linux-x64-musl', 32),
@@ -38,6 +39,8 @@ describe('REQ-OPS-040: Linux coding-agent package pruning', () => {
         packageDirectory(nodeModules, '', 'opencode-linux-x64-baseline', 32),
         packageDirectory(nodeModules, '', 'opencode-linux-x64-musl', 32),
         packageDirectory(nodeModules, '', 'opencode-windows-x64', 32),
+        packageDirectory(nodeModules, '@oxlint', 'binding-linux-x64-musl', 32),
+        packageDirectory(nodeModules, '@oxlint', 'binding-darwin-arm64', 32),
       ];
 
       const result = spawnSync(process.execPath, [script, nodeModules], { encoding: 'utf8' });

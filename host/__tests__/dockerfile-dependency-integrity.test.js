@@ -55,6 +55,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       'consult-llm-mcp',
       'context-mode',
       'opencode-ai',
+      'oxlint',
     ];
 
     for (const tool of expectedTools) {
