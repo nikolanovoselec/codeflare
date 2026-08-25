@@ -128,7 +128,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml::pull_request --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. Every vitest suite runs through one composite action as parallel sharded jobs: four Workers-pool shards, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
+3. Every vitest suite runs through one composite action as parallel sharded jobs: eight duration-weighted Workers groups, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
@@ -517,6 +517,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
 4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
 5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) --> <!-- @test: host/__tests__/install-deps.test.js (shared dependency installer contract) -->
+6. Managed release activation fuzzing preserves a newer compatible winner and rejects conflicting identity at the same sequence. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (Fuzz: managed release activation) -->
 
 **Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
 
@@ -1345,10 +1346,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The image-owned Oxlint manifest and lock contain one exact pin with a complete integrity tree. <!-- @impl: image/oxlint/package.json::oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
-2. Oxlint installs unconditionally and remains available for every coding-agent selection. <!-- @impl: Dockerfile::/opt/codeflare/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint installs unconditionally for every coding-agent selection) -->
-3. Oxlint remains outside managed and shared runtime manifests. <!-- @impl: scripts/agent-seed-core.mjs::MANAGED_RUNTIME_LOCK_PATHS --> <!-- @impl: preseed/npm-tools/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint stays outside managed and shared runtime manifests) -->
-4. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
+1. The image-owned Oxlint manifest contains one exact pin. <!-- @impl: image/oxlint/package.json::oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+2. The dedicated Oxlint lock matches that manifest and contains a complete integrity tree. <!-- @impl: image/oxlint/package-lock.json::packages --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+3. Packaged-image smoke executes Oxlint and verifies its exact version. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOxlintRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint) -->
+4. Oxlint remains outside managed and shared runtime manifests. <!-- @impl: scripts/agent-seed-core.mjs::MANAGED_RUNTIME_LOCK_PATHS --> <!-- @impl: preseed/npm-tools/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint stays outside managed and shared runtime manifests) -->
+5. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
 
 **Constraints:** Oxlint remains outside the managed seed and shared npm-tool manifest.
 
@@ -1356,7 +1358,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-039](#req-ops-039-reduced-image-capability-preservation)
 
-**Verification:** Image dependency-integrity and dependency-automation tests
+**Verification:** Packaged-image smoke; dependency-integrity and dependency-automation tests
 
 **Status:** Implemented
 
@@ -1385,6 +1387,30 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-050](#req-ops-050-hosted-image-build-critical-path-optimization)
 
 **Verification:** Behavioral prerequisite-failure and workflow-order tests; exact-head scan and SBOM evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-053: Dependency-review evidence exceptions
+
+**Intent:** Dependency Review retains vulnerability, license, and OpenSSF evidence while narrowly handling verified upstream metadata gaps.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. Vulnerability checks, license checks, and available OpenSSF scores remain enabled. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) -->
+2. License exceptions contain only the six exact Codex platform package releases whose committed lock metadata declares Apache-2.0. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (Codex platform license exceptions match exact Apache-2.0 lock metadata) -->
+3. A future Codex platform version does not inherit the current license exception. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) -->
+
+**Constraints:** Unknown OpenSSF scores remain visible and informational; Codeflare does not fabricate or suppress unavailable upstream scores.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Dependency Review configuration and committed-lock metadata tests
 
 **Status:** Implemented
 

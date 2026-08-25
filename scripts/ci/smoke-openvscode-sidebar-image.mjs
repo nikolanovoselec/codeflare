@@ -98,6 +98,17 @@ export async function verifySelectedAgentLaunchers(
   return versions;
 }
 
+export function verifyOxlintRuntime({
+  path = '/usr/local/bin/oxlint',
+  expectedVersion = '1.77.0',
+  run = execFileSync,
+} = {}) {
+  const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  const escapedVersion = expectedVersion.replaceAll('.', '\\.');
+  assert.match(output, new RegExp(`(?:^|\\D)${escapedVersion}(?:\\D|$)`), `Oxlint must report exact version ${expectedVersion}`);
+  return output;
+}
+
 export async function verifySelectedAgentPackages(
   selection,
   {
@@ -189,6 +200,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
+  const oxlintVersion = verifyOxlintRuntime();
   const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
   const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
   assert.equal(welcomeManifest.name, WELCOME_EXTENSION_NAME);
@@ -271,6 +283,7 @@ async function main() {
     userExtensionPersistence,
     codeServerRuntime,
     nodeTarRuntimes,
+    oxlintVersion,
     agentPackages,
     agentVersions,
     claudeVersion,

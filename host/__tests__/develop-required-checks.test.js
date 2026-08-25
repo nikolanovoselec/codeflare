@@ -52,6 +52,29 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
   });
 });
 
+describe('REQ-OPS-053: dependency-review evidence policy', () => {
+  it('REQ-OPS-053: dependency-review evidence policy', () => {
+    const workflow = readWorkflow('test.yml');
+    const review = workflow.jobs['dependency-review'].steps.find((candidate) =>
+      candidate.uses?.startsWith('actions/dependency-review-action@'),
+    );
+    assert.equal(review.with['license-check'], 'true');
+    assert.equal(review.with['vulnerability-check'], 'true');
+    assert.equal(review.with['show-openssf-scorecard'], 'true');
+    assert.deepEqual(
+      review.with['allow-dependencies-licenses'].split(',').map((value) => value.trim()),
+      [
+        'pkg:npm/@openai/codex-darwin-arm64@0.147.0-darwin-arm64',
+        'pkg:npm/@openai/codex-darwin-x64@0.147.0-darwin-x64',
+        'pkg:npm/@openai/codex-linux-arm64@0.147.0-linux-arm64',
+        'pkg:npm/@openai/codex-linux-x64@0.147.0-linux-x64',
+        'pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64',
+        'pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64',
+      ],
+    );
+  });
+});
+
 describe('REQ-OPS-021: workflow-file static analysis', () => {
   it('REQ-OPS-021 AC1: audits workflow changes on pull requests and main pushes and gates merges through workflow-audit', () => {
     const zizmor = readWorkflow('zizmor.yml');

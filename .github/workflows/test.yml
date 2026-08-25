@@ -1015,6 +1015,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          license-check: 'true'
+          vulnerability-check: 'true'
+          show-openssf-scorecard: 'true'
+          # GitHub's dependency graph reports null licenses for these six
+          # platform artifacts even though their exact lock metadata is
+          # Apache-2.0. Versioned purls make every future Codex bump re-enter
+          # review instead of inheriting an evergreen exception.
+          allow-dependencies-licenses: >-
+            pkg:npm/@openai/codex-darwin-arm64@0.147.0-darwin-arm64,
+            pkg:npm/@openai/codex-darwin-x64@0.147.0-darwin-x64,
+            pkg:npm/@openai/codex-linux-arm64@0.147.0-linux-arm64,
+            pkg:npm/@openai/codex-linux-x64@0.147.0-linux-x64,
+            pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64,
+            pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64
 
   summary:
     # Check name "test" is the required branch-protection context on main —

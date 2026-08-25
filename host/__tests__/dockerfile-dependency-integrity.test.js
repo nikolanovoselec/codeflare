@@ -9,7 +9,6 @@ import { MANAGED_RUNTIME_LOCK_PATHS } from '../../scripts/agent-seed-core.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
-const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
 const rootPackage = readJson('package.json');
 const rootLock = readJson('package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
@@ -71,20 +70,27 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assertCompleteIntegrityTree(npmToolsLock);
   });
 
+  it('Codex platform license exceptions match exact Apache-2.0 lock metadata', () => {
+    const platforms = [
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-arm64',
+      'linux-x64',
+      'win32-arm64',
+      'win32-x64',
+    ];
+    for (const platform of platforms) {
+      const metadata = npmToolsLock.packages[`node_modules/@openai/codex-${platform}`];
+      assert.equal(metadata.version, `0.147.0-${platform}`);
+      assert.equal(metadata.license, 'Apache-2.0');
+      assert.match(metadata.integrity, /^sha512-/);
+    }
+  });
+
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
     assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
-  });
-
-  it('image-owned Oxlint installs unconditionally for every coding-agent selection', () => {
-    const oxlintInstall = dockerfile.indexOf('RUN cd /opt/codeflare/oxlint');
-    const selectedToolsInstall = dockerfile.indexOf('RUN cd /opt/codeflare/npm-tools');
-    assert.ok(oxlintInstall > -1 && oxlintInstall < selectedToolsInstall);
-    const installBlock = dockerfile.slice(oxlintInstall, selectedToolsInstall);
-    assert.doesNotMatch(installBlock, /CODEFLARE_CODING_AGENTS/);
-    assert.match(installBlock, /ln -sf .* \/usr\/local\/bin\/oxlint/);
-    assert.match(installBlock, /oxlint --version/);
   });
 
   it('image-owned Oxlint stays outside managed and shared runtime manifests', () => {

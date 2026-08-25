@@ -27,7 +27,7 @@ Workflows covering deploy, testing, fuzzing, penetration testing, stress testing
 
 ### Dependabot Configuration
 
-Dependabot runs weekly against `develop` for six npm directories: `/`, `/.github/npm-tools/wrangler`, `/web-ui`, `/host`, `/landing`, and `/openvscode/agent-sidebar`. It also covers Docker images and GitHub Actions. Every ecosystem declares a `cooldown` (7 days default, 30 for majors — 7 is zizmor's floor for `default-days`): the waiting period gives the ecosystem time to revoke a malicious release before automation proposes it.
+Dependabot runs weekly against `develop` for seven npm directories: `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing`, and `/openvscode/agent-sidebar`. It also covers Docker images and GitHub Actions. Every ecosystem declares a `cooldown` (7 days default, 30 for majors — 7 is zizmor's floor for `default-days`): the waiting period gives the ecosystem time to revoke a malicious release before automation proposes it.
 
 The root npm lane owns application Wrangler. Container Image instead uses the dedicated `/.github/npm-tools/wrangler` manifest and committed lock, installed with `npm ci`; its separate Dependabot lane owns that privileged workflow pin. Stress Test no longer installs Wrangler or mutates deployment state.
 
@@ -192,7 +192,7 @@ Path-gated workload lanes run at maximum parallelism after the `changes` classif
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
 - **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
 - **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
-- **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
+- **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities. License exceptions cover only six exact Codex platform releases whose committed lock metadata declares Apache-2.0, so later versions require review. Available OpenSSF scores stay visible; unavailable upstream scores remain informational ([REQ-OPS-053](../../sdd/spec/operations.md#req-ops-053-dependency-review-evidence-exceptions)).
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 
 The rclone, zizmor, and actionlint release archives are cached by OS, architecture, version, and checksum. A lane downloads its archive only when absent, and checksum validation rejects a restored mismatch before extraction or execution ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
@@ -206,6 +206,8 @@ The rclone, zizmor, and actionlint release archives are cached by OS, architectu
 **Why shard count is the lever:** each backend shard runs its Workers pool across several workers (`maxWorkers` in `vitest.config.ts`, capped at 4 because every worker is a full workerd + miniflare instance). Most of a shard's wall clock is per-file transform and isolate setup, roughly half of it in the main process where extra workers cannot help — and that half divides across shards.
 
 **Why workflow-audit runs its own binary:** zizmor exits 12 on any finding, so a template-injection or credential-persistence defect fails the merge rather than surfacing later as an alert nobody reads (this repo carried 60 such alerts before they were swept). `zizmor-action`'s failure semantics depend on whether it is uploading SARIF, and a gate must be unambiguous about when it fires. Findings that are correct-as-written carry an inline `# zizmor: ignore[rule]` with the reason, on the finding's own line.
+
+The post-refactor audit requires no Zizmor scope change: the blocking lane audits all of `.github/`, while standalone SARIF runs whenever workflows, composite actions, or the shared tool pin changes. Both resolve the same validated Zizmor version; workflow-support JavaScript remains under its owning tests rather than being misclassified as workflow syntax.
 
 **Why bundle-size patches the config:** Cloudflare rejects an oversized Worker at deploy time, so without this the discovery point is a failed production deploy. The patch repoints `[[containers]].image` away from `./Dockerfile`, because otherwise the dry run *builds the container image* that `container-image.yml` already builds and content-addresses — roughly three minutes of duplicated work for a number printed before the build starts.
 
@@ -279,7 +281,7 @@ A file lost to a mis-shard, a stale exclude, or a worker dying mid-run fails the
 |-------|------|----------------|
 | Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, compound session-ID parsing |
 | Backend | `src/__tests__/fuzz/replicated-helpers.fuzz.test.ts` | Replicated non-exported helpers (normalizeEmail, getCookieValue, extractTag, isRetryable), error types, type guards |
-| Backend | `src/__tests__/fuzz/runtime-config.fuzz.test.ts` | TabConfigSchema, logger, toApiSession, cache-reset state machine, error-type constructors, content-type helpers, session-mode config filtering |
+| Backend | `src/__tests__/fuzz/runtime-config.fuzz.test.ts` | TabConfigSchema, logger, toApiSession, cache-reset state machine, error-type constructors, content-type helpers, session-mode config filtering, managed-release monotonic activation and same-sequence identity conflicts |
 | Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
 | Host | `host/__tests__/fuzz-host.test.js` | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
 | Backend | `src/__tests__/fuzz/vault-migration.fuzz.test.ts` | validateVaultRoute (exactly-one-outcome token XOR session XOR 400; bare-path rejection; Upgrade-header case), getVaultBucketToken (32-hex shape, deterministic, distinct from session-id namespace), graftVaultKeyRecovery (throws on anchor-less input; single-shot), resolveReadRegime + getRegimeState (KV-garbage hardening), parseSessionMessages (adversarial JSONL), isChildSessionFirstLine, isVaultExcludedPath segment-awareness |

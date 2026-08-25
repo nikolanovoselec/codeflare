@@ -10,6 +10,7 @@ import {
   activateExtensionWithVscode,
   createVscodeSmokeApi,
   verifyNodeTarRuntimes,
+  verifyOxlintRuntime,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -118,6 +119,22 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
+  });
+
+  it('REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint', () => {
+    const calls = [];
+    const version = verifyOxlintRuntime({
+      run: (path, args) => {
+        calls.push([path, args]);
+        return 'Version: 1.77.0\n';
+      },
+    });
+    assert.equal(version, 'Version: 1.77.0');
+    assert.deepEqual(calls, [['/usr/local/bin/oxlint', ['--version']]]);
+    assert.throws(
+      () => verifyOxlintRuntime({ run: () => 'Version: 1.78.0\n' }),
+      /must report exact version 1\.77\.0/,
+    );
   });
 
   it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {
