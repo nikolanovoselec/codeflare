@@ -196,7 +196,7 @@ describe('requestOpenvscodeStart / REQ-IDE-003 AC2 (lazy-start trigger, idempote
     try { fs.rmSync(triggerPath, { force: true }); } catch { /* ignore */ }
   });
 
-  it('writes the trigger file on first call and returns true', () => {
+  it('REQ-OPS-048 AC3: writes the protected restart trigger on first call', () => {
     assert.equal(fs.existsSync(triggerPath), false);
     const created = requestOpenvscodeStart(triggerPath);
     assert.equal(created, true);

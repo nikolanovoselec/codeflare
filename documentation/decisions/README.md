@@ -918,6 +918,7 @@ Non-workspace files are auto-excluded because they are config/cache files that w
 
 The recovery applies at both call sites: `establish_bisync_baseline()` (startup) and `bisync_with_r2()` (daemon). The filter file is initialized empty on every container start via `init_recovery_filters()`.
 
+**Amendment (2026-08-25):** The session-scoped filter now lives at `/run/codeflare/sync/recovery-filters.txt`. This preserves the decision while ensuring disposable `/tmp` cleanup cannot disable recovery in a running container. <!-- @impl: entrypoint.sh::init_recovery_filters -->
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
 
@@ -2667,6 +2668,8 @@ a prompt-injected read now yields only a non-secret placeholder; R2 access is ga
 
 **Consequences:** The per-cycle HEAD storm is eliminated, cutting the dominant steady-state sync cost. The trade-off of `--use-server-modtime` — it compares the R2 upload time rather than the source file's own mtime — is acceptable for codeflare's newest-wins bisync, where the bucket is the per-user source of truth and absolute upload order is the conflict key. Verified on deploy by the drop in HEADs/cycle in `/tmp/sync.log`.
 
+**Amendment (2026-08-25):** Current containers expose this diagnostic at `/run/codeflare/sync/sync.log`; the historical path above records the original deployment. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+
 **Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ---
@@ -2732,6 +2735,8 @@ A new `scripts/materialize-agent-seed.mjs` writes `getConfigsForMode('default'/'
 Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`, because only an SSE-C-off bucket exposes usable MD5 ETags. Under SSE-C (the default), `--size-only` cannot detect a same-size edit to a seed file, so laying down the bake there could silently lose an in-container seed edit; the path stays byte-identical to before (no lay-down, `--size-only`).
 
 **Consequences:** Governed Mode startup transfers only the user's deltas instead of re-downloading the whole seed every boot. The in-image generation needs no host build ordering (the seed source is always committed) and cannot drift from the seed. The dependency on AD89 is deliberate: REQ-STOR-017(b) ships with REQ-ENTERPRISE-018. Verified on deploy by the before/after Step-1 transfer count in `/tmp/sync.log`.
+
+**Amendment (2026-08-25):** Current containers expose Step-1 diagnostics at `/run/codeflare/sync/sync.log`; the historical path above records the original deployment. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
 
 **Addendum (2026-06-29) — scope of the sibling relay:** A related mechanism in the same lay-down family, `entrypoint.sh::relay_managed_pi_extensions`, re-lays the image-baked managed Pi extension bytes before the bisync `--resync` baseline. Unlike the Governed-Mode-only seed bake above, the relay runs in **all** deployment modes: it guarantees the content half of the path-sensitive jiti prewarm cache key (see [AD79 Update](#ad79-image-baked-pi-extension-transpile-cache)) so the cache hits at runtime. In Governed Mode the subsequent `--checksum` sync then skips the unchanged relaid files; outside Governed Mode the relay simply precedes the `--size-only` sync. This is why REQ-STOR-017 entrypoint code references the relay as all-modes even though this ADR's seed-bake decision is Governed-only.
 
@@ -2881,6 +2886,8 @@ That would be wrong: each session has a *different* `~/workspace` (different rep
 Because `--server-base-path` makes OpenVSCode base-path native, the Worker and host forward the path **unchanged** — no `/vault`-style strip, no HTML base-href / service-worker graft (the entire `vault-view.ts` machinery is unnecessary). The auth boundary is identical to the vault: Cloudflare Access + effective-tier + session-ownership at the Worker, the container-auth Bearer injected by the container DO fetch wrapper, and a localhost-only bind with `--without-connection-token`.
 
 **2026-07-28 amendment:** AD119 preserves the session-keyed external URL and ephemeral live state but changes the internal routing mechanism. code-server does not receive the session prefix: the host strips exactly `/api/vscode/<sessionId>` before forwarding HTTP and WebSocket traffic, and canonical validated forwarded host/protocol headers preserve code-server's Origin enforcement. AD120 then adds one deliberately bucket-level exception: a bounded exported UI snapshot, never a live editor store. The earlier OpenVSCode `--server-base-path` and unchanged-path details are historical, not current implementation constraints.
+
+**2026-08-25 amendment:** Session-isolated live editor data now uses `/run/codeflare/openvscode`. It remains container-lifetime and never R2-synced, but disposable `/tmp` cleanup can no longer break the running editor or its supervisor. <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 
 **Rejected — reuse the vault's bucket-stable serving ([REQ-VAULT-021](../../sdd/spec/vault.md)) for the IDE:** that layer exists to *share* one store across sessions; applied to the IDE it collapses every session's editor onto one bucket-scoped service worker + storage, so switching sessions would show the wrong workspace and leak state. Session isolation is a hard requirement, not a preference.
 
@@ -3512,7 +3519,9 @@ The image-size audit also found a 120.2 MiB uncompressed duplicate Pi SDK inside
 
 **Decision:** Reject decoded public `folder`, `workspace`, and `ew` selectors independently at both Worker and host HTTP/WebSocket boundaries. The host injects `folder=/home/user/workspace` only into the private root request and removes workspace selectors from redirects before they become browser-visible. For a successful root document, the host also projects the equivalent fixed `vscode-remote` `folderUri` into the pinned workbench configuration. Missing, duplicate, malformed, compressed, or oversized configuration fails closed. Non-root traffic remains streaming and unchanged. This is workspace-selection confinement, not a filesystem sandbox: terminals, trusted extensions, and agents retain their existing container access.
 
-Keep live code-server data under `/tmp`. After the launch generation is fully reaped, export only allowlisted theme settings, string-valued `keyboard.layout`, and Explorer/open-file rows whose file resources resolve canonically inside `/home/user/workspace`. Write one atomic, mode-0600, maximum-1-MiB per-user snapshot at `~/.codeflare/ide-ui-state.json`; R2 sync includes only that exact path under `~/.codeflare/`. Restore into a fresh workspace database before managed Pi, Claude, or unsupported-inventory settings overwrite owned keys. Never sync other User settings, raw databases, workspace/global extension state, SecretStorage, Accounts authentication, chat history, logs, WAL, or SHM.
+Keep live code-server data container-local and unsynced. After the launch generation is fully reaped, export only allowlisted theme settings, string-valued `keyboard.layout`, and Explorer/open-file rows whose file resources resolve canonically inside `/home/user/workspace`. Write one atomic, mode-0600, maximum-1-MiB per-user snapshot at `~/.codeflare/ide-ui-state.json`; R2 sync includes only that exact path under `~/.codeflare/`. Restore into a fresh workspace database before managed Pi, Claude, or unsupported-inventory settings overwrite owned keys. Never sync other User settings, raw databases, workspace/global extension state, SecretStorage, Accounts authentication, chat history, logs, WAL, or SHM.
+
+**Amendment (2026-08-25):** The live code-server root is `/run/codeflare/openvscode`, preserving the ephemeral container-local contract while surviving disposable `/tmp` cleanup. <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 
 The Pi inventory activates after startup, marks generic Chat setup complete to suppress Code OSS's account-backed **Code Review** action, and keeps **Review with Codeflare**. All visible owned Pi/provider labels become **Codeflare** while stable private IDs remain unchanged. Preserve the physical Pi SDK prewarm install and established Jiti realpath topology; the measured compressed saving does not justify a startup regression risk.
 
@@ -3741,6 +3750,8 @@ The diagnostic channel still needs enough identity to distinguish a stale image,
 Pinned-source and exact-runtime evidence for code-server 4.132.0 established a smaller boundary: the workbench can install an exact `id@version` after startup, fresh installs register live, uninstall updates the on-disk registry before the extension API, and symlink-seeded fixed extensions coexist with real user directories. Every prepared profile receives the supported `extensions.allowed` wildcard plus one explicit Codeflare entry. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings -->
 
 **Decision:** Keep Pi, Claude, and unsupported selections as immutable base inventories. For each container, seed one writable `/tmp` session extension directory with symlinks to the selected base and pass only that directory to code-server. The built-in `codeflare-welcome` extension lazily restores missing user extensions after `onStartupFinished`, so initial code-server readiness and agent selection remain unchanged.
+
+**Amendment (2026-08-25):** The writable session extension directory now lives under `/run/codeflare/openvscode/data/extensions`. It remains container-local and unsynced while surviving disposable `/tmp` cleanup. <!-- @impl: entrypoint.sh::_openvscode_extensions_dir -->
 
 Persist one atomic mode-0600 `~/.codeflare/ide-extensions.json` file through the existing rclone allowlist. A shared policy defines the 64 KiB envelope, 50-extension ceiling, fixed IDs, version/platform/timestamp/hash bounds, and settings limits for both TypeScript and the Python reap backstop. The manifest stores canonical lowercase IDs, exact versions, optional audit metadata, contributed global User settings excluding managed/UI-continuity keys, and one durable `securityWarningShown` acknowledgement. It stores no VSIX or extracted package bytes.
 

@@ -51,7 +51,7 @@ type ExtensionAPI = ToolActivationPi & {
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
-const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
+const GLOBAL_GRAPH_LOCK = "/run/codeflare/locks/graphify-global.lock";
 const GLOBAL_MANIFEST = "/home/user/.graphify/global-manifest.json";
 
 function ensureCacheDir(): void {

@@ -40,10 +40,12 @@ function fixture() {
   mkdirSync(join(bake, 'default/.claude'), { recursive: true });
   mkdirSync(join(bake, 'default/.pi/agent/extensions'), { recursive: true });
   mkdirSync(warm, { recursive: true });
+  const runtimeRoot = join(root, 'runtime');
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
   writeFileSync(join(bake, 'default/.claude/company.md'), 'baked');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
-  return { root, home, bake, warm, events: join(root, 'events') };
+  return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
 function runStartup(remoteCurationActive) {
@@ -87,7 +89,10 @@ function runStartup(remoteCurationActive) {
     managedStartup,
     managedStartupInvocation,
     'wait',
-  ].join('\n')], { encoding: 'utf8' });
+  ].join('\n')], {
+    encoding: 'utf8',
+    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: f.runtimeRoot },
+  });
   return {
     ...f,
     result,

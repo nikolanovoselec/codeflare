@@ -58,6 +58,12 @@ function mkTmp(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
+function isolatedRuntimeEnv(env = {}) {
+  const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkTmp('openvscode-runtime-');
+  mkdirSync(join(runtimeRoot, 'openvscode'), { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+}
+
 // Write an executable stub that records each invocation's args, then exits.
 function writeStub(dir, argsFile) {
   const stub = join(dir, 'code-server');
@@ -74,7 +80,7 @@ function writeSelectionStub(dir, argsFile) {
 }
 
 function runBash(script, env = {}) {
-  return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, ...env } });
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv(env) });
 }
 
 function openvscodeLaunchScript({ stubAgentPreparation = true, stubUiState = true } = {}) {
@@ -140,7 +146,7 @@ setInterval(() => {}, 1_000);
 `);
 }
 
-describe('complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace launch)', () => {
+describe('complete_managed_curation_startup / REQ-IDE-053 AC1/AC2 (workspace launch)', () => {
   it('arms VS Code immediately after init instead of waiting for background baseline work', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}
@@ -153,7 +159,7 @@ SESSION_MODE=advanced
 CODEFLARE_SESSION_WORKSPACE=vscode
 complete_managed_curation_startup
 `;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, 'init\neditor\n');
   });
@@ -170,7 +176,7 @@ SESSION_MODE=default
 CODEFLARE_SESSION_WORKSPACE=vscode
 complete_managed_curation_startup
 `;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, 'init\neditor\n');
   });
@@ -187,13 +193,13 @@ SESSION_MODE=advanced
 CODEFLARE_SESSION_WORKSPACE=terminal
 complete_managed_curation_startup
 `;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: isolatedRuntimeEnv() });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, 'init\n');
   });
 });
 
-describe('_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)', () => {
+describe('_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)', () => {
   let dir, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-gate-');
@@ -247,11 +253,13 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-039 AC1: code-server uses the Codeflare app name', () => {
+  it('REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots', () => {
     const stub = writeStub(dir, argsFile);
     // OPENVSCODE_DATA_DIR is intentionally unset so the retained private
     // namespace's production default is exercised.
+    const runtimeRoot = join(dir, 'runtime');
     const r = runBash(`${openvscodeLaunchScript()}\n_openvscode_launch_once`, {
+      CODEFLARE_RUNTIME_ROOT: runtimeRoot,
       OPENVSCODE_BIN: stub,
       OPENVSCODE_HOST: '0.0.0.0',
       SESSION_ID: 'abcd1234',
@@ -272,9 +280,9 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
       '--app-name',
       'Codeflare',
       '--user-data-dir',
-      '/tmp/openvscode-data/data',
+      join(runtimeRoot, 'openvscode/data/data'),
       '--extensions-dir',
-      '/tmp/openvscode-data/extensions',
+      join(runtimeRoot, 'openvscode/data/extensions'),
       workspace,
       '---',
     ]);
@@ -930,7 +938,7 @@ describe('kill_pidfile_subtree / REQ-IDE-003 AC5 (shutdown releases the IDE port
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('kills the pidfile-tracked process subtree (the mechanism shutdown_handler uses for /tmp/openvscode.pid)', () => {
+  it('kills the pidfile-tracked process subtree (the mechanism shutdown_handler uses for /run/codeflare/openvscode/supervisor.pid)', () => {
     // Start a real long sleeper, record its PID as the "supervisor" pidfile,
     // then run the extracted teardown helpers and assert the process is gone.
     const script = `

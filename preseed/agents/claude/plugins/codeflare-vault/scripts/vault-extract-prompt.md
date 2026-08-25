@@ -34,7 +34,7 @@ build steps from graphify's internal Python API.
 - `MANIFEST`: `/home/user/Vault/graphify-out/vault-extract-manifest.json` (the durable content-hash high-water mark; survives R2 restart)
 - `MANIFEST_SCRIPT`: `~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py` (`changed` / `commit` modes)
 - `LAST_MARKER`: `~/.cache/codeflare-hooks/vault-extract.last` (ephemeral dedup timestamp only — NOT change detection)
-- `LOCK`: `/tmp/graphify-global.lock` (serialises with capture agent + active-repo hook)
+- `LOCK`: `/run/codeflare/locks/graphify-global.lock` (serialises with capture agent + active-repo hook)
 - `GRAPHIFY_PY`: `/root/.local/share/uv/tools/graphifyy/bin/python`
 - `GRAPHIFY_BIN`: `/usr/local/bin/graphify` (or absolute uv path as fallback)
 
@@ -219,7 +219,7 @@ write it back. The persistent graph is then what `graphify global add`
 consumes in step 5.
 
 ```bash
-( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || EXTRACT_FAILED=1
+( flock -w 5 /run/codeflare/locks/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || EXTRACT_FAILED=1
 ```
 
 The script (`merge-vault-graph.py`, REQ-MEM-009 AC1+AC2+AC4) does the
@@ -253,7 +253,7 @@ to `graphify global add`, NOT the per-extraction chunk graph. The
 vault state on every run instead of clobbering it.
 
 ```bash
-( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
+( flock -w 5 /run/codeflare/locks/graphify-global.lock /usr/local/bin/graphify global add \
     /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || EXTRACT_FAILED=1
 ```
 

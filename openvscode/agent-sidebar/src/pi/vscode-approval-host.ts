@@ -6,7 +6,7 @@ import { CancellationTokenSource, window, type CancellationToken } from 'vscode'
 
 import type { ApprovalHost, ApprovalManifest } from './approval-bridge.ts';
 
-const MANIFEST_ROOT = '/tmp/codeflare-sidebar/pi/approvals';
+const MANIFEST_ROOT = '/run/codeflare/openvscode/sidebar/pi/approvals';
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 
 export class VsCodeApprovalHost implements ApprovalHost {

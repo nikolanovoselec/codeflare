@@ -145,12 +145,13 @@ function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? [], branch
   }
 }
 
-test('REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path', () => {
+test('REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-launch-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
   const repo = join(dir, 'repo');
   const calls = join(dir, 'calls');
+  const runtimeRoot = join(dir, 'runtime');
 
   mkdirSync(bin);
   mkdirSync(fixtures);
@@ -164,23 +165,19 @@ test('REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and ret
     cwd: repo,
     encoding: 'utf8',
     timeout: 2000,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, GH_CALLS: calls, GH_FIXTURES: fixtures, GIT_HEAD: HEAD },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, GH_CALLS: calls, GH_FIXTURES: fixtures, GIT_HEAD: HEAD, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
   });
 
   try {
     assert.equal(result.status, 0, result.stderr);
     assert.ok(Date.now() - started < 500, 'launcher should not wait for CI completion');
-    assert.match(result.stdout, /CI_MONITOR_STARTED head=ef819ed35e9cc57d66209d1330bc8a87519736df pid=\d+ log=\/tmp\/ci-monitor-/);
+    assert.match(result.stdout, new RegExp(`CI_MONITOR_STARTED head=${HEAD} pid=\\d+ log=${runtimeRoot}/services/ci-monitor-`));
   } finally {
     const pid = Number(result.stdout.match(/pid=(\d+)/)?.[1]);
     if (Number.isFinite(pid)) {
       try { process.kill(-pid, 'SIGTERM'); } catch {}
       try { process.kill(pid, 'SIGTERM'); } catch {}
     }
-    rmSync(`/tmp/ci-monitor-${HEAD}.log`, { force: true });
-    rmSync(`/tmp/ci-monitor-${HEAD}.log.json`, { force: true });
-    rmSync(`/tmp/ci-monitor-${HEAD}.log.state`, { force: true });
-    rmSync(`/tmp/ci-monitor-${HEAD}.sh`, { force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 });

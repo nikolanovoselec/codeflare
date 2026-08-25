@@ -16,7 +16,7 @@
 
 ## Projection contract
 
-Before the Claude inventory starts, the preparer creates `/tmp/codeflare-sidebar/claude/config` with mode `0700`. It links only approved credentials/configuration entries when present: `.credentials.json`, `CLAUDE.md`, `agents`, `commands`, `plugins`, and `skills`. The root-owned managed `settings.json` is supplied separately.
+Before the Claude inventory starts, the preparer creates `/run/codeflare/openvscode/sidebar/claude/config` with mode `0700`. It links only approved credentials/configuration entries when present: `.credentials.json`, `CLAUDE.md`, `agents`, `commands`, `plugins`, and `skills`. The root-owned managed `settings.json` is supplied separately.
 
 Terminal projects, history, session state, logs, caches, telemetry, source settings, and unknown entries are never projected. The schema marker contains its version plus link and managed-settings metadata, never credential bytes. A valid existing temporary projection may survive a code-server restart within the same IDE/container lifecycle; it is not durable session storage.
 

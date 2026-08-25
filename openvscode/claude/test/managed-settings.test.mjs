@@ -35,13 +35,13 @@ test("REQ-IDE-007 AC3: Claude uses unrestricted mode without permission hooks", 
 });
 
 test("REQ-IDE-005 AC3: Claude suppresses unrelated native Chat setup", () => {
-  const settings = buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config");
+  const settings = buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config");
 
   assert.equal(settings["chat.disableAIFeatures"], true);
 });
 
 test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude with isolated unrestricted UI", () => {
-  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config"), {
+  assert.deepEqual(buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config"), {
     "security.workspace.trust.enabled": false,
     "extensions.ignoreRecommendations": true,
     "extensions.allowed": { "*": true, "codeflare.codeflare-agent-sidebar": true },
@@ -50,7 +50,7 @@ test("REQ-IDE-005 AC2 + REQ-IDE-006 AC1: OpenVSCode launches official Claude wit
     "chat.titleBar.signIn.enabled": false,
     "chat.disableAIFeatures": true,
     "claudeCode.environmentVariables": [
-      { name: "CLAUDE_CONFIG_DIR", value: "/tmp/codeflare-sidebar/claude/config" },
+      { name: "CLAUDE_CONFIG_DIR", value: "/run/codeflare/openvscode/sidebar/claude/config" },
     ],
     "claudeCode.useTerminal": false,
     "claudeCode.initialPermissionMode": "bypassPermissions",
@@ -96,7 +96,7 @@ test("REQ-IDE-047: terminal workspaces default to Bash and keep the session agen
     buildBaseOpenVscodeSettings([], "terminal"),
     buildPiOpenVscodeSettings([], "terminal"),
     buildUnsupportedOpenVscodeSettings([], "terminal"),
-    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", [], "terminal"),
+    buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config", [], "terminal"),
   ]) {
     assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Bash");
     assert.deepEqual(settings["terminal.integrated.profiles.linux"], EXPECTED_TERMINAL_PROFILES);
@@ -111,7 +111,7 @@ test("REQ-IDE-047: VS Code workspaces default every inventory to the session age
     buildBaseOpenVscodeSettings([], "vscode"),
     buildPiOpenVscodeSettings([], "vscode"),
     buildUnsupportedOpenVscodeSettings([], "vscode"),
-    buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", [], "vscode"),
+    buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config", [], "vscode"),
   ]) {
     assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Codeflare Session Agent");
     assert.deepEqual(settings["terminal.integrated.profiles.linux"], EXPECTED_TERMINAL_PROFILES);
@@ -157,7 +157,7 @@ test("REQ-IDE-005: unsupported inventory suppresses native Chat and Copilot setu
 });
 
 test("REQ-IDE-009: Claude settings also carry the base workspace-trust and recommendation keys", () => {
-  const settings = buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config");
+  const settings = buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config");
 
   assert.equal(settings["security.workspace.trust.enabled"], false);
   assert.equal(settings["extensions.ignoreRecommendations"], true);
@@ -170,7 +170,7 @@ test("REQ-IDE-040 AC1: every inventory applies the managed user-extension allowa
   const expected = { "*": true, "codeflare.codeflare-agent-sidebar": true };
   assert.deepEqual(buildPiOpenVscodeSettings()["extensions.allowed"], expected);
   assert.deepEqual(buildUnsupportedOpenVscodeSettings()["extensions.allowed"], expected);
-  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config")["extensions.allowed"], expected);
+  assert.deepEqual(buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config")["extensions.allowed"], expected);
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("extensions.allowed"), true);
 });
 
@@ -189,5 +189,5 @@ test("REQ-IDE-042 AC2: company extension identities extend the personal allowanc
   assert.deepEqual(buildBaseOpenVscodeSettings(company)["extensions.allowed"], expected);
   assert.deepEqual(buildPiOpenVscodeSettings(company)["extensions.allowed"], expected);
   assert.deepEqual(buildUnsupportedOpenVscodeSettings(company)["extensions.allowed"], expected);
-  assert.deepEqual(buildOpenVscodeSettings("/tmp/codeflare-sidebar/claude/config", company)["extensions.allowed"], expected);
+  assert.deepEqual(buildOpenVscodeSettings("/run/codeflare/openvscode/sidebar/claude/config", company)["extensions.allowed"], expected);
 });

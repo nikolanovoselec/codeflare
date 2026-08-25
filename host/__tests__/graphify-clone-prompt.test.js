@@ -24,7 +24,11 @@ function runHook(input, fakeHome, sessionId) {
   const result = spawnSync('bash', [HOOK], {
     input: JSON.stringify(envelope),
     encoding: 'utf-8',
-    env: { ...process.env, HOME: fakeHome },
+    env: {
+      ...process.env,
+      HOME: fakeHome,
+      CODEFLARE_RUNTIME_ROOT: join(fakeHome, '.runtime'),
+    },
   });
   return {
     stdout: result.stdout.trim(),
@@ -335,7 +339,11 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     const result = spawnSync('bash', [HOOK], {
       input: 'not-valid-json {{{',
       encoding: 'utf-8',
-      env: { ...process.env, HOME: fakeHome },
+      env: {
+        ...process.env,
+        HOME: fakeHome,
+        CODEFLARE_RUNTIME_ROOT: join(fakeHome, '.runtime'),
+      },
     });
     assert.equal(result.status, 0, 'hook must never exit non-zero (sessions cannot crash because of it)');
     assert.equal(result.stdout.trim(), '');

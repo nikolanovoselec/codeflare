@@ -74,6 +74,7 @@ describe('getSyncStatus()', () => {
       () => '{"status":"synced","error":null,"userPath":"/home/user"}'
     );
     const result = getSyncStatus();
+    assert.equal(fsMock.readFileSync.mock.calls[0].arguments[0], '/run/codeflare/sync/sync-status.json');
     assert.equal(result.status, 'synced');
     assert.equal(result.error, null);
     assert.equal(result.userPath, '/home/user');
