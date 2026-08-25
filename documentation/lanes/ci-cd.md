@@ -178,25 +178,28 @@ Application test suites are not re-run in deployment—the exact SHA already pas
 <a id="test-workflow-detail"></a>
 ## Pull Request Verification
 
-Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend and frontend matrices explicitly expose all five and three legs concurrently. The required summary is the only fan-in. The reproducible target is an affected exact-head PR Checks run under three minutes; run `31314628668` completed its affected gate in 90 seconds and the workflow in 91 seconds ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
+Path-gated workload lanes run at maximum parallelism after the `changes` classifier, with no container build in PR Checks. Backend, frontend, and host tests expose seven, three, and four matrix legs concurrently. Coverage merge is the only package-specific fan-in before the required summary. Matrices are sized from observed lane timings to align their critical paths while staying within GitHub Pro concurrency. The reproducible target remains an affected exact-head PR Checks run under three minutes ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
 
 - **changes:** `dorny/paths-filter` classifies the diff into `backend`, `webui`, `landing`, `host`, `ide`, and `workflows`. `changes.outputs.full` means "no diff was filtered, run everything".
   - If GitHub cannot produce the PR-files diff, exact checked-out commits are verified locally and every lane runs. API failure can add work but never skip coverage. <!-- @impl: scripts/ci/path-filter-fallback.sh --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
   - The [nightly wrapper](../../sdd/spec/operations.md#req-ops-043-isolated-nightly-full-matrix-verification) skips filtering and runs the full matrix without matching Deploy's `PR Checks` trigger.
 - **quality** — agent-seed drift guard, oxlint (backend + frontend), knip dead-code check (both), `npm audit --package-lock-only --audit-level=high --omit=dev` (both, independent of restored `node_modules`) ([REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)), and a `bash -n` syntax pass over every tracked shell script.
 - **typecheck** — `wrangler types` then `tsc --noEmit` for backend and frontend.
-- **backend-tests** — four `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
-- **frontend-tests** — three `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
+- **backend-tests** — six coverage-emitting `vitest --shard` jobs plus a Node-runtime leg, all via `.github/actions/vitest-suite` ([Backend Tests](#backend-tests) has the fail-closed gate).
+- **frontend-tests** — three coverage-emitting `vitest --shard` jobs through the same action, so the jsdom suite gets the identical report gate. Only shard 1 also runs `npm run build`, a production-breakage check rather than a test dependency.
 - **landing-tests** — Container-API render + unit tests, plus `astro build` so a broken production build fails the PR rather than the deploy.
-- **host-tests** — `node --test` over a selection reconciled against `host/__tests__/ci-excluded.txt`, failing if the selection is empty or executes zero assertions; installs rclone for the sync-filter behavioral tests.
+- **pi-prompt** — verifies the real Pi prompt budget and initial tool exposure independently of host test timing.
+- **host-tests** — four `node --test --test-shard` jobs over one selection reconciled against `host/__tests__/ci-excluded.txt`; every leg fails on zero assertions and installs rclone for sync-filter behavioral coverage.
 - **browser-ide:** clean-installs under Node 22.21.1, audits the owned extension's pinned dependencies and licenses, typechecks, deterministically bundles native Pi Chat, and runs Pi context/RPC/approval plus official-Claude configuration behavior with coverage and a gated JSON report.
 - **dependency-review** — `actions/dependency-review-action` on PRs; blocks merging if new dependencies introduce known vulnerabilities.
 - **workflow-audit** — checksum-pinned `zizmor` + `actionlint` binaries over `.github/**`, running inside the required `test` context ([REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis)).
 
+CodeQL remains one JavaScript/TypeScript database so cross-package flows and its existing required-check identity stay intact. Instead of duplicating initialization across path shards, its config excludes the generated 24 MiB agent-seed aggregate, vendored SilverBullet plug bundles, and non-runtime test trees; maintained runtime and CI source remains scanned once ([REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows)).
+
 The rclone, zizmor, and actionlint release archives are cached by OS, architecture, version, and checksum. A lane downloads its archive only when absent, and checksum validation rejects a restored mismatch before extraction or execution ([REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance)).
 
 - **bundle-size** — `wrangler deploy --dry-run` against a patched config, gated on `scripts/ci/check-bundle-size.mjs` ([REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy)).
-- **coverage-backend / coverage-frontend** — run for affected package pull requests and full runs. Global floors remain authoritative; pull requests also apply bounded changed-line LCOV floors (80% backend, 70% frontend).
+- **coverage-backend / coverage-frontend** — merge every expected matrix shard without rerunning tests. Global floors remain authoritative; pull requests also apply bounded changed-line LCOV floors (80% backend, 70% frontend).
 - **summary** — required `test` context; rejects failed or cancelled relevant lanes and publishes the current exact-tree receipt.
 
 **Why the filters are broad:** the shared anchor—pipeline files, root manifests, both vitest node-suite files, and lint/dead-code rulesets—sits in every filter, so anything that can change what a lane means re-runs every lane. `host` additionally takes all of `.github/**`, because its tests assert on other workflows. Container inputs still select source-level IDE, host, and shell validation, but image construction itself waits for deployment.

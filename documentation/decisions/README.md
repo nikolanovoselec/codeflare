@@ -3279,7 +3279,7 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Category:** Architecture, Operations
 
-**Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment; amended 2026-08-05 to partition scheduled verification and verify retained-image provenance
+**Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment; amended 2026-08-05 to partition scheduled verification and verify retained-image provenance; amended 2026-08-25 to merge coverage from test matrices
 
 **Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
 
@@ -3306,6 +3306,8 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - `zizmor.yml` audits the workflows themselves (SARIF, informational).
 
 **2026-08-02 amendment:** PR Checks target a sub-three-minute critical path by running every workload lane at maximum parallelism and never building a container image. Deployment is the sole owner of image build, packaged smoke, scan, SBOM, provenance, and push. The exact-tree PR receipt proves source verification only.
+
+**2026-08-25 amendment:** Backend, frontend, and host tests execute only as matrix legs. Backend and frontend shards emit coverage during their sole test execution; short merge-only jobs combine every expected shard before enforcing global and changed-line floors. Pi prompt verification moves out of the host test critical path. CodeQL remains one cross-package JavaScript/TypeScript database but excludes generated, vendored, and test-only duplicate input instead of consuming extra concurrency through path shards. This supersedes the standalone coverage jobs described in the original decision without weakening their fail-closed evidence contract. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @impl: .github/actions/merge-coverage/action.yml::runs -->
 
 **Consequences:** PR wall-clock drops to the slowest source-validation lane, docs-only changes skip every path-gated workload lane, and PRs never pay the multi-gigabyte image cost. Nightly verification retains the same matrix without creating a daily skipped Deploy run. Deploys skip build and scan for unchanged container inputs only when the retained digest's signed provenance verifies, then bind that digest rather than its mutable tag; the original scan and SBOM are reused rather than regenerated. Missing provenance safely costs a fresh build. Same-environment deploys queue instead of cancelling partial mutation, and configured service-user seed failure leaves the deployment red.
 

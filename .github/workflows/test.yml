@@ -369,47 +369,20 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 7
       matrix:
-        # Four shards, not two. Roughly 85% of a shard's wall clock is per-file
-        # Vite transform and workerd isolate setup rather than test execution
-        # (measured: 18s of assertions inside 81s), and about half of that
-        # overhead sits in the main process where extra pool workers cannot
-        # reach it. It is per-process, though, so it divides cleanly across
-        # shards — each of which is its own runner.
-        #
-        # The Node-runtime suite is not shardable, so it gets its own leg rather
-        # than riding one shard and making it the straggler (it cost shard 1 an
-        # extra ~35s while its siblings idled).
+        # Six Workers shards keep coverage-instrumented legs near the
+        # 30-60 second target measured from run 32801555205. The unshardable
+        # Node-runtime suite remains its own short leg. Coverage is emitted by
+        # these shards and merged later; no standalone test rerun exists.
         include:
-          - shard: '1/4'
-            slug: shard-1
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '2/4'
-            slug: shard-2
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '3/4'
-            slug: shard-3
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '4/4'
-            slug: shard-4
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: ''
-            slug: node
-            script: 'test:node'
-            # Plain Node, no workerd — a non-zero exit here is always a failure.
-            tolerate-pool-crash: 'false'
-            # `pretest` hooks `npm test`, not `npm run test:node`, and these
-            # tests read the generated seeds.
-            pre-run: 'npm run pretest'
+          - { shard: '1/6', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '2/6', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '3/6', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '4/6', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '5/6', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '6/6', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { shard: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -434,6 +407,7 @@ jobs:
           artifact-name: backend-${{ matrix.slug }}
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
+          coverage: ${{ matrix.coverage }}
 
   workflow-audit:
     name: Workflow audit
@@ -610,47 +584,56 @@ jobs:
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
   coverage-backend:
-    name: Coverage (backend)
-    needs: changes
+    name: Coverage merge (backend)
+    needs: [changes, backend-tests]
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/coverage-suite
+      - uses: ./.github/actions/merge-coverage
         with:
-          working-directory: .
-          key-prefix: root
+          artifact-pattern: 'backend-shard-*'
+          expected-shards: '6'
           slug: backend
-          tolerate-pool-crash: 'true'
+          package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
           changed-line-threshold: '80'
+          statements-threshold: '88'
+          branches-threshold: '80'
+          functions-threshold: '89'
+          lines-threshold: '89'
 
   coverage-frontend:
-    name: Coverage (frontend)
-    needs: changes
+    name: Coverage merge (frontend)
+    needs: [changes, frontend-tests]
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/coverage-suite
+      - uses: ./.github/actions/merge-coverage
         with:
-          working-directory: web-ui
-          key-prefix: webui
+          artifact-pattern: 'frontend-shard-*'
+          expected-shards: '3'
           slug: frontend
+          package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
           changed-line-threshold: '70'
+          statements-threshold: '75'
+          branches-threshold: '63'
+          functions-threshold: '75'
+          lines-threshold: '77'
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
@@ -701,6 +684,7 @@ jobs:
           working-directory: web-ui
           shard: ${{ matrix.shard }}
           artifact-name: frontend-${{ matrix.slug }}
+          coverage: 'true'
 
   landing-tests:
     name: Landing tests
@@ -741,14 +725,14 @@ jobs:
           working-directory: landing
           artifact-name: landing
 
-  host-tests:
-    name: Host tests
+  pi-prompt:
+    name: Pi prompt verification
     needs: changes
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -759,15 +743,8 @@ jobs:
           node-version: '22'
 
       - uses: ./.github/actions/install-deps
-        # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
-        # node_modules (module lookup walks up from host/__tests__).
         with:
           key-prefix: root
-
-      - uses: ./.github/actions/install-deps
-        with:
-          directory: host
-          key-prefix: host
 
       - name: Install exact Pi prompt runtime
         run: npm ci --ignore-scripts --no-audit --no-fund --prefix preseed/agents/pi
@@ -818,6 +795,43 @@ jobs:
             ${{ runner.temp }}/pi-runtime-context-advanced.json
           retention-days: 14
           if-no-files-found: error
+
+  host-tests:
+    name: Host tests (${{ matrix.slug }})
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.host == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { shard: '1/4', slug: shard-1 }
+          - { shard: '2/4', slug: shard-2 }
+          - { shard: '3/4', slug: shard-3 }
+          - { shard: '4/4', slug: shard-4 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
+        # node_modules (module lookup walks up from host/__tests__).
+        with:
+          key-prefix: root
+
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: host
+          key-prefix: host
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
@@ -906,6 +920,7 @@ jobs:
           set -euo pipefail
           xargs -a "$RUNNER_TEMP/host-tests.txt" \
             node --experimental-test-module-mocks --test --test-timeout=60000 \
+              --test-shard="${{ matrix.shard }}" \
               --test-reporter=spec --test-reporter-destination=stdout \
               --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report.xml"
 
@@ -1001,6 +1016,7 @@ jobs:
       - backend-tests
       - frontend-tests
       - landing-tests
+      - pi-prompt
       - host-tests
       - browser-ide
       - dependency-review

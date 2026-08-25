@@ -15,3 +15,12 @@ name: "Codeflare CodeQL config"
 # do not own. Our own source under src/ and the rest of preseed/ stays scanned.
 paths-ignore:
   - 'preseed/agents/*/skills/impeccable/scripts/**'
+  # Generated from the reviewed preseed manifests and scanned there. Analyzing
+  # this 24 MiB aggregate again dominated the JavaScript query phase.
+  - 'src/lib/agent-seed.generated.ts'
+  # Vendored SilverBullet plug bundles are immutable upstream build output.
+  - 'preseed/silverbullet/**/*.plug.js'
+  # Test code does not ship in Worker, dashboard, host, or Browser IDE runtime.
+  - '**/__tests__/**'
+  - '**/*.test.*'
+  - '**/test/**'

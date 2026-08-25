@@ -23,6 +23,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
+const COVERAGE_MERGER = join(REPO, 'scripts/ci/merge-shard-coverage.mjs');
 const CODE_SERVER_PIN_UPDATER = join(REPO, 'scripts/ci/update-code-server-pins.mjs');
 const SILVERBULLET_PIN_UPDATER = join(REPO, 'scripts/ci/update-silverbullet-pins.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
@@ -279,35 +280,59 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(proxy).toMatch(/prefixed_http=ready|prefixed_ws=ready|root-scoped initial asset URL/);
   });
 
+  it('REQ-OPS-029 AC1: writes reusable exact-tree evidence only after matrix and merge gates', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const summary = testWorkflow.jobs.summary as { needs?: string[]; steps?: Array<{ name?: string; run?: string; uses?: string }> };
+    expect(summary.needs).toEqual(expect.arrayContaining([
+      'backend-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
+      'coverage-backend', 'coverage-frontend',
+    ]));
+    const names = summary.steps?.map((step) => step.name) ?? [];
+    const reconcile = names.indexOf('Reconcile suite coverage against the tree');
+    const write = names.indexOf('Write exact tested-tree receipt');
+    const upload = names.indexOf('Upload exact tested-tree receipt');
+    expect(reconcile).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(reconcile);
+    expect(upload).toBeGreaterThan(write);
+    expect(summary.steps?.[write]?.run).toContain('codeflare.pr-checks-receipt.v3');
+    expect(summary.steps?.[write]?.run).toContain("git rev-parse 'HEAD^{tree}'");
+  });
+
   it('REQ-OPS-045 AC2: starts every affected workload directly after classification', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const directWorkloads = [
       'quality', 'typecheck', 'workflow-audit', 'bundle-size',
-      'coverage-backend', 'coverage-frontend', 'backend-tests', 'frontend-tests',
-      'landing-tests', 'host-tests', 'browser-ide',
+      'backend-tests', 'frontend-tests', 'landing-tests', 'pi-prompt', 'host-tests', 'browser-ide',
     ];
     for (const name of directWorkloads) expect(testWorkflow.jobs[name].needs).toBe('changes');
   });
 
-  it('REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently', () => {
+  it('REQ-OPS-045 AC3: runs backend, frontend, and host tests only as concurrent matrix legs', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 5], ['frontend-tests', 3]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 7], ['frontend-tests', 3], ['host-tests', 4]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
       expect(strategy?.matrix?.include).toHaveLength(expectedLegs);
       expect(strategy?.['max-parallel']).toBe(strategy?.matrix?.include?.length);
     }
+    const backend = testWorkflow.jobs['backend-tests'] as {
+      strategy?: { matrix?: { include?: Array<{ slug?: string; coverage?: string }> } };
+    };
+    expect(backend.strategy?.matrix?.include?.filter((leg) => leg.slug !== 'node').every((leg) => leg.coverage === 'true')).toBe(true);
+    expect(backend.strategy?.matrix?.include?.find((leg) => leg.slug === 'node')?.coverage).toBe('false');
+    expect(JSON.stringify(testWorkflow.jobs['frontend-tests'])).toContain('"coverage":"true"');
+    expect(JSON.stringify(testWorkflow.jobs['host-tests'])).toContain('--test-shard="${{ matrix.shard }}"');
   });
 
-  it('REQ-OPS-022 AC5: runs affected coverage lanes on pull requests', () => {
+  it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    const expectedConditions = {
-      'coverage-backend': "needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true'",
-      'coverage-frontend': "needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true'",
-    };
-    for (const [name, condition] of Object.entries(expectedConditions)) {
-      expect((testWorkflow.jobs[name] as { if?: string }).if).toBe(condition);
+    for (const [name, matrix] of [['coverage-backend', 'backend-tests'], ['coverage-frontend', 'frontend-tests']] as const) {
+      const job = testWorkflow.jobs[name] as { needs?: string[]; steps?: Array<{ uses?: string }> };
+      expect(job.needs).toEqual(['changes', matrix]);
+      expect(job.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+      expect(JSON.stringify(job)).not.toContain('npm test');
+      expect(JSON.stringify(job)).not.toContain('./.github/actions/coverage-suite');
     }
   });
 
@@ -395,6 +420,56 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     }
   });
 
+  it('REQ-OPS-022 AC5: merges every shard before enforcing package coverage', () => {
+    const artifacts = join(work, 'coverage-artifacts');
+    const output = join(work, 'coverage-output');
+    const source = join(work, 'src', 'covered.ts');
+    const coverage = (first: number, second: number) => ({
+      [source]: {
+        path: source,
+        statementMap: {
+          0: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
+          1: { start: { line: 2, column: 0 }, end: { line: 2, column: 1 } },
+        },
+        fnMap: { 0: { name: 'covered', decl: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } }, loc: { start: { line: 1, column: 0 }, end: { line: 2, column: 1 } }, line: 1 } },
+        branchMap: { 0: { line: 1, type: 'if', locations: [
+          { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
+          { start: { line: 2, column: 0 }, end: { line: 2, column: 1 } },
+        ] } },
+        s: { 0: first, 1: second },
+        f: { 0: first + second },
+        b: { 0: [first, second] },
+      },
+    });
+    for (const [name, payload] of [['shard-1', coverage(1, 0)], ['shard-2', coverage(0, 1)]] as const) {
+      const dir = join(artifacts, name, 'coverage');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'coverage-final.json'), JSON.stringify(payload));
+    }
+
+    const merged = spawnSync(process.execPath, [
+      COVERAGE_MERGER, artifacts, output, '2', '80', '80', '80', '80',
+    ], { encoding: 'utf8' });
+    expect(merged.status, merged.stderr).toBe(0);
+    expect(merged.stdout).toContain('Merged 2 shard coverage reports');
+    expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
+
+    const incomplete = spawnSync(process.execPath, [
+      COVERAGE_MERGER, artifacts, join(work, 'incomplete'), '3', '0', '0', '0', '0',
+    ], { encoding: 'utf8' });
+    expect(incomplete.status).toBe(1);
+    expect(incomplete.stderr).toContain('expected 3 shard coverage reports, found 2');
+
+    const partialRoot = join(work, 'partial-coverage');
+    mkdirSync(join(partialRoot, 'shard', 'coverage'), { recursive: true });
+    writeFileSync(join(partialRoot, 'shard', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+    const belowFloor = spawnSync(process.execPath, [
+      COVERAGE_MERGER, partialRoot, join(work, 'below-floor'), '1', '80', '80', '80', '80',
+    ], { encoding: 'utf8' });
+    expect(belowFloor.status).toBe(1);
+    expect(belowFloor.stderr).toContain('does not meet global threshold');
+  });
+
   it('path-gates backend and frontend coverage through one reusable action', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, {
@@ -408,36 +483,19 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(workflow.jobs.coverage).toBeUndefined();
     expect(backend.if).toContain("needs.changes.outputs.backend == 'true'");
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
-    expect(backend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
-    expect(frontend.steps?.some((step) => step.uses === './.github/actions/coverage-suite')).toBe(true);
+    expect(backend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+    expect(frontend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
   });
 
-  it('executes the reusable coverage action through its configured fail-closed boundary', () => {
-    const action = parseYaml(readFileSync(join(REPO, '.github/actions/coverage-suite/action.yml'), 'utf8')) as {
+  it('configures the reusable coverage action as merge-only', () => {
+    const action = parseYaml(readFileSync(join(REPO, '.github/actions/merge-coverage/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ name?: string; run?: string }> };
     };
-    const runStep = action.runs.steps.find((step) => step.name === 'Run suite with coverage');
-    const fakeBin = join(work, 'bin');
-    mkdirSync(fakeBin);
-    const fakeNpm = join(fakeBin, 'npm');
-    writeFileSync(fakeNpm, '#!/bin/sh\nprintf "%s\\n" "$FAKE_NPM_OUTPUT"\nexit "${FAKE_NPM_STATUS:-0}"\n');
-    chmodSync(fakeNpm, 0o755);
-
-    const execute = (output: string) => spawnSync('bash', ['-c', runStep?.run ?? ''], {
-      cwd: work,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-        GITHUB_WORKSPACE: REPO,
-        TOLERATE_POOL_CRASH: 'false',
-        FAKE_NPM_OUTPUT: output,
-        FAKE_NPM_STATUS: '0',
-      },
-    });
-
-    expect(execute('Test Files  1 passed (1)\n Tests  2 passed (2)').status).toBe(1);
-    expect(execute(' All files | 100 | 100 | 100 | 100 |\n Test Files  1 passed (1)\n Tests  2 passed (2)').status).toBe(0);
+    const source = JSON.stringify(action);
+    expect(source).toContain('merge-shard-coverage.mjs');
+    expect(source).toContain('check-coverage-result.mjs');
+    expect(source).not.toContain('npm test');
+    expect(source).not.toContain('vitest');
   });
 });
 
@@ -872,6 +930,19 @@ describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
 
     const r = runCompleteness({ backend: 'success' }, cwd);
     expect(r.status).toBe(0);
+  });
+
+  it('ignores matrix coverage sidecars while reconciling test reports', () => {
+    const files = ['src/a.test.ts'];
+    const cwd = tree(files);
+    report('backend-shard-1', 'backend-shard-1.json', files);
+    report('backend-node', 'backend-node.json', NODE_SUITE_FILES);
+    const coverageDir = join(work, 'artifacts', 'backend-shard-1', 'backend-shard-1-coverage');
+    mkdirSync(coverageDir);
+    writeFileSync(join(coverageDir, 'coverage-final.json'), JSON.stringify({ not: 'a test report' }));
+
+    const r = runCompleteness({ backend: 'success' }, cwd);
+    expect(r.status, r.stderr).toBe(0);
   });
 
   it('fails when a file present in the tree ran in no shard', () => {

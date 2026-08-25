@@ -35,6 +35,10 @@ inputs:
       on a non-zero exit, so this stays "false" by default.
     required: false
     default: 'false'
+  coverage:
+    description: 'Emit mergeable coverage for this shard without enforcing package thresholds locally.'
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -50,6 +54,7 @@ runs:
         NAME: ${{ inputs.artifact-name }}
         PRE_RUN: ${{ inputs.pre-run }}
         TOLERATE: ${{ inputs.tolerate-pool-crash }}
+        COVERAGE: ${{ inputs.coverage }}
       run: |
         # Belt and braces with RUNNER_TEMP: if a report from a previous run
         # survived, the gate would parse IT — >0 tests, 0 failures, and for the
@@ -59,10 +64,24 @@ runs:
         # persist, so the removal is unconditional rather than a hosted-only
         # assumption.
         rm -f "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log"
+        rm -rf "$RUNNER_TEMP/${NAME}-coverage"
         if [ -n "$PRE_RUN" ]; then bash -c "$PRE_RUN"; fi
+        coverage_args=()
+        if [ "$COVERAGE" = true ]; then
+          coverage_args=(
+            --coverage
+            --coverage.reporter=json
+            --coverage.reportsDirectory="$RUNNER_TEMP/${NAME}-coverage"
+            --coverage.thresholds.statements=0
+            --coverage.thresholds.branches=0
+            --coverage.thresholds.functions=0
+            --coverage.thresholds.lines=0
+          )
+        fi
         set +e
         # CLI reporters replace the config ones: dot for humans, json for the gate.
         npm run "$SCRIPT" -- ${SHARD:+--shard="$SHARD"} \
+          "${coverage_args[@]}" \
           --reporter=dot --reporter=json --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
           2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
         status=${PIPESTATUS[0]}
@@ -79,6 +98,7 @@ runs:
         path: |
           ${{ runner.temp }}/${{ inputs.artifact-name }}.json
           ${{ runner.temp }}/${{ inputs.artifact-name }}.log
+          ${{ runner.temp }}/${{ inputs.artifact-name }}-coverage
         retention-days: 5
         if-no-files-found: error
 

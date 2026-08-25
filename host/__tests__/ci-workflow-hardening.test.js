@@ -19,7 +19,8 @@ const pentest = load('pentest.yml');
 const promotion = load('promotion-source.yml');
 const release = load('sign-release.yml');
 const prChecks = load('test.yml');
-const coverageAction = parseYaml(readFileSync(join(ROOT, '.github', 'actions', 'coverage-suite', 'action.yml'), 'utf8'));
+const codeqlConfig = parseYaml(readFileSync(join(ROOT, '.github', 'codeql', 'codeql-config.yml'), 'utf8'));
+const coverageAction = parseYaml(readFileSync(join(ROOT, '.github', 'actions', 'merge-coverage', 'action.yml'), 'utf8'));
 
 const step = (job, name) => job.steps.find((candidate) => candidate.name === name);
 
@@ -69,6 +70,19 @@ describe('PR lane selection', () => {
       || (pattern.endsWith('/**') && source.startsWith(pattern.slice(0, -2)));
     assert.ok(filters.backend.flat(Infinity).some(matchesSource));
     assert.ok(filters.landing.flat(Infinity).some(matchesSource));
+  });
+});
+
+describe('REQ-OPS-019 AC8: CodeQL scans owned runtime source once', () => {
+  it('excludes generated aggregates, vendored bundles, and non-runtime test trees', () => {
+    assert.deepEqual(codeqlConfig['paths-ignore'], [
+      'preseed/agents/*/skills/impeccable/scripts/**',
+      'src/lib/agent-seed.generated.ts',
+      'preseed/silverbullet/**/*.plug.js',
+      '**/__tests__/**',
+      '**/*.test.*',
+      '**/test/**',
+    ]);
   });
 });
 
@@ -565,74 +579,47 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     }
   });
 
-  it('REQ-OPS-022 AC5/AC6: runs affected package coverage on pull requests with package-specific changed-line floors', () => {
-    for (const [jobName, expectedIf, inputs] of [
-      ['coverage-backend', "needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true'", {
-        'working-directory': '.',
-        'key-prefix': 'root',
+  it('REQ-OPS-022 AC5/AC6: merges affected package matrix coverage with package-specific changed-line floors', () => {
+    for (const [jobName, matrixJob, inputs] of [
+      ['coverage-backend', 'backend-tests', {
+        'artifact-pattern': 'backend-shard-*',
+        'expected-shards': '6',
         slug: 'backend',
-        'tolerate-pool-crash': 'true',
+        'package-root': '.',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
         'changed-line-threshold': '80',
+        'statements-threshold': '88',
+        'branches-threshold': '80',
+        'functions-threshold': '89',
+        'lines-threshold': '89',
       }],
-      ['coverage-frontend', "needs.changes.outputs.full == 'true' || needs.changes.outputs.webui == 'true'", {
-        'working-directory': 'web-ui',
-        'key-prefix': 'webui',
+      ['coverage-frontend', 'frontend-tests', {
+        'artifact-pattern': 'frontend-shard-*',
+        'expected-shards': '3',
         slug: 'frontend',
+        'package-root': 'web-ui',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
         'changed-line-threshold': '70',
+        'statements-threshold': '75',
+        'branches-threshold': '63',
+        'functions-threshold': '75',
+        'lines-threshold': '77',
       }],
     ]) {
       const job = prChecks.jobs[jobName];
-      assert.equal(job.if, expectedIf);
+      assert.deepEqual(job.needs, ['changes', matrixJob]);
       assert.deepEqual(
-        job.steps.filter((candidate) => candidate.uses === './.github/actions/coverage-suite'),
-        [{ uses: './.github/actions/coverage-suite', with: inputs }],
+        job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
+        [{ uses: './.github/actions/merge-coverage', with: inputs }],
       );
+      assert.doesNotMatch(JSON.stringify(job), /npm test|coverage-suite/);
     }
 
-    assert.deepEqual(coverageAction.runs.steps.slice(3, 5), [
-      {
-        name: 'Fetch changed-line base commit',
-        if: "inputs.changed-base != ''",
-        shell: 'bash',
-        env: { CHANGED_BASE: '${{ inputs.changed-base }}' },
-        run: `set -euo pipefail
-[[ "$CHANGED_BASE" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "::error::changed-base must be a full commit SHA"; exit 1; }
-git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \\
-  || git fetch --no-tags --depth=1 origin "$CHANGED_BASE"
-git cat-file -e "$CHANGED_BASE^{commit}" 2>/dev/null \\
-  || { echo "::error::unable to resolve the exact changed-base commit"; exit 1; }
-`,
-      },
-      {
-        name: 'Run suite with coverage',
-        shell: 'bash',
-        'working-directory': '${{ inputs.working-directory }}',
-        env: {
-          NO_COLOR: '1',
-          TOLERATE_POOL_CRASH: '${{ inputs.tolerate-pool-crash }}',
-          CHANGED_BASE: '${{ inputs.changed-base }}',
-          CHANGED_LINE_THRESHOLD: '${{ inputs.changed-line-threshold }}',
-          PACKAGE_ROOT: '${{ inputs.working-directory }}',
-        },
-        run: `set -o pipefail
-status=0
-npm test -- --coverage --reporter=dot 2>&1 | tee /tmp/coverage.log || status=$?
-
-args=(/tmp/coverage.log "$status" "$TOLERATE_POOL_CRASH")
-if [ -n "$CHANGED_BASE" ]; then
-  args+=(
-    "$GITHUB_WORKSPACE/$PACKAGE_ROOT/coverage/lcov.info"
-    "$CHANGED_BASE"
-    "$PACKAGE_ROOT"
-    "$CHANGED_LINE_THRESHOLD"
-  )
-fi
-node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" "\${args[@]}"
-`,
-      },
-    ]);
+    const actionSource = JSON.stringify(coverageAction);
+    assert.match(actionSource, /actions\/download-artifact@/);
+    assert.match(actionSource, /merge-shard-coverage\.mjs/);
+    assert.match(actionSource, /check-coverage-result\.mjs/);
+    assert.doesNotMatch(actionSource, /npm test|vitest/);
   });
 });
 

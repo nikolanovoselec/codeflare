@@ -545,6 +545,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. OSSF Scorecard runs on a weekly schedule. <!-- @manual -->
 6. CodeQL runs on PRs to `main` and `develop`. <!-- @impl: .github/workflows/codeql.yml::pull_request = branches: [main, develop] --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-018/019: protected branch required-check triggers) -->
 7. CodeQL initialization, autobuild, and analysis run one compatible action release rather than mixing state formats across releases. <!-- @impl: .github/workflows/codeql.yml::github/codeql-action --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-019 AC7: CodeQL init, autobuild, and analyze use one compatible action release) -->
+8. CodeQL scans maintained runtime source once while excluding generated aggregates, vendored bundles, and non-runtime test trees. <!-- @impl: .github/codeql/codeql-config.yml::paths-ignore --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-019 AC8: CodeQL scans owned runtime source once) -->
 
 **Constraints:**
 
@@ -555,7 +556,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated protected-branch CodeQL trigger contract for AC6 and release-coherence contract for AC7; manual verification for AC1 through AC5.
+**Verification:** Automated protected-branch trigger, release-coherence, and maintained-source-scope contracts for AC6 through AC8; manual verification for AC1 through AC5.
 
 **Status:** Implemented
 
@@ -725,23 +726,23 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-022: Coverage-threshold gate fails closed on missing evidence
 
-**Intent:** Every affected pull request runs the existing package coverage gate, and coverage evidence fails closed when it is missing, malformed, below the practical global floor, or below the bounded changed-production-line floor.
+**Intent:** Every affected package produces coverage inside its test matrix, and merged evidence fails closed when it is missing, malformed, below the practical global floor, or below the bounded changed-production-line floor.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. The shared coverage action asserts the reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: runs affected coverage lanes on pull requests) -->
-6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/coverage-suite/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
+1. Coverage evaluation requires exactly one report from every expected package test shard. <!-- @impl: scripts/ci/merge-shard-coverage.mjs::mergeShardCoverage --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges every shard before enforcing package coverage) -->
+2. Global thresholds are evaluated only after all shard reports are merged. <!-- @impl: scripts/ci/merge-shard-coverage.mjs::mergeShardCoverage --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges every shard before enforcing package coverage) -->
+3. Backend and frontend package tests are not rerun in a standalone coverage lane. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
+4. A malformed merge, missing summary table, or reported threshold miss is fatal. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/merge-coverage/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+5. Pull requests merge backend and frontend coverage when their package path is affected; full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
+6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC5/AC6: merges affected package matrix coverage with package-specific changed-line floors) -->
 
 **Constraints:**
 
-- The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
-- `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
+- Matrix shards gate their own test result before their coverage evidence is accepted.
+- `set -o pipefail` is required around the merger so a failed threshold check cannot be hidden by `tee`.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
 - Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
 
@@ -895,7 +896,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) -->
+1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-029 AC1: writes reusable exact-tree evidence only after matrix and merge gates) -->
 2. When no automatically discovered receipt validates, manual deployment runs PR Checks inline. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission) -->
 3. An optional explicit run id checks only that run and fails closed instead of falling back. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 
@@ -1216,8 +1217,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `31314628668` completed the affected gate in 90 seconds and the workflow in 91 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
-2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
-3. Backend and frontend matrices expose all five and three legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend and frontend matrix leg concurrently) -->
+2. Every affected test matrix and independent workload starts directly after classification; coverage merging starts only after its owning matrix succeeds. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
+3. Backend, frontend, and host tests execute only through concurrent matrices with seven, three, and four legs respectively; no standalone package test rerun exists. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: runs backend, frontend, and host tests only as concurrent matrix legs) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
 5. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
 6. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
@@ -1228,7 +1229,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
 
-**Verification:** Automated direct-start, matrix-concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration check
+**Verification:** Automated direct-start, matrix-only coverage, concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration and lane-alignment check
 
 **Status:** Implemented
 
