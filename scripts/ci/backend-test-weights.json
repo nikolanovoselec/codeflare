@@ -1,5 +1,6 @@
 {
   "sourceRun": 32806388629,
+  "fileOverheadMs": 1200,
   "weights": {
     "src/__tests__/cloudflare-browser-interceptor.test.ts": 19,
     "src/__tests__/container-metrics.test.ts": 14769,

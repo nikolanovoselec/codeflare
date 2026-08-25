@@ -21,22 +21,24 @@ function collectTests(dir, output = []) {
   return output;
 }
 
-export function assignWeightedFiles(files, weights, groupCount) {
+export function assignWeightedFiles(files, weights, groupCount, fileOverheadMs = 0) {
   if (!Number.isSafeInteger(groupCount) || groupCount < 1) throw new Error('group count must be a positive integer');
+  if (!Number.isSafeInteger(fileOverheadMs) || fileOverheadMs < 0) throw new Error('file overhead must be a non-negative integer');
   if (new Set(files).size !== files.length) throw new Error('test file list contains duplicates');
   const knownWeights = Object.values(weights);
   if (knownWeights.length === 0 || knownWeights.some((weight) => !Number.isSafeInteger(weight) || weight < 1)) {
     throw new Error('test weights must be positive integers');
   }
   const unknownWeight = Math.max(...knownWeights);
+  const effectiveWeight = (file) => (weights[file] ?? unknownWeight) + fileOverheadMs;
   const groups = Array.from({ length: groupCount }, (_, index) => ({ index, weight: 0, files: [] }));
   for (const file of [...files].sort((left, right) => {
-    const weightDelta = (weights[right] ?? unknownWeight) - (weights[left] ?? unknownWeight);
+    const weightDelta = effectiveWeight(right) - effectiveWeight(left);
     return weightDelta || left.localeCompare(right);
   })) {
     groups.sort((left, right) => left.weight - right.weight || left.index - right.index);
     groups[0].files.push(file);
-    groups[0].weight += weights[file] ?? unknownWeight;
+    groups[0].weight += effectiveWeight(file);
   }
   return groups.sort((left, right) => left.index - right.index).map((group) => group.files.sort());
 }
@@ -49,7 +51,7 @@ export function selectBackendGroup(group, weightDocument = JSON.parse(readFileSy
   if (!Number.isSafeInteger(index) || index < 1 || index > count) throw new Error('group index is out of range');
   const nodeFiles = new Set(NODE_SUITE_FILES);
   const files = collectTests(join(ROOT, 'src')).filter((file) => !nodeFiles.has(file));
-  const groups = assignWeightedFiles(files, weightDocument.weights, count);
+  const groups = assignWeightedFiles(files, weightDocument.weights, count, weightDocument.fileOverheadMs);
   if (groups[index - 1].length === 0) throw new Error(`weighted backend group ${group} is empty`);
   return groups[index - 1];
 }

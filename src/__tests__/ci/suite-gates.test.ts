@@ -5,9 +5,9 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -25,6 +25,7 @@ const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
 const COVERAGE_MERGER = join(REPO, 'scripts/ci/merge-shard-coverage.mjs');
+const WEIGHTED_SELECTOR = join(REPO, 'scripts/ci/select-weighted-backend-tests.mjs');
 const CODE_SERVER_PIN_UPDATER = join(REPO, 'scripts/ci/update-code-server-pins.mjs');
 const SILVERBULLET_PIN_UPDATER = join(REPO, 'scripts/ci/update-silverbullet-pins.mjs');
 const SHADOW_PINS_WORKFLOW = join(REPO, '.github/workflows/bump-shadow-pins.yml');
@@ -248,7 +249,9 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
     };
-    const install = workflow.jobs['pi-prompt'].steps.find((step) => step.uses === './.github/actions/install-deps');
+    const install = workflow.jobs['pi-prompt'].steps.find(
+      (step) => step.uses === './.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
+    );
     expect(install?.with).toEqual({
       directory: 'preseed/agents/pi',
       'key-prefix': 'pi-prompt',
@@ -256,13 +259,34 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     });
 
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/install-deps/action.yml'), 'utf8')) as {
-      runs: { steps: Array<{ id?: string; uses?: string; if?: string; with?: { path?: string } }> };
+      runs: { steps: Array<{ id?: string; uses?: string; if?: string; run?: string; with?: { path?: string } }> };
     };
     const cache = action.runs.steps.find((step) => step.id === 'cache');
     const npmInstall = action.runs.steps.find((step) => step.if === "steps.cache.outputs.cache-hit != 'true'");
     expect(cache?.uses).toMatch(/^actions\/cache@/);
     expect(cache?.with?.path).toBe('${{ inputs.directory }}/node_modules');
-    expect(npmInstall).toBeDefined();
+    expect(npmInstall?.run).toBeTypeOf('string');
+
+    const fakeBin = join(work, 'bin');
+    const argsLog = join(work, 'timeout-args');
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, 'timeout'), '#!/bin/sh\nprintf "%s\\n" "$*" > "$ARGS_LOG"\n');
+    chmodSync(join(fakeBin, 'timeout'), 0o755);
+    const executeInstall = (ignoreScripts: string) => spawnSync('bash', ['-c', npmInstall!.run!], {
+      cwd: work,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ARGS_LOG: argsLog,
+        DIR: 'preseed/agents/pi',
+        IGNORE_SCRIPTS: ignoreScripts,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+      },
+    });
+    expect(executeInstall('true').status).toBe(0);
+    expect(readFileSync(argsLog, 'utf8')).toContain('npm ci --prefer-offline --no-audit --no-fund --ignore-scripts');
+    expect(executeInstall('false').status).toBe(0);
+    expect(readFileSync(argsLog, 'utf8')).not.toContain('--ignore-scripts');
   });
 
   it('audits production lockfiles without depending on restored node_modules trees', () => {
@@ -350,7 +374,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 4], ['frontend-tests', 3], ['host-tests', 2]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 7], ['frontend-tests', 3], ['host-tests', 2]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -364,21 +388,72 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'],
       { 'a.test.ts': 8, 'b.test.ts': 7, 'c.test.ts': 6, 'd.test.ts': 5 },
       2,
+      10,
     )).toEqual([
       ['a.test.ts', 'd.test.ts'],
       ['b.test.ts', 'c.test.ts'],
     ]);
 
+    const collect = (directory: string, output: string[] = []): string[] => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) collect(path, output);
+        else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
+          output.push(relative(REPO, path).replaceAll('\\', '/'));
+        }
+      }
+      return output;
+    };
+    const nodeFiles = new Set(NODE_SUITE_FILES);
+    const expectedWorkers = collect(join(REPO, 'src')).filter((file) => !nodeFiles.has(file)).sort();
+    const groups = Array.from({ length: 6 }, (_, index) => {
+      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/6`], {
+        cwd: REPO,
+        encoding: 'utf8',
+      });
+      expect(selected.status, selected.stderr).toBe(0);
+      const files = selected.stdout.trim().split('\n').filter(Boolean);
+      expect(files.length).toBeGreaterThan(0);
+      return files;
+    });
+    const selectedWorkers = groups.flat();
+    expect(new Set(selectedWorkers).size).toBe(selectedWorkers.length);
+    expect(selectedWorkers.sort()).toEqual(expectedWorkers);
+    expect(selectedWorkers.some((file) => nodeFiles.has(file))).toBe(false);
+
     const { testWorkflow } = readCacheWorkflowContract();
     const backend = testWorkflow.jobs['backend-tests'] as {
       strategy: { matrix: { include: Array<Record<string, string>> } };
     };
-    expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual(['1/3', '2/3', '3/3', '']);
+    expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
+      '1/6', '2/6', '3/6', '4/6', '5/6', '6/6', '',
+    ]);
     const host = testWorkflow.jobs['host-tests'] as {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };
     const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
     expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
+
+    const action = parseYaml(readFileSync(join(REPO, '.github/actions/vitest-suite/action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ name?: string; run?: string }> };
+    };
+    const notice = action.runs.steps.find((step) => step.name === 'Point at the report and the local repro');
+    const rendered = spawnSync('bash', ['-c', notice!.run!], {
+      cwd: REPO,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NAME: 'backend-shard-1',
+        ARTIFACT_URL: 'https://example.invalid/report',
+        DIR: '.',
+        SCRIPT: 'test',
+        SHARD: '',
+        BALANCE_GROUP: '1/6',
+      },
+    });
+    expect(rendered.status, rendered.stderr).toBe(0);
+    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/6');
+    expect(rendered.stdout).toContain('npm run test -- "${tests[@]}"');
   });
 
   it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {

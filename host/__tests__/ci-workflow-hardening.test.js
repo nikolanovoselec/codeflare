@@ -570,7 +570,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       ['coverage-backend', 'backend-tests', {
         'artifact-pattern': 'backend-shard-*',
         'artifact-prefix': 'backend-shard',
-        'expected-shards': '3',
+        'expected-shards': '6',
         slug: 'backend',
         'package-root': '.',
         'changed-base': '${{ github.event.pull_request.base.sha }}',

@@ -133,6 +133,10 @@ runs:
         # The run page shows a red X and 3,000 lines of dot-reporter output. Give
         # the reader the artifact link and the exact command that reproduces this
         # shard locally, so a failure is one paste away from a local repro.
-        REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}${BALANCE_GROUP:+ -- weighted-group=$BALANCE_GROUP}"
+        if [ -n "$BALANCE_GROUP" ]; then
+          REPRO="mapfile -t tests < <(node scripts/ci/select-weighted-backend-tests.mjs $BALANCE_GROUP); npm run $SCRIPT -- \"\${tests[@]}\""
+        else
+          REPRO="npm run $SCRIPT${SHARD:+ -- --shard=$SHARD}"
+        fi
         [ "$DIR" != "." ] && REPRO="(cd $DIR && $REPRO)"
         echo "::notice title=$NAME::report: ${ARTIFACT_URL:-<upload failed>} — reproduce locally with: $REPRO"
