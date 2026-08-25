@@ -1,13 +1,20 @@
 import type { Env, Session } from '../types';
-import { getSessionPrefix, listAllKvKeys, expandSessionMetadata, type SessionListMetadata } from './kv-keys';
+import { getSessionPrefix, getSessionStatusCorrectionPrefix, listAllKvKeys, expandSessionMetadata, type SessionListMetadata, type SessionStatusCorrectionMetadata } from './kv-keys';
 import { SESSION_ID_PATTERN } from './constants';
 
 /**
- * Strip userId and lastStatusCheck from a session for API responses.
- * Prevents leaking internal user identifiers and housekeeping fields to the client.
+ * Strip private fields and legacy inline runtime snapshots from general session
+ * responses. Batch status is the sole current readiness/metrics projection.
  */
 export function toApiSession(session: Session) {
-  const { userId: _userId, lastStatusCheck: _lastStatusCheck, ...apiSession } = session;
+  const {
+    userId: _userId,
+    lastStatusCheck: _lastStatusCheck,
+    metrics: _legacyMetrics,
+    editorReady: _legacyEditorReady,
+    editorReadyError: _legacyEditorReadyError,
+    ...apiSession
+  } = session;
   return apiSession;
 }
 
@@ -22,17 +29,22 @@ export async function listRunningSessionIds(
   env: Pick<Env, 'KV'>,
   bucketName: string,
 ): Promise<string[]> {
-  const keys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
+  const [keys, correctionKeys] = await Promise.all([
+    listAllKvKeys(env.KV, getSessionPrefix(bucketName)),
+    listAllKvKeys(env.KV, getSessionStatusCorrectionPrefix(bucketName)),
+  ]);
+  const correctedRunningIds = new Set(correctionKeys
+    .filter((key) => (key.metadata as SessionStatusCorrectionMetadata | null)?.r === 1)
+    .map((key) => key.name.split(':').pop()!));
   const runningSessionIds: string[] = [];
   const fallbackKeys: Array<{ name: string }> = [];
   for (const key of keys) {
     const meta = key.metadata as SessionListMetadata | null;
     if (meta && meta.s) {
-      if (expandSessionMetadata(meta).status === 'running') {
-        const lastColon = key.name.lastIndexOf(':');
-        const sid = lastColon >= 0 ? key.name.slice(lastColon + 1) : '';
-        if (sid && SESSION_ID_PATTERN.test(sid)) runningSessionIds.push(sid);
-      }
+      const lastColon = key.name.lastIndexOf(':');
+      const sid = lastColon >= 0 ? key.name.slice(lastColon + 1) : '';
+      if ((expandSessionMetadata(meta).status === 'running' || correctedRunningIds.has(sid))
+        && sid && SESSION_ID_PATTERN.test(sid)) runningSessionIds.push(sid);
     } else {
       fallbackKeys.push(key);
     }
@@ -42,7 +54,7 @@ export async function listRunningSessionIds(
       fallbackKeys.map((key) => env.KV.get<Session>(key.name, 'json')),
     );
     for (const session of fallbackSessions) {
-      if (session && session.status === 'running' && SESSION_ID_PATTERN.test(session.id)) {
+      if (session && (session.status === 'running' || correctedRunningIds.has(session.id)) && SESSION_ID_PATTERN.test(session.id)) {
         runningSessionIds.push(session.id);
       }
     }

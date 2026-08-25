@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
+import { getSessionStatusCorrectionKey } from '../../lib/kv-keys';
 
 // Hoisted mutable state so vi.mock() factory below can read the latest
 // per-test container behavior without re-defining the module mock.
@@ -20,6 +21,12 @@ const testState = vi.hoisted(() => ({
   // so we can verify concurrency-cap chunking semantics.
   fetchOrder: [] as Array<{ sessionId: string; t: number }>,
   resetForCappedTest: false,
+  healthHealthy: true,
+}));
+
+vi.mock('../../lib/container-helpers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/container-helpers')>()),
+  safeCheckContainerHealth: vi.fn(async () => ({ healthy: testState.healthHealthy })),
 }));
 
 vi.mock('@cloudflare/containers', () => ({
@@ -65,6 +72,7 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
     kv = createMockKV();
     testState.containerFetch.mockReset();
     testState.fetchOrder.length = 0;
+    testState.healthHealthy = true;
   });
 
   it('AC1: enumerates the user sessions and fans out only to running ones', async () => {
@@ -89,6 +97,18 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
     const results = await fanOutBisyncTrigger(buildEnv(kv), bucket);
 
     expect(results).toEqual([]);
+    expect(testState.containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-start a stopped container from a stale running correction', async () => {
+    const id = 'ffffffffffffffffffffffff';
+    seedSession(kv, bucket, id, 'stopped');
+    kv._set(getSessionStatusCorrectionKey(bucket, id), '1', { r: 1 });
+    testState.healthHealthy = false;
+
+    const results = await fanOutBisyncTrigger(buildEnv(kv), bucket);
+
+    expect(results).toEqual([{ sessionId: id, status: 'not-running' }]);
     expect(testState.containerFetch).not.toHaveBeenCalled();
   });
 

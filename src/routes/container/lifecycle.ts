@@ -14,7 +14,7 @@ import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdat
 import { isBucketMigrating } from '../../lib/r2-migration';
 import { getEffectiveTier } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
+import { clearSessionRunningCorrection, getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionEditorState, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { installedAgents } from '../../lib/agent-allowlist';
 import { containerLogger } from './shared';
@@ -109,16 +109,21 @@ export async function startOrRestartContainer(params: {
     };
   }
 
-  // Every path below starts a replacement container. Re-read KV so concurrent
-  // activity/metrics survive, then clear editor readiness before startup polling
-  // can expose Open for an editor that no longer exists.
+  // Every path below starts a replacement container. Re-read the durable
+  // session before changing lifecycle status, then reset the concern-owned
+  // readiness record before startup polling can expose a retired editor.
   const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
   const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
   await putSessionWithMetadata(env.KV, sessionKey, {
     ...sessionWithoutReadiness,
     status: 'running' as const,
-    ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
   });
+  await clearSessionRunningCorrection(env.KV, bucketName, sessionId).catch((error) => {
+    logger.warn('Failed to clear bounded running correction during start', { error: String(error) });
+  });
+  if (resolveSessionWorkspace(base.workspace) === 'vscode') {
+    await putSessionEditorState(env.KV, bucketName, sessionId, { editorReady: false });
+  }
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -133,6 +138,9 @@ export async function startOrRestartContainer(params: {
           if (freshSession) {
             const rolledBack = { ...freshSession, status: 'stopped' as const };
             await putSessionWithMetadata(env.KV, sessionKey, rolledBack);
+            await clearSessionRunningCorrection(env.KV, bucketName, sessionId).catch((err) => {
+              logger.warn('Failed to clear bounded running correction during rollback', { error: String(err) });
+            });
           }
         } catch (err) {
           logger.error('KV rollback to stopped failed', toError(err));

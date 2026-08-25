@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import statusRoutes from '../../routes/container/status';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
+import { getSessionEditorKey } from '../../lib/kv-keys';
 
 // ---------------------------------------------------------------------------
 // Mock container stub
@@ -382,10 +383,12 @@ describe('Container Status Routes', () => {
 
       const res = await app.request(`/container/startup-status${sessionQuery}`);
       const body = await res.json() as { stage: string; details: { editorReady: boolean; terminalServerOk: boolean } };
-      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean };
-
       expect(body).toMatchObject({ stage: 'ready', details: { editorReady: true, terminalServerOk: false } });
-      expect(stored.editorReady).toBe(true);
+      expect(mockKV.put).toHaveBeenCalledWith(
+        getSessionEditorKey('test-bucket', 'abcdef1234567890abcdef12'),
+        '',
+        { metadata: { er: 1 } },
+      );
     });
 
     it('REQ-IDE-050 AC1: preserves concurrent session fields when persisting readiness', async () => {
@@ -408,7 +411,12 @@ describe('Container Status Routes', () => {
       await app.request(`/container/startup-status${sessionQuery}`);
       const stored = await mockKV.get(key, 'json') as { name: string; editorReady?: boolean; metrics?: { cpu?: string } };
 
-      expect(stored).toMatchObject({ name: 'Renamed concurrently', editorReady: true, metrics: { cpu: '42%' } });
+      expect(stored).toMatchObject({ name: 'Renamed concurrently', editorReady: false, metrics: { cpu: '42%' } });
+      expect(mockKV.put).toHaveBeenCalledWith(
+        getSessionEditorKey('test-bucket', 'abcdef1234567890abcdef12'),
+        '',
+        { metadata: { er: 1 } },
+      );
     });
 
     it('REQ-IDE-050 AC1: does not recreate a session deleted while readiness resolves', async () => {

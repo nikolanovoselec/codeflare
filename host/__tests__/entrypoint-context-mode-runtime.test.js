@@ -25,7 +25,7 @@ function observeBridgeIdleEnv(inherited) {
       '\nconfigure_pi_jiti_runtime_cache\n',
       `\nconfigure_pi_jiti_runtime_cache ${JSON.stringify(home)}\n`,
     );
-  const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"`;
+  const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"\nenv -u NODE_OPTIONS node -e 'console.log("NODE_TMPDIR=" + require("node:os").tmpdir())'`;
   const env = { ...process.env, USER_TIMEZONE: '' };
   if (inherited === undefined) delete env.CONTEXT_MODE_BRIDGE_IDLE_MS;
   else env.CONTEXT_MODE_BRIDGE_IDLE_MS = inherited;
@@ -38,6 +38,14 @@ describe('REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reapi
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /BRIDGE_IDLE=180000/);
+  });
+
+  it('REQ-OPS-047: routes context-mode preload scratch through protected runtime TMPDIR', () => {
+    const result = observeBridgeIdleEnv(undefined);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /NODE_TMPDIR=.*\/run\/codeflare\/pi-tmp/);
+    assert.doesNotMatch(result.stdout, /NODE_TMPDIR=\/tmp(?:\/|$)/);
   });
 
   it('REQ-AGENT-076 AC7: creates no global override when the container environment omits one', () => {

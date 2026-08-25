@@ -131,7 +131,7 @@ describe('SessionStatCard', () => {
       [{ status: 'stopping', editorReady: true }, 'warning'],
       [{ status: 'stopped', editorReady: true }, 'default'],
       [{ status: 'running', editorReady: false, editorReadyError: true }, 'error'],
-    ] as const)('REQ-IDE-050 AC1: maps VS Code readiness %o to %s', (overrides, variant) => {
+    ] as const)('REQ-IDE-050 AC3: maps VS Code readiness %o to %s', (overrides, variant) => {
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', ...overrides })} />);
       expect(screen.getByTestId('session-stat-card-test-1').querySelector(`.session-stat-card__dot--${variant}`)).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe('SessionStatCard', () => {
       expect(onSelect).toHaveBeenCalled();
     });
 
-    it('REQ-IDE-050 AC1: makes a ready VS Code card the only Open interaction surface', () => {
+    it('REQ-IDE-050 AC2: makes a ready VS Code card the only Open interaction surface', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
 
@@ -236,6 +236,13 @@ describe('SessionStatCard', () => {
       expect(onMenuClick).toHaveBeenCalled();
       expect(onSelect).not.toHaveBeenCalled();
     });
+
+    it.each(['Enter', ' '])('does not activate the card when the kebab handles %p', (key) => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} onSelect={onSelect} />);
+      fireEvent.keyDown(screen.getByTitle('Session actions'), { key });
+      expect(onSelect).not.toHaveBeenCalled();
+    });
   });
 
   describe('Sleep timer icon', () => {
@@ -256,6 +263,17 @@ describe('SessionStatCard', () => {
       });
       render(() => <SessionStatCard {...defaultProps} session={session} />);
       expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--critical');
+    });
+
+    it.each(['Enter', ' '])('does not activate the card when the timer handles %p', (key) => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard
+        {...defaultProps}
+        onSelect={onSelect}
+        session={createSession({ status: 'running', lastActiveAt: new Date().toISOString() })}
+      />);
+      fireEvent.keyDown(screen.getByTestId('session-stat-card-test-1-timer'), { key });
+      expect(onSelect).not.toHaveBeenCalled();
     });
 
     it('hides timer when remaining >= 10 min', () => {

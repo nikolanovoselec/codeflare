@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, buildSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
+import { clearSessionRunningCorrection, getSessionKey, getSessionPrefix, getSessionEditorPrefix, getSessionMetricsPrefix, getSessionStatusCorrectionPrefix, hasSessionRunningCorrection, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, buildSessionMetadata, getPreferencesKey, type SessionEditorMetadata, type SessionListMetadata, type SessionMetricsMetadata, type SessionStatusCorrectionMetadata } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
 import { hasHealthyContainer, drainContainers } from '../../lib/migration-containers';
@@ -23,6 +23,7 @@ import type { UsageRecord } from '../../types';
 import { getActiveManagedRelease } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
+import { createLogger } from '../../lib/logger';
 
 /**
  * Check container health and PTY status for a session.
@@ -86,6 +87,7 @@ const sessionsSyncRateLimiter = createRateLimiter({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+const logger = createLogger('session-lifecycle');
 
 /**
  * GET /api/sessions/batch-status
@@ -105,10 +107,15 @@ app.get('/batch-status', async (c) => {
   const bucketName = c.get('bucketName');
   const prefix = getSessionPrefix(bucketName);
 
-  // Read session status/metrics from KV list metadata (zero individual KV.get calls).
-  // Keys written via putSessionWithMetadata() include compressed metadata.
-  // Fallback to KV.get for pre-migration keys without metadata.
-  const keys = await listAllKvKeys(c.env.KV, prefix);
+  // Read durable session fields plus concern-owned editor and metrics overlays.
+  // Runtime writers never replace the full session, so concurrent lifecycle and
+  // rename updates cannot be rolled back by a readiness or metrics tick.
+  const [keys, editorKeys, metricsKeys, correctionKeys] = await Promise.all([
+    listAllKvKeys(c.env.KV, prefix),
+    listAllKvKeys(c.env.KV, getSessionEditorPrefix(bucketName)),
+    listAllKvKeys(c.env.KV, getSessionMetricsPrefix(bucketName)),
+    listAllKvKeys(c.env.KV, getSessionStatusCorrectionPrefix(bucketName)),
+  ]);
 
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
@@ -138,6 +145,42 @@ app.get('/batch-status', async (c) => {
       if (countsTowardSessionLimit(session.status)) hasOwningSession = true;
       statuses[session.id] = expandSessionMetadata(buildSessionMetadata(session));
     }
+  }
+
+  for (const key of correctionKeys) {
+    const sessionId = key.name.split(':').pop()!;
+    const status = statuses[sessionId];
+    const meta = key.metadata as SessionStatusCorrectionMetadata | null;
+    if (!status || meta?.r !== 1) continue;
+    status.status = 'running';
+    status.ptyActive = status.editorReady === undefined;
+    hasOwningSession = true;
+  }
+
+  for (const key of editorKeys) {
+    const sessionId = key.name.split(':').pop()!;
+    const status = statuses[sessionId];
+    const meta = key.metadata as SessionEditorMetadata | null;
+    if (!status || !meta) continue;
+    status.editorReady = meta.er === 1;
+    status.ptyActive = false;
+    if (meta.ee === 1) status.editorReadyError = true;
+    else delete status.editorReadyError;
+  }
+
+  for (const key of metricsKeys) {
+    const sessionId = key.name.split(':').pop()!;
+    const status = statuses[sessionId];
+    const meta = key.metadata as SessionMetricsMetadata | null;
+    if (!status || !meta) continue;
+    if (meta.la) status.lastActiveAt = meta.la;
+    status.metrics = {
+      ...(meta.m.c && { cpu: meta.m.c }),
+      ...(meta.m.e && { mem: meta.m.e }),
+      ...(meta.m.h && { hdd: meta.m.h }),
+      ...(meta.m.y && { syncStatus: meta.m.y }),
+      ...(meta.m.u && { updatedAt: meta.m.u }),
+    };
   }
 
   const user = c.get('user');
@@ -292,6 +335,9 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
 
   const updated = { ...session, status: 'stopped' as const, lastStatusCheck: Date.now() };
   await putSessionWithMetadata(c.env.KV, key, updated);
+  await clearSessionRunningCorrection(c.env.KV, bucketName, sessionId).catch((error) => {
+    logger.warn('Failed to clear bounded running correction after stop', { error: String(error) });
+  });
 
   return c.json({ success: true, stopped: true, id: sessionId });
 });
@@ -310,8 +356,10 @@ app.get('/:id/status', async (c) => {
 
   const session = await getSessionOrThrow(c.env.KV, key);
 
-  // If KV says stopped, skip container probe to avoid waking the Durable Object
-  if (session.status === 'stopped') {
+  // A bounded live-status correction prevents a stale durable stopped value
+  // from hiding a demonstrably running container.
+  const runningCorrection = await hasSessionRunningCorrection(c.env.KV, bucketName, sessionId);
+  if (session.status === 'stopped' && !runningCorrection) {
     return c.json({
       session: toApiSession(session),
       containerStatus: 'stopped',

@@ -467,7 +467,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
+    it('REQ-IDE-050 AC4: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
       const sessionId = 'abcdef0123456789';
       mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
       mockActiveSessionId = sessionId;

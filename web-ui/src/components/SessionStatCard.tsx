@@ -90,7 +90,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
       onClick={select}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           select();
         }

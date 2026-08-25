@@ -140,7 +140,7 @@ Containers stop after configurable `sleepAfter` (15m, 30m, 1h, 2h, 4h) with no t
 |-----------|----------------|
 | Timekeeper DO | Per-user usage tracking: accumulates seconds per session, flushes to KV every 5 min, enforces monthly quotas |
 | Stateless dashboard | Pure KV reads for status polling; never touches DOs, preserving hibernation |
-| KV read optimization | Batch-status via list metadata, module-level caches with TTLs, reduces KV operations from ~910K/sec to ~350/sec at 1500 users |
+| KV read optimization | Batch-status uses bounded list-metadata reads for durable sessions plus runtime overlays, with individual reads only for legacy records; module-level caches retain explicit TTLs |
 
 ## Subscription Tiers (Default Configuration)
 

@@ -6,6 +6,7 @@ import type { Env, Session } from '../../types';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
+import { getSessionStatusCorrectionKey, putSessionRunningCorrection } from '../../lib/kv-keys';
 vi.mock('../../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return {
@@ -105,7 +106,7 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
 
       const putCalls = mockKV.put.mock.calls;
       const sessionPutCall = putCalls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('sessiontostop12345')
+        (call: unknown[]) => call[0] === 'session:test-bucket:sessiontostop12345'
       );
       expect(sessionPutCall).toBeDefined();
       const storedSession = JSON.parse(sessionPutCall![1] as string) as Session;
@@ -148,6 +149,26 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
       expect(body.success).toBe(true);
       expect(body.stopped).toBe(true);
       expect(body.id).toBe('sessiontostop12345');
+    });
+
+    it('keeps a confirmed stop successful when the bounded correction tombstone fails', async () => {
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'sessiontostop12345', name: 'To Stop', userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z', status: 'running',
+      };
+      const key = 'session:test-bucket:sessiontostop12345';
+      mockKV._set(key, session);
+      const originalPut = mockKV.put.getMockImplementation()!;
+      mockKV.put.mockImplementation(async (candidate, value, options) => {
+        if (candidate === getSessionStatusCorrectionKey('test-bucket', session.id)) throw new Error('tombstone failed');
+        await originalPut(candidate, value, options);
+      });
+
+      const res = await app.request('/sessions/sessiontostop12345/stop', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'stopped' });
     });
 
     it('returns 404 when session not found', async () => {
@@ -219,6 +240,21 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
 
       // Container should NOT be probed when KV says stopped
       expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+
+    it('probes a stopped durable session when a running correction is present', async () => {
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'sessionstatus12345', name: 'Corrected Session', userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z', status: 'stopped',
+      };
+      mockKV._set('session:test-bucket:sessionstatus12345', session);
+      await putSessionRunningCorrection(mockKV as unknown as KVNamespace, 'test-bucket', session.id);
+
+      const res = await app.request('/sessions/sessionstatus12345/status');
+
+      expect(res.status).toBe(200);
+      expect(testState.container!.fetch).toHaveBeenCalled();
     });
 
     it('probes container when session has no stopped status', async () => {

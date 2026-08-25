@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
+import { getSessionEditorKey, getSessionMetricsKey, getSessionStatusCorrectionKey } from '../../lib/kv-keys';
 
 // Mock dependencies before imports
 const mockResolveBucketName = vi.hoisted(() => vi.fn());
@@ -96,6 +97,9 @@ describe('cleanupUserData', () => {
     // Set up two sessions in KV
     mockKV._set(`session:${bucketName}:abcdef0123456789`, { id: 'abcdef0123456789', name: 'Session 1', userId: email, createdAt: '', lastAccessedAt: '' });
     mockKV._set(`session:${bucketName}:fedcba9876543210`, { id: 'fedcba9876543210', name: 'Session 2', userId: email, createdAt: '', lastAccessedAt: '' });
+    mockKV._set(getSessionEditorKey(bucketName, 'orphan0000000000'), '', { er: 1 });
+    mockKV._set(getSessionMetricsKey(bucketName, 'orphan0000000000'), '', { m: {} });
+    mockKV._set(getSessionStatusCorrectionKey(bucketName, 'orphan0000000000'), '1', { r: 1 });
     mockKV._store.set('setup:account_id', 'test-account-id');
 
     const result = await cleanupUserData(email, createEnv());
@@ -104,9 +108,17 @@ describe('cleanupUserData', () => {
     // Should have called getContainer + destroy for each session
     expect(mockGetContainer).toHaveBeenCalledTimes(2);
     expect(mockContainerDestroy).toHaveBeenCalledTimes(2);
-    // Session KV entries should be deleted
+    // Durable and concern-owned session KV entries should be deleted.
     expect(mockKV.delete).toHaveBeenCalledWith(`session:${bucketName}:abcdef0123456789`);
     expect(mockKV.delete).toHaveBeenCalledWith(`session:${bucketName}:fedcba9876543210`);
+    for (const id of ['abcdef0123456789', 'fedcba9876543210']) {
+      expect(mockKV.delete).toHaveBeenCalledWith(getSessionEditorKey(bucketName, id));
+      expect(mockKV.delete).toHaveBeenCalledWith(getSessionMetricsKey(bucketName, id));
+      expect(mockKV.delete).toHaveBeenCalledWith(getSessionStatusCorrectionKey(bucketName, id));
+    }
+    expect(mockKV.delete).toHaveBeenCalledWith(getSessionEditorKey(bucketName, 'orphan0000000000'));
+    expect(mockKV.delete).toHaveBeenCalledWith(getSessionMetricsKey(bucketName, 'orphan0000000000'));
+    expect(mockKV.delete).toHaveBeenCalledWith(getSessionStatusCorrectionKey(bucketName, 'orphan0000000000'));
   });
 
   it('deletes user:{email} from KV', async () => {

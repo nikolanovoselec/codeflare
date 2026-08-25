@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVscodeRequest, validateVscodeRoute } from '../../routes/vscode';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { getSessionEditorKey } from '../../lib/kv-keys';
 
 /**
  * Integration coverage for the browser-IDE auth chain + path forwarding.
@@ -181,7 +182,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-049 AC4: successful editor traffic reasserts readiness without losing concurrent session fields', async () => {
+  it('REQ-IDE-049 AC5: successful editor traffic reasserts readiness without losing concurrent session fields', async () => {
     mockKV._set(SESSION_KEY, {
       id: SID,
       name: 'Renamed concurrently',
@@ -203,10 +204,16 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     const stored = await mockKV.get<Session>(SESSION_KEY, 'json');
     expect(stored).toMatchObject({
       name: 'Renamed concurrently',
-      editorReady: true,
+      editorReady: false,
+      editorReadyError: true,
       metrics: { cpu: '42%' },
+      lastAccessedAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(stored?.editorReadyError).toBeUndefined();
+    expect(mockKV.put).toHaveBeenCalledWith(
+      getSessionEditorKey('test-bucket', SID),
+      '',
+      { metadata: { er: 1 } },
+    );
   });
 
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {

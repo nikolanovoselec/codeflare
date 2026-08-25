@@ -1082,7 +1082,7 @@ start_sync_daemon() {
 
             # Exit code 7 with missing listing files = no prior bisync state exists.
             # Skip straight to --resync instead of waiting for 3 failures.
-            local LISTING_GLOB="/home/user/.cache/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.path*.lst"
+            local LISTING_GLOB="$SYNC_RUNTIME_DIR/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.path*.lst"
             local HAS_LISTINGS=false
             # shellcheck disable=SC2086
             ls $LISTING_GLOB >/dev/null 2>&1 && HAS_LISTINGS=true
@@ -1311,7 +1311,8 @@ start_silverbullet_supervisor() {
 #
 # SESSION ISOLATION: the browser retains /api/vscode/<SESSION_ID>, while the host
 # strips only that exact prefix before code-server. --user-data-dir and the fixed
-# extension inventory are ephemeral under /tmp and /opt respectively. Only the
+# extension inventory are container-local under /run/codeflare/openvscode and
+# /opt respectively. Only the
 # bounded post-reap UI snapshot below crosses sessions; private openvscode function and
 # environment names remain intentionally during this bounded migration.
 # ============================================================================
@@ -1542,8 +1543,9 @@ _openvscode_capture_extensions() {
 # wraps this in a restart loop). The host strips the exact public session prefix,
 # so code-server serves root paths on loopback. Its own auth is disabled only
 # because the Worker + container bearer boundary already authenticated the
-# request. Live editor state remains ephemeral under /tmp; only the post-reap
-# REQ-IDE-002 UI allowlist persists. REQ-IDE-001/002/005/009/012.
+# request. Live editor state remains container-lifetime data under
+# /run/codeflare/openvscode; only the post-reap REQ-IDE-002 UI allowlist
+# persists across containers. REQ-IDE-001/002/005/009/012.
 _openvscode_launch_once() {
     local sidebar_agent base_extensions_dir extensions_dir data_dir
     local -a proposed_api_args=()

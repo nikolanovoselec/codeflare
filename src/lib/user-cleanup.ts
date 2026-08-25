@@ -6,7 +6,7 @@
  */
 import type { Env, Session } from '../types';
 import { resolveBucketName } from './access';
-import { getSessionPrefix, getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
+import { getSessionEditorKey, getSessionEditorPrefix, getSessionMetricsKey, getSessionMetricsPrefix, getSessionStatusCorrectionKey, getSessionStatusCorrectionPrefix, getSessionPrefix, getPushSubPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, getRegimeStateKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -57,9 +57,26 @@ async function deleteSessionsAndContainers(bucketName: string, env: Env): Promis
     } catch (err) {
       logger.warn('Failed to destroy container during user deletion', { sessionKey: key.name, error: String(err) });
     }
-    await env.KV.delete(key.name);
+    const sessionId = key.name.split(':').pop();
+    await Promise.all([
+      env.KV.delete(key.name),
+      ...(sessionId ? [
+        env.KV.delete(getSessionEditorKey(bucketName, sessionId)),
+        env.KV.delete(getSessionMetricsKey(bucketName, sessionId)),
+        env.KV.delete(getSessionStatusCorrectionKey(bucketName, sessionId)),
+      ] : []),
+    ]);
     deletedSessions++;
   }
+
+  // Delete orphan overlays too: a session may have been removed while a late
+  // readiness or metrics event was still settling.
+  const overlayGroups = await Promise.all([
+    listAllKvKeys(env.KV, getSessionEditorPrefix(bucketName)),
+    listAllKvKeys(env.KV, getSessionMetricsPrefix(bucketName)),
+    listAllKvKeys(env.KV, getSessionStatusCorrectionPrefix(bucketName)),
+  ]);
+  await Promise.all(overlayGroups.flat().map(({ name }) => env.KV.delete(name)));
   return deletedSessions;
 }
 

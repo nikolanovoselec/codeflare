@@ -3,6 +3,7 @@ import { handleWebSocketUpgrade, validateWebSocketRoute } from '../../routes/ter
 import { CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../../lib/constants';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { putSessionRunningCorrection } from '../../lib/kv-keys';
 
 // Mock dependencies
 vi.mock('../../lib/logger', () => ({
@@ -431,6 +432,51 @@ describe('handleWebSocketUpgrade', () => {
 
       // Should return 101 (WebSocket upgrade accepted then closed with 4503)
       expect(result.status).toBe(101);
+    });
+
+    it('forwards a stopped durable session when a running correction is present', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId, name: 'Test', userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z', status: 'stopped',
+      });
+      await putSessionRunningCorrection(mockKV as unknown as KVNamespace, 'test-bucket', sessionId);
+      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+        headers: { Upgrade: 'websocket', Origin: 'http://localhost' },
+      });
+      const env = { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env;
+      const routeResult = validateWebSocketRoute(request);
+      mockContainerFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok', terminalServiceReady: true }), { status: 200 }))
+        .mockResolvedValueOnce(new Response('ws upgrade', { status: 200 }));
+
+      await handleWebSocketUpgrade(request, env, { waitUntil: vi.fn() } as unknown as ExecutionContext, routeResult as any);
+
+      expect(mockContainerFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails closed when a running correction outlives the container', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId, name: 'Test', userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z', lastAccessedAt: '2026-01-01T00:00:00Z', status: 'stopped',
+      });
+      await putSessionRunningCorrection(mockKV as unknown as KVNamespace, 'test-bucket', sessionId);
+      mockContainerGetState.mockResolvedValueOnce({ status: 'stopped' });
+      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+        headers: { Upgrade: 'websocket', Origin: 'http://localhost' },
+      });
+      const env = { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env;
+
+      const result = await handleWebSocketUpgrade(
+        request,
+        env,
+        { waitUntil: vi.fn() } as unknown as ExecutionContext,
+        validateWebSocketRoute(request) as any,
+      );
+
+      expect(result.status).toBe(101);
+      expect(mockContainerFetch).not.toHaveBeenCalled();
     });
 
     it('does NOT burn WebSocket rate-limit budget when session is stopped (reconnect-storm protection)', async () => {

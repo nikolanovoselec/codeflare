@@ -10,6 +10,35 @@ import { createLogger } from './logger';
  * batch-status reads this instead of N individual KV.get calls.
  * Must fit within Cloudflare KV's 1024-byte metadata limit (~195 bytes worst case).
  */
+interface MetricsListMetadata {
+  /** cpu */
+  c?: string;
+  /** mem */
+  e?: string;
+  /** hdd */
+  h?: string;
+  /** syncStatus */
+  y?: string;
+  /** updatedAt */
+  u?: string;
+}
+
+export interface SessionEditorMetadata {
+  er: 0 | 1;
+  ee?: 1;
+}
+
+export interface SessionMetricsMetadata {
+  la?: string;
+  m: MetricsListMetadata;
+}
+
+export interface SessionStatusCorrectionMetadata {
+  r: 0 | 1;
+}
+
+const SESSION_STATUS_CORRECTION_TTL_SECONDS = 120;
+
 export interface SessionListMetadata {
   /** status: 'r' = running, 'i' = initializing, 's' = stopped */
   s?: 'r' | 'i' | 's';
@@ -21,26 +50,20 @@ export interface SessionListMetadata {
   er?: 0 | 1;
   /** Browser IDE bounded warm-up failure. */
   ee?: 1;
-  /** metrics */
-  m?: {
-    /** cpu */
-    c?: string;
-    /** mem */
-    e?: string;
-    /** hdd */
-    h?: string;
-    /** syncStatus */
-    y?: string;
-    /**
-     * updatedAt: wall-clock heartbeat re-stamped by collectMetrics every tick
-     * regardless of PTY input. For the metrics-staleness display ONLY - it is
-     * NOT a liveness signal (it freezes whenever the collectMetrics alarm loop
-     * is not running, e.g. during DO/container hibernation). Liveness comes from
-     * the authoritative KV `status`, written by the container lifecycle hooks
-     * (src/container/index.ts onStart/onStop/onError). A heartbeat-age heuristic
-     * here previously caused false "stopped" kicks; removed in codeflare#153.
-     */
-    u?: string;
+  /**
+   * Legacy inline metrics. New runtime metrics use a concern-owned key so
+   * metrics ticks cannot overwrite lifecycle or user edits to the session.
+   */
+  m?: MetricsListMetadata;
+}
+
+function buildMetricsListMetadata(metrics: Session['metrics']): MetricsListMetadata {
+  return {
+    ...(metrics?.cpu && { c: metrics.cpu }),
+    ...(metrics?.mem && { e: metrics.mem }),
+    ...(metrics?.hdd && { h: metrics.hdd }),
+    ...(metrics?.syncStatus && { y: metrics.syncStatus }),
+    ...(metrics?.updatedAt && { u: metrics.updatedAt }),
   };
 }
 
@@ -53,15 +76,7 @@ export function buildSessionMetadata(session: Session): SessionListMetadata {
     ...(typeof session.editorReady === 'boolean' && { er: session.editorReady ? 1 : 0 }),
     ...(session.editorReadyError === true && { ee: 1 }),
   };
-  if (session.metrics) {
-    meta.m = {
-      ...(session.metrics.cpu && { c: session.metrics.cpu }),
-      ...(session.metrics.mem && { e: session.metrics.mem }),
-      ...(session.metrics.hdd && { h: session.metrics.hdd }),
-      ...(session.metrics.syncStatus && { y: session.metrics.syncStatus }),
-      ...(session.metrics.updatedAt && { u: session.metrics.updatedAt }),
-    };
-  }
+  if (session.metrics) meta.m = buildMetricsListMetadata(session.metrics);
   return meta;
 }
 
@@ -106,6 +121,93 @@ export async function putSessionWithMetadata(
 ): Promise<void> {
   const metadata = buildSessionMetadata(session);
   await kv.put(key, JSON.stringify(session), { metadata });
+}
+
+export function getSessionEditorKey(bucketName: string, sessionId: string): string {
+  return `session-editor:${bucketName}:${sessionId}`;
+}
+
+export function getSessionEditorPrefix(bucketName: string): string {
+  return `session-editor:${bucketName}:`;
+}
+
+export function getSessionMetricsKey(bucketName: string, sessionId: string): string {
+  return `session-metrics:${bucketName}:${sessionId}`;
+}
+
+export function getSessionMetricsPrefix(bucketName: string): string {
+  return `session-metrics:${bucketName}:`;
+}
+
+export function getSessionStatusCorrectionKey(bucketName: string, sessionId: string): string {
+  return `session-status-correction:${bucketName}:${sessionId}`;
+}
+
+export function getSessionStatusCorrectionPrefix(bucketName: string): string {
+  return `session-status-correction:${bucketName}:`;
+}
+
+export async function putSessionEditorState(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+  state: { editorReady: boolean; editorReadyError?: boolean },
+): Promise<void> {
+  const metadata: SessionEditorMetadata = {
+    er: state.editorReady ? 1 : 0,
+    ...(state.editorReadyError === true && { ee: 1 }),
+  };
+  await kv.put(getSessionEditorKey(bucketName, sessionId), '', { metadata });
+}
+
+export async function putSessionMetricsState(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+  state: { lastActiveAt?: string; metrics: Session['metrics'] },
+): Promise<void> {
+  const metadata: SessionMetricsMetadata = {
+    ...(state.lastActiveAt && { la: state.lastActiveAt }),
+    m: buildMetricsListMetadata(state.metrics),
+  };
+  await kv.put(getSessionMetricsKey(bucketName, sessionId), '', { metadata });
+}
+
+async function putSessionStatusCorrection(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+  running: boolean,
+): Promise<void> {
+  const metadata: SessionStatusCorrectionMetadata = { r: running ? 1 : 0 };
+  await kv.put(getSessionStatusCorrectionKey(bucketName, sessionId), running ? '1' : '0', {
+    metadata,
+    expirationTtl: SESSION_STATUS_CORRECTION_TTL_SECONDS,
+  });
+}
+
+export function putSessionRunningCorrection(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+): Promise<void> {
+  return putSessionStatusCorrection(kv, bucketName, sessionId, true);
+}
+
+export function clearSessionRunningCorrection(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+): Promise<void> {
+  return putSessionStatusCorrection(kv, bucketName, sessionId, false);
+}
+
+export async function hasSessionRunningCorrection(
+  kv: KVNamespace,
+  bucketName: string,
+  sessionId: string,
+): Promise<boolean> {
+  return await kv.get(getSessionStatusCorrectionKey(bucketName, sessionId), 'text') === '1';
 }
 
 /**

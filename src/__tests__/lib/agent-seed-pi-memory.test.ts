@@ -345,10 +345,10 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(pi).toContain('immutable execution snapshot');
   });
 
-  it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
+  it('REQ-VAULT-004 / REQ-OPS-047 AC4: memory-vault.ts publishes through the protected global graph lock', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     // Serialised under the shared global-graph lock, tagged user_vault.
-    expect(mv?.content).toContain('/tmp/graphify-global.lock');
+    expect(mv?.content).toContain('/run/codeflare/locks/graphify-global.lock');
     expect(mv?.content).toContain('user_vault');
     // The extension re-publishes the cumulative vault-graph.json (written by
     // merge-vault-graph.py), never a competing per-run graph.json.

@@ -22,7 +22,7 @@
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
-import { putSessionWithMetadata } from '../lib/kv-keys';
+import { putSessionEditorState } from '../lib/kv-keys';
 import {
   REQUEST_ID_LENGTH,
   REQUEST_ID_PATTERN,
@@ -283,21 +283,14 @@ export async function handleVscodeRequest(
     const response = await container.fetch(forwardedRequest);
 
     // Successful editor traffic is direct evidence that the editor is ready.
-    // Re-read inside the background task so an older route snapshot cannot
-    // overwrite a concurrent rename, metrics update, or lifecycle transition.
+    // Readiness has its own KV record so this event cannot replace a concurrent
+    // rename, metrics update, or lifecycle transition on the durable session.
+    // Editor input recency remains owned by the host activity probe and metrics
+    // overlay; proxy traffic does not reorder durable session creation history.
     if (response.status < 400) {
-      ctx.waitUntil((async () => {
-        const fresh = await env.KV.get<Session>(sessionKey, 'json');
-        if (fresh) {
-          const { editorReadyError, ...current } = fresh;
-          void editorReadyError;
-          await putSessionWithMetadata(env.KV, sessionKey, {
-            ...current,
-            editorReady: true,
-            lastAccessedAt: new Date().toISOString(),
-          });
-        }
-      })().catch((err) => logger.warn('Failed to reassert editor readiness', { error: toErrorMessage(err) })));
+      ctx.waitUntil(putSessionEditorState(env.KV, bucketName, sessionId, {
+        editorReady: true,
+      }).catch((err) => logger.warn('Failed to reassert editor readiness', { error: toErrorMessage(err) })));
     }
     return response;
   } catch (err) {
