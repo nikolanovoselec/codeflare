@@ -160,25 +160,26 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!right) return;
     let raf = 0;
     const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measureLayout); };
-    // Re-measure on the two things that change the split. This is loop-free because
-    // measureLayout's measurement is a FIXED POINT (measureNatural reads the natural
-    // height with our own max-height removed), so a redundant re-measure returns the
-    // same value and the idempotent setters make it a no-op. (The #568 flicker came
-    // from measuring the face height WHILE our max-height was applied, so each measure
-    // perturbed the next — not from which element was observed.) The observers are also
-    // chosen so they cannot even see our writes:
-    //  - the column BOX resizing (viewport / orientation / header / banner reflow). The
-    //    column is `flex: 1; overflow: hidden`, sized by the OUTER layout, so the
-    //    max-height we set on its face CHILDREN can never change the column's own box.
-    //  - rows ADDED/REMOVED inside either panel (GitHub connect↔list↔load-more state,
-    //    storage show-hidden toggle, folder navigation, R2 readiness). childList only:
-    //    the max-height we set is a style ATTRIBUTE, which a childList observer ignores.
+    // Re-measure when the viewport, column box, or panel content changes. This is
+    // loop-free because measureNatural reads the natural height with our own max-height
+    // removed, so redundant measurements are idempotent. The #568 flicker came from
+    // measuring while our max-height was applied, not from which element was observed.
+    // Listen to viewport resize directly because a capped flip column can retain its old
+    // box size when the viewport grows, leaving ResizeObserver with nothing to report.
+    window.addEventListener('resize', schedule);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
     ro?.observe(right);
+    // Observe rows added or removed inside either panel. childList ignores the
+    // max-height style attributes written by measureLayout.
     const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
     mo?.observe(right, { childList: true, subtree: true });
     schedule(); // initial measure
-    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
+    onCleanup(() => {
+      window.removeEventListener('resize', schedule);
+      ro?.disconnect();
+      mo?.disconnect();
+      cancelAnimationFrame(raf);
+    });
   });
 
   onMount(() => {
