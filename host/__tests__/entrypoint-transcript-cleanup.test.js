@@ -26,8 +26,7 @@ const REPO_ROOT = join(__dirname, '..', '..');
 const ENTRYPOINT = join(REPO_ROOT, 'entrypoint.sh');
 const RETENTION_SCRIPT = join(REPO_ROOT, 'transcript-retention.mjs');
 
-function shellEnv(base) {
-  const runtimeRoot = join(base, '.runtime');
+function shellEnv(runtimeRoot) {
   const syncRuntimeDir = join(runtimeRoot, 'sync');
   mkdirSync(syncRuntimeDir, { recursive: true });
   return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, SYNC_RUNTIME_DIR: syncRuntimeDir };
@@ -54,9 +53,14 @@ function extractShellFragment(startMarker, endMarker) {
 
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
+  const runtimeRoot = mkdtempSync(join(tmpdir(), 'transcript-cleanup-runtime-'));
   return {
     dir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    runtimeRoot,
+    cleanup: () => {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(runtimeRoot, { recursive: true, force: true });
+    },
   };
 }
 
@@ -180,7 +184,7 @@ bisync_with_r2 '' || true
 
       execFileSync('bash', ['-c', shell, 'retention-test', scratch.dir, events, RETENTION_SCRIPT], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: shellEnv(scratch.dir),
+        env: shellEnv(scratch.runtimeRoot),
       });
 
       assert.equal(readFileSync(events, 'utf8').trim(), '10');
@@ -209,7 +213,7 @@ ${startupRelease}
 
       execFileSync('bash', ['-c', shell, 'retention-release-test', events, releaseFlag], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: shellEnv(scratch.dir),
+        env: shellEnv(scratch.runtimeRoot),
       });
 
       assert.equal(readFileSync(events, 'utf8'), 'cleanup\nrelease\n');
@@ -242,7 +246,7 @@ bisync_with_r2 ''
 
       execFileSync('bash', ['-c', shell, 'retention-failure-test', scratch.dir, events], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: shellEnv(scratch.dir),
+        env: shellEnv(scratch.runtimeRoot),
       });
 
       assert.equal(readFileSync(events, 'utf8'), 'cleanup-claude\ncleanup-pi\nrclone\n');

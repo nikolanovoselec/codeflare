@@ -36,6 +36,36 @@ function extractFunction(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
+/** Exercise the real baseline function with a controlled timeout result. */
+function runBaselineTimeout() {
+  const fixture = mkdtempSync(join(tmpdir(), 'baseline-timeout-'));
+  const runtimeRoot = join(fixture, 'runtime');
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  const recoveryFilter = join(syncRuntimeDir, 'recovery-filters.txt');
+  mkdirSync(join(syncRuntimeDir, 'rclone'), { recursive: true });
+  writeFileSync(recoveryFilter, '');
+
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME='${fixture}'`,
+    "R2_BUCKET_NAME='bucket'",
+    `RCLONE_CONFIG='${join(fixture, 'rclone.conf')}'`,
+    `RECOVERY_FILTER_FILE='${recoveryFilter}'`,
+    `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
+    'RCLONE_FILTERS=()',
+    'timeout() { return 124; }',
+    'recover_vanished_files() { return 1; }',
+    extractFunction('establish_bisync_baseline'),
+    'establish_bisync_baseline',
+  ].join('\n');
+
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const sentinelExists = existsSync(join(syncRuntimeDir, 'bisync-initialized'));
+  rmSync(fixture, { recursive: true, force: true });
+  return { result, sentinelExists };
+}
+
 /**
  * Run shutdown_once -> shutdown_handler in a real bash with stubbed
  * collaborators, mirroring production trap wiring (the EXIT trap re-fires
@@ -166,14 +196,9 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
   });
 
   it('REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs', () => {
-    // The flag must be touched on both the success path AND the timeout/error
-    // path of establish_bisync_baseline (structural: that function's runtime
-    // needs a real rclone).
-    const allTouches = [...entrypoint.matchAll(/touch \$CODEFLARE_RUNTIME_ROOT\/sync\/bisync-initialized/g)];
-    assert.ok(
-      allTouches.length >= 2,
-      'entrypoint.sh must touch protected bisync state on both the success path and the timeout/error path'
-    );
+    const timeout = runBaselineTimeout();
+    assert.equal(timeout.result.status, 0, timeout.result.stderr);
+    assert.equal(timeout.sentinelExists, true, 'a baseline timeout must create the protected bisync sentinel');
 
     // Behavioral: the handler gates the final bisync on the sentinel — absent
     // sentinel means no bisync attempt and an explicit skip line.
