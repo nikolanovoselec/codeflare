@@ -11,6 +11,8 @@ const rootLock = readJson('package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
 const npmToolsPackage = readJson('preseed/npm-tools/package.json');
 const npmToolsLock = readJson('preseed/npm-tools/package-lock.json');
+const oxlintPackage = readJson('image/oxlint/package.json');
+const oxlintLock = readJson('image/oxlint/package-lock.json');
 const piPackage = readJson('preseed/agents/pi/package.json');
 const piLock = readJson('preseed/agents/pi/package-lock.json');
 const browserRunPackage = readJson('preseed/agents/claude/browser-run-mcp/package.json');
@@ -55,7 +57,6 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       'consult-llm-mcp',
       'context-mode',
       'opencode-ai',
-      'oxlint',
     ];
 
     for (const tool of expectedTools) {
@@ -63,6 +64,12 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     }
     assert.deepEqual(npmToolsLock.packages[''].dependencies, npmToolsPackage.dependencies);
     assertCompleteIntegrityTree(npmToolsLock);
+  });
+
+  it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
+    assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
+    assertCompleteIntegrityTree(oxlintLock);
   });
 
   it('dedicated Pi, Browser Run MCP, and Wrangler locks match their manifests', () => {

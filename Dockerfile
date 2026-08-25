@@ -293,7 +293,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
 ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
+COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
 COPY scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
+RUN cd /opt/codeflare/oxlint && \
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
+    node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
+    [ -e node_modules/.bin/oxlint ] && \
+    ln -sf "$(readlink -f node_modules/.bin/oxlint)" /usr/local/bin/oxlint && \
+    oxlint --version
 RUN cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
@@ -303,7 +310,7 @@ RUN cd /opt/codeflare/npm-tools && \
     npm prune --omit=dev --ignore-scripts --no-audit --no-fund && \
     mv /tmp/npm-tools-package.json package.json && \
     mv /tmp/npm-tools-package-lock.json package-lock.json && \
-    for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp oxlint; do \
+    for b in bun bunx context-mode consult-llm-mcp chrome-devtools-mcp; do \
       [ -e "node_modules/.bin/$b" ] || { echo "ERROR: locked npm tool '$b' has no bin" >&2; exit 1; }; \
       ln -sf "$(readlink -f "node_modules/.bin/$b")" "/usr/local/bin/$b"; \
     done && \
@@ -327,7 +334,6 @@ RUN cd /opt/codeflare/npm-tools && \
     fi && \
     rm -rf node_modules/@oven && \
     bun --version && \
-    oxlint --version && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
