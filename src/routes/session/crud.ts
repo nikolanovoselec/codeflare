@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, resolveSessionWorkspace, type Env, type Session, type UserPreferences } from '../../types';
-import { getPreferencesKey, getSessionEditorKey, getSessionKey, getSessionMetricsKey, getSessionStatusCorrectionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getPreferencesKey, getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
@@ -263,15 +263,8 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
     throw err;
   }
 
-  // Delete the authoritative record after confirmed destruction. Runtime
-  // overlays are then best-effort cleanup: they are ignored without a durable
-  // session, and the only status correction also has a bounded TTL.
+  // Delete from KV only after confirmed container destruction.
   await c.env.KV.delete(key);
-  await Promise.allSettled([
-    c.env.KV.delete(getSessionEditorKey(bucketName, sessionId)),
-    c.env.KV.delete(getSessionMetricsKey(bucketName, sessionId)),
-    c.env.KV.delete(getSessionStatusCorrectionKey(bucketName, sessionId)),
-  ]);
 
   return c.json({ success: true, deleted: true, id: sessionId });
 });

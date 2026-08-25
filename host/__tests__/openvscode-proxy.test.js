@@ -8,7 +8,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -197,32 +196,11 @@ describe('requestOpenvscodeStart / REQ-IDE-003 AC2 (lazy-start trigger, idempote
     try { fs.rmSync(triggerPath, { force: true }); } catch { /* ignore */ }
   });
 
-  it('writes an injected trigger path on first call', () => {
+  it('REQ-OPS-048 AC3: writes the protected restart trigger on first call', () => {
     assert.equal(fs.existsSync(triggerPath), false);
     const created = requestOpenvscodeStart(triggerPath);
     assert.equal(created, true);
     assert.equal(fs.existsSync(triggerPath), true);
-  });
-
-  it('REQ-OPS-048 AC3: uses the protected production trigger by default', () => {
-    const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'openvscode-runtime-default-'));
-    fs.mkdirSync(path.join(runtimeRoot, 'openvscode'), { recursive: true });
-    const moduleUrl = new URL('../dist/vscode-proxy.js', import.meta.url).href;
-    const script = `
-      const { requestOpenvscodeStart } = await import(${JSON.stringify(moduleUrl)});
-      if (!requestOpenvscodeStart()) process.exit(1);
-    `;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-      encoding: 'utf8',
-      env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
-    });
-
-    try {
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(fs.existsSync(path.join(runtimeRoot, 'openvscode', 'requested')), true);
-    } finally {
-      fs.rmSync(runtimeRoot, { recursive: true, force: true });
-    }
   });
 
   it('is idempotent -- a second call does not rewrite and returns false', () => {

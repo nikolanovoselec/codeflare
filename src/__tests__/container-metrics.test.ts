@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
 import type { Session } from '../types';
-import { getSessionEditorKey, getSessionMetricsKey, getSessionStatusCorrectionKey } from '../lib/kv-keys';
 
 // ---------------------------------------------------------------------------
 // Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
@@ -23,13 +22,13 @@ const testState = vi.hoisted(() => ({
     hdd: '2.5GB',
     syncStatus: 'success',
   } as Record<string, string | boolean>,
+  beforeHealthResponse: undefined as (() => void) | undefined,
   tcpFetchShouldFail: false,
   hostProbeCalls: 0,
   activityFetchShouldFail: false,
   healthFetchShouldFail: false,
   activityStatus: 200,
   healthStatus: 200,
-  beforeHealthResponse: undefined as (() => void) | undefined,
   stopCalls: 0,
   stopFailuresRemaining: 0,
   scheduleCalls: [] as Array<[number, string]>,
@@ -541,12 +540,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(mockLogger.warn).not.toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', expect.anything());
     });
 
-    it('REQ-IDE-049 AC4: reasserts readiness without rolling back a concurrent session update', async () => {
+    it('REQ-IDE-049 AC4: fresh-merges metrics and repairs readiness after a concurrent session update', async () => {
       const key = 'session:test-bucket:testsession123456';
       testState.healthResult.editorReady = true;
       const initial: Session = {
         id: 'testsession123456',
-        name: 'Test',
+        name: 'Before health probe',
         userId: 'test-bucket',
         workspace: 'vscode',
         status: 'running',
@@ -556,25 +555,28 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
       };
       mockKV._set(key, initial);
-
       testState.beforeHealthResponse = () => {
-        mockKV._set(key, { ...initial, name: 'Renamed during health probe', metrics: { cpu: '42%' } });
+        const { editorReadyError: _staleError, ...concurrent } = initial;
+        mockKV._set(key, {
+          ...concurrent,
+          name: 'Updated during health probe',
+          editorReady: true,
+        });
       };
 
       await containerInstance.collectMetrics();
 
       const stored = await mockKV.get(key, 'json') as Session;
-      expect(stored).toMatchObject({ name: 'Renamed during health probe', metrics: { cpu: '42%' } });
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionEditorKey('test-bucket', 'testsession123456'),
-        '',
-        { metadata: { er: 1 } },
-      );
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionMetricsKey('test-bucket', 'testsession123456'),
-        '',
-        expect.objectContaining({ metadata: expect.objectContaining({ m: expect.objectContaining({ c: '45%' }) }) }),
-      );
+      expect(stored).toMatchObject({
+        name: 'Updated during health probe',
+        status: 'running',
+        editorReady: true,
+        metrics: { cpu: '45%', mem: '1024MB', hdd: '2.5GB', syncStatus: 'success' },
+      });
+      expect(stored.editorReadyError).toBeUndefined();
+      expect(mockKV.put.mock.calls.some(
+        ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
+      )).toBe(false);
     });
 
     it('should fetch health data from TCP port and write metrics to KV', async () => {
@@ -591,26 +593,30 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      // Metrics use a concern-owned metadata record for batch-status.
+      // Verify metrics written to session key (with metadata for batch-status)
+      expect(mockKV.put).toHaveBeenCalled();
       const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => call[0] === getSessionMetricsKey('test-bucket', 'testsession123456')
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
-      expect(putCall?.[2]).toEqual({
-        metadata: {
-          la: expect.any(String),
-          m: { c: '45%', e: '1024MB', h: '2.5GB', y: 'success', u: expect.any(String) },
-        },
-      });
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.metrics).toBeDefined();
+      expect(stored.metrics!.cpu).toBe('45%');
+      expect(stored.metrics!.mem).toBe('1024MB');
+      expect(stored.metrics!.hdd).toBe('2.5GB');
+      expect(stored.metrics!.syncStatus).toBe('success');
+      expect(stored.metrics!.updatedAt).toBeDefined();
     });
 
     // REQ-SESSION-018 AC4: a deliberate stop (persisted shutdown marker set by
     // destroy()/user Stop) must NOT be self-healed back to running. The marker
     // is persisted (DO storage), not an in-memory field, so it survives a DO
     // eviction mid-shutdown that would reset an in-memory flag.
-    it('skips the running correction when stopped and the persisted shutdown marker is set', async () => {
+    it('skips the metrics write when stopped AND the persisted shutdown marker is set (clobber-race guard)', async () => {
       // A POST /:id/stop has marked the session stopped and called destroy(),
-      // which persisted the shutdown marker. collectMetrics may retain its
-      // concern-owned metrics, but must not publish a running correction.
+      // which persisted the shutdown marker. collectMetrics must NOT re-put it
+      // (with status preserved OR re-asserted running), which would resurrect a
+      // session the user is deliberately stopping.
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -629,18 +635,18 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      expect(mockKV.put).not.toHaveBeenCalledWith(
-        getSessionStatusCorrectionKey('test-bucket', 'testsession123456'),
-        expect.anything(),
-        expect.anything(),
+      // No put to the session key (metrics write skipped; stopped left to settle).
+      const sessionPut = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
+      expect(sessionPut).toBeUndefined();
       expect(testState.scheduleCalls).toEqual([]);
     });
 
     // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
     // stopped (e.g. by onError on a transient error) self-heals back to running
     // rather than hanging falsely-stopped on the dashboard until a restart.
-    it('publishes a running correction when the container is alive but durable KV reads stopped', async () => {
+    it('re-asserts running when the container is alive but KV reads stopped and no shutdown marker is set (self-heal)', async () => {
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -656,17 +662,15 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'stopped' });
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionStatusCorrectionKey('test-bucket', 'testsession123456'),
-        '1',
-        { metadata: { r: 1 }, expirationTtl: 120 },
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionMetricsKey('test-bucket', 'testsession123456'),
-        '',
-        expect.objectContaining({ metadata: expect.objectContaining({ m: expect.objectContaining({ c: '45%' }) }) }),
-      );
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.status).toBe('running');
+      // Self-heal also restores the metrics payload in the same write.
+      expect(stored.metrics).toBeDefined();
+      expect(stored.metrics!.cpu).toBe('45%');
     });
 
     // REQ-SESSION-020: the watchdog must survive the failure it exists to detect.
@@ -772,7 +776,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         await containerInstance.collectMetrics();
 
         const putCall = mockKV.put.mock.calls.find(
-          (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
         expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
@@ -910,7 +914,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual(['container transport unresponsive after 3 complete probe failures']);
       expect(testState.stopCalls).toBe(0);
       const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
-        if (call[0] !== 'session:test-bucket:testsession123456') return false;
+        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
         try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
       });
       expect(stoppedWrite).toBeUndefined();
@@ -1653,7 +1657,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         await containerInstance.collectMetrics();
         expect(
           mockKV.put.mock.calls.find(
-            (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+            (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
           )
         ).toBeUndefined();
 
@@ -1662,7 +1666,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         await containerInstance.collectMetrics();
 
         const putCall = mockKV.put.mock.calls.find(
-          (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         );
         expect(putCall).toBeDefined();
         const stored = JSON.parse(putCall![1] as string) as Session;
@@ -1698,7 +1702,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
       expect((JSON.parse(putCall![1] as string) as Session).status).toBe('stopped');
@@ -1729,7 +1733,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
       expect(
         mockKV.put.mock.calls.find(
-          (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
         )
       ).toBeUndefined();
 
@@ -1739,7 +1743,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       await containerInstance.collectMetrics();
 
       const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
-        if (call[0] !== 'session:test-bucket:testsession123456') return false;
+        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
         try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
       });
       expect(stoppedWrite).toBeUndefined();
@@ -2307,7 +2311,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // Verify metrics are preserved (last-known values kept for dashboard display)
       expect(mockKV.put).toHaveBeenCalled();
       const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => call[0] === 'session:test-bucket:testsession123456'
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(putCall).toBeDefined();
       const stored = JSON.parse(putCall![1] as string) as Session;

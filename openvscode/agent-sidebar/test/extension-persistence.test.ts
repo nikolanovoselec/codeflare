@@ -72,8 +72,6 @@ import {
 } from '../src/extension-persistence.ts';
 
 const roots: string[] = [];
-const originalHome = process.env.HOME;
-const originalTmpdir = process.env.TMPDIR;
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'codeflare-extension-persistence-'));
@@ -185,10 +183,6 @@ afterEach(() => {
   delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
   delete process.env.REMOTE_CURATION_RELEASE_DIGEST;
   delete process.env.REMOTE_CURATION_MANIFEST_DIGEST;
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
-  if (originalTmpdir === undefined) delete process.env.TMPDIR;
-  else process.env.TMPDIR = originalTmpdir;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -813,7 +807,7 @@ test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), [...ids].sort());
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');
@@ -871,34 +865,6 @@ test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture prese
   assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions, {});
   assert.equal(host.warnings.length, 1, 'durable acknowledgement survives complete removal');
   assert.equal(kill.mock.calls.length, 2);
-});
-
-test('REQ-OPS-048 AC5: captures extension state after disposable cleanup', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'codeflare-extension-cleanup-'));
-  roots.push(root);
-  const runtimeRoot = join(root, 'runtime');
-  const extensionsDir = join(runtimeRoot, 'openvscode', 'data', 'extensions');
-  const manifestPath = join(root, 'home', '.codeflare', 'ide-extensions.json');
-  const syncPidFile = join(runtimeRoot, 'sync', 'sync-daemon.pid');
-  const disposableTmp = join(root, 'tmp');
-  mkdirSync(extensionsDir, { recursive: true });
-  mkdirSync(join(manifestPath, '..'), { recursive: true });
-  mkdirSync(join(syncPidFile, '..'), { recursive: true });
-  mkdirSync(disposableTmp, { recursive: true });
-  writeFileSync(join(disposableTmp, 'discarded'), 'temporary');
-  writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
-  host.extensions = [{ id: 'redhat.vscode-yaml', packageJSON: {} }];
-  process.env.HOME = join(root, 'home');
-  process.env.TMPDIR = disposableTmp;
-  process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR = extensionsDir;
-  process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST = manifestPath;
-  process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = syncPidFile;
-
-  rmSync(disposableTmp, { recursive: true, force: true });
-
-  assert.equal(await captureExtensionManifest({ extensionsDir, manifestPath, syncPidFile }), true);
-  assert.equal(existsSync(disposableTmp), false);
-  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).extensions['redhat.vscode-yaml'].version, '1.24.0');
 });
 
 test('REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata', async () => {

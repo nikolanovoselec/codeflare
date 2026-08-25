@@ -459,8 +459,6 @@ describe('Container Lifecycle - restart after a bucket change', () => {
       containerId: 'container-abc',
       sessionData: { id: 'sess123', status: 'running', lastActiveAt: 'STALE' } as unknown as Session,
       sessionKey: 'session:codeflare-test-example-com:sess123',
-      bucketName: 'codeflare-test-example-com',
-      sessionId: 'sess123',
       env: { KV: kv } as unknown as Env,
       shortContainerId: 'cont-abc',
       logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any,
@@ -474,10 +472,7 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     // destroy() left the record 'stopped'. The pre-destroy snapshot still reads
     // 'running', so trusting it would leave the record stopped for the whole boot
     // and the non-retryable 4503 gate would end the tab's reconnects.
-    const durableWrite = kv.put.mock.calls.find(
-      ([key]) => key === 'session:codeflare-test-example-com:sess123',
-    );
-    const written = JSON.parse(durableWrite?.[1] as string);
+    const written = JSON.parse(kv.put.mock.calls.at(-1)?.[1] as string);
     expect(written.status).toBe('running');
     // Re-read rather than spread the snapshot: spreading would revert the field
     // destroy() had just refreshed.

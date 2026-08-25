@@ -62,7 +62,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => testState.saasMode) }));
 vi.mock('../../lib/managed-release-active', () => ({
-  getActiveManagedRelease: vi.fn(async () => {
+  getCachedActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
     return testState.activeManagedRelease;
   }),

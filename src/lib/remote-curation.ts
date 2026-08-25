@@ -791,15 +791,11 @@ export async function resolveManagedEnvironmentRelease(input: {
   const state = await readFreshnessState(input.kv, input.stateKey);
   const lastChecked = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
   const freshnessAge = now.getTime() - lastChecked;
-  if (!input.requireFresh && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
+  if (!input.requireFresh && state.active && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
     const cachedActive = await readActiveWithFallback(input.cache, undefined);
-    const stateActive = state.active?.runtimeDependencyHash === expectedRuntimeHash ? state.active : undefined;
     if (cachedActive?.runtimeDependencyHash === expectedRuntimeHash
-      && (!stateActive || cachedActive.digest === stateActive.digest)
+      && cachedActive.digest === state.active.digest
       && await hasCachedRelease(input.cache, cachedActive)) {
-      if (!stateActive) {
-        await writeFreshnessState(input.kv, input.stateKey, { ...state, active: cachedActive });
-      }
       return { active: cachedActive, freshness: state.lastError ? 'degraded' : 'fresh', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
     }
   }
@@ -938,18 +934,17 @@ export async function resolveManagedEnvironmentRelease(input: {
     const message = safeError(error, input.token);
     const fallbackActive = await readActiveWithFallback(input.cache, state.active);
     const active = fallbackActive?.runtimeDependencyHash === expectedRuntimeHash ? fallbackActive : undefined;
-    const lastCheckedAt = active ? now.toISOString() : state.lastCheckedAt;
     const failedState: ManagedEnvironmentFreshnessState = {
       schemaVersion: 1,
       ...(state.etag ? { etag: state.etag } : {}),
       ...(active ? { active } : {}),
-      ...(lastCheckedAt ? { lastCheckedAt } : {}),
+      ...(state.lastCheckedAt ? { lastCheckedAt: state.lastCheckedAt } : {}),
       ...(state.patExpiresAt ? { patExpiresAt: state.patExpiresAt } : {}),
       lastError: message,
     };
     await writeFreshnessState(input.kv, input.stateKey, failedState);
     if (input.requireFresh) throw new Error(message);
-    return { active, freshness: 'degraded', lastCheckedAt, lastError: message };
+    return { active, freshness: 'degraded', lastCheckedAt: state.lastCheckedAt, lastError: message };
   }
 }
 
@@ -1379,6 +1374,34 @@ export async function configureManagedEnvironment(input: {
     }
     throw error;
   }
+}
+
+/**
+ * Read only the locally persisted managed-environment selection.
+ * Latency-sensitive request paths use this snapshot and leave repository/cache
+ * refresh to the dashboard reconciliation path.
+ */
+export async function readManagedEnvironmentSnapshot(
+  env: Pick<Env, 'KV'>,
+): Promise<{
+  configured: boolean;
+  enabled: boolean;
+  config?: ManagedEnvironmentConfig;
+  active?: ActiveManagedRelease;
+}> {
+  const config = await loadManagedEnvironmentConfig(env.KV, true);
+  if (!config) return { configured: false, enabled: false };
+  if (!config.enabled) return { configured: true, enabled: false, config };
+  const state = await readFreshnessState(env.KV, getManagedEnvironmentStateKey(config.configFingerprint));
+  const active = state.active?.runtimeDependencyHash === PRESEED_RUNTIME_DEPENDENCY_HASH
+    ? state.active
+    : undefined;
+  return {
+    configured: true,
+    enabled: true,
+    config,
+    ...(active ? { active } : {}),
+  };
 }
 
 export async function resolveManagedEnvironment(input: {

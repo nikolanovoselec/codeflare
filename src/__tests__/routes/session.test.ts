@@ -5,7 +5,6 @@ import type { Session } from '../../types';
 import { MAX_SESSION_NAME_LENGTH } from '../../lib/constants';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
-import { getSessionEditorKey, getSessionMetricsKey, getSessionStatusCorrectionKey } from '../../lib/kv-keys';
 
 // Mock container
 function createMockContainer(healthy = true) {
@@ -447,32 +446,6 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(body.deleted).toBe(true);
       expect(body.id).toBe('sessiontodelete123');
       expect(mockKV.delete).toHaveBeenCalledWith('session:test-bucket:sessiontodelete123');
-      expect(mockKV.delete).toHaveBeenCalledWith(getSessionEditorKey('test-bucket', session.id));
-      expect(mockKV.delete).toHaveBeenCalledWith(getSessionMetricsKey('test-bucket', session.id));
-      expect(mockKV.delete).toHaveBeenCalledWith(getSessionStatusCorrectionKey('test-bucket', session.id));
-    });
-
-    it('completes deletion when bounded overlay cleanup fails', async () => {
-      const app = createCrudApp();
-      const session: Session = {
-        id: 'overlaycleanup1234',
-        name: 'To Delete',
-        userId: 'test-bucket',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      };
-      const key = 'session:test-bucket:overlaycleanup1234';
-      mockKV._set(key, session);
-      const originalDelete = mockKV.delete.getMockImplementation()!;
-      mockKV.delete.mockImplementation(async (candidate) => {
-        if (candidate === getSessionStatusCorrectionKey('test-bucket', session.id)) throw new Error('cleanup failed');
-        await originalDelete(candidate);
-      });
-
-      const res = await app.request('/sessions/overlaycleanup1234', { method: 'DELETE' });
-
-      expect(res.status).toBe(200);
-      expect(await mockKV.get(key, 'json')).toBeNull();
     });
 
     it('returns 404 when session not found', async () => {

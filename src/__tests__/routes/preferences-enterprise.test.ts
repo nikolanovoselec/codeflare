@@ -70,7 +70,7 @@ describe('Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-EN
     expect(body.sessionMode).toBe('advanced');
   });
 
-  it('REQ-IDE-051 AC2: enterprise users may select VS Code without a stored session mode', async () => {
+  it('REQ-IDE-048 AC1: enterprise users may select VS Code without a stored session mode', async () => {
     const app = createApp({ ENTERPRISE_MODE: 'active' });
     const res = await app.request('/preferences', {
       method: 'PATCH',

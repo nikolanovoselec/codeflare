@@ -6,6 +6,7 @@ import {
   getManagedEnvironmentKeyFingerprint,
   getManagedEnvironmentPrefill,
   gzipBytes,
+  readManagedEnvironmentSnapshot,
   resolveManagedEnvironment,
   resolveManagedEnvironmentRelease,
   streamManagedReleaseDocuments,
@@ -15,7 +16,7 @@ import {
 } from '../../lib/remote-curation';
 import { getLegacyManagedReleaseCacheBucketName, type ActiveManagedRelease, type ManagedReleaseCache } from '../../lib/remote-curation-cache';
 import { createMockKV } from '../helpers/mock-kv';
-import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { getManagedEnvironmentPatKey, getManagedEnvironmentStateKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { MANAGED_RELEASE_LIMITS } from '../../../scripts/agent-seed-release-limits.mjs';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from '../../lib/agent-seed.generated';
 
@@ -632,7 +633,7 @@ describe('managed release resolver', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('REQ-AGENT-162 AC1: recovers missing freshness metadata from the verified cache without GitHub I/O', async () => {
+  it('REQ-AGENT-162 AC1: reads a stale verified snapshot without repository or cache I/O', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
@@ -642,38 +643,34 @@ describe('managed release resolver', () => {
       releaseId: 240,
       releaseTag: 'release-24',
       sourceCommit: 'a'.repeat(40),
-      runtimeDependencyHash: 'c'.repeat(64),
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
       activatedAt: '2026-08-18T00:00:00.000Z',
     };
-    const kv = createMockKV();
-    kv._store.set('state', JSON.stringify({
-      schemaVersion: 1,
-      lastCheckedAt: '2026-08-18T00:00:00.000Z',
-      lastError: 'Managed release signature is invalid',
-    }));
-    const fetcher = vi.fn();
-
-    const resolved = await resolveManagedEnvironmentRelease({
-      kv: kv as unknown as KVNamespace,
-      stateKey: 'state',
-      cache: resolverCache(active).cache,
+    const config = {
+      schemaVersion: 1 as const,
+      enabled: true,
       repository: 'acme/curation',
       repositoryId: 123456,
-      token: 'secret-pat',
       publicKeyHex: 'ab'.repeat(32),
-      expectedRuntimeHash: 'c'.repeat(64),
-      fetcher,
-      now: new Date('2026-08-18T00:04:59.000Z'),
-    });
-
-    expect(resolved).toEqual({
+      publicKeyFingerprint: '1'.repeat(16),
+      configFingerprint: 'f'.repeat(64),
+      cacheBucketName: 'managed-cache',
+    };
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(config));
+    kv._store.set(getManagedEnvironmentStateKey(config.configFingerprint), JSON.stringify({
+      schemaVersion: 1,
       active,
-      freshness: 'degraded',
       lastCheckedAt: '2026-08-18T00:00:00.000Z',
-      lastError: 'Managed release signature is invalid',
+      lastError: 'repository unavailable',
+    }));
+
+    await expect(readManagedEnvironmentSnapshot({ KV: kv as unknown as KVNamespace })).resolves.toEqual({
+      configured: true,
+      enabled: true,
+      config,
+      active,
     });
-    expect(fetcher).not.toHaveBeenCalled();
-    expect(JSON.parse(kv._store.get('state') ?? '{}')).toMatchObject({ active });
   });
 
   it('does not reuse a fresh cached release from a different build hash', async () => {
@@ -762,7 +759,7 @@ describe('managed release resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries', async () => {
+  it('REQ-SETUP-014 AC5: degraded diagnostics redact repository credentials', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
@@ -782,43 +779,24 @@ describe('managed release resolver', () => {
       lastCheckedAt: '2026-08-18T00:00:00.000Z',
       etag: '"etag"',
     }));
-    const fetcher = vi.fn(async () => { throw new Error('secret-pat failed during GitHub outage'); });
-    const cache = resolverCache(active).cache;
 
     const resolved = await resolveManagedEnvironmentRelease({
       kv: kv as unknown as KVNamespace,
       stateKey: 'state',
-      cache,
+      cache: resolverCache(active).cache,
       repository: 'acme/curation',
       repositoryId: 123456,
       token: 'secret-pat',
       publicKeyHex: 'ab'.repeat(32),
       expectedRuntimeHash: 'c'.repeat(64),
-      fetcher: fetcher as typeof fetch,
+      fetcher: vi.fn(async () => { throw new Error('secret-pat failed during GitHub outage'); }),
       now: new Date('2026-08-18T00:05:01.000Z'),
     });
 
     expect(resolved.active).toEqual(active);
     expect(resolved.freshness).toBe('degraded');
-    expect(resolved.lastCheckedAt).toBe('2026-08-18T00:05:01.000Z');
     expect(resolved.lastError).toContain('[redacted]');
     expect(resolved.lastError).not.toContain('secret-pat');
-
-    const repeated = await resolveManagedEnvironmentRelease({
-      kv: kv as unknown as KVNamespace,
-      stateKey: 'state',
-      cache,
-      repository: 'acme/curation',
-      repositoryId: 123456,
-      token: 'secret-pat',
-      publicKeyHex: 'ab'.repeat(32),
-      expectedRuntimeHash: 'c'.repeat(64),
-      fetcher: fetcher as typeof fetch,
-      now: new Date('2026-08-18T00:05:02.000Z'),
-    });
-
-    expect(repeated.freshness).toBe('degraded');
-    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement', async () => {

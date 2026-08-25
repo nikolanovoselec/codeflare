@@ -566,11 +566,13 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
   });
 
   it('REQ-OPS-022 AC5/AC6: merges affected package matrix coverage with package-specific changed-line floors', () => {
+    const backendCoverageShards = prChecks.jobs['backend-tests'].strategy.matrix.include
+      .filter((leg) => leg.coverage === 'true').length;
     for (const [jobName, matrixJob, inputs] of [
       ['coverage-backend', 'backend-tests', {
         'artifact-pattern': 'backend-shard-*',
         'artifact-prefix': 'backend-shard',
-        'expected-shards': '6',
+        'expected-shards': String(backendCoverageShards),
         slug: 'backend',
         'package-root': '.',
         'changed-base': '${{ github.event.pull_request.base.sha }}',

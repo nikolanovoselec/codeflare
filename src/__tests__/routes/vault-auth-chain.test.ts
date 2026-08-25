@@ -4,7 +4,6 @@ import { getVaultBucketToken } from '../../lib/vault-bucket-token';
 import { getVaultEncryptionKey } from '../../routes/vault/crypto';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { putSessionRunningCorrection } from '../../lib/kv-keys';
 
 /**
  * Integration coverage for the vault auth chain (CF-002).
@@ -390,20 +389,6 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
       const body = await response.json() as { code: string };
       expect(body.code).toBe('CONTAINER_STOPPED');
       expect(mockContainerFetch).not.toHaveBeenCalled();
-    });
-
-    it('accepts a stopped durable session with a running correction', async () => {
-      mockKV._set(SESSION_KEY, {
-        id: SID, name: 'Test', userId: 'test-bucket',
-        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z', status: 'stopped',
-      });
-      await putSessionRunningCorrection(mockKV as unknown as KVNamespace, 'test-bucket', SID);
-
-      const request = tokenRequest();
-      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
-
-      expect(response.status).not.toBe(503);
-      expect(mockContainerFetch).toHaveBeenCalled();
     });
   });
 

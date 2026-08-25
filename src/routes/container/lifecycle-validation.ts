@@ -10,7 +10,7 @@ import type { Env, Session } from '../../types';
 import { NotFoundError, QuotaExceededError } from '../../lib/error-types';
 import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
-import { getSessionKey, getSessionStatusCorrectionPrefix, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, type SessionListMetadata, type SessionStatusCorrectionMetadata } from '../../lib/kv-keys';
+import { getSessionKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, type SessionListMetadata } from '../../lib/kv-keys';
 
 /** Running and in-flight starts both consume a concurrent-session slot. */
 export function countsTowardSessionLimit(status: string | undefined): boolean {
@@ -82,13 +82,7 @@ export async function validateSessionAndCheckLimits(params: {
     // Session limit: tier-based in SaaS mode, role-based otherwise.
     // Uses list metadata to count running sessions (zero individual KV.get calls).
     const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
-    const [sessionKeys, correctionKeys] = await Promise.all([
-      listAllKvKeys(env.KV, getSessionPrefix(bucketName)),
-      listAllKvKeys(env.KV, getSessionStatusCorrectionPrefix(bucketName)),
-    ]);
-    const correctedRunningIds = new Set(correctionKeys
-      .filter((key) => (key.metadata as SessionStatusCorrectionMetadata | null)?.r === 1)
-      .map((key) => key.name.split(':').pop()!));
+    const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
     // Count running sessions from authoritative KV status (the container
     // writes 'stopped' on exit, so no read-side staleness reconciliation).
     let runningCount = 0;
@@ -98,12 +92,12 @@ export async function validateSessionAndCheckLimits(params: {
         // Fast path: read status from list metadata. `i` remains accepted for
         // compatibility with legacy initializing metadata.
         const keySessionId = key.name.split(':').pop();
-        if ((countsTowardSessionLimit(rawMeta.s) || (keySessionId && correctedRunningIds.has(keySessionId))) && keySessionId !== sessionId) runningCount++;
+        if (countsTowardSessionLimit(rawMeta.s) && keySessionId !== sessionId) runningCount++;
       } else {
         // Fallback: pre-migration key without metadata
         const s = await env.KV.get<Session>(key.name, 'json');
         if (!s || s.id === sessionId) continue;
-        if (countsTowardSessionLimit(s.status as string | undefined) || correctedRunningIds.has(s.id)) runningCount++;
+        if (countsTowardSessionLimit(s.status as string | undefined)) runningCount++;
       }
     }
 

@@ -263,7 +263,7 @@ describe('Container Lifecycle Routes', () => {
       expect(body.workspaceSyncEnabled).toBe(true);
     });
 
-    it('REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences', async () => {
+    it('REQ-IDE-048 AC2: starts from the immutable session workspace instead of current preferences', async () => {
       const fetch = createLifecycleApp('my-bucket');
       mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12',

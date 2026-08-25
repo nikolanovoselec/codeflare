@@ -12,7 +12,7 @@ import {
   fetchWithTimeout,
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
-import { getSessionKey, putSessionEditorState } from '../../lib/kv-keys';
+import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -273,14 +273,18 @@ app.get('/startup-status', async (c) => {
         return c.json(buildSyncFailedResponse(response, healthData, cStatus));
       }
       if (healthData.editorReady === true) {
-        await putSessionEditorState(c.env.KV, bucketName, sessionId, { editorReady: true });
+        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
+        if (freshSession && (freshSession.editorReady !== true || freshSession.editorReadyError === true)) {
+          const { editorReadyError: _previousEditorError, ...sessionWithoutError } = freshSession;
+          await putSessionWithMetadata(c.env.KV, sessionKey, { ...sessionWithoutError, editorReady: true });
+        }
         return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));
       }
       if (healthData.editorReadyTimedOut === true) {
-        await putSessionEditorState(c.env.KV, bucketName, sessionId, {
-          editorReady: false,
-          editorReadyError: true,
-        });
+        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
+        if (freshSession && freshSession.editorReadyError !== true) {
+          await putSessionWithMetadata(c.env.KV, sessionKey, { ...freshSession, editorReady: false, editorReadyError: true });
+        }
         response.stage = 'error';
         response.progress = 0;
         response.message = 'VS Code did not become ready. Retry starting the session.';

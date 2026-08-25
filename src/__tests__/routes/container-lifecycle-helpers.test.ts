@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { getSessionEditorKey } from '../../lib/kv-keys';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -162,7 +161,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ).rejects.toThrow('Session');
     });
 
-    it('REQ-SESSION-028 AC1: reads metadata-less legacy sessions when enforcing the limit', async () => {
+    it('throws RateLimitError when at max sessions', async () => {
       // Seed 3 running sessions
       const sessionKeys = [];
       for (let i = 1; i <= 3; i++) {
@@ -197,28 +196,6 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
           maxSessions: 3,
         })
       ).rejects.toThrow('Session limit reached');
-    });
-
-    it('counts a stopped durable session with a running correction toward the limit', async () => {
-      mockKV._set('session:bucket:corrected000001', {
-        id: 'corrected000001', name: 'Corrected', status: 'stopped', createdAt: '2024-01-01T00:00:00Z',
-      });
-      mockKV._set('session:bucket:newsession1234', {
-        id: 'newsession1234', name: 'New', status: 'stopped', createdAt: '2024-01-01T00:00:00Z',
-      });
-      mockListAllKvKeys.mockImplementation(async (_kv, prefix) => prefix === 'session-status-correction:bucket:'
-        ? [{ name: 'session-status-correction:bucket:corrected000001', metadata: { r: 1 } }]
-        : [
-            { name: 'session:bucket:corrected000001', metadata: { s: 's' } },
-            { name: 'session:bucket:newsession1234', metadata: { s: 's' } },
-          ]);
-
-      await expect(validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace } as Env,
-        bucketName: 'bucket',
-        sessionId: 'newsession1234',
-        maxSessions: 1,
-      })).rejects.toThrow('Session limit reached');
     });
 
     // Defensive behavior for an invalid combined-mode deployment: Enterprise still
@@ -527,8 +504,6 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       containerId: 'bucket-session1234',
       sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
-      bucketName: 'bucket',
-      sessionId: 'session1234',
       env: { KV: mockKV as unknown as KVNamespace } as Env,
       shortContainerId: 'bucket-ses',
       logger: mockLogger as any,
@@ -587,17 +562,8 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode' });
-      expect(stored.editorReady).toBeUndefined();
+      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false });
       expect(stored.editorReadyError).toBeUndefined();
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionEditorKey('bucket', 'session1234'),
-        '',
-        { metadata: { er: 0 } },
-      );
-      const keys = mockKV.put.mock.calls.map(([key]) => key);
-      expect(keys.indexOf(getSessionEditorKey('bucket', 'session1234')))
-        .toBeLessThan(keys.indexOf('session:bucket:session1234'));
     });
 
     it('clears stale readiness when KV says running but the container is stopped', async () => {
@@ -612,13 +578,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       await startOrRestartContainer(params);
 
       const stored = await mockKV.get('session:bucket:session1234', 'json') as Session;
-      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', lastActiveAt: '2024-01-02T00:00:00Z' });
-      expect(stored.editorReady).toBeUndefined();
-      expect(mockKV.put).toHaveBeenCalledWith(
-        getSessionEditorKey('bucket', 'session1234'),
-        '',
-        { metadata: { er: 0 } },
-      );
+      expect(stored).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: false, lastActiveAt: '2024-01-02T00:00:00Z' });
       expect(container.startAndWaitForPorts).toHaveBeenCalledTimes(1);
     });
 

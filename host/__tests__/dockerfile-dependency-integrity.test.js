@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
+
+import { MANAGED_RUNTIME_LOCK_PATHS } from '../../scripts/agent-seed-core.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
@@ -11,12 +14,15 @@ const rootLock = readJson('package-lock.json');
 const sidebarLock = readJson('openvscode/agent-sidebar/package-lock.json');
 const npmToolsPackage = readJson('preseed/npm-tools/package.json');
 const npmToolsLock = readJson('preseed/npm-tools/package-lock.json');
+const oxlintPackage = readJson('image/oxlint/package.json');
+const oxlintLock = readJson('image/oxlint/package-lock.json');
 const piPackage = readJson('preseed/agents/pi/package.json');
 const piLock = readJson('preseed/agents/pi/package-lock.json');
 const browserRunPackage = readJson('preseed/agents/claude/browser-run-mcp/package.json');
 const browserRunLock = readJson('preseed/agents/claude/browser-run-mcp/package-lock.json');
 const wranglerPackage = readJson('.github/npm-tools/wrangler/package.json');
 const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
+const dependabot = parseYaml(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8'));
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -62,6 +68,44 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     }
     assert.deepEqual(npmToolsLock.packages[''].dependencies, npmToolsPackage.dependencies);
     assertCompleteIntegrityTree(npmToolsLock);
+  });
+
+  it('Codex platform license exceptions match exact Apache-2.0 lock metadata', () => {
+    const platforms = [
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-arm64',
+      'linux-x64',
+      'win32-arm64',
+      'win32-x64',
+    ];
+    for (const platform of platforms) {
+      const metadata = npmToolsLock.packages[`node_modules/@openai/codex-${platform}`];
+      assert.equal(metadata.version, `0.147.0-${platform}`);
+      assert.equal(metadata.license, 'Apache-2.0');
+      assert.match(metadata.integrity, /^sha512-/);
+    }
+  });
+
+  it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
+    assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
+    assertCompleteIntegrityTree(oxlintLock);
+  });
+
+  it('image-owned Oxlint stays outside managed and shared runtime manifests', () => {
+    assert.equal(npmToolsPackage.dependencies.oxlint, undefined);
+    assert.equal(piPackage.dependencies.oxlint, undefined);
+    assert.equal(MANAGED_RUNTIME_LOCK_PATHS.includes('image/oxlint/package-lock.json'), false);
+  });
+
+  it('image-owned Oxlint has dedicated weekly dependency automation', () => {
+    const update = dependabot.updates.find((entry) => entry.directory === '/image/oxlint');
+    assert.equal(update?.['package-ecosystem'], 'npm');
+    assert.equal(update?.['target-branch'], 'develop');
+    assert.equal(update?.schedule?.interval, 'weekly');
+    assert.equal(update?.cooldown?.['default-days'], 7);
+    assert.equal(update?.cooldown?.['semver-major-days'], 30);
   });
 
   it('dedicated Pi, Browser Run MCP, and Wrangler locks match their manifests', () => {

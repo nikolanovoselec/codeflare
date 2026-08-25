@@ -103,7 +103,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. After session initialization, a VS Code workspace starts the editor without a browser request, while a Terminal workspace keeps the editor stopped until an eligible request arrives. <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (complete_managed_curation_startup / REQ-IDE-053 AC1/AC2 (workspace launch)) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
+1. After session initialization, a VS Code workspace starts the editor without a browser request, while a Terminal workspace keeps the editor stopped until an eligible request arrives. <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace launch)) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)) -->
 2. Repeated initial editor requests trigger only one start request. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (requestOpenvscodeStart / REQ-IDE-003 AC2 (lazy-start trigger, idempotent)) -->
 3. While the editor starts, the browser retries automatically until it becomes ready, or gives up and reports failure. This covers both waits a tab can land in: the container becoming healthy and the editor binding inside it. <!-- @impl: host/src/vscode-proxy.ts::vscodeWarmingResponse --> <!-- @impl: src/routes/vscode.ts::warmingPage --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeWarmingResponse / REQ-IDE-003 AC3 (bounded warming)) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: an unhealthy container answers a navigable request with a refreshing HTML page) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: the warming page gives up instead of refreshing forever) --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeWarmingResponse / REQ-IDE-003 AC3 (auto-refreshing warming page, not raw JSON)) --> <!-- @test: host/__tests__/request-router.test.js (REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and resets on success) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: the warming page reports the real wait and carries the same start forward) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: a future start is rejected instead of pinning the tab on the warming page) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-003 AC3: a healthy container takes the episode start back out of the tab URL) -->
 4. The editor becomes available again after an unexpected interruption. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, restart on exit)) -->
@@ -296,7 +296,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - Disabling workspace trust removes VS Code's own gate on untrusted repository input; the container is the security boundary and IDE agents already run fully unrestricted ([REQ-IDE-007](#req-ide-007-ide-guarded-approval), [AD114](../../documentation/decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)).
 - The upstream code-server artifact stays unmodified under [AD119](../../documentation/decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy).
-- The seeded settings live only in the container-local code-server `--user-data-dir` under `/run/codeflare/openvscode` and never persist with workspace files ([REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable)).
+- The seeded settings live only in the ephemeral code-server `--user-data-dir` under `/tmp` and never persist with workspace files ([REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable)).
 
 **Priority:** P2
 
@@ -1040,9 +1040,9 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Persisted extension records remain inside the documented identity, count, type, and version bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 2. Persisted contributed User settings remain inside the documented key, value, type, and size bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 3. Malformed, oversized, redirected, noncanonical, or unknown persisted content remains byte-for-byte unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchanged) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 
 **Constraints:**
 
@@ -1108,7 +1108,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
 3. A later restore does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
 4. A later capture does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) -->
-5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) -->
+5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
 6. A fresh activation does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning) -->
 
 **Constraints:**
@@ -1347,7 +1347,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 1. Every Browser IDE inventory sets the Linux integrated-terminal default profile to `Bash` for a Terminal workspace and `Codeflare Session Agent` for a VS Code workspace. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: VS Code workspaces default every inventory to the session agent profile) -->
 2. Opening the `Bash` profile starts a login shell without automatically starting the configured agent. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) -->
-3. Opening the separate `Codeflare Session Agent` profile starts a login shell and retains configured-agent autostart. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-053 AC3: reconnect creates exactly one managed session-agent terminal) -->
+3. Opening the separate `Codeflare Session Agent` profile starts a login shell and retains configured-agent autostart. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent terminal) -->
 4. Both terminal settings are managed for Pi, Claude, and unsupported IDE inventories so restored user settings cannot silently retain the former default. <!-- @impl: openvscode/claude/managed-settings.mjs::MANAGED_OPENVSCODE_SETTING_KEYS --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) -->
 
 **Constraints:** The terminal profiles reuse existing shell initialization; they do not add another launcher, shell script, or agent process.
@@ -1362,102 +1362,32 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-051: Default workspace preference
+### REQ-IDE-048: Default workspace and dashboard-owned VS Code sessions
 
-**Intent:** Entitled users can choose the workspace used by future sessions.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Advanced and enterprise users can select Terminal or VS Code as the future default, while Standard users are not offered VS Code. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::handleDefaultWorkspaceChange --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (default workspace selection) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Default Workspace) -->
-2. Preference updates persist Terminal or entitled VS Code values and reject invalid or unentitled values. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-051 AC2: accepts VS Code only for an Advanced preference) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (REQ-IDE-051 AC2: enterprise users may select VS Code without a stored session mode) -->
-3. Switching to Standard atomically resets only the future workspace default to Terminal. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-051 AC3: resets VS Code default atomically when switching to Standard) -->
-
-**Constraints:** None.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
-
-**Verification:** Settings selector and preference validation tests
-
-**Status:** Implemented
-
----
-
-### REQ-IDE-052: Immutable session workspace snapshot
-
-**Intent:** Every created session keeps its original resolved workspace.
+**Intent:** Advanced users can choose the workspace used by future sessions while each created session keeps one stable, surface-specific lifecycle.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. New sessions snapshot the resolved default workspace. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot) -->
-2. Later preference or mode changes do not alter an existing session's workspace snapshot. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (keeps an existing VS Code snapshot unchanged after a Standard downgrade) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) -->
-3. New sessions with missing, invalid, or no-longer-entitled defaults snapshot Terminal. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-052 AC1/AC2/AC3/AC4: immutable session workspace snapshot) -->
-4. Historical sessions without a valid workspace snapshot resolve to Terminal. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/types.ts::resolveSessionWorkspace --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC4 / REQ-IDE-052 AC4: historical sessions resolve to Terminal) --> <!-- @test: src/__tests__/lib/session-workspace.test.ts (REQ-IDE-052 AC4: session workspace contract) -->
+1. A new session snapshots the user's entitled default workspace; missing, invalid, or no-longer-entitled values resolve to Terminal, and later preference or mode changes do not alter existing sessions. <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-IDE-048 AC1: resets VS Code default atomically when switching to Standard) --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-IDE-048 AC1: immutable session workspace snapshot) -->
+2. A VS Code session remains dashboard-owned during creation, startup, selection, cloning, and deep links; it does not enter terminal routes, open terminal WebSockets, or join terminal MultiView. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: dashboard selection keeps a running VS Code session dashboard-owned) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (normalizes a VS Code session deep link to the dashboard without terminal or popup ownership) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) -->
+3. After container initialization, a VS Code session starts the editor without creating a host terminal, while a Terminal session retains its existing terminal prewarm and lazy editor behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-048 AC3: emits the immutable session workspace) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-048 AC3: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)) -->
+4. Every container owns at most one automatically created `Codeflare Session Agent` terminal across repeated browser-window activations and code-server generations; a hydrated terminal is reused, while one atomic container-scoped claim permits only the first window without one to create it. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC4: restored terminal hydration wins before activation creates a replacement) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent terminal) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC4: separate browser windows and server generations share one container-scoped terminal claim) -->
+5. A Terminal workbench defaults to the managed Bash profile. <!-- @impl: openvscode/claude/managed-settings.mjs::buildBaseOpenVscodeSettings --> <!-- @test: openvscode/claude/test/managed-settings.test.mjs (REQ-IDE-047: terminal workspaces default to Bash and keep the session agent selectable) -->
+6. A Terminal workbench creates no agent terminal automatically. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal) -->
 
 **Constraints:**
 
+- Historical sessions and absent workspace fields resolve to Terminal.
+- Only VS Code sessions persist an explicit workspace field.
 - Workspace selection is server-owned and cannot be injected through the session-create body.
-- Only VS Code snapshots require an explicit stored marker.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-051](#req-ide-051-default-workspace-preference), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
+**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](#req-ide-047-bash-first-browser-ide-terminals), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Session persistence and fallback tests
-
-**Status:** Implemented
-
----
-
-### REQ-IDE-048: Dashboard-owned VS Code session lifecycle
-
-**Intent:** VS Code sessions remain dashboard-owned rather than entering terminal surfaces.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Selecting or deep-linking a running VS Code session keeps the dashboard active and does not open the editor automatically. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC1: header selection returns a running VS Code session to dashboard ownership) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC1: dashboard selection keeps a running VS Code session dashboard-owned) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (normalizes a VS Code session deep link to the dashboard without terminal or popup ownership) -->
-2. Creating or cloning a VS Code session returns to the dashboard rather than opening a session surface. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionWorkspace --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-048 AC2: creating a VS Code session leaves terminal view and starts on dashboard) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC2: starts a cloned VS Code session without activating terminal ownership) -->
-3. A VS Code session creates no terminal connection, terminal pane, or grouped terminal view. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-048 AC3: does not initialize terminal state for a running VS Code session) -->
-
-**Constraints:** None.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-IDE-052](#req-ide-052-immutable-session-workspace-snapshot)
-
-**Verification:** Frontend dashboard and terminal-exclusion tests
-
-**Status:** Implemented
-
----
-
-### REQ-IDE-053: Workspace-specific editor startup
-
-**Intent:** Editor and workbench startup follows the session's immutable workspace.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. After initialization, a VS Code session prepares its editor. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-IDE-053 AC1: emits the immutable session workspace) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-IDE-052 AC2 / REQ-IDE-053 AC1: starts from the immutable session workspace instead of current preferences) --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-053 AC1/AC2: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
-2. A Terminal session retains prompt terminal availability while its editor remains on demand. <!-- @impl: host/src/server.ts::server --> <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-053 AC1/AC2: host workspace startup selection) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)) -->
-3. A VS Code workbench activates the existing `Codeflare Session Agent` profile exactly once. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-053 AC3: reconnect creates exactly one managed session-agent terminal) -->
-4. A Terminal workbench creates no agent terminal automatically. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-053 AC4: non-VS Code workspaces never create or focus an agent terminal) -->
-
-**Constraints:** A Terminal workbench continues to default to the managed Bash profile defined by [REQ-IDE-047](#req-ide-047-bash-first-browser-ide-terminals).
-
-**Priority:** P1
-
-**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](#req-ide-047-bash-first-browser-ide-terminals), [REQ-IDE-052](#req-ide-052-immutable-session-workspace-snapshot)
-
-**Verification:** Host lifecycle/readiness tests; managed-settings and welcome-extension tests
+**Verification:** Backend preference/session tests; container environment tests; host lifecycle/readiness tests; managed-settings and welcome-extension tests; frontend routing and MultiView tests
 
 **Status:** Implemented
 
@@ -1473,15 +1403,15 @@ A full code-server browser editor for an advanced running session. The editor op
 
 1. Selecting a stopped VS Code session card starts it while keeping the user on the dashboard. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-049 AC1: explicit stopped-session start stays dashboard-owned for VS Code) -->
 2. A readiness failure preserves card-based Retry plus Stop and Delete actions. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC2: editor failure exposes Retry plus Stop and Delete operations) --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-IDE-049 AC2: surfaces bounded editor warm-up failure with retry guidance) -->
-3. After Retry, the session remains Preparing until the editor becomes ready or another bounded failure is reported. <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry) -->
-4. Healthy editor metrics reassert readiness without replacing concurrent lifecycle or user-owned session fields. <!-- @impl: src/container/container-metrics.ts::doCollectMetrics --> <!-- @impl: src/lib/kv-keys.ts::putSessionEditorState --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-IDE-049 AC4: reasserts readiness without rolling back a concurrent session update) -->
-5. Successful editor traffic reasserts readiness without replacing concurrent lifecycle or user-owned session fields. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: src/lib/kv-keys.ts::putSessionEditorState --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-049 AC5: successful editor traffic reasserts readiness without losing concurrent session fields) -->
+3. Retry returns the session to Preparing while the next editor probe runs. <!-- @impl: host/src/workspace-readiness.ts::startWorkspaceServices --> <!-- @impl: host/src/server.ts::server --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: host/__tests__/workspace-readiness.test.js (REQ-IDE-049 AC3: clears a bounded timeout while the retry probe is pending) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-IDE-049 AC3: Retry waits past the prior editor timeout for the active probe) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry) -->
+4. Healthy editor metrics fresh-merge readiness into the primary session record without replacing concurrent lifecycle or user-owned fields. <!-- @impl: src/container/container-metrics.ts::doCollectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-IDE-049 AC4: fresh-merges metrics and repairs readiness after a concurrent session update) -->
+5. Successful editor traffic fresh-merges readiness and activity into the primary session record without replacing concurrent lifecycle or user-owned fields. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-049 AC5: successful editor traffic repairs readiness on fresh primary session state) -->
 
-**Constraints:** No replacement container, host terminal, or terminal workspace is created during editor recovery. Editor activity recency comes from the host metrics overlay; successful proxy traffic does not rewrite durable session ordering fields.
+**Constraints:** No replacement container, host terminal, terminal workspace, secondary session projection, or additional KV prefix scan is created during editor recovery.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-048](#req-ide-048-dashboard-owned-vs-code-session-lifecycle), [REQ-IDE-053](#req-ide-053-workspace-specific-editor-startup), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
+**Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
 **Verification:** Host readiness tests; backend startup-status tests; frontend dashboard and polling tests
 
@@ -1491,24 +1421,27 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-050: Browser IDE status and ownership
 
-**Intent:** Browser IDE status, retained windows, dashboard navigation, and authentication remain independently owned.
+**Intent:** Browser IDE readiness, retained windows, dashboard navigation, and authentication remain independently owned.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The readiness dot is green when ready, yellow while preparing or stopping, gray when stopped, and red on error, independent of terminal WebSocket state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-050 AC1: maps VS Code readiness %o to %s) -->
-2. Stopping or deleting a session does not close its retained Browser IDE window. <!-- @impl: web-ui/src/components/Layout.tsx::handleStopSession --> <!-- @impl: web-ui/src/components/Layout.tsx::handleDeleteSession --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (does not close a retained Browser IDE window when its session stops or is deleted) -->
-3. Opening Settings from the dashboard leaves dashboard storage and terminal ownership unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleSettingsClick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC3: keeps Settings dashboard-owned without opening the terminal Storage panel) -->
-4. Unauthenticated, inactive-SaaS-tier, and non-owner Browser IDE requests are rejected. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC4 / REQ-IDE-001: rejects an unauthenticated Browser IDE request) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC4: rejects a Browser IDE request from an inactive SaaS tier) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC4: rejects a Browser IDE request for a session the user does not own) -->
+2. Every ready-card activation focuses or creates one stable browser tab for that session. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
+3. A blocked popup is reported through the existing dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam) -->
+4. Browser IDE tabs open only during the user's synchronous ready-card activation. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC4: opens every explicit gesture synchronously) -->
+5. Stopping or deleting a session does not close its retained Browser IDE window. <!-- @impl: web-ui/src/components/Layout.tsx::handleStopSession --> <!-- @impl: web-ui/src/components/Layout.tsx::handleDeleteSession --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (does not close a retained Browser IDE window when its session stops or is deleted) -->
+6. Opening Settings from the dashboard leaves dashboard storage and terminal ownership unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleSettingsClick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel) -->
+7. Browser IDE requests retain the existing session proxy authentication boundary. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier) --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own) -->
 
 **Constraints:** No new API, origin, agent launcher, or persistence system is introduced.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-dashboard-owned-vs-code-session-lifecycle), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery)
+**Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery)
 
-**Verification:** Backend authentication tests; frontend status, Layout, and window-ownership tests
+**Verification:** Backend authentication tests; frontend dashboard, Layout, and window-ownership tests
 
 **Status:** Implemented
 
@@ -1516,7 +1449,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-054: Browser IDE card activation
 
-**Intent:** Whole-card activation performs exactly the action allowed by the VS Code session state without disabling child controls.
+**Intent:** Whole-card activation performs exactly the action allowed by VS Code session state without disabling child controls.
 
 **Applies To:** User
 
@@ -1533,32 +1466,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Priority:** P1
 
-**Dependencies:** [REQ-IDE-048](#req-ide-048-dashboard-owned-vs-code-session-lifecycle), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
+**Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
 
 **Verification:** Frontend dashboard and card tests
-
-**Status:** Implemented
-
----
-
-### REQ-IDE-055: Retained Browser IDE window opening
-
-**Intent:** Explicit Browser IDE opens reuse one stable window per session and report popup failure.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Each synchronous Open action focuses or creates one stable session tab. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: focuses a live retained handle without navigation or a second open) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: opens every explicit gesture synchronously) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: uses independent named targets and retained handles for different sessions) -->
-2. Popup failure is reported through the dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-055 AC2: surfaces bounded popup-blocked feedback through the existing Layout error seam) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC2: reports a null window.open result as popup blocked) -->
-
-**Constraints:** Window opening introduces no second editor persistence mechanism.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-IDE-054](#req-ide-054-browser-ide-card-activation)
-
-**Verification:** Frontend Layout and window-ownership tests
 
 **Status:** Implemented
 

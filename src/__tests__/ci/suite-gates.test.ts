@@ -333,7 +333,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const name of smokeSteps) {
       const index = stepNames.indexOf(name);
       expect(index).toBeGreaterThan(stepNames.indexOf('Build container image'));
-      expect(index).toBeLessThan(stepNames.indexOf('Scan container image for vulnerabilities'));
+      expect(index).toBeLessThan(stepNames.indexOf('Scan image, generate SBOM, and prepare push tooling'));
       expect(index).toBeLessThan(stepNames.indexOf('Push image'));
       expect(steps[index]?.if).toBe("steps.reuse.outputs.reused != 'true'");
     }
@@ -374,7 +374,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 7], ['frontend-tests', 3], ['host-tests', 2]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 9], ['frontend-tests', 3], ['host-tests', 2]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -407,8 +407,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const nodeFiles = new Set(NODE_SUITE_FILES);
     const expectedWorkers = collect(join(REPO, 'src')).filter((file) => !nodeFiles.has(file)).sort();
-    const groups = Array.from({ length: 6 }, (_, index) => {
-      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/6`], {
+    const groups = Array.from({ length: 8 }, (_, index) => {
+      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/8`], {
         cwd: REPO,
         encoding: 'utf8',
       });
@@ -427,11 +427,22 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       strategy: { matrix: { include: Array<Record<string, string>> } };
     };
     expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
-      '1/6', '2/6', '3/6', '4/6', '5/6', '6/6', '',
+      '1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8', '',
     ]);
+    const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
+    const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
+      steps: Array<{ uses?: string; with?: Record<string, string> }>;
+    };
+    const coverageMerge = coverageBackend.steps.find((step) => step.uses === './.github/actions/merge-coverage');
+    expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
+
     const host = testWorkflow.jobs['host-tests'] as {
       strategy: { matrix: { include: Array<{ shards: string }> } };
     };
+    expect(host.strategy.matrix.include.map((leg) => leg.shards)).toEqual([
+      '1/5 2/5',
+      '3/5 4/5 5/5',
+    ]);
     const partitions = host.strategy.matrix.include.flatMap((leg) => leg.shards.split(' ')).sort();
     expect(partitions).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
 
@@ -449,11 +460,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         DIR: '.',
         SCRIPT: 'test',
         SHARD: '',
-        BALANCE_GROUP: '1/6',
+        BALANCE_GROUP: '1/8',
       },
     });
     expect(rendered.status, rendered.stderr).toBe(0);
-    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/6');
+    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/8');
     expect(rendered.stdout).toContain('npm run test -- "${tests[@]}"');
   });
 

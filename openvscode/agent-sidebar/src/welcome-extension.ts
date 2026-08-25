@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { closeSync, openSync, unlinkSync } from 'node:fs';
 import {
   Uri,
   ViewColumn,
@@ -23,10 +24,19 @@ const SESSION_AGENT_TERMINAL = 'Codeflare Session Agent';
 let persistenceActivation: Promise<(() => Promise<void>) | undefined> = Promise.resolve(undefined);
 
 export function activate(context: ExtensionContext): void {
-  const sessionAgentTerminal = process.env.CODEFLARE_SESSION_WORKSPACE === 'vscode'
-    ? window.terminals.find(({ name }) => name === SESSION_AGENT_TERMINAL)
-      ?? window.createTerminal({ name: SESSION_AGENT_TERMINAL })
-    : undefined;
+  const getSessionAgentTerminal = () => {
+    if (process.env.CODEFLARE_SESSION_WORKSPACE !== 'vscode') return undefined;
+    const existing = window.terminals.find(({ name }) => name === SESSION_AGENT_TERMINAL);
+    if (existing) return existing;
+    const claim = claimSessionAgentTerminal();
+    if (!claim) return undefined;
+    try {
+      return window.createTerminal({ name: SESSION_AGENT_TERMINAL });
+    } catch (error) {
+      unlinkSync(claim);
+      throw error;
+    }
+  };
   persistenceActivation = activateExtensionPersistence(context).catch(() => undefined);
   const presentation = buildWelcomePresentation(
     normalizeIdeAgentKind(process.env.CODEFLARE_SIDEBAR_AGENT),
@@ -68,13 +78,26 @@ export function activate(context: ExtensionContext): void {
 
   const startupTimer = setTimeout(() => {
     openWelcome();
-    sessionAgentTerminal?.show(false);
+    getSessionAgentTerminal()?.show(false);
   }, OPEN_DELAY_MS);
   context.subscriptions.push(
     commands.registerCommand(OPEN_WELCOME_COMMAND, openWelcome),
     { dispose: () => clearTimeout(startupTimer) },
     { dispose: () => panel?.dispose() },
   );
+}
+
+function claimSessionAgentTerminal(): string | undefined {
+  const runtimeRoot = process.env.CODEFLARE_RUNTIME_ROOT || '/run/codeflare';
+  const claim = `${runtimeRoot}/openvscode/session-agent.claimed`;
+  try {
+    const descriptor = openSync(claim, 'wx', 0o600);
+    closeSync(descriptor);
+    return claim;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return undefined;
+    throw error;
+  }
 }
 
 export async function deactivate(): Promise<void> {

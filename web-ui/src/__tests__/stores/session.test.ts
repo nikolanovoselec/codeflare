@@ -306,7 +306,7 @@ describe('Session Store', () => {
       expect(terminals!.tabs.length).toBeGreaterThan(0);
     });
 
-    it('REQ-IDE-048 AC3: does not initialize terminal state for a running VS Code session', async () => {
+    it('REQ-IDE-048 AC2: does not initialize terminal state for a running VS Code session', async () => {
       mockGetSessions.mockResolvedValue([{
         id: 'editor-session',
         name: 'Editor Session',
@@ -943,7 +943,7 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
-    it('REQ-IDE-048 AC3 + REQ-IDE-049 AC3: completes VS Code startup without creating terminal state', async () => {
+    it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       mockGetSessions.mockResolvedValue([{

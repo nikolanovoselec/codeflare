@@ -382,18 +382,20 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 7
+      max-parallel: 9
       matrix:
-        # Run 32808002321 supplies per-file durations and calibrates the additional
-        # 1.6-second per-file Workers startup cost. Longest-first assignment targets
-        # six roughly 65-second test groups plus job setup.
+        # Run 32892058211 supplies current per-file durations from the eight-group
+        # matrix. With the calibrated 1.6-second per-file Workers startup cost,
+        # longest-first assignment targets eight roughly 49-second groups plus Node.
         include:
-          - { balance-group: '1/6', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/6', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/6', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/6', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/6', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/6', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/8', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/8', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/8', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/8', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/8', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/8', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/8', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/8', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -612,7 +614,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '6'
+          expected-shards: '8'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -830,12 +832,12 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        # Run 32806388629 measured the five native partitions at 37, 7, 11, 28,
-        # and 8 seconds. These two groups retain that exact one-pass partition
-        # while balancing measured work at 45 and 46 seconds.
+        # Run 32890939456 measured the five native partitions at 7, 41, 9, 11,
+        # and 28 seconds. These groups retain exact one-pass coverage while
+        # balancing measured work at approximately 49 and 48 seconds.
         include:
-          - { shards: '1/5 5/5', slug: shard-1 }
-          - { shards: '2/5 3/5 4/5', slug: shard-2 }
+          - { shards: '1/5 2/5', slug: shard-1 }
+          - { shards: '3/5 4/5 5/5', slug: shard-2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1013,6 +1015,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          license-check: 'true'
+          vulnerability-check: 'true'
+          show-openssf-scorecard: 'true'
+          # GitHub's dependency graph reports null licenses for these six
+          # platform artifacts even though their exact lock metadata is
+          # Apache-2.0. Versioned purls make every future Codex bump re-enter
+          # review instead of inheriting an evergreen exception.
+          allow-dependencies-licenses: >-
+            pkg:npm/@openai/codex-darwin-arm64@0.147.0-darwin-arm64,
+            pkg:npm/@openai/codex-darwin-x64@0.147.0-darwin-x64,
+            pkg:npm/@openai/codex-linux-arm64@0.147.0-linux-arm64,
+            pkg:npm/@openai/codex-linux-x64@0.147.0-linux-x64,
+            pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64,
+            pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64
 
   summary:
     # Check name "test" is the required branch-protection context on main —

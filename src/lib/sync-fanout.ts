@@ -22,7 +22,7 @@
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../types';
-import { getContainerId, safeCheckContainerHealth } from './container-helpers';
+import { getContainerId } from './container-helpers';
 import { listRunningSessionIds } from './session-helpers';
 import { isBucketMigrating } from './r2-regime-state';
 
@@ -65,11 +65,6 @@ export async function fanOutBisyncTrigger(
         try {
           const containerId = getContainerId(bucketName, sessionId);
           const container = getContainer(env.CONTAINER, containerId);
-          // A bounded running correction may outlive the container that proved
-          // it. Check platform state without auto-start before forwarding.
-          if (!(await safeCheckContainerHealth(container, containerId)).healthy) {
-            return { sessionId, status: 'not-running' };
-          }
           // Path intentionally NOT in the DO's typed INTERNAL_ROUTES table (no
           // leading underscore) so the DO's fetch() override forwards
           // through super.fetch() with auth injection. The host's

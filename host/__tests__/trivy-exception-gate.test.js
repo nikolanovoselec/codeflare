@@ -308,18 +308,18 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('wires JSON scan evidence immediately into the behavioral gate', () => {
     const workflow = parseYaml(readFileSync(WORKFLOW, 'utf8'));
     const steps = workflow.jobs.image.steps;
-    const scanIndex = steps.findIndex((step) => step.name === 'Scan container image for vulnerabilities');
+    const scanIndex = steps.findIndex((step) => step.name === 'Scan image, generate SBOM, and prepare push tooling');
     const scan = steps[scanIndex];
     const gateIndex = scanIndex + 1;
     const gate = steps[gateIndex];
     const pushIndex = steps.findIndex((step) => step.name === 'Push image');
     const push = steps[pushIndex];
 
-    assert.equal(scan.with.format, 'json');
-    assert.equal(scan.with.output, '/tmp/trivy-result.json');
-    assert.equal(scan.with['exit-code'], 0);
-    assert.equal(scan.with['ignore-unfixed'], true);
-    assert.equal(scan.with.trivyignores, '.trivyignore');
+    assert.match(scan.run, /--format json/);
+    assert.match(scan.run, /--output \/tmp\/trivy-result\.json/);
+    assert.match(scan.run, /--exit-code 0/);
+    assert.match(scan.run, /--ignore-unfixed/);
+    assert.match(scan.run, /--ignorefile \.trivyignore/);
     assert.equal(gate.name, 'Enforce vulnerability scan and bounded exceptions');
     assert.equal(gate.run, 'node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json');
     assert.ok(gateIndex < pushIndex, 'the fail-closed gate must run before image push');

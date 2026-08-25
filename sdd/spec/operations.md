@@ -128,7 +128,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml::pull_request --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. Every owned test suite executes exactly once through fail-closed parallel PR checks, with host tests running concurrently. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails when a file present in the tree ran in no shard) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails when two shards both claim the same file) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (reconciles each suite against its own tree, not just the backend) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
+3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
@@ -517,6 +517,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
 4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
 5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) --> <!-- @test: host/__tests__/install-deps.test.js (shared dependency installer contract) -->
+6. Managed release activation fuzzing preserves a newer compatible winner. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (never replaces a newer compatible active release with an older candidate) -->
+7. Managed release activation fuzzing rejects conflicting identity at the same sequence. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (rejects conflicting release identity at the same sequence) -->
 
 **Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
 
@@ -555,7 +557,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated protected-branch trigger and release-coherence contracts for AC6-AC7; manual verification for AC1 through AC5. Generated, vendored, and test-only CodeQL exclusions remain implementation policy documented in the CI/CD lane.
+**Verification:** Automated protected-branch CodeQL trigger contract for AC6 and release-coherence contract for AC7; manual verification for AC1 through AC5.
 
 **Status:** Implemented
 
@@ -725,23 +727,23 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-022: Coverage-threshold gate fails closed on missing evidence
 
-**Intent:** Every affected package produces coverage inside its test matrix, and merged evidence fails closed when it is missing, malformed, below the practical global floor, or below the bounded changed-production-line floor.
+**Intent:** Every affected pull request runs the existing package coverage gate, and coverage evidence fails closed when it is missing, malformed, below the practical global floor, or below the bounded changed-production-line floor.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. Coverage evaluation requires exactly one report from every expected package test shard. <!-- @impl: scripts/ci/merge-shard-coverage.mjs::mergeShardCoverage --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC1+AC2+AC4: merges exact shard evidence before enforcing package coverage) -->
-2. Global thresholds are evaluated only after all shard reports are merged. <!-- @impl: scripts/ci/merge-shard-coverage.mjs::mergeShardCoverage --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC1+AC2+AC4: merges exact shard evidence before enforcing package coverage) -->
-3. Backend and frontend package tests are not rerun in a standalone coverage lane. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @manual: In an affected exact-head run, confirm package test execution appears only in backend/frontend matrix jobs and the dependent coverage jobs only merge artifacts. -->
-4. A malformed merge, missing summary table, or reported threshold miss is fatal. <!-- @impl: scripts/ci/merge-shard-coverage.mjs::validateCoverageRecord --> <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/merge-coverage/action.yml::runs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC1+AC2+AC4: merges exact shard evidence before enforcing package coverage) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
-5. Pull requests merge backend and frontend coverage when their package path is affected; full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
-6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::runs --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC5/AC6: merges affected package matrix coverage with package-specific changed-line floors) -->
+1. The shared coverage action asserts the reporter produced its summary table before evaluating anything else, so a run that died before emitting coverage fails instead of passing on the absence of a failure string. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+2. A reported coverage-threshold miss is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
+5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
+6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
 
 **Constraints:**
 
-- Matrix shards gate their own test result before their coverage evidence is accepted.
-- `set -o pipefail` is required around the merger so a failed threshold check cannot be hidden by `tee`.
+- The fingerprint appears after every passing run of the Workers pool, so it can never be the sole condition for tolerating a non-zero exit.
+- `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
 - Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
 
@@ -895,7 +897,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-029 AC1: writes reusable exact-tree evidence only after matrix and merge gates) -->
+1. Manual dispatch evaluates successful PR Checks runs for the dispatched head in descending creation order and reuses the first run with a valid exact-tree receipt. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::discoverSuccessfulRunIds --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) -->
 2. When no automatically discovered receipt validates, manual deployment runs PR Checks inline. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-029 AC2: inline deploy verification grants every reusable-workflow permission) -->
 3. An optional explicit run id checks only that run and fails closed instead of falling back. <!-- @impl: scripts/ci/validate-pr-checks-run.mjs::resolveReusablePrChecksRun --> <!-- @impl: .github/workflows/deploy.yml::verify-existing --> <!-- @test: host/__tests__/validate-pr-checks-run.test.js (automatic exact-tree PR Checks CLI resolution) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 
@@ -1215,9 +1217,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `32808444076` completed the affected gate in 148 seconds and the workflow in 149 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
-2. Every affected test matrix and independent workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
-3. Backend, frontend, and host matrices expose all seven, three, and two legs concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
+1. An affected exact-head PR Checks run completes within three minutes. Exact-head run `31314628668` completed the affected gate in 90 seconds and the workflow in 91 seconds. <!-- @manual: Confirm the monitored exact-head PR Checks run and affected gate both complete in under three minutes; retain the run ID and elapsed durations as reproducible evidence. -->
+2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
+3. Backend, frontend, and host matrices expose every configured leg concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
 5. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
 6. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
@@ -1228,7 +1230,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
 
-**Verification:** Automated direct-start, matrix-only coverage, concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration and lane-alignment check
+**Verification:** Automated direct-start, matrix-concurrency, cache-reuse, and integrity-rejection tests; manual exact-head duration check
 
 **Status:** Implemented
 
@@ -1242,23 +1244,21 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Clearing disposable files does not interrupt synchronization or its next cycle. <!-- @impl: entrypoint.sh::CODEFLARE_RUNTIME_ROOT --> <!-- @impl: host/src/runtime-paths.ts::SYNC_RUNTIME_DIR --> <!-- @test: host/__tests__/runtime-paths.test.js (keeps required host runtime paths outside disposable /tmp) -->
-2. Baseline sync completes after disposable files are cleared. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC2: passes the protected rclone workdir through establish_bisync_baseline after disposable cleanup) -->
-3. Periodic sync completes after disposable files are cleared. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC3: passes the protected rclone workdir through bisync_with_r2 after disposable cleanup) -->
-4. The next cadence cycle still invokes periodic sync. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
-5. Manual sync remains available after disposable cleanup. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200) -->
-6. Sync health remains accurate after disposable cleanup. <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
-7. Final sync still waits for the triggered run to complete. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200) -->
+1. Required synchronization state remains outside disposable temporary storage. <!-- @impl: entrypoint.sh::CODEFLARE_RUNTIME_ROOT --> <!-- @impl: host/src/runtime-paths.ts::SYNC_RUNTIME_DIR --> <!-- @test: host/__tests__/runtime-paths.test.js (keeps required host runtime paths outside disposable /tmp) -->
+2. Baseline sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC2: passes the protected rclone workdir through establish_bisync_baseline after disposable cleanup) -->
+3. Periodic sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC3: passes the protected rclone workdir through bisync_with_r2 after disposable cleanup) -->
+4. The cadence daemon invokes periodic sync from that state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
+5. Manual sync requests use the protected daemon PID and status files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200) -->
+6. Sync health reporting reads the protected status file. <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
+7. Final sync uses the same protected daemon state as manual sync. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200) -->
 
-**Constraints:**
-- Synchronization runtime state remains container-scoped and is not synced to R2.
-- Build-stage files and disposable caches or counters may remain under `/tmp`.
+**Constraints:** Synchronization runtime state remains container-scoped and is not synced to R2. Build-stage files and disposable caches or counters may remain under `/tmp`.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-STOR-002](storage.md#req-stor-002-bidirectional-sync-with-r2)
 
-**Verification:** Runtime-path, baseline, cadence, trigger, health, and final-sync tests; fresh-container cleanup acceptance
+**Verification:** Runtime-path, baseline, cadence, trigger, health, and final-sync tests
 
 **Status:** Implemented
 
@@ -1272,11 +1272,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Service shutdown succeeds after disposable cleanup. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
-2. Host health continues reporting live readiness after disposable cleanup. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live) -->
-3. Browser IDE restart requests remain operational after disposable cleanup. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-OPS-048 AC3: uses the protected production trigger by default) -->
-4. Browser IDE startup retains its session editor data and extensions after disposable cleanup. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
-5. Extension state capture succeeds after disposable cleanup. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-OPS-048 AC5: captures extension state after disposable cleanup) -->
+1. Shutdown reads service PID files from protected runtime storage. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
+2. Host health reports live readiness independently of disposable files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live) -->
+3. Browser IDE restart requests use the protected trigger file. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-OPS-048 AC3: writes the protected restart trigger on first call) -->
+4. Browser IDE data and extension roots remain in protected runtime storage. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
+5. Extension state capture remains operational through its protected session paths. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
 
 **Constraints:** Service and Browser IDE runtime data remains container-scoped and is not synced to R2.
 
@@ -1298,10 +1298,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Context-mode execution remains usable after disposable cleanup. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR) --> <!-- @manual: In a fresh integration container, enable context-mode, run a Node command through ctx_batch_execute, and confirm its injected NODE_OPTIONS preload remains usable after disposable `/tmp` cleanup. -->
-2. Claude active-repository publication remains serialized after disposable cleanup. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) -->
-3. Pi memory and Vault publication remains serialized after disposable cleanup. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::GLOBAL_GRAPH_LOCK --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) -->
-4. A detached CI monitor remains reportable after disposable cleanup. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path) -->
+1. Context-mode preload scratch remains under the protected runtime temporary root. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR) -->
+2. Claude active-repository publication acquires the protected global graph lock. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::/run/codeflare/locks/graphify-global.lock --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) -->
+3. Pi memory and Vault publication acquires the protected global graph lock. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::GLOBAL_GRAPH_LOCK --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) -->
+4. A detached CI monitor retains its script and result log outside disposable storage. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path) -->
 
 **Constraints:** Coordination locks and detached logs remain container-scoped and are not synced to R2.
 
@@ -1309,7 +1309,109 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-VAULT-004](vault.md#req-vault-004-unified-global-knowledge-graph), [REQ-AGENT-070](agents.md#req-agent-070-independent-ci-monitoring)
 
-**Verification:** Context-mode, graph-lock, memory publication, and detached-monitor tests; fresh-container cleanup acceptance
+**Verification:** Context-mode, graph-lock, memory-publication, and detached-monitor tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-050: Hosted image-build critical-path optimization
+
+**Intent:** Fresh container image assembly retains expensive dependency layers while producing bounded timing evidence on the standard GitHub-hosted runner.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Pi extension-only edits retain the expensive Pi dependency/toolchain layer while still invalidating extension Jiti prewarm. <!-- @impl: Dockerfile::preseed/agents/pi/extensions --> <!-- @test: host/__tests__/container-image-speed.test.js (keeps extension-only edits behind the expensive Pi dependency layer) -->
+2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @test: host/__tests__/container-image-speed.test.js (assembles IDE and seed artifacts after expensive runtime dependency layers) -->
+3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (publishes plain BuildKit timing evidence) -->
+
+**Constraints:** The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
+
+**Verification:** Cache-boundary tests; exact-head fresh-image timing evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-051: Image-owned Oxlint lifecycle
+
+**Intent:** Every session image provides one exact-pinned Oxlint installation without coupling it to managed runtime compatibility.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. The image-owned Oxlint manifest contains one exact pin. <!-- @impl: image/oxlint/package.json::oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+2. The dedicated Oxlint lock matches that manifest and contains a complete integrity tree. <!-- @impl: image/oxlint/package-lock.json::packages --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+3. Packaged-image smoke executes Oxlint and verifies its exact version. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyOxlintRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint) -->
+4. Oxlint remains outside managed and shared runtime manifests. <!-- @impl: scripts/agent-seed-core.mjs::MANAGED_RUNTIME_LOCK_PATHS --> <!-- @impl: preseed/npm-tools/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint stays outside managed and shared runtime manifests) -->
+5. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
+
+**Constraints:** Oxlint remains outside the managed seed and shared npm-tool manifest.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-039](#req-ops-039-reduced-image-capability-preservation)
+
+**Verification:** Packaged-image smoke; dependency-integrity and dependency-automation tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-052: Concurrent image security preparation
+
+**Intent:** Independent image-security and publication prerequisites run concurrently without weakening vulnerability enforcement, SBOM retention, or scan-before-push ordering.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+2. A failure from vulnerability scanning, CycloneDX generation, or registry-tool preparation blocks image publication. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (blocks publication when any concurrent image prerequisite fails) -->
+3. Bounded vulnerability validation completes before image push. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
+4. The SBOM uploads before image push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+5. Trivy scratch and database-cache directories are writable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy scratch and cache directories writable by the runner account) -->
+6. Daily Trivy database-cache metadata restores without an ownership or timestamp warning. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
+7. Concurrent Trivy image traversals complete without a shared cache-lock collision. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+
+**Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-050](#req-ops-050-hosted-image-build-critical-path-optimization)
+
+**Verification:** Behavioral prerequisite-failure and workflow-order tests; exact-head scan and SBOM evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-053: Dependency-review evidence exceptions
+
+**Intent:** Dependency Review retains vulnerability, license, and OpenSSF evidence while narrowly handling verified upstream metadata gaps.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. Vulnerability checks, license checks, and available OpenSSF scores remain enabled. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) -->
+2. License exceptions contain only the six exact Codex platform package releases whose committed lock metadata declares Apache-2.0. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (Codex platform license exceptions match exact Apache-2.0 lock metadata) -->
+3. A future Codex platform version does not inherit the current license exception. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) -->
+
+**Constraints:** Unknown OpenSSF scores remain visible and informational; Codeflare does not fabricate or suppress unavailable upstream scores.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
+
+**Verification:** Dependency Review configuration and committed-lock metadata tests
 
 **Status:** Implemented
 

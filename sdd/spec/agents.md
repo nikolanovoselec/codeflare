@@ -4149,25 +4149,24 @@ None.
 
 ---
 
-### REQ-AGENT-162: Managed-release freshness cache recovery
+### REQ-AGENT-162: Session-start managed-release snapshot
 
-**Intent:** A complete compatible active cache keeps session startup and status reads bounded when freshness metadata is missing or remote refresh fails.
+**Intent:** Session startup remains bounded and independent of managed-repository availability by consuming only a persisted compatible release snapshot.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Within the freshness window, a complete compatible active cache repairs missing freshness metadata without GitHub I/O. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-162 AC1: recovers missing freshness metadata from the verified cache without GitHub I/O) -->
-2. A failed refresh with a complete compatible active cache records the attempt and serves the active release as degraded. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries) -->
-3. A failed refresh with a complete compatible active cache suppresses another GitHub refresh until the next freshness interval. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2+AC3: degraded diagnostics redact credentials and bound refresh retries) -->
+1. Session start reads only the persisted compatible active snapshot and never performs repository or release-cache I/O. <!-- @impl: src/routes/container/lifecycle.ts::managed_release_snapshot --> <!-- @impl: src/lib/managed-release-active.ts::getCachedActiveManagedRelease --> <!-- @impl: src/lib/remote-curation.ts::readManagedEnvironmentSnapshot --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-162 AC1: reads a stale verified snapshot without repository or cache I/O) -->
+2. When the compatible snapshot is unavailable, only a previously applied verified bucket release may provide degraded startup fallback. <!-- @impl: src/routes/container/lifecycle.ts::managedEnvironmentApplied --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (retains a previously applied verified release during a transient cache outage) -->
 
-**Constraints:** Missing or incompatible active cache data never suppresses discovery, and fresh-required setup validation remains fail closed.
+**Constraints:** Fresh-required setup validation remains fail closed, and repository refresh remains owned by the dashboard reconciliation path.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery)
 
-**Verification:** Automated Worker freshness-cache recovery tests
+**Verification:** Automated Worker snapshot and session-start tests
 
 **Status:** Implemented
 
@@ -4213,7 +4212,7 @@ None.
 **Acceptance Criteria:**
 
 1. The migration fixture records the measured 32,416-character provider-boundary baseline and its base/tool, global instruction, visible skill catalog, and framing components. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_BASELINE_CHARS --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (pins the measured provider-boundary baseline and keeps tool schemas outside it) -->
-2. Real Pi resource loading for public fallback and signed managed default and advanced projections produces at most 14,000 characters of controlled provider-boundary prompt in an isolated working directory. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_MAX_CHARS --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: preseed/agents/pi/test/runtime-projection.test.mjs (REQ-AGENT-156 AC2: keeps default and advanced projections inside the prompt boundary) -->
+2. Real Pi resource loading for public fallback and signed managed default and advanced projections produces at most 14,000 characters of controlled provider-boundary prompt in an isolated working directory. <!-- @impl: scripts/pi-prompt-contract.mjs::PI_PROMPT_MAX_CHARS --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (enforces the 14,000-character boundary independently of serialized tool schemas) -->
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (reports registered extension tool schemas separately from the controlled prompt) -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (maps every baseline controlled surface category to one retained owner and destination) -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (indexes every model-invocable seed skill exactly once per mode without removing its file) --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (seeds one SYSTEM and AGENTS prompt input for both public Pi modes) -->
@@ -4251,7 +4250,7 @@ None.
 3. Exact capability activation adds the requested registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 5. Goal terminal-tool continuity and Plan Mode's stricter tool exclusions remain authoritative over bootstrap selection. <!-- @impl: preseed/agents/pi/extensions/capability.ts::hasUnfinishedGoal --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
-6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-158 AC6: rejects invalid real initial tool exposure without a token threshold) --> <!-- @test: preseed/agents/pi/test/runtime-projection.test.mjs (REQ-AGENT-158 AC6: validates real default and advanced initial tool exposure) -->
+6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @test: host/__tests__/pi-prompt-contract.test.js (REQ-AGENT-158 AC6: rejects invalid real initial tool exposure without a token threshold) -->
 
 **Constraints:**
 

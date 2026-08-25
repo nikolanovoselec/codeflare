@@ -286,12 +286,10 @@ describe('Rate limit coverage', () => {
         });
       }
 
-      let requestIndex = 0;
       await assertRateLimited(10, async () => {
-        // Each request deletes a different session; deletion also clears
-        // concern-owned overlay keys, so KV delete call count is not a request count.
-        const id = `session${String(requestIndex).padStart(8, '0')}`;
-        requestIndex += 1;
+        // Each request deletes a different session to avoid 404
+        const idx = mockKV.delete.mock.calls.length;
+        const id = `session${String(idx).padStart(8, '0')}`;
         return app.request(`/sessions/${id}`, { method: 'DELETE' });
       });
     });

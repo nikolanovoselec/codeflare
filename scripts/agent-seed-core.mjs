@@ -805,7 +805,7 @@ export const RETIRED_PRESEED_KEYS: readonly string[] = ${serializedRetired};
 // Main
 // ---------------------------------------------------------------------------
 
-const MANAGED_RUNTIME_LOCK_PATHS = Object.freeze([
+export const MANAGED_RUNTIME_LOCK_PATHS = Object.freeze([
   'preseed/npm-tools/package-lock.json',
   'preseed/agents/claude/browser-run-mcp/package-lock.json',
   'preseed/agents/pi/package-lock.json',

@@ -15,16 +15,10 @@ import { createTestApp } from '../helpers/test-app';
 import {
   buildSessionMetadata,
   expandSessionMetadata,
-  getSessionEditorKey,
-  getSessionMetricsKey,
-  getSessionStatusCorrectionKey,
   getTimekeeperKey,
   getUtcDateString,
   getUtcMonthString,
-  type SessionEditorMetadata,
   type SessionListMetadata,
-  type SessionMetricsMetadata,
-  type SessionStatusCorrectionMetadata,
 } from '../../lib/kv-keys';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getEffectiveTierForUser, getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
@@ -110,7 +104,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     };
   }
 
-  // AC1: GET /api/sessions/batch-status uses KV list metadata without DO contact.
+  // AC1: GET /api/sessions/batch-status uses KV list metadata, single kv.list() call
   describe('REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact', () => {
     it('returns statuses for all sessions from KV metadata fast path', async () => {
       const session1 = makeSession('aabbccdd11223344', 'running');
@@ -150,29 +144,6 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const body = await res.json() as { statuses: Record<string, unknown> };
       expect(Object.keys(body.statuses)).toHaveLength(0);
     });
-
-    it('REQ-SESSION-028 AC3: merges concern-owned readiness and metrics without replacing durable fields', async () => {
-      const id = 'aabbccdd11223344';
-      const session = makeSession(id, 'stopped', { name: 'Renamed' });
-      mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
-      mockKV._set(getSessionEditorKey('test-bucket', id), '', { er: 1 } satisfies SessionEditorMetadata);
-      mockKV._set(getSessionMetricsKey('test-bucket', id), '', {
-        la: '2026-08-25T00:00:00.000Z',
-        m: { c: '12%', u: '2026-08-25T00:00:00.000Z' },
-      } satisfies SessionMetricsMetadata);
-      mockKV._set(getSessionStatusCorrectionKey('test-bucket', id), '', {
-        r: 1,
-      } satisfies SessionStatusCorrectionMetadata);
-
-      const res = await createApp().request('/sessions/batch-status');
-      const body = await res.json() as { statuses: Record<string, { editorReady?: boolean; lastActiveAt: string | null; metrics?: Session['metrics'] }> };
-      expect(body.statuses[id]).toMatchObject({
-        status: 'running',
-        editorReady: true,
-        lastActiveAt: '2026-08-25T00:00:00.000Z',
-        metrics: { cpu: '12%', updatedAt: '2026-08-25T00:00:00.000Z' },
-      });
-    });
   });
 
   // KV status is authoritative: a session KV-marked running is reported
@@ -209,7 +180,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     // path) and pre-migration keys without metadata (fallback KV.get). This
     // pins that both branches execute in one request and each session lands in
     // the response from its respective path. REQ-SESSION-010 AC1.
-    it('REQ-SESSION-028 AC2: resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
+    it('resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
       const fast = makeSession('aabbccdd11223344', 'running');
       const slow = makeSession('eeff001122334455', 'stopped');
       // fast key carries metadata -> fast path; slow key omits it -> fallback.
@@ -498,20 +469,6 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
-      expect(body.managedReleaseStatus).toBe('update_pending');
-      expect(body.preseedNeedsUpgrade).toBe(false);
-    });
-
-    it('REQ-STOR-022 AC1+AC2: a running correction also defers reconciliation', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
-      const id = 'aabbccdd11223344';
-      const stopped = makeSession(id, 'stopped');
-      mockKV._set(`session:test-bucket:${id}`, stopped, buildSessionMetadata(stopped));
-      mockKV._set(getSessionStatusCorrectionKey('test-bucket', id), '1', { r: 1 });
-
-      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
-      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
-
       expect(body.managedReleaseStatus).toBe('update_pending');
       expect(body.preseedNeedsUpgrade).toBe(false);
     });

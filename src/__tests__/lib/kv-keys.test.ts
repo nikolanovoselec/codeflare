@@ -4,17 +4,6 @@ import {
   sanitizeSessionName,
   getSessionKey,
   getSessionPrefix,
-  getSessionEditorKey,
-  getSessionEditorPrefix,
-  getSessionMetricsKey,
-  getSessionMetricsPrefix,
-  getSessionStatusCorrectionKey,
-  getSessionStatusCorrectionPrefix,
-  hasSessionRunningCorrection,
-  clearSessionRunningCorrection,
-  putSessionEditorState,
-  putSessionMetricsState,
-  putSessionRunningCorrection,
   generateSessionId,
   getSessionOrThrow,
   listAllKvKeys,
@@ -97,51 +86,6 @@ describe('getSessionKey', () => {
 describe('getSessionPrefix', () => {
   it('formats session:{bucket}:', () => {
     expect(getSessionPrefix('codeflare-alice')).toBe('session:codeflare-alice:');
-  });
-});
-
-describe('session runtime keys', () => {
-  it('keeps editor readiness and metrics in concern-owned records', async () => {
-    const kv = createMockKV();
-    await putSessionEditorState(kv as unknown as KVNamespace, 'bucket', 'abc', {
-      editorReady: true,
-      editorReadyError: false,
-    });
-    await putSessionMetricsState(kv as unknown as KVNamespace, 'bucket', 'abc', {
-      lastActiveAt: '2026-08-25T00:00:00.000Z',
-      metrics: { cpu: '10%', updatedAt: '2026-08-25T00:00:00.000Z' },
-    });
-    await putSessionRunningCorrection(kv as unknown as KVNamespace, 'bucket', 'abc');
-    expect(await hasSessionRunningCorrection(kv as unknown as KVNamespace, 'bucket', 'abc')).toBe(true);
-    await clearSessionRunningCorrection(kv as unknown as KVNamespace, 'bucket', 'def');
-    expect(await hasSessionRunningCorrection(kv as unknown as KVNamespace, 'bucket', 'def')).toBe(false);
-
-    expect(getSessionEditorKey('bucket', 'abc')).toBe('session-editor:bucket:abc');
-    expect(getSessionEditorPrefix('bucket')).toBe('session-editor:bucket:');
-    expect(getSessionMetricsKey('bucket', 'abc')).toBe('session-metrics:bucket:abc');
-    expect(getSessionMetricsPrefix('bucket')).toBe('session-metrics:bucket:');
-    expect(getSessionStatusCorrectionKey('bucket', 'abc')).toBe('session-status-correction:bucket:abc');
-    expect(getSessionStatusCorrectionPrefix('bucket')).toBe('session-status-correction:bucket:');
-    expect(kv.put).toHaveBeenCalledWith(
-      'session-editor:bucket:abc',
-      '',
-      { metadata: { er: 1 } },
-    );
-    expect(kv.put).toHaveBeenCalledWith(
-      'session-metrics:bucket:abc',
-      '',
-      { metadata: { la: '2026-08-25T00:00:00.000Z', m: { c: '10%', u: '2026-08-25T00:00:00.000Z' } } },
-    );
-    expect(kv.put).toHaveBeenCalledWith(
-      'session-status-correction:bucket:abc',
-      '1',
-      { metadata: { r: 1 }, expirationTtl: 120 },
-    );
-    expect(kv.put).toHaveBeenCalledWith(
-      'session-status-correction:bucket:def',
-      '0',
-      { metadata: { r: 0 }, expirationTtl: 120 },
-    );
   });
 });
 

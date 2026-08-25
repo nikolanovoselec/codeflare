@@ -76,7 +76,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | Path | Synced | Reason |
 |------|--------|--------|
 | `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
-| `/run/codeflare/openvscode/sidebar/**` | **NO** | Browser IDE temporary runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
+| `/run/codeflare/openvscode/sidebar/**` | **NO** | Browser IDE container-lifetime runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
 | `/run/codeflare/openvscode/data/**` | **NO** | Live session-isolated editor databases, user extension package directories, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
 | `~/.codeflare/ide-ui-state.json` | Yes | Bounded Browser IDE continuity for theme, keyboard layout, Explorer, and open files ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-bounded-ide-state-capture-and-restore-ordering)). <!-- @impl: scripts/browser-ide-ui-state.py::capture --> |
 | `~/.codeflare/ide-extensions.json` | Yes | Maximum-64-KiB Browser IDE intent manifest containing at most 50 extension identities plus bounded contributed global settings; no VSIX or extracted package bytes ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions)). <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> |
@@ -186,7 +186,7 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop. Both functions redirect with `> "$FILE" 2>&1` (not `2>&1 > "$FILE"`). The old order sent stderr to the parent process's stdout (lost) and only captured stdout in the file. rclone outputs errors and verbose info to stderr, so all diagnostic output was invisible in `/run/codeflare/sync/sync.log`.
 
-**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/run/codeflare/sync/bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the final shutdown sync to be skipped - losing any files created during the session.
+**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the final shutdown sync to be skipped - losing any files created during the session.
 
 ### Vanishing-file recovery
 

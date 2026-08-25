@@ -467,7 +467,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-055 AC2: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
+    it('REQ-IDE-050 AC3: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
       const sessionId = 'abcdef0123456789';
       mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
       mockActiveSessionId = sessionId;
@@ -1120,7 +1120,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
     });
 
-    it('REQ-IDE-048 AC1: header selection returns a running VS Code session to dashboard ownership', async () => {
+    it('REQ-IDE-048 AC2: header selection returns a running VS Code session to dashboard ownership', async () => {
       const { sessionStore } = await import('../../stores/session');
       const terminalSessionId = 'abcdef0123456789';
       const vscodeSessionId = 'fedcba9876543210';
@@ -1151,7 +1151,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-048 AC1: dashboard selection keeps a running VS Code session dashboard-owned', async () => {
+    it('REQ-IDE-048 AC2: dashboard selection keeps a running VS Code session dashboard-owned', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
@@ -1170,7 +1170,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-050 AC3: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
+    it('REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
       mockActiveSessionId = null;

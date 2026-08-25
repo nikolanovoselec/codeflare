@@ -180,7 +180,7 @@ describe('Preferences Routes', () => {
       expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual(expected);
     });
 
-    it('REQ-IDE-051 AC2: stores a Terminal default while preserving unrelated preferences', async () => {
+    it('REQ-IDE-048 AC1: stores a Terminal default while preserving unrelated preferences', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'pi',
         sessionMode: 'advanced',
@@ -201,7 +201,7 @@ describe('Preferences Routes', () => {
       });
     });
 
-    it('REQ-IDE-051 AC2: accepts VS Code only for an Advanced preference', async () => {
+    it('REQ-IDE-048 AC1: accepts VS Code only for an Advanced preference', async () => {
       mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'advanced' });
       const app = createTestApp();
 
@@ -223,7 +223,7 @@ describe('Preferences Routes', () => {
       expect(await rejected.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     });
 
-    it('REQ-IDE-051 AC2: rejects a stale Advanced preference after entitlement loss', async () => {
+    it('REQ-IDE-048 AC1: rejects a stale Advanced preference after entitlement loss', async () => {
       mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'advanced' });
       const app = createTestApp({ SAAS_MODE: 'active' });
 
@@ -237,7 +237,7 @@ describe('Preferences Routes', () => {
       expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     });
 
-    it('REQ-IDE-051 AC3: resets VS Code default atomically when switching to Standard', async () => {
+    it('REQ-IDE-048 AC1: resets VS Code default atomically when switching to Standard', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'advanced',
         defaultWorkspace: 'vscode',
@@ -261,7 +261,7 @@ describe('Preferences Routes', () => {
       expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject(expected);
     });
 
-    it('REQ-IDE-051 AC2: rejects invalid workspace values', async () => {
+    it('REQ-IDE-048 AC1: rejects invalid workspace values', async () => {
       const app = createTestApp();
       const res = await app.request('/preferences', {
         method: 'PATCH',

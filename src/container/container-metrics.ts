@@ -7,7 +7,7 @@
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';
-import { clearSessionRunningCorrection, getSessionKey, putSessionEditorState, putSessionMetricsState, putSessionRunningCorrection, putSessionWithMetadata } from '../lib/kv-keys';
+import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -239,13 +239,6 @@ export async function updateKvStatus(
       [field]: new Date().toISOString(),
     };
     await putSessionWithMetadata(env.KV, key, updated);
-    try {
-      await clearSessionRunningCorrection(env.KV, bucketName, sessionId);
-    } catch (err) {
-      // The bounded correction expires within two minutes. Durable status has
-      // already committed, so a failed tombstone is conservative and temporary.
-      logger.warn('updateKvStatus: failed to clear running correction', { key, error: String(err) });
-    }
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
     return 'written';
   } catch (err) {
@@ -1418,9 +1411,9 @@ export async function collectMetrics(
   // a future transient blip starts a fresh streak.
   await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
 
-  // Resolve the tick's trusted session once, before either host probe. Agent
-  // delivery reuses this identity and the metrics write below reuses the same
-  // KV record, so a host response can never supply recipient or display data.
+  // Resolve trusted identity before either host probe for agent delivery. The
+  // metrics write fresh-reads session state after the probes so a slow health
+  // response cannot roll back a concurrent lifecycle or readiness update.
   const trustedTickSession = await loadTrustedTickSession(state, ctx, env);
   try {
     await deliverRunningAgentEvents(state, ctx, env, trustedTickSession);
@@ -1555,12 +1548,10 @@ export async function collectMetrics(
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
         return; // Don't re-arm schedule — zombie DO, let it die
       } else if (ctx.container?.running) {
-        // Only reached while the container is demonstrably running. Metrics,
-        // activity, and editor readiness use concern-owned records; only the
-        // false-stopped recovery path below may update durable session status.
+        // Only reached while the container is demonstrably running. Fresh-read
+        // after both host probes so this tick cannot restore stale whole-session
+        // state captured before a concurrent readiness or lifecycle write.
         const key = getSessionKey(bucketName, sessionId);
-        // The activity and health probes can outlive concurrent lifecycle or UI
-        // writes. Merge only into a fresh record so this tick cannot roll them back.
         const session = await env.KV.get<Session>(key, 'json');
         if (session) {
           const metrics = {
@@ -1573,9 +1564,10 @@ export async function collectMetrics(
           const lastActiveAt = state.lastSeenInputAt
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
-          await putSessionMetricsState(env.KV, bucketName, sessionId, { metrics, lastActiveAt });
-          if (health.editorReady === true && session.workspace === 'vscode') {
-            await putSessionEditorState(env.KV, bucketName, sessionId, { editorReady: true });
+          let nextSession: Session = { ...session, metrics, lastActiveAt };
+          if (session.workspace === 'vscode' && health.editorReady === true) {
+            const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
+            nextSession = { ...withoutEditorError, editorReady: true };
           }
 
           if (session.status === 'stopped') {
@@ -1585,8 +1577,8 @@ export async function collectMetrics(
             const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
             if (typeof shutdownRequested === 'number') {
               // Deliberate stop in flight (destroy()/user Stop): leave the
-              // durable stopped status authoritative and publish no running
-              // correction that could resurrect the dashboard card.
+              // stopped status to settle, skip the write so we don't resurrect a
+              // session the user is deliberately stopping.
               logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
             } else {
               // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
@@ -1596,9 +1588,11 @@ export async function collectMetrics(
               // session is not left showing stopped on the dashboard until the
               // next start. (idle-stop returns before this block; onStop
               // deleteSchedules the loop, so those deliberate paths never reach here.)
-              logger.warn('collectMetrics: container running but KV stopped, publishing running correction', { key });
-              await putSessionRunningCorrection(env.KV, bucketName, sessionId);
+              logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
+              await putSessionWithMetadata(env.KV, key, { ...nextSession, status: 'running' as const });
             }
+          } else {
+            await putSessionWithMetadata(env.KV, key, nextSession);
           }
         }
       }

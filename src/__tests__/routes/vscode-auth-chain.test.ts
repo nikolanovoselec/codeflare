@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVscodeRequest, validateVscodeRoute } from '../../routes/vscode';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { getSessionEditorKey } from '../../lib/kv-keys';
 
 /**
  * Integration coverage for the browser-IDE auth chain + path forwarding.
@@ -182,10 +181,10 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-049 AC5: successful editor traffic reasserts readiness without losing concurrent session fields', async () => {
+  it('REQ-IDE-049 AC5: successful editor traffic repairs readiness on fresh primary session state', async () => {
     mockKV._set(SESSION_KEY, {
       id: SID,
-      name: 'Renamed concurrently',
+      name: 'Updated concurrently',
       userId: 'test-bucket',
       workspace: 'vscode',
       status: 'running',
@@ -203,17 +202,17 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
 
     const stored = await mockKV.get(SESSION_KEY, 'json') as Session;
     expect(stored).toMatchObject({
-      name: 'Renamed concurrently',
-      editorReady: false,
-      editorReadyError: true,
+      name: 'Updated concurrently',
+      workspace: 'vscode',
+      status: 'running',
+      editorReady: true,
       metrics: { cpu: '42%' },
-      lastAccessedAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(mockKV.put).toHaveBeenCalledWith(
-      getSessionEditorKey('test-bucket', SID),
-      '',
-      { metadata: { er: 1 } },
-    );
+    expect(stored.editorReadyError).toBeUndefined();
+    expect(stored.lastAccessedAt).not.toBe('2026-01-01T00:00:00.000Z');
+    expect(mockKV.put.mock.calls.some(
+      ([writtenKey]) => /^(session-editor|session-metrics|session-status-correction):/.test(String(writtenKey)),
+    )).toBe(false);
   });
 
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
@@ -227,7 +226,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
   });
 
-  it('REQ-IDE-050 AC4 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
+  it('REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
     const { AuthError } = await import('../../lib/error-types');
     mockAuthResult.error = new AuthError('Unauthorized');
     const request = vscodeRequest();
@@ -247,7 +246,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC4: rejects a Browser IDE request from an inactive SaaS tier', async () => {
+  it('REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier', async () => {
     (mockEnv as unknown as { SAAS_MODE: string }).SAAS_MODE = 'active';
     mockAuthResult.result = {
       user: {
@@ -266,7 +265,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC4: rejects a Browser IDE request for a session the user does not own', async () => {
+  it('REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own', async () => {
     mockKV._clear();
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));

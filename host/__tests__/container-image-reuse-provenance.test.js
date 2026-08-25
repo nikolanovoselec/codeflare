@@ -154,7 +154,7 @@ describe('REQ-OPS-042: retained deployment image provenance', () => {
     const freshSteps = [
       'Build container image',
       'Verify packaged native Pi Chat and official Claude',
-      'Scan container image for vulnerabilities',
+      'Scan image, generate SBOM, and prepare push tooling',
       'Push image',
     ];
     for (const name of freshSteps) {
