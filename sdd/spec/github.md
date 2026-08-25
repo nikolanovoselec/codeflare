@@ -350,7 +350,7 @@ None.
 
 ### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
 
-**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one stable, content-sized face when the viewport is narrow or short.
+**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short.
 
 **Applies To:** User
 
@@ -358,7 +358,11 @@ None.
 
 1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
 2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
-3. Single-panel mobile/flip mode derives one used height from both faces, capped at the shared viewport limit, and vertically centers the panel; internal lists scroll, flipping never resizes unequal faces, and short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column) -->
+3. In single-panel mobile/flip mode, the active face uses its own content height up to the current viewport cap, so short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+4. Flipping between unequal GitHub and Storage faces recomputes the used height from the newly active face. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+5. Resizing the viewport recomputes the active face's cap without requiring a face or content change. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+6. Single-panel mobile/flip mode vertically centers the active panel. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel:not(.dashboard-panel--expanded) --> <!-- @manual: On the protected integration deployment at a mobile viewport, confirm a short active face is vertically centered. -->
+7. Overflowing repository or storage content scrolls inside its list rather than expanding beyond the viewport cap. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/styles/storage-browser.css::.storage-drop-zone --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @manual: On the protected integration deployment at a mobile viewport, confirm long GitHub and Storage lists remain inside the capped face with internal scrolling. -->
 
 **Constraints:** None.
 
@@ -366,7 +370,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Mixed: automated Dashboard and panel-allocation tests cover single-panel allocation; the protected integration browser-e2e procedure in AC1 manually verifies tablet/desktop stacking and anchors.
+**Verification:** Mixed: automated Dashboard and panel-allocation tests cover single-panel allocation and reactive face sizing; the protected integration procedures in AC1, AC6, and AC7 manually verify desktop anchors, mobile centering, and scroll containment.
 
 **Status:** Implemented
 

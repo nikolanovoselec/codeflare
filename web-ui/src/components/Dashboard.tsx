@@ -87,7 +87,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
-  const [flipHeight, setFlipHeight] = createSignal<number | null>(null);
+  const [flipViewportCap, setFlipViewportCap] = createSignal<number | null>(null);
+  const activeFlipHeight = () => {
+    const natural = effectiveFace() === 'github' ? githubMaxH() : storageMaxH();
+    const cap = flipViewportCap();
+    return natural == null || cap == null ? null : Math.min(natural, cap);
+  };
 
   // Measure a face's TRUE natural height — what it wants with all its content shown
   // and nothing constraining it — as a fixed point that never depends on the column
@@ -132,27 +137,20 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // layout caps that small, so it would wrongly flip every tablet/laptop.
     const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
+    const viewportCap = Math.floor(window.innerHeight * 0.75);
+    setFlipViewportCap((previous) => (previous === viewportCap ? previous : viewportCap));
     // A sole Storage face needs no shared geometry. In flip mode, measure both
-    // faces (including the hidden one) and apply one viewport-capped used height;
-    // swapping unequal faces then cannot resize the column.
+    // faces (including the hidden one); the active face gets its own natural,
+    // viewport-capped height so flipping never retains its sibling's geometry.
     if (!githubStore.enabled) {
       setGithubMaxH(null);
       setStorageMaxH(null);
-      setFlipHeight(null);
       return;
     }
     const gh = measureNatural(githubFaceRef, '.github-repo-rows');
     const st = measureNatural(storageFaceRef, '.storage-drop-zone');
-    if (mode === 'flip') {
-      setGithubMaxH(null);
-      setStorageMaxH(null);
-      const natural = Math.max(gh ?? 0, st ?? 0);
-      const capped = Math.min(natural, Math.floor(window.innerHeight * 0.75));
-      setFlipHeight((p) => (p === capped ? p : capped));
-      return;
-    }
-    setFlipHeight(null);
-    // Idempotent write: a redundant trigger that re-measures the same value is a no-op.
+    // Idempotent writes: redundant observer callbacks stay no-ops. Flip mode
+    // consumes the active value as height; split mode consumes both as max-height.
     setGithubMaxH((p) => (p === gh ? p : gh));
     setStorageMaxH((p) => (p === st ? p : st));
   };
@@ -162,25 +160,26 @@ const Dashboard: Component<DashboardProps> = (props) => {
     if (!right) return;
     let raf = 0;
     const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measureLayout); };
-    // Re-measure on the two things that change the split. This is loop-free because
-    // measureLayout's measurement is a FIXED POINT (measureNatural reads the natural
-    // height with our own max-height removed), so a redundant re-measure returns the
-    // same value and the idempotent setters make it a no-op. (The #568 flicker came
-    // from measuring the face height WHILE our max-height was applied, so each measure
-    // perturbed the next — not from which element was observed.) The observers are also
-    // chosen so they cannot even see our writes:
-    //  - the column BOX resizing (viewport / orientation / header / banner reflow). The
-    //    column is `flex: 1; overflow: hidden`, sized by the OUTER layout, so the
-    //    max-height we set on its face CHILDREN can never change the column's own box.
-    //  - rows ADDED/REMOVED inside either panel (GitHub connect↔list↔load-more state,
-    //    storage show-hidden toggle, folder navigation, R2 readiness). childList only:
-    //    the max-height we set is a style ATTRIBUTE, which a childList observer ignores.
+    // Re-measure when the viewport, column box, or panel content changes. This is
+    // loop-free because measureNatural reads the natural height with our own max-height
+    // removed, so redundant measurements are idempotent. The #568 flicker came from
+    // measuring while our max-height was applied, not from which element was observed.
+    // Listen to viewport resize directly because a capped flip column can retain its old
+    // box size when the viewport grows, leaving ResizeObserver with nothing to report.
+    window.addEventListener('resize', schedule);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
     ro?.observe(right);
+    // Observe rows added or removed inside either panel. childList ignores the
+    // max-height style attributes written by measureLayout.
     const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
     mo?.observe(right, { childList: true, subtree: true });
     schedule(); // initial measure
-    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
+    onCleanup(() => {
+      window.removeEventListener('resize', schedule);
+      ro?.disconnect();
+      mo?.disconnect();
+      cancelAnimationFrame(raf);
+    });
   });
 
   onMount(() => {
@@ -482,7 +481,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             data-face={effectiveFace()}
             data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
             ref={rightColRef}
-            style={layoutMode() === 'flip' && flipHeight() != null ? { height: `${flipHeight()}px` } : undefined}
+            style={layoutMode() === 'flip' && activeFlipHeight() != null ? { height: `${activeFlipHeight()}px` } : undefined}
           >
             <Show when={githubStore.enabled}>
               <div
