@@ -220,12 +220,14 @@ describe('SessionStatCard', () => {
       expect(onMenuClick).toHaveBeenCalledOnce();
     });
 
-    it('REQ-IDE-054 AC1: activates a stopped card from the keyboard', () => {
+    it('REQ-IDE-054 AC1: uses native button activation for a stopped card', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopped' })} onSelect={onSelect} />);
 
       const selector = screen.getByTestId('session-stat-card-test-1-select');
-      fireEvent.keyDown(selector, { key: 'Enter' });
+      expect(selector.tagName).toBe('BUTTON');
+      expect(selector).toHaveAttribute('type', 'button');
+      fireEvent.click(selector);
       expect(onSelect).toHaveBeenCalledOnce();
     });
 

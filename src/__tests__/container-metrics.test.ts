@@ -627,6 +627,43 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
+    it('REQ-SESSION-009 AC4: rechecks shutdown after an in-flight primary session read', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      mockKV._set(key, {
+        id: 'testsession123456',
+        name: 'Delete race',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+      const originalGet = mockKV.get.getMockImplementation()!;
+      let releaseRead!: () => void;
+      let markReadStarted!: () => void;
+      const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve; });
+      const readRelease = new Promise<void>((resolve) => { releaseRead = resolve; });
+      mockKV.get.mockImplementation(async (readKey, type) => {
+        const captured = originalGet(readKey, type);
+        if (readKey === key) {
+          markReadStarted();
+          await readRelease;
+        }
+        return captured;
+      });
+
+      const metrics = containerInstance.collectMetrics();
+      await readStarted;
+      await (containerInstance as unknown as { ctx: { storage: { put: (k: string, v: unknown) => Promise<void> } } })
+        .ctx.storage.put('shutdownRequested', Date.now());
+      await mockKV.delete(key);
+      releaseRead();
+      await metrics;
+
+      expect(await originalGet(key, 'json')).toBeNull();
+      expect(mockKV.put.mock.calls.some(([writtenKey]) => writtenKey === key)).toBe(false);
+      expect(testState.scheduleCalls).toEqual([]);
+    });
+
     // REQ-SESSION-018 AC4: a deliberate stop (persisted shutdown marker set by
     // destroy()/user Stop) must NOT be self-healed back to running. The marker
     // is persisted (DO storage), not an in-memory field, so it survives a DO

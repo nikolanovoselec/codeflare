@@ -150,7 +150,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.id).toBe('session1');
     });
 
-    it('REQ-SESSION-028 AC1: reads only metadata-less legacy sessions when enforcing the limit', async () => {
+    it('REQ-SESSION-028 AC1: reads only metadata-less non-target sessions when enforcing the limit', async () => {
       const currentKey = 'session:bucket:session1';
       const legacyKey = 'session:bucket:legacy00000001';
       mockKV._set(currentKey, {

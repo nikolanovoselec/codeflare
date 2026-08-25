@@ -274,7 +274,7 @@ After an admin changes configuration, different isolates may enforce old and new
 The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. Current contracts are:
 
 - Batch status performs zero per-session `KV.get` calls for metadata-bearing records ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard)).
-- Session-list metadata stays within Cloudflare KV's metadata limit. <!-- @impl: src/lib/kv-keys.ts::SessionListMetadata -->
+- Session-list metadata uses compact field names to reduce its serialized size against Cloudflare KV's metadata limit. <!-- @impl: src/lib/kv-keys.ts::SessionListMetadata -->
 - The Timekeeper user-record cache retains its 60-second TTL and 100-entry bound. <!-- @impl: src/timekeeper/index.ts::USER_RECORD_CACHE_TTL_MS --> <!-- @impl: src/timekeeper/index.ts::USER_RECORD_CACHE_MAX -->
 
 ---

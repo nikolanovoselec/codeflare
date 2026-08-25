@@ -389,13 +389,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-028: Session metadata projection compatibility
 
-**Intent:** Metadata-first session projections preserve legacy records without adding per-record reads for current metadata-bearing sessions.
+**Intent:** Metadata-first session projections preserve legacy records without fallback reads for metadata-bearing comparison or batch entries.
 
 **Applies To:** System (session lifecycle)
 
 **Acceptance Criteria:**
 
-1. Concurrent-session counting reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-SESSION-028 AC1: reads only metadata-less legacy sessions when enforcing the limit) -->
+1. Concurrent-session counting reads a non-target listed session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-SESSION-028 AC1: reads only metadata-less non-target sessions when enforcing the limit) -->
 2. Batch status reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC2: resolves a mix of fast-path metadata and fallback legacy keys) -->
 
 **Constraints:** Compatibility reads remain bounded to metadata-less entries; current writers keep the primary `session:*` record and its list metadata synchronized without overlays or prefix scans.
