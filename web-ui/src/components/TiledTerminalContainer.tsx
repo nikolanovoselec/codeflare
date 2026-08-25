@@ -1,4 +1,4 @@
-import { Component, JSX } from 'solid-js';
+import { Component, JSX, createMemo } from 'solid-js';
 import TerminalGrid, { type TerminalGridPane } from './TerminalGrid';
 import type { TerminalTab, TileLayout } from '../types';
 
@@ -13,17 +13,21 @@ interface TiledTerminalContainerProps {
 }
 
 const TiledTerminalContainer: Component<TiledTerminalContainerProps> = (props) => {
-  const orderedPanes = (): TerminalGridPane<TerminalTab>[] => {
-    const terminalMap = new Map(props.terminals.map((terminal) => [terminal.id, terminal]));
-    return props.tabOrder
-      .map((tabId) => terminalMap.get(tabId))
-      .filter((terminal): terminal is TerminalTab => Boolean(terminal))
-      .map((terminal) => ({
-        id: terminal.id,
-        data: terminal,
-        active: props.activeTabId === terminal.id,
-      }));
-  };
+  const terminalById = createMemo(() =>
+    new Map(props.terminals.map((terminal) => [terminal.id, terminal] as const)),
+  );
+  const orderedPanes = createMemo<TerminalGridPane<TerminalTab>[]>((previous) => {
+    const ids = props.tabOrder.filter((tabId) => terminalById().has(tabId));
+    if (previous?.length === ids.length && previous.every((pane, index) => pane.id === ids[index])) {
+      return previous;
+    }
+
+    return ids.map((id) => ({
+      id,
+      get data() { return terminalById().get(id)!; },
+      get active() { return props.activeTabId === id; },
+    }));
+  });
 
   return (
     <TerminalGrid

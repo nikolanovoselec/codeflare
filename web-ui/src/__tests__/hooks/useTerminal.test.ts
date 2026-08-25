@@ -664,8 +664,10 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-011: claims resize authority and sends current dimensions when a pane becomes focused', async () => {
+    it('REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal', async () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      const connectCleanup = vi.fn();
+      vi.mocked(terminalStore.connect).mockReturnValue(connectCleanup);
       const [focused, setFocused] = createSignal(false);
 
       const dispose = createRoot((dispose) => {
@@ -679,6 +681,7 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       vi.mocked(terminalStore.claimResizeAuthority).mockClear();
       vi.mocked(terminalStore.resize).mockClear();
       mockFocus.mockClear();
@@ -688,9 +691,24 @@ describe('useTerminal hook', () => {
       await vi.waitFor(() => expect(terminalStore.claimResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
       expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 80, 24);
+      const claimOrder = vi.mocked(terminalStore.claimResizeAuthority).mock.invocationCallOrder[0];
+      const resizeOrder = vi.mocked(terminalStore.resize).mock.invocationCallOrder[0];
+      expect(claimOrder).toBeDefined();
+      expect(resizeOrder).toBeDefined();
+      expect(claimOrder!).toBeLessThan(resizeOrder!);
       expect(mockFocus).toHaveBeenCalled();
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
+      expect(connectCleanup).not.toHaveBeenCalled();
+
+      vi.mocked(terminalStore.clearPendingResizeAuthority).mockClear();
+      setFocused(false);
+
+      await vi.waitFor(() => expect(terminalStore.clearPendingResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
+      expect(connectCleanup).not.toHaveBeenCalled();
 
       dispose();
+      expect(connectCleanup).toHaveBeenCalledTimes(1);
     });
 
     it('REQ-TERM-016: clears a queued resize-authority claim when the pane loses focus', async () => {

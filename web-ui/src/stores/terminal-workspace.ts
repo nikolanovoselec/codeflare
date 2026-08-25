@@ -30,10 +30,19 @@ function uniqueIds(ids: string[]): string[] {
   return Array.from(new Set(ids.filter(Boolean)));
 }
 
-function liveSessionIds(sessions: SessionWithStatus[]): Set<string> {
+function isTerminalSession(
+  session: Pick<SessionWithStatus, 'workspace'> | null | undefined,
+): boolean {
+  return session != null && session.workspace !== 'vscode';
+}
+
+function liveTerminalSessionIds(sessions: SessionWithStatus[]): Set<string> {
   return new Set(
     sessions
-      .filter((session) => session.status === 'running' || session.status === 'initializing')
+      .filter((session) =>
+        isTerminalSession(session)
+        && (session.status === 'running' || session.status === 'initializing')
+      )
       .map((session) => session.id),
   );
 }
@@ -97,7 +106,7 @@ function validateMultiViewMemberIds(
 ): string[] {
   const capacity = getMultiViewCapacity(viewport);
   if (capacity === 0) return [];
-  const live = liveSessionIds(sessions);
+  const live = liveTerminalSessionIds(sessions);
   return uniqueIds(memberSessionIds)
     .filter((id) => live.has(id))
     .slice(0, capacity);
@@ -114,7 +123,16 @@ function setDashboardWorkspace(): void {
   });
 }
 
-function setSingleSessionWorkspace(sessionId: string, terminalId = '1'): void {
+function setSingleSessionWorkspace(
+  sessionId: string,
+  terminalId: string,
+  session: Pick<SessionWithStatus, 'workspace'>,
+): void {
+  if (!isTerminalSession(session)) {
+    setDashboardWorkspace();
+    return;
+  }
+
   const pane = paneForSession(sessionId, terminalId, 'session');
   if (
     state.mode === 'single-session'
@@ -184,7 +202,7 @@ function createOrUpdateMultiView(
   const capacity = getMultiViewCapacity(viewport);
   if (capacity === 0) return false;
 
-  const live = liveSessionIds(sessions);
+  const live = liveTerminalSessionIds(sessions);
   const members = uniqueIds(memberSessionIds).filter((id) => live.has(id));
   if (members.length < 2 || members.length > capacity) return false;
 
@@ -270,6 +288,7 @@ export const terminalWorkspaceStore = {
   getFocusedPaneId: (): string | null => state.focusedPaneId,
   getLayout: (): TileLayout => state.layout,
   getMultiView: (): MultiViewWorkspace | null => state.multiView,
+  isTerminalSession,
   getMultiViewCapacity,
   validateMultiViewMemberIds,
   reconcileMultiView,

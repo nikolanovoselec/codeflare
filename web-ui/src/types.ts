@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema } from './lib/schemas';
+import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
 export type AgentType = z.infer<typeof AgentTypeSchema>;
@@ -13,6 +13,7 @@ export interface TabConfig {
 
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
+export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 
 export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
 
@@ -21,6 +22,7 @@ export interface UserPreferences {
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
+  defaultWorkspace?: SessionWorkspace;
   sleepAfter?: SleepAfterOption;
   /** REQ-MEM-001 AC4: user's IANA timezone captured from the browser. */
   userTimezone?: string;
@@ -43,6 +45,9 @@ export interface Session {
   /** Backend only sends 'stopped' | 'running'. 'stopping' is a client-only ephemeral state managed by SessionStatus, never returned by the API. */
   status?: 'stopped' | 'running';
   agentType?: AgentType;
+  workspace?: SessionWorkspace;
+  editorReady?: boolean;
+  editorReadyError?: boolean;
   tabConfig?: TabConfig[];
   /** ISO timestamp of when the session was last started */
   lastStartedAt?: string;
@@ -105,6 +110,7 @@ export interface StartupStatusResponse {
     syncError?: string | null;
     healthServerOk?: boolean;
     terminalServerOk?: boolean;
+    editorReady?: boolean;
     // System metrics from health server
     cpu?: string;
     mem?: string;

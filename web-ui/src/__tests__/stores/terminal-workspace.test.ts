@@ -2,12 +2,17 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { SessionWithStatus } from '../../types';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 
-const session = (id: string, status: SessionWithStatus['status'] = 'running'): SessionWithStatus => ({
+const session = (
+  id: string,
+  status: SessionWithStatus['status'] = 'running',
+  workspace?: SessionWithStatus['workspace'],
+): SessionWithStatus => ({
   id,
   name: id,
   createdAt: '2026-06-18T00:00:00Z',
   lastAccessedAt: '2026-06-18T00:00:00Z',
   status,
+  ...(workspace ? { workspace } : {}),
 });
 
 describe('terminalWorkspaceStore visible pane ownership', () => {
@@ -16,7 +21,7 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
   });
 
   it('REQ-TERM-011: dashboard workspace has no visible terminal panes', () => {
-    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '1');
+    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '1', session('session-a'));
     terminalWorkspaceStore.setDashboardWorkspace();
 
     expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
@@ -25,13 +30,21 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
   });
 
   it('REQ-TERM-011: single-session workspace exposes exactly one visible pane', () => {
-    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '2');
+    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '2', session('session-a'));
 
     expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'session', sessionId: 'session-a' });
     expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([
       { id: 'session:session-a:2', sessionId: 'session-a', terminalId: '2', source: 'session' },
     ]);
     expect(terminalWorkspaceStore.getFocusedPaneId()).toBe('session:session-a:2');
+  });
+
+  it('rejects known VS Code single-session ownership at workspace boundary', () => {
+    terminalWorkspaceStore.setSingleSessionWorkspace('terminal-a', '1', session('terminal-a'));
+    terminalWorkspaceStore.setSingleSessionWorkspace('vscode-a', '1', session('vscode-a', 'running', 'vscode'));
+
+    expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
+    expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([]);
   });
 
   it('REQ-TERM-012: desktop MultiView accepts two to four live sessions', () => {
@@ -98,5 +111,45 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
     expect(reconciled?.memberSessionIds).toEqual(['a', 'c']);
     expect(terminalWorkspaceStore.openMultiView()).toBe(true);
     expect(terminalWorkspaceStore.getVisiblePanes().map((pane) => pane.sessionId)).toEqual(['a', 'c']);
+  });
+
+  it('keeps missing workspace terminal-compatible but excludes VS Code during validation and creation', () => {
+    const sessions = [
+      session('legacy-terminal'),
+      session('explicit-terminal', 'running', 'terminal'),
+      session('vscode', 'running', 'vscode'),
+    ];
+
+    expect(terminalWorkspaceStore.validateMultiViewMemberIds(
+      ['legacy-terminal', 'vscode', 'explicit-terminal'],
+      sessions,
+      'desktop',
+    )).toEqual(['legacy-terminal', 'explicit-terminal']);
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(
+      ['legacy-terminal', 'vscode', 'explicit-terminal'],
+      sessions,
+      'desktop',
+    )).toBe(true);
+    expect(terminalWorkspaceStore.getMultiView()?.memberSessionIds).toEqual([
+      'legacy-terminal',
+      'explicit-terminal',
+    ]);
+  });
+
+  it('removes stale VS Code members during reconciliation and closes invalid MultiView ownership', () => {
+    const sessions = [session('a'), session('b'), session('c')];
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(['a', 'b', 'c'], sessions, 'desktop')).toBe(true);
+    expect(terminalWorkspaceStore.openMultiView()).toBe(true);
+
+    const reconciled = terminalWorkspaceStore.reconcileMultiView([
+      session('a', 'running', 'vscode'),
+      session('b', 'running', 'vscode'),
+      session('c', 'running', 'terminal'),
+    ], 'desktop');
+
+    expect(reconciled).toBeNull();
+    expect(terminalWorkspaceStore.getMultiView()).toBeNull();
+    expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
+    expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([]);
   });
 });

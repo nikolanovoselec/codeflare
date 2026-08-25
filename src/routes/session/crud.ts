@@ -5,8 +5,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
-import { AgentTypeSchema, type Env, type Session } from '../../types';
-import { getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
+import { AgentTypeSchema, resolveSessionWorkspace, type Env, type Session, type UserPreferences } from '../../types';
+import { getPreferencesKey, getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
@@ -19,6 +19,7 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { parseJsonBody, validateSessionId } from '../../lib/request-helpers';
 import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
+import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 
 const CreateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
@@ -38,6 +39,13 @@ const UpdateSessionBody = z.object({
 }).strict();
 
 const logger = createLogger('session-crud');
+
+function toWorkspaceApiSession(session: Session) {
+  return {
+    ...toApiSession(session),
+    workspace: resolveSessionWorkspace(session.workspace),
+  };
+}
 
 /**
  * Rate limiter for session creation
@@ -96,7 +104,7 @@ app.get('/', async (c) => {
   );
 
   // Omit userId from API responses
-  const sanitizedSessions = sessions.map(toApiSession);
+  const sanitizedSessions = sessions.map(toWorkspaceApiSession);
 
   return c.json({ sessions: sanitizedSessions });
 });
@@ -109,6 +117,11 @@ app.get('/', async (c) => {
 app.post('/', sessionCreateRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const body = await parseJsonBody(c, CreateSessionBody);
+  const preferences = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
+  const effectiveSessionMode = await resolveEffectiveSessionMode(preferences, c.get('user'), c.env);
+  const workspace = preferences?.defaultWorkspace === 'vscode' && effectiveSessionMode === 'advanced'
+    ? 'vscode'
+    : 'terminal';
 
   // Enterprise deploys restrict the selectable agent set to the wizard-chosen
   // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
@@ -160,6 +173,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     createdAt: now,
     lastAccessedAt: now,
     ...(agentType && { agentType }),
+    ...(workspace === 'vscode' && { workspace }),
     ...(body.tabConfig && { tabConfig: body.tabConfig }),
     ...(body.clone && { clone: body.clone }),
   };
@@ -169,7 +183,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   await putSessionWithMetadata(c.env.KV, key, session);
 
   // Omit userId from API response
-  return c.json({ session: toApiSession(session) }, 201);
+  return c.json({ session: toWorkspaceApiSession(session) }, 201);
 });
 
 /**
@@ -185,7 +199,7 @@ app.get('/:id', async (c) => {
   const session = await getSessionOrThrow(c.env.KV, key);
 
   // Omit userId from API response
-  return c.json({ session: toApiSession(session) });
+  return c.json({ session: toWorkspaceApiSession(session) });
 });
 
 /**
@@ -214,7 +228,7 @@ app.patch('/:id', async (c) => {
   await putSessionWithMetadata(c.env.KV, key, updated);
 
   // Omit userId from API response
-  return c.json({ session: toApiSession(updated) });
+  return c.json({ session: toWorkspaceApiSession(updated) });
 });
 
 /**
@@ -270,7 +284,7 @@ app.post('/:id/touch', async (c) => {
   const updated = { ...session, lastAccessedAt: new Date().toISOString() };
   await putSessionWithMetadata(c.env.KV, key, updated);
 
-  return c.json({ session: toApiSession(updated) });
+  return c.json({ session: toWorkspaceApiSession(updated) });
 });
 
 export default app;

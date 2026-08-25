@@ -79,6 +79,7 @@ describe('nightly PR Checks routing', () => {
         'webui=true',
         'landing=true',
         'host=true',
+        'pi=true',
         'ide=true',
         'workflows=true',
       ]);

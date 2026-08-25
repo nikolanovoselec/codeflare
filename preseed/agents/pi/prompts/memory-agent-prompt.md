@@ -96,7 +96,7 @@ The helper uses the note's H1 as the document label, a stable Vault-relative doc
 Run the required merge and global publication while one lock covers both:
 
 ```bash
-flock -w 300 /tmp/graphify-global.lock bash -c '
+flock -w 300 /run/codeflare/locks/graphify-global.lock bash -c '
   /root/.local/share/uv/tools/graphifyy/bin/python \
     /home/user/.pi/agent/scripts/merge-vault-graph.py \
     "$1" \

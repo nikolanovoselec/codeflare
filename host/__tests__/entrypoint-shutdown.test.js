@@ -15,7 +15,7 @@
 // structural assertions.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -36,7 +36,35 @@ function extractFunction(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
-const BISYNC_SENTINEL = '/tmp/.bisync-initialized';
+/** Exercise the real baseline function with a controlled timeout result. */
+function runBaselineTimeout() {
+  const fixture = mkdtempSync(join(tmpdir(), 'baseline-timeout-'));
+  const runtimeRoot = join(fixture, 'runtime');
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  const recoveryFilter = join(syncRuntimeDir, 'recovery-filters.txt');
+  mkdirSync(join(syncRuntimeDir, 'rclone'), { recursive: true });
+  writeFileSync(recoveryFilter, '');
+
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME='${fixture}'`,
+    "R2_BUCKET_NAME='bucket'",
+    `RCLONE_CONFIG='${join(fixture, 'rclone.conf')}'`,
+    `RECOVERY_FILTER_FILE='${recoveryFilter}'`,
+    `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
+    'RCLONE_FILTERS=()',
+    'timeout() { return 124; }',
+    'recover_vanished_files() { return 1; }',
+    extractFunction('establish_bisync_baseline'),
+    'establish_bisync_baseline',
+  ].join('\n');
+
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const sentinelExists = existsSync(join(syncRuntimeDir, 'bisync-initialized'));
+  rmSync(fixture, { recursive: true, force: true });
+  return { result, sentinelExists };
+}
 
 /**
  * Run shutdown_once -> shutdown_handler in a real bash with stubbed
@@ -48,10 +76,12 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
+  const runtimeRoot = join(fixture, 'run');
+  const bisyncSentinel = join(runtimeRoot, 'sync/bisync-initialized');
   writeFileSync(logFile, '');
+  mkdirSync(dirname(bisyncSentinel), { recursive: true });
 
-  if (bisyncInitialized) writeFileSync(BISYNC_SENTINEL, '');
-  else rmSync(BISYNC_SENTINEL, { force: true });
+  if (bisyncInitialized) writeFileSync(bisyncSentinel, '');
 
   const script = [
     'exec > "$OUT_FILE" 2>&1',
@@ -67,6 +97,7 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     'sleep() { command sleep 0.01; }',
     `BISYNC_INIT_PID=${initPid ? `'${initPid}'` : "''"}`,
     `TERMINAL_PID=${terminalPid ? `'${terminalPid}'` : "''"}`,
+    `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     extractFunction('shutdown_handler'),
     extractFunction('shutdown_once'),
     'SHUTDOWN_RAN=0',
@@ -86,10 +117,10 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     },
   });
 
-  const log = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+  const log = readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
+    .map((line) => line.replaceAll(runtimeRoot, '/run/codeflare'));
   const out = existsSync(outFile) ? readFileSync(outFile, 'utf8') : '';
   rmSync(fixture, { recursive: true, force: true });
-  rmSync(BISYNC_SENTINEL, { force: true });
   return { result, log, out };
 }
 
@@ -132,7 +163,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.equal(bisyncRuns.length, 1, `the guarded handler must run exactly once (saw ${bisyncRuns.length} bisync runs)`);
   });
 
-  it('REQ-OPS-010 AC3: trap handler kills the sync daemon via PID file at /tmp/sync-daemon.pid', () => {
+  it('REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files', () => {
     const { log } = runShutdown({ initPid: '4242' });
 
     // The background init subshell dies FIRST (it would otherwise restart
@@ -142,11 +173,11 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     const sweep = log.filter((line) => line.startsWith('walk_kill:') || line.startsWith('kill_pidfile_subtree:'));
     assert.deepEqual(sweep, [
       'walk_kill:TERM:4242',
-      'kill_pidfile_subtree:/tmp/sync-daemon.pid',
-      'kill_pidfile_subtree:/tmp/vault-monitor.pid',
-      'kill_pidfile_subtree:/tmp/silverbullet.pid',
-      'kill_pidfile_subtree:/tmp/openvscode-generation.pid',
-      'kill_pidfile_subtree:/tmp/openvscode.pid',
+      'kill_pidfile_subtree:/run/codeflare/sync/sync-daemon.pid',
+      'kill_pidfile_subtree:/run/codeflare/services/vault-monitor.pid',
+      'kill_pidfile_subtree:/run/codeflare/services/silverbullet.pid',
+      'kill_pidfile_subtree:/run/codeflare/openvscode/generation.pid',
+      'kill_pidfile_subtree:/run/codeflare/openvscode/supervisor.pid',
     ]);
   });
 
@@ -165,14 +196,9 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
   });
 
   it('REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs', () => {
-    // The flag must be touched on both the success path AND the timeout/error
-    // path of establish_bisync_baseline (structural: that function's runtime
-    // needs a real rclone).
-    const allTouches = [...entrypoint.matchAll(/touch \/tmp\/\.bisync-initialized/g)];
-    assert.ok(
-      allTouches.length >= 2,
-      'entrypoint.sh must touch /tmp/.bisync-initialized on both the success path and the timeout/error path'
-    );
+    const timeout = runBaselineTimeout();
+    assert.equal(timeout.result.status, 0, timeout.result.stderr);
+    assert.equal(timeout.sentinelExists, true, 'a baseline timeout must create the protected bisync sentinel');
 
     // Behavioral: the handler gates the final bisync on the sentinel — absent
     // sentinel means no bisync attempt and an explicit skip line.

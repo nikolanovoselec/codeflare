@@ -1,0 +1,17 @@
+name: "Codeflare CodeQL worker shard"
+
+paths:
+  - 'src/**'
+  - 'scripts/**'
+  - 'stress/**'
+  - '*.mjs'
+  - '*.ts'
+
+paths-ignore:
+  # Generated from the reviewed preseed manifests. Analyzing
+  # this 24 MiB aggregate again dominated the JavaScript query phase.
+  - 'src/lib/agent-seed.generated.ts'
+  # Test code does not ship in Worker runtime.
+  - '**/__tests__/**'
+  - '**/*.test.*'
+  - '**/test/**'

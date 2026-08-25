@@ -326,7 +326,7 @@ EOF
     fi
 
     if [ "${#STALE_TAGS[@]}" -gt 0 ] || [ "$NEED_ADD" = "1" ]; then
-        if ! flock -w 5 /tmp/graphify-global.lock bash -c '
+        if ! flock -w 5 /run/codeflare/locks/graphify-global.lock bash -c '
             graph_json="$1"
             repo_tag="$2"
             need_add="$3"

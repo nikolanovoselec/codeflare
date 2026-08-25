@@ -124,6 +124,18 @@ describe('SessionStatCard', () => {
       const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--success');
       expect(dot).toBeInTheDocument();
     });
+
+    it.each([
+      [{ status: 'running', editorReady: true }, 'success'],
+      [{ status: 'running', editorReady: false }, 'warning'],
+      [{ status: 'stopping', editorReady: true }, 'warning'],
+      [{ status: 'stopped', editorReady: true }, 'default'],
+      [{ status: 'running', editorReady: false, editorReadyError: true }, 'error'],
+    ] as const)('REQ-IDE-050 AC1: maps VS Code readiness %o to %s', (overrides, variant) => {
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', ...overrides })} />);
+      expect(screen.getByTestId('session-stat-card-test-1').querySelector(`.session-stat-card__dot--${variant}`)).toBeInTheDocument();
+    });
   });
 
   describe('Metrics for running sessions', () => {
@@ -169,11 +181,67 @@ describe('SessionStatCard', () => {
   });
 
   describe('Click behavior', () => {
-    it('calls onSelect when card is clicked', () => {
+    it('calls onSelect when the whole-card selection control is clicked', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} onSelect={onSelect} />);
-      fireEvent.click(screen.getByTestId('session-stat-card-test-1'));
+      fireEvent.click(screen.getByTestId('session-stat-card-test-1-select'));
       expect(onSelect).toHaveBeenCalled();
+    });
+
+    it('REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
+
+      const card = screen.getByTestId('session-stat-card-test-1');
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      const menu = screen.getByTitle('Session actions');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(selector).toHaveAttribute('type', 'button');
+      expect(selector.contains(menu)).toBe(false);
+      expect(screen.queryByText('Open')).not.toBeInTheDocument();
+      fireEvent.click(selector);
+      expect(onSelect).toHaveBeenCalledOnce();
+    });
+
+    it('REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls', () => {
+      const onSelect = vi.fn();
+      const onMenuClick = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: false })} onSelect={onSelect} onMenuClick={onMenuClick} />);
+
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(card).not.toHaveAttribute('aria-disabled');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
+      fireEvent.click(card);
+      fireEvent.click(screen.getByTitle('Session actions'));
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onMenuClick).toHaveBeenCalledOnce();
+    });
+
+    it('REQ-IDE-054 AC1: uses native button activation for a stopped card', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopped' })} onSelect={onSelect} />);
+
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      expect(selector.tagName).toBe('BUTTON');
+      expect(selector).toHaveAttribute('type', 'button');
+      fireEvent.click(selector);
+      expect(onSelect).toHaveBeenCalledOnce();
+    });
+
+    it('REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopping' })} onSelect={onSelect} />);
+
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(card).not.toHaveAttribute('aria-disabled');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
+      fireEvent.click(card);
+      expect(onSelect).not.toHaveBeenCalled();
     });
   });
 
@@ -195,6 +263,13 @@ describe('SessionStatCard', () => {
       expect(onMenuClick).toHaveBeenCalled();
       expect(onSelect).not.toHaveBeenCalled();
     });
+
+    it.each(['Enter', ' '])('does not activate the card when the kebab handles %p', (key) => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} onSelect={onSelect} />);
+      fireEvent.keyDown(screen.getByTitle('Session actions'), { key });
+      expect(onSelect).not.toHaveBeenCalled();
+    });
   });
 
   describe('Sleep timer icon', () => {
@@ -204,8 +279,11 @@ describe('SessionStatCard', () => {
         lastActiveAt: new Date(Date.now() - 22 * 60_000).toISOString(),
       });
       render(() => <SessionStatCard {...defaultProps} session={session} />);
-      expect(screen.getByTestId('session-stat-card-test-1-timer')).toBeInTheDocument();
-      expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--warning');
+      const timer = screen.getByTestId('session-stat-card-test-1-timer');
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      expect(timer).toBeInTheDocument();
+      expect(timer).toHaveClass('session-stat-card__timer--warning');
+      expect(selector.contains(timer)).toBe(false);
     });
 
     it('shows critical timer when remaining < 5 min', () => {
@@ -215,6 +293,20 @@ describe('SessionStatCard', () => {
       });
       render(() => <SessionStatCard {...defaultProps} session={session} />);
       expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--critical');
+    });
+
+    it.each(['Enter', ' '])('does not activate the card when the timer handles %p', (key) => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard
+        {...defaultProps}
+        onSelect={onSelect}
+        session={createSession({
+          status: 'running',
+          lastActiveAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+        })}
+      />);
+      fireEvent.keyDown(screen.getByTestId('session-stat-card-test-1-timer'), { key });
+      expect(onSelect).not.toHaveBeenCalled();
     });
 
     it('hides timer when remaining >= 10 min', () => {
@@ -269,6 +361,9 @@ describe('SessionStatCard', () => {
       const card = screen.getByTestId('session-stat-card-test-1');
       expect(card.style.opacity).toBe('0.6');
       expect(card.style.pointerEvents).toBe('none');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
       fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });

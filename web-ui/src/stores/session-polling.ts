@@ -223,6 +223,8 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
         if (remote.lastStartedAt) setStateRaw('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
         setStateRaw('sessions', idx, 'ptyActive', remote.ptyActive);
         setStateRaw('sessions', idx, 'startupStage', remote.startupStage);
+        if (remote.editorReady !== undefined) setStateRaw('sessions', idx, 'editorReady', remote.editorReady);
+        setStateRaw('sessions', idx, 'editorReadyError', remote.editorReadyError === true);
       }
 
       // Populate sessionMetrics from batch-status metrics

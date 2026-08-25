@@ -7,6 +7,7 @@ import { createR2Client, getR2Url } from './r2-client';
 import type { ActiveManagedRelease } from './remote-curation-cache';
 import {
   parseManagedReleaseStream,
+  readManagedEnvironmentSnapshot,
   resolveManagedEnvironment,
   verifyManagedReleaseStream,
   type ManagedEnvironmentConfig,
@@ -73,7 +74,17 @@ async function readReleaseByDigest(
   return { compressed, release: verified.release };
 }
 
-/** Read the already-verified active descriptor without loading release payload bytes. */
+/** Read the persisted active descriptor without repository or cache I/O. */
+export async function getCachedActiveManagedRelease(
+  env: Pick<Env, 'KV'>,
+): Promise<{ digest: string; pointer: ActiveManagedRelease } | null> {
+  const snapshot = await readManagedEnvironmentSnapshot(env);
+  if (!snapshot.config || !snapshot.enabled) return null;
+  if (!snapshot.active) throw new Error('Managed environment is enabled without a cached verified active release');
+  return { digest: snapshot.active.digest, pointer: snapshot.active };
+}
+
+/** Refresh and read the already-verified active descriptor without loading release payload bytes. */
 export async function getActiveManagedRelease(
   env: Env,
 ): Promise<{ digest: string; pointer: ActiveManagedRelease } | null> {

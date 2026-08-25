@@ -1,0 +1,19 @@
+name: "Codeflare CodeQL container and UI shard"
+
+paths:
+  - 'host/**'
+  - 'web-ui/**'
+  - 'landing/**'
+  - 'openvscode/**'
+  - 'preseed/**'
+
+paths-ignore:
+  # Impeccable is vendored upstream copy-edit tooling refreshed wholesale by
+  # scripts/update-impeccable-skill.mjs and is not maintained in this repo.
+  - 'preseed/agents/*/skills/impeccable/scripts/**'
+  # Vendored SilverBullet plug bundles are immutable upstream build output.
+  - 'preseed/silverbullet/**/*.plug.js'
+  # Test code does not ship in dashboard, host, or Browser IDE runtime.
+  - '**/__tests__/**'
+  - '**/*.test.*'
+  - '**/test/**'

@@ -288,6 +288,32 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
+### REQ-TERM-030: Tiled pane focus lifecycle
+
+**Intent:** Users can move focus among visible tiled terminals without interrupting any terminal session.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Clicking a visible tile moves focus to that tile. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::TiledTerminalContainer --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
+2. Moving focus between visible tiles does not remount any terminal pane. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::orderedPanes --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
+3. Moving focus between visible connected panes does not reconnect their WebSockets. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
+
+**Constraints:**
+
+- Focus changes preserve mounted pane identity; adding, removing, or reordering tab IDs may reconcile the affected pane subtree.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid)
+
+**Verification:** Automated test ([tiled terminal container](../../web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx))
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-008: Write batching at 30fps
 
 **Intent:** Rapid WebSocket messages are coalesced into terminal writes at 30fps to reduce rendering overhead without perceptible latency.
@@ -563,7 +589,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-011: reconnects only visible tiled slots after visibility return) -->
-2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011: claims resize authority and sends current dimensions when a pane becomes focused) -->
+2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-011 / REQ-TERM-016 AC2: resends focused resize authority after a retry reconnect opens) -->
 3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-012: stale cleanup from an older connection cannot close a newer connection for the same terminal) -->
 4. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-016: accepts resize frames only from the foreground WebSocket owner) -->
 5. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-016: clears a queued resize-authority claim when the pane loses focus) -->

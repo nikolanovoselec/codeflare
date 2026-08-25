@@ -14,7 +14,7 @@ const readWorkflow = (name) =>
 
 describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
   for (const [file, job, requiredContext] of [
-    ['codeql.yml', 'analyze', 'CodeQL'],
+    ['codeql.yml', 'gate', 'CodeQL'],
     ['fuzz.yml', 'fuzz', 'Property-based fuzzing'],
   ]) {
     it(`${requiredContext} runs for pull requests to both protected branches`, () => {
@@ -34,6 +34,44 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
 
     assert.equal(actionRefs.length, 3);
     assert.equal(new Set(versions).size, 1);
+  });
+
+  it('runs two disjoint CodeQL source shards behind the stable Analyze gate', () => {
+    const workflow = readWorkflow('codeql.yml');
+    assert.deepEqual(workflow.jobs.analyze.strategy.matrix.include, [
+      { shard: 'worker', config: './.github/codeql/codeql-worker.yml' },
+      { shard: 'container-ui', config: './.github/codeql/codeql-container-ui.yml' },
+    ]);
+    assert.equal(workflow.jobs.analyze.steps.at(-1).with.category, '/language:javascript-typescript/${{ matrix.shard }}');
+    assert.equal(workflow.jobs.gate.needs, 'analyze');
+
+    const worker = parseYaml(readFileSync(resolve(__dirname, '../../.github/codeql/codeql-worker.yml'), 'utf8'));
+    const containerUi = parseYaml(readFileSync(resolve(__dirname, '../../.github/codeql/codeql-container-ui.yml'), 'utf8'));
+    assert.deepEqual(worker.paths, ['src/**', 'scripts/**', 'stress/**', '*.mjs', '*.ts']);
+    assert.deepEqual(containerUi.paths, ['host/**', 'web-ui/**', 'landing/**', 'openvscode/**', 'preseed/**']);
+  });
+});
+
+describe('REQ-OPS-053: dependency-review evidence policy', () => {
+  it('REQ-OPS-053: dependency-review evidence policy', () => {
+    const workflow = readWorkflow('test.yml');
+    const review = workflow.jobs['dependency-review'].steps.find((candidate) =>
+      candidate.uses?.startsWith('actions/dependency-review-action@'),
+    );
+    assert.equal(review.with['license-check'], 'true');
+    assert.equal(review.with['vulnerability-check'], 'true');
+    assert.equal(review.with['show-openssf-scorecard'], 'true');
+    assert.deepEqual(
+      review.with['allow-dependencies-licenses'].split(',').map((value) => value.trim()),
+      [
+        'pkg:npm/@openai/codex-darwin-arm64@0.147.0-darwin-arm64',
+        'pkg:npm/@openai/codex-darwin-x64@0.147.0-darwin-x64',
+        'pkg:npm/@openai/codex-linux-arm64@0.147.0-linux-arm64',
+        'pkg:npm/@openai/codex-linux-x64@0.147.0-linux-x64',
+        'pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64',
+        'pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64',
+      ],
+    );
   });
 });
 

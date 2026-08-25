@@ -269,55 +269,6 @@ RUN CODE_SERVER_VERSION="4.132.0" && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz
 
-# Codeflare's non-agent welcome surface is available for every fixed inventory.
-# It is packaged as owned extension code without modifying code-server or Code OSS.
-COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/vscode/extensions/codeflare-welcome
-RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
-    chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
-
-# Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
-# exact official Claude extension, and an empty unsupported-agent inventory.
-# The assembled tree is copied once, so the 285 MiB official package is not
-# duplicated through a runtime staging layer.
-COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
-
-# Official Claude sessions use an isolated config projection. Managed settings
-# and hooks remain root-owned; terminal history and runtime state are never
-# copied into the projection.
-COPY openvscode/claude/managed-settings.mjs \
-     openvscode/claude/prepare-sidebar-config.mjs \
-     openvscode/claude/prepare-sidebar-config.sh \
-     openvscode/claude/sidebar-settings.json \
-     /opt/codeflare/openvscode/claude/
-RUN mkdir -p /etc/codeflare/claude-sidebar && \
-    cp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json && \
-    chmod 0555 /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh && \
-    find /opt/codeflare/openvscode/claude -type f ! -name prepare-sidebar-config.sh -exec chmod 0444 {} + && \
-    chmod 0555 /opt/codeflare/openvscode/claude /etc/codeflare/claude-sidebar && \
-    chmod 0444 /etc/codeflare/claude-sidebar/settings.json && \
-    cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
-
-COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
-COPY scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py /opt/codeflare/openvscode/
-COPY openvscode/extension-persistence-policy.json /opt/codeflare/openvscode/extension-persistence-policy.json
-RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
-        /opt/codeflare/openvscode/extension-persistence-policy.json && \
-    chmod 0555 /opt/codeflare/openvscode/browser-ide-ui-state.py \
-        /opt/codeflare/openvscode/browser-ide-extensions.py
-
-# REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
-# (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
-# `--checksum` sync then skips the unchanged seed files and transfers only user deltas.
-# Derived in-image from the COMMITTED, freshness-enforced src/lib/agent-seed.generated.ts
-# (single source of truth), so this needs no host build ordering and never drifts. Placed
-# above the .cache-bust COPY so the layer caches on the seed content, not every deploy.
-COPY src/lib/agent-seed.generated.ts /opt/codeflare/seed-src/agent-seed.generated.ts
-COPY scripts/materialize-agent-seed.mjs /opt/codeflare/seed-src/materialize-agent-seed.mjs
-RUN node /opt/codeflare/seed-src/materialize-agent-seed.mjs \
-        --seed /opt/codeflare/seed-src/agent-seed.generated.ts \
-        --out /opt/codeflare/agent-seed-bake \
-    && echo "[Dockerfile] agent-seed bake materialized for default + advanced modes"
-
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
 # permissions bypass inside the container. .cache-bust invalidates this layer on
 # requested fresh builds; exact versions come from the committed npm-tool lock or
@@ -342,7 +293,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
 ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
+COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
 COPY scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
+RUN cd /opt/codeflare/oxlint && \
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
+    node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
+    [ -e node_modules/.bin/oxlint ] && \
+    ln -sf "$(readlink -f node_modules/.bin/oxlint)" /usr/local/bin/oxlint && \
+    oxlint --version
 RUN cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
@@ -418,10 +376,6 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
 COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
-# Local Pi extensions, used by the jiti warm-up layer below (they reach user
-# containers via the R2 agent seed, verbatim — same content, so the
-# content-addressed cache entries baked from these files hit at runtime).
-COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -619,6 +573,12 @@ ENV PATH="/root/.local/bin:${PATH}"
 #   copilot --version 2>&1 || true && \
 RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 
+# Local Pi extensions are copied only after dependency/tool installation, so an
+# extension-only edit invalidates Jiti prewarm and later assembly rather than the
+# expensive Pi npm/toolchain and unrelated runtime layers. They reach user
+# containers through the R2 seed verbatim, preserving warm-cache content keys.
+COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
+
 # Pi extension warm-up: pre-transpile the full Pi extension set (npm packages +
 # local preseed extensions) into a baked jiti cache + the V8 compile cache.
 # The dedicated Pi `--version` above does NOT load extensions; without this layer every fresh
@@ -629,7 +589,7 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 # - jiti caches transpiles under $TMPDIR/jiti (its path-valued JITI_FS_CACHE
 #   env is ignored by this build), so the warm run redirects TMPDIR and the
 #   result is moved to /opt/codeflare/jiti-cache; the entrypoint symlinks
-#   /tmp/jiti -> there at boot (same pattern as the npm preseed symlink).
+#   $TMPDIR/jiti -> there under a stable /run root before the terminal host starts.
 # - jiti's cache key is PATH-SENSITIVE, not just content: its async cache filename
 #   is <parent>-<base>.<hash(realpath)>.mjs, while the compiled output carries the
 #   source/version marker used to reject stale content. So the warm run MUST
@@ -718,6 +678,55 @@ RUN printf '#!/bin/bash\nexit 1\n' > /usr/local/bin/open-url && \
     chmod +x /usr/local/bin/xdg-open-shim && \
     ln -sf /usr/local/bin/xdg-open-shim /usr/bin/xdg-open
 ENV BROWSER=/usr/local/bin/open-url
+
+# Codeflare's non-agent welcome surface is available for every fixed inventory.
+# It is packaged as owned extension code without modifying code-server or Code OSS.
+COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/vscode/extensions/codeflare-welcome
+RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
+    chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
+
+# Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
+# exact official Claude extension, and an empty unsupported-agent inventory.
+# The assembled tree is copied once, so the 285 MiB official package is not
+# duplicated through a runtime staging layer.
+COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
+
+# Official Claude sessions use an isolated config projection. Managed settings
+# and hooks remain root-owned; terminal history and runtime state are never
+# copied into the projection.
+COPY openvscode/claude/managed-settings.mjs \
+     openvscode/claude/prepare-sidebar-config.mjs \
+     openvscode/claude/prepare-sidebar-config.sh \
+     openvscode/claude/sidebar-settings.json \
+     /opt/codeflare/openvscode/claude/
+RUN mkdir -p /etc/codeflare/claude-sidebar && \
+    cp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json && \
+    chmod 0555 /opt/codeflare/openvscode/claude/prepare-sidebar-config.sh && \
+    find /opt/codeflare/openvscode/claude -type f ! -name prepare-sidebar-config.sh -exec chmod 0444 {} + && \
+    chmod 0555 /opt/codeflare/openvscode/claude /etc/codeflare/claude-sidebar && \
+    chmod 0444 /etc/codeflare/claude-sidebar/settings.json && \
+    cmp /opt/codeflare/openvscode/claude/sidebar-settings.json /etc/codeflare/claude-sidebar/settings.json
+
+COPY scripts/ci/smoke-openvscode-sidebar-image.mjs /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs
+COPY scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py /opt/codeflare/openvscode/
+COPY openvscode/extension-persistence-policy.json /opt/codeflare/openvscode/extension-persistence-policy.json
+RUN chmod 0444 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs \
+        /opt/codeflare/openvscode/extension-persistence-policy.json && \
+    chmod 0555 /opt/codeflare/openvscode/browser-ide-ui-state.py \
+        /opt/codeflare/openvscode/browser-ide-extensions.py
+
+# REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
+# (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
+# `--checksum` sync then skips the unchanged seed files and transfers only user deltas.
+# Derived in-image from the COMMITTED, freshness-enforced src/lib/agent-seed.generated.ts
+# (single source of truth), so this needs no host build ordering and never drifts. Kept
+# after expensive runtime dependency/prewarm layers so seed edits retain those caches.
+COPY src/lib/agent-seed.generated.ts /opt/codeflare/seed-src/agent-seed.generated.ts
+COPY scripts/materialize-agent-seed.mjs /opt/codeflare/seed-src/materialize-agent-seed.mjs
+RUN node /opt/codeflare/seed-src/materialize-agent-seed.mjs \
+        --seed /opt/codeflare/seed-src/agent-seed.generated.ts \
+        --out /opt/codeflare/agent-seed-bake \
+    && echo "[Dockerfile] agent-seed bake materialized for default + advanced modes"
 
 # Create workspace directory structure
 RUN mkdir -p /app/host

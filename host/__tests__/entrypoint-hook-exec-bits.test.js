@@ -24,6 +24,13 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
+function runtimeEnv() {
+  const runtimeRoot = mkdtempSync(join(tmpdir(), 'hook-exec-runtime-'));
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  mkdirSync(syncRuntimeDir, { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, SYNC_RUNTIME_DIR: syncRuntimeDir };
+}
+
 // Extract a top-level shell function body, bounded by its `name() {` opener and
 // the first line that is exactly `}` (top-level functions in entrypoint.sh close
 // at column 0).
@@ -43,7 +50,7 @@ function modeOf(path) {
 // Runs the real repair function against `claudeDir` and returns the exit code.
 function runRepair(claudeDir) {
   const script = `set -eu\nUSER_CLAUDE_DIR="${claudeDir}"\n${extractFunction('repair_hook_exec_bits')}\nrepair_hook_exec_bits\n`;
-  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
   return result.status;
 }
 
@@ -62,7 +69,7 @@ function runBootRepair(home) {
     extractFunction('repair_hook_exec_bits'),
     extractBootRepair(),
   ].join('\n');
-  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
 }
 
 function runSuccessfulBisync(home) {
@@ -85,7 +92,7 @@ function runSuccessfulBisync(home) {
     extractFunction('bisync_with_r2'),
     'bisync_with_r2 ""',
   ].join('\n');
-  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
 }
 
 describe('entrypoint repair_hook_exec_bits', () => {

@@ -612,8 +612,8 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     const flockLog = join(baseTmp, `flock-${randomUUID()}.log`);
     writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\n`);
     writeFileSync(join(bin, 'flock'), failLock
-      ? `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nexit 1\n`
-      : `#!/bin/sh\nprintf 'attempt\\n' >> "${flockLog}"\nshift 3\nexec "$@"\n`);
+      ? `#!/bin/sh\nprintf '%s %s %s\\n' "$1" "$2" "$3" >> "${flockLog}"\nexit 1\n`
+      : `#!/bin/sh\nprintf '%s %s %s\\n' "$1" "$2" "$3" >> "${flockLog}"\nshift 3\nexec "$@"\n`);
     chmodSync(join(bin, 'graphify'), 0o755);
     chmodSync(join(bin, 'flock'), 0o755);
     return { bin, log, flockLog };
@@ -672,10 +672,10 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
     return graphifyCalls.filter((c) => c.startsWith('global add '));
   }
 
-  it('reconciles old removal and new addition under one lock before advancing the sentinel (REQ-VAULT-014 AC1/AC2)', () => {
+  it('REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock', () => {
     const switched = runTransactionalSwitch();
     assert.equal(switched.result.status, 0, switched.result.stderr);
-    assert.deepEqual(switched.flockCalls, ['attempt'], 'a repo switch must acquire the shared lock once');
+    assert.deepEqual(switched.flockCalls, ['-w 5 /run/codeflare/locks/graphify-global.lock'], 'a repo switch must acquire the protected shared lock once');
     assert.equal(switched.graphifyCalls[0], 'global remove repo-a');
     assert.match(switched.graphifyCalls[1] ?? '', /^global add .*repo-b\/graphify-out\/graph\.json --as repo-b$/);
     assert.equal(switched.graphifyCalls.length, 2);
@@ -685,7 +685,7 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
   it('keeps a failed locked switch retryable and never adds the new repo (REQ-VAULT-014 AC1/AC2)', () => {
     const switched = runTransactionalSwitch({ failLock: true });
     assert.equal(switched.result.status, 0, switched.result.stderr);
-    assert.deepEqual(switched.flockCalls, ['attempt']);
+    assert.deepEqual(switched.flockCalls, ['-w 5 /run/codeflare/locks/graphify-global.lock']);
     assert.deepEqual(switched.graphifyCalls, [], 'lock failure must prevent both removal and addition');
     assert.equal(sentinel(sentinelDir), switched.repoA, 'failed reconciliation must retain the prior sentinel for retry');
   });

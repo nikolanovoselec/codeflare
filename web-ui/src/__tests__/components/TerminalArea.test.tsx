@@ -74,6 +74,7 @@ vi.mock('../../stores/terminal-workspace', () => ({
     getVisiblePanes: vi.fn(() => { readWorkspaceVersion(); return mockVisiblePanes; }),
     getFocusedPaneId: vi.fn(() => { readWorkspaceVersion(); return mockFocusedPaneId; }),
     getLayout: vi.fn(() => { readWorkspaceVersion(); return mockWorkspaceLayout; }),
+    isTerminalSession: vi.fn((session: any) => session != null && session.workspace !== 'vscode'),
     setDashboardWorkspace: vi.fn(),
     setSingleSessionWorkspace: vi.fn(),
     setFocusedPane: vi.fn(),
@@ -112,6 +113,7 @@ describe('TerminalArea', () => {
     onTileClick: vi.fn(),
     onOpenSessionById: vi.fn(),
     onStartSession: vi.fn(),
+    onOpenVscodeSession: vi.fn(),
     onStopSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onCreateSession: vi.fn(),
@@ -129,6 +131,10 @@ describe('TerminalArea', () => {
     mockFocusedPaneId = null;
     mockWorkspaceLayout = 'tabbed';
     terminalLifecycle.unmounted = [];
+    vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(null);
+    vi.mocked(sessionStore.getTilingForSession).mockReturnValue(null);
+    vi.mocked(sessionStore.getTabOrder).mockReturnValue([]);
     const [workspaceVersion, setWorkspaceVersion] = createSignal(0);
     readWorkspaceVersion = workspaceVersion;
     bumpWorkspaceVersion = () => setWorkspaceVersion((value) => value + 1);
@@ -156,6 +162,24 @@ describe('TerminalArea', () => {
     const terminalContainer = container.querySelector('.layout-terminal-container');
     expect(terminalContainer).toBeInTheDocument();
     expect((terminalContainer as HTMLElement).style.display).toBe('none');
+  });
+
+  it('keeps Dashboard mounted while a VS Code session initializes', () => {
+    mockSessions = [{ id: 'vscode-a', name: 'VS Code', status: 'initializing', workspace: 'vscode' }];
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation((id) => id === 'vscode-a');
+
+    render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
+
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+  });
+
+  it('keeps Terminal initialization gating Dashboard unchanged', () => {
+    mockSessions = [{ id: 'terminal-a', name: 'Terminal', status: 'initializing', workspace: 'terminal' }];
+    vi.mocked(sessionStore.isSessionInitializing).mockImplementation((id) => id === 'terminal-a');
+
+    render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
+
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
   it('shows error banner when error prop is provided', () => {
@@ -271,6 +295,48 @@ describe('TerminalArea', () => {
     expect(paneB).toHaveAttribute('data-connect', 'true');
     expect(paneB).toHaveAttribute('data-focused', 'true');
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
+  });
+
+  it('does not give a VS Code active session terminal workspace or WebSocket ownership', () => {
+    mockSessions = [{ id: 'vscode-a', name: 'VS Code', status: 'running', workspace: 'vscode' }];
+    mockActiveSessionId = 'vscode-a';
+    mockVisiblePanes = [
+      { id: 'session:vscode-a:1', sessionId: 'vscode-a', terminalId: '1', source: 'session' },
+    ];
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
+      activeTabId: '1',
+      tabs: [{ id: '1' }],
+    } as any);
+    vi.mocked(sessionStore.getTilingForSession).mockReturnValue({ enabled: true, layout: '2-split' });
+    vi.mocked(sessionStore.getTabOrder).mockReturnValue(['1']);
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+
+    expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('terminal-tabs')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tiling-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tiled-container')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('terminal-vscode-a-1')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-connect="true"]')).not.toBeInTheDocument();
+  });
+
+  it('filters stale VS Code MultiView panes before Terminal connection ownership', () => {
+    mockSessions = [
+      { id: 'terminal-a', name: 'Terminal', status: 'running', workspace: 'terminal' },
+      { id: 'vscode-a', name: 'VS Code', status: 'running', workspace: 'vscode' },
+    ];
+    mockVisiblePanes = [
+      { id: 'multiview:terminal-a:1', sessionId: 'terminal-a', terminalId: '1', source: 'multiview' },
+      { id: 'multiview:vscode-a:1', sessionId: 'vscode-a', terminalId: '1', source: 'multiview' },
+    ];
+    mockFocusedPaneId = 'multiview:terminal-a:1';
+    mockWorkspaceLayout = '2-split';
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+
+    expect(screen.getByTestId('terminal-terminal-a-1')).toHaveAttribute('data-connect', 'true');
+    expect(screen.queryByTestId('terminal-vscode-a-1')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-connect="true"]')).toHaveLength(1);
   });
 
   it('REQ-TERM-012: changes MultiView pane focus without remounting terminal panes / REQ-TERM-017', async () => {

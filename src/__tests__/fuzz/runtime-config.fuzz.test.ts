@@ -12,8 +12,34 @@ import { createLogger, setLogLevel } from '../../lib/logger';
 import { toApiSession } from '../../lib/session-helpers';
 import { getSetupCompleteCache, setSetupCompleteCache, resetSetupCache } from '../../lib/cache-reset';
 import { getConfigsForMode, getPreseedKeysNotInMode } from '../../lib/r2-seed';
+import { activateCachedManagedRelease } from '../../lib/remote-curation-cache';
+import type { ActiveManagedRelease, ManagedReleaseCache } from '../../lib/remote-curation-cache';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
+
+function managedRelease(sequence: number, identity: 'a' | 'b'): ActiveManagedRelease {
+  return {
+    schemaVersion: 1,
+    seedAbi: 1,
+    sequence,
+    digest: identity.repeat(64),
+    repositoryId: identity === 'a' ? 1 : 2,
+    releaseId: sequence,
+    releaseTag: `release-${identity}-${sequence}`,
+    sourceCommit: identity.repeat(40),
+    runtimeDependencyHash: 'c'.repeat(64),
+    activatedAt: '2026-08-25T00:00:00.000Z',
+  };
+}
+
+function observedCache(current: ActiveManagedRelease, onReplace: () => void): ManagedReleaseCache {
+  return {
+    async putImmutable() {},
+    async readActive() { return { pointer: current, etag: 'current-etag' }; },
+    async createActive() { throw new Error('create must not run when an active pointer exists'); },
+    async replaceActive() { onReplace(); return true; },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // XML escape/decode round-trip - protects against injection in DeleteObjects
@@ -673,6 +699,48 @@ describe('Session mode config filtering', () => {
         },
       ),
       { numRuns: 10 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Managed release activation - monotonic winner and identity invariants
+// ---------------------------------------------------------------------------
+describe('Fuzz: managed release activation', () => {
+  it('never replaces a newer compatible active release with an older candidate', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 2 ** 32 - 1001 }),
+        fc.integer({ min: 1, max: 1000 }),
+        async (candidateSequence, gap) => {
+          const candidate = managedRelease(candidateSequence, 'a');
+          const current = managedRelease(candidateSequence + gap, 'b');
+          let replaced = false;
+          const winner = await activateCachedManagedRelease(
+            observedCache(current, () => { replaced = true; }),
+            candidate,
+          );
+          expect(winner).toEqual(current);
+          expect(replaced).toBe(false);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('rejects conflicting release identity at the same sequence', async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 2 ** 32 }), async (sequence) => {
+        const candidate = managedRelease(sequence, 'a');
+        const current = managedRelease(sequence, 'b');
+        let replaced = false;
+        await expect(activateCachedManagedRelease(
+          observedCache(current, () => { replaced = true; }),
+          candidate,
+        )).rejects.toThrow(/same sequence with conflicting identity or content/);
+        expect(replaced).toBe(false);
+      }),
+      { numRuns: NUM_RUNS },
     );
   });
 });

@@ -3,7 +3,7 @@
  * NO enterprise LLM fields. With the outbound-interception design, enterprise
  * LLM routing is done entirely by the DO's interception + the entrypoint.sh CA
  * trust — none of it flows through SetBucketNameBodySchema. This test pins that
- * the container-config contract is byte-identical to the pre-enterprise shape,
+ * the container-config contract contains no enterprise-only transport fields,
  * so a non-enterprise deploy is unaffected.
  *
  * AC1. A standard body (as the Worker builds it) parses and the values survive.
@@ -28,6 +28,7 @@ function baseBody() {
     workspaceSyncEnabled: false,
     fastStartEnabled: true,
     sessionMode: 'default',
+    sessionWorkspace: 'terminal',
     sleepAfter: '30m',
   };
 }

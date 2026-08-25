@@ -35,12 +35,13 @@ describe('Preferences Routes', () => {
     mockReconcileAgentConfigs.mockClear();
   });
 
-  function createTestApp() {
+  function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        ...envOverrides,
       } as Env;
       return next();
     });
@@ -177,6 +178,98 @@ describe('Preferences Routes', () => {
       const expected = { lastAgentType: 'pi', workspaceSyncEnabled: true };
       expect(await res.json()).toEqual(expected);
       expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual(expected);
+    });
+
+    it('REQ-IDE-048 AC1: stores a Terminal default while preserving unrelated preferences', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'pi',
+        sessionMode: 'advanced',
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspace: 'terminal' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        lastAgentType: 'pi',
+        sessionMode: 'advanced',
+        defaultWorkspace: 'terminal',
+      });
+    });
+
+    it('REQ-IDE-048 AC1: accepts VS Code only for an Advanced preference', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'advanced' });
+      const app = createTestApp();
+
+      const accepted = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspace: 'vscode' }),
+      });
+      expect(accepted.status).toBe(200);
+      expect(await accepted.json()).toMatchObject({ defaultWorkspace: 'vscode' });
+
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+      const rejected = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspace: 'vscode' }),
+      });
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('REQ-IDE-048 AC1: rejects a stale Advanced preference after entitlement loss', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'advanced' });
+      const app = createTestApp({ SAAS_MODE: 'active' });
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspace: 'vscode' }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('REQ-IDE-048 AC1: resets VS Code default atomically when switching to Standard', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'advanced',
+        defaultWorkspace: 'vscode',
+        workspaceSyncEnabled: true,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'default' }),
+      });
+
+      expect(res.status).toBe(200);
+      const expected = {
+        sessionMode: 'default',
+        defaultWorkspace: 'terminal',
+        workspaceSyncEnabled: true,
+      };
+      expect(await res.json()).toMatchObject(expected);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject(expected);
+    });
+
+    it('REQ-IDE-048 AC1: rejects invalid workspace values', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspace: 'browser' }),
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     });
   });
 

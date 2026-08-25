@@ -18,7 +18,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,8 +62,17 @@ function buildHarness({
   recoveryReturns = 1, // default: no vanished-file recovery
   resyncBehavior = 'success',
   blockReleaseFile, // for bisyncBehavior='block-until-released'
+  listingPresent = false,
 }) {
-  // Patch the daemon body: shrink cadence so tests finish in <2s.
+  const runtimeRoot = join(dirname(logFile), 'runtime');
+  const listingDir = join(runtimeRoot, 'sync/rclone/bisync');
+  mkdirSync(listingDir, { recursive: true });
+  if (listingPresent) {
+    writeFileSync(join(listingDir, 'home_user..r2_test-bucket.path1.lst'), 'listing');
+  }
+
+  // Patch the daemon body: shrink cadence so tests finish in <2s and isolate
+  // all protected runtime state under this harness fixture.
   const patched = daemonBody
     // Match any `sleep <N>` (where N is a positive integer) in case a
     // future cadence change replaces the literal 900. If no match is
@@ -71,10 +80,9 @@ function buildHarness({
     // surfacing the regression rather than silently running the real
     // 15-minute sleep.
     .replace(/sleep [0-9]+(?!\d)/g, 'sleep 1')
-    // Also remove the log-rotation block (depends on /tmp/sync.log
-    // size that we control separately) — it touches /tmp paths we
-    // don't want to mutate from the harness.
-    .replace(/if \[ -f \/tmp\/sync\.log \].*?fi$/ms, ':');
+    // Also remove the log-rotation block; harnesses must not mutate shared
+    // process-lifetime state under /run.
+    .replace(/if \[ -f \/run\/codeflare\/sync\/sync\.log \].*?fi$/ms, ':');
 
   // Stub bodies, indexed by behavior selector.
   const bisyncStub =
@@ -152,9 +160,11 @@ update_sync_status() {
 }
 # A minimal R2_BUCKET_NAME is referenced by the listing-glob block.
 R2_BUCKET_NAME=test-bucket
-HOME=/tmp/harness-home-$$
-mkdir -p "$HOME/.cache/rclone/bisync"
-touch /tmp/last-bisync-output.txt
+CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'
+SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
+HOME='${runtimeRoot}/home'
+mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone/bisync"
+touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
 
 ${patched}
 
@@ -393,6 +403,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       bisyncBehavior: 'failure',
       recoveryReturns: 1,
       resyncBehavior: 'success',
+      listingPresent: true,
     });
     const pid = await readDaemonPid(h.child);
     try {
@@ -402,6 +413,41 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       // Also verify the status was updated to "failed" before the resync.
       assert.match(log, /STATUS status=failed/,
         'failure path must call update_sync_status with "failed" before the resync fallback');
+    } finally {
+      killHarness(h.child, pid);
+    }
+  });
+
+  it('uses protected workdir listings before forcing immediate resync', async () => {
+    const h = spawnHarness({
+      daemonBody,
+      bisyncBehavior: 'failure',
+      recoveryReturns: 1,
+      resyncBehavior: 'success',
+      listingPresent: true,
+    });
+    const pid = await readDaemonPid(h.child);
+    try {
+      await waitFor(h.logFile, (s) => /BISYNC_CALLED/.test(s), 3000);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const first = readFileSync(h.logFile, 'utf8');
+      assert.doesNotMatch(first, /RESYNC_CALLED/, 'one failure with protected listings must not force immediate resync');
+    } finally {
+      killHarness(h.child, pid);
+    }
+  });
+
+  it('forces immediate resync when protected workdir listings are absent', async () => {
+    const h = spawnHarness({
+      daemonBody,
+      bisyncBehavior: 'failure',
+      recoveryReturns: 1,
+      resyncBehavior: 'success',
+    });
+    const pid = await readDaemonPid(h.child);
+    try {
+      const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s), 3000);
+      assert.match(log, /RESYNC_CALLED/);
     } finally {
       killHarness(h.child, pid);
     }

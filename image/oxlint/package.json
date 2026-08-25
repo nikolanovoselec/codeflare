@@ -1,0 +1,7 @@
+{
+  "name": "codeflare-image-oxlint",
+  "private": true,
+  "dependencies": {
+    "oxlint": "1.77.0"
+  }
+}

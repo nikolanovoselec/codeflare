@@ -33,6 +33,7 @@ interface DashboardProps {
   sessions: SessionWithStatus[];
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
+  onOpenVscodeSession: (id: string) => void;
   onOpenSessionById: (id: string) => void;
   onOpenMultiView?: () => void;
   onStopSession: (id: string) => void;
@@ -230,7 +231,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   const handleSessionSelect = (session: SessionWithStatus) => {
-    props.onOpenSessionById(session.id);
+    if (session.workspace !== 'vscode') {
+      props.onOpenSessionById(session.id);
+      return;
+    }
+    if (session.status === 'stopped' || session.status === 'error' || session.editorReadyError === true) {
+      props.onStartSession(session.id);
+    } else if (session.status === 'running' && session.editorReady === true) {
+      props.onOpenVscodeSession(session.id);
+    }
   };
 
   const handlePreviewBack = () => {
@@ -449,7 +458,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <SessionContextMenu
                     isOpen={menuState().isOpen}
                     position={menuState().position}
-                    canStop={menuState().session ? (menuState().session!.status === 'running' || menuState().session!.status === 'initializing') : false}
+                    canStop={menuState().session ? (menuState().session!.status === 'running' || menuState().session!.status === 'initializing' || (menuState().session!.workspace === 'vscode' && menuState().session!.status === 'error')) : false}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

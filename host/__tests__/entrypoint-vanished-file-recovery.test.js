@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
   existsSync,
@@ -58,6 +59,8 @@ const recoverBody = extractFunctionBody('recover_vanished_files');
 function runRecover(rcloneOutput) {
   const dir = mkdtempSync(join(tmpdir(), 'vanished-recover-'));
   const filterFile = join(dir, 'recovery-filters.txt');
+  const runtimeRoot = join(dir, 'runtime');
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
   writeFileSync(filterFile, ''); // init_recovery_filters starts it empty
 
   const script = [
@@ -70,6 +73,7 @@ function runRecover(rcloneOutput) {
 
   const res = spawnSync('bash', ['-c', script, '_', rcloneOutput], {
     encoding: 'utf-8',
+    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
   });
   const m = res.stdout.match(/RET=(\d+)/);
   return {

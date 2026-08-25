@@ -6,6 +6,7 @@ import {
   getManagedEnvironmentKeyFingerprint,
   getManagedEnvironmentPrefill,
   gzipBytes,
+  readManagedEnvironmentSnapshot,
   resolveManagedEnvironment,
   resolveManagedEnvironmentRelease,
   streamManagedReleaseDocuments,
@@ -15,7 +16,7 @@ import {
 } from '../../lib/remote-curation';
 import { getLegacyManagedReleaseCacheBucketName, type ActiveManagedRelease, type ManagedReleaseCache } from '../../lib/remote-curation-cache';
 import { createMockKV } from '../helpers/mock-kv';
-import { getManagedEnvironmentPatKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { getManagedEnvironmentPatKey, getManagedEnvironmentStateKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { MANAGED_RELEASE_LIMITS } from '../../../scripts/agent-seed-release-limits.mjs';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from '../../lib/agent-seed.generated';
 
@@ -630,6 +631,46 @@ describe('managed release resolver', () => {
 
     expect(resolved.active).toEqual(active);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('REQ-AGENT-162 AC1: reads a stale verified snapshot without repository or cache I/O', async () => {
+    const active: ActiveManagedRelease = {
+      schemaVersion: 1,
+      seedAbi: 1,
+      sequence: 24,
+      digest: 'd'.repeat(64),
+      repositoryId: 123456,
+      releaseId: 240,
+      releaseTag: 'release-24',
+      sourceCommit: 'a'.repeat(40),
+      runtimeDependencyHash: PRESEED_RUNTIME_DEPENDENCY_HASH,
+      activatedAt: '2026-08-18T00:00:00.000Z',
+    };
+    const config = {
+      schemaVersion: 1 as const,
+      enabled: true,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      publicKeyHex: 'ab'.repeat(32),
+      publicKeyFingerprint: '1'.repeat(16),
+      configFingerprint: 'f'.repeat(64),
+      cacheBucketName: 'managed-cache',
+    };
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(config));
+    kv._store.set(getManagedEnvironmentStateKey(config.configFingerprint), JSON.stringify({
+      schemaVersion: 1,
+      active,
+      lastCheckedAt: '2026-08-18T00:00:00.000Z',
+      lastError: 'repository unavailable',
+    }));
+
+    await expect(readManagedEnvironmentSnapshot({ KV: kv as unknown as KVNamespace })).resolves.toEqual({
+      configured: true,
+      enabled: true,
+      config,
+      active,
+    });
   });
 
   it('does not reuse a fresh cached release from a different build hash', async () => {

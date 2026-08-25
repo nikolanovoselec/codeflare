@@ -69,7 +69,7 @@ Use `EXTRACTED`/1.0 for explicit structure and `INFERRED`/0.75-0.85 only for sup
 Then run the required merge and publication while one lock covers both:
 
 ```bash
-flock -w 300 /tmp/graphify-global.lock bash -c '
+flock -w 300 /run/codeflare/locks/graphify-global.lock bash -c '
   /root/.local/share/uv/tools/graphifyy/bin/python \
     /home/user/.pi/agent/scripts/merge-vault-graph.py \
     "$1" \

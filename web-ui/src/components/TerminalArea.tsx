@@ -24,6 +24,7 @@ interface TerminalAreaProps {
   onOpenMultiView?: () => void;
   onDashboardSessionSelect?: (sessionId: string) => void;
   onStartSession: (id: string) => void;
+  onOpenVscodeSession: (id: string) => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
@@ -40,18 +41,33 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   // Derive session state from store directly (avoids prop drilling from Layout)
   const activeSession = createMemo(() => sessionStore.getActiveSession() ?? null);
   const activeSessionId = () => sessionStore.activeSessionId;
+  const activeTerminalSession = createMemo(() => {
+    const session = activeSession();
+    return terminalWorkspaceStore.isTerminalSession(session) ? session : null;
+  });
+  const terminalSessionsById = createMemo(() => new Map(
+    sessionStore.sessions
+      .filter((session) => terminalWorkspaceStore.isTerminalSession(session))
+      .map((session) => [session.id, session] as const),
+  ));
 
-  const visiblePanes = createMemo(() => terminalWorkspaceStore.getVisiblePanes());
+  const visiblePanes = createMemo(() => terminalWorkspaceStore.getVisiblePanes()
+    .filter((pane) => terminalSessionsById().has(pane.sessionId)));
   const focusedPaneId = createMemo(() => terminalWorkspaceStore.getFocusedPaneId());
   const isMultiViewWorkspace = createMemo(() =>
     visiblePanes().some((pane) => pane.source === 'multiview')
   );
-  const singleSessionPane = createMemo(() =>
-    visiblePanes().find((pane) => pane.source === 'session') ?? null
-  );
+  const singleSessionPane = createMemo(() => {
+    const session = activeTerminalSession();
+    if (!session) return null;
+    return visiblePanes().find((pane) => pane.source === 'session' && pane.sessionId === session.id) ?? null;
+  });
 
-  const hasInitializingSession = createMemo(() =>
-    sessionStore.sessions.some((s) => sessionStore.isSessionInitializing(s.id))
+  const hasInitializingTerminalSession = createMemo(() =>
+    sessionStore.sessions.some((session) =>
+      terminalWorkspaceStore.isTerminalSession(session)
+      && sessionStore.isSessionInitializing(session.id)
+    )
   );
 
   const isActiveSessionInitializing = createMemo(() => {
@@ -60,21 +76,21 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   });
 
   const activeTiling = createMemo(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return null;
-    return sessionStore.getTilingForSession(sid);
+    const session = activeTerminalSession();
+    if (!session) return null;
+    return sessionStore.getTilingForSession(session.id);
   });
 
   const activeTabOrder = createMemo(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return null;
-    return sessionStore.getTabOrder(sid);
+    const session = activeTerminalSession();
+    if (!session) return null;
+    return sessionStore.getTabOrder(session.id);
   });
 
   const activeTerminals = createMemo(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return null;
-    return sessionStore.getTerminalsForSession(sid);
+    const session = activeTerminalSession();
+    if (!session) return null;
+    return sessionStore.getTerminalsForSession(session.id);
   });
 
   const resolveTerminalIdForSession = (sessionId: string) =>
@@ -91,9 +107,13 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     if (!props.showTerminal) return;
     if (isMultiViewWorkspace()) return;
 
-    const sessionId = activeSessionId();
-    if (!sessionId) return;
-    terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, resolveTerminalIdForSession(sessionId));
+    const session = activeTerminalSession();
+    if (!session) return;
+    terminalWorkspaceStore.setSingleSessionWorkspace(
+      session.id,
+      resolveTerminalIdForSession(session.id),
+      session,
+    );
   });
 
   const multiViewGridPanes = createMemo<TerminalGridPane<VisibleTerminalPane>[]>((previous) => {
@@ -122,8 +142,8 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       </Show>
 
       {/* Terminal tabs - show when active session is running/initializing */}
-      <Show when={props.showTerminal && activeSessionId() && !isMultiViewWorkspace()}>
-        <TerminalTabs sessionId={activeSessionId()!} />
+      <Show when={props.showTerminal && activeTerminalSession() && !isMultiViewWorkspace()}>
+        <TerminalTabs sessionId={activeTerminalSession()!.id} />
       </Show>
 
       {/* Terminal container: render only visible workspace panes.
@@ -131,10 +151,10 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           floating buttons from appearing during session creation. */}
       <div class="layout-terminal-container" style={{ display: props.showTerminal ? undefined : 'none' }}>
         {/* Tiling button - only show when active session is running with 2+ tabs */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && activeSessionId() && activeTerminals()}>
+        <Show when={props.showTerminal && !isMultiViewWorkspace() && activeTerminalSession() && activeTerminals()}>
           <div class="layout-tiling-button-wrapper">
             <TilingButton
-              sessionId={activeSessionId()!}
+              sessionId={activeTerminalSession()!.id}
               tabCount={activeTerminals()?.tabs.length || 0}
               isActive={activeTiling()?.enabled || false}
               onClick={props.onTilingButtonClick}
@@ -155,7 +175,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         <FloatingTerminalButtons showTerminal={props.showTerminal} />
 
         {/* Tiled terminal view - when tiling is enabled */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && activeTiling()?.enabled && activeSessionId() && activeTerminals()}>
+        <Show when={props.showTerminal && !isMultiViewWorkspace() && activeTiling()?.enabled && activeTerminalSession() && activeTerminals()}>
           {/* Single InitProgress overlay for tiled mode (instead of per-terminal) */}
           <Show when={isActiveSessionInitializing()}>
             <div class="terminal-init-overlay">
@@ -167,14 +187,14 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
             </div>
           </Show>
           <TiledTerminalContainer
-            sessionId={activeSessionId()!}
+            sessionId={activeTerminalSession()!.id}
             terminals={activeTerminals()!.tabs}
             tabOrder={activeTabOrder() || []}
             layout={activeTiling()!.layout}
             activeTabId={activeTerminals()!.activeTabId}
             onTileClick={props.onTileClick}
             renderTerminal={(tabId, _slotIndex) => {
-              const session = activeSession();
+              const session = activeTerminalSession();
               if (!session) return null;
               return (
                 <Terminal
@@ -246,11 +266,12 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       </div>
 
       {/* Dashboard: shown when no active terminal */}
-      <Show when={!props.showTerminal && !hasInitializingSession()}>
+      <Show when={!props.showTerminal && !hasInitializingTerminalSession()}>
         <Dashboard
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}
           onStartSession={props.onStartSession}
+          onOpenVscodeSession={props.onOpenVscodeSession}
           onStopSession={props.onStopSession}
           onDeleteSession={props.onDeleteSession}
           onOpenSessionById={props.onDashboardSessionSelect || props.onOpenSessionById}

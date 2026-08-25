@@ -83,7 +83,7 @@ jobs:
     env:
       # Registry credentials are deliberately NOT job-level. At job scope they
       # sit in process.env for every third-party action in this job —
-      # docker/login-action, setup-buildx, trivy-action, actions/cache,
+      # docker/login-action, setup-buildx, setup-trivy, actions/cache,
       # attest-build-provenance — none of which need them, so one compromised
       # release of any of them reads a production Cloudflare deploy token. Only
       # the two steps that talk to a registry declare them.
@@ -312,11 +312,21 @@ jobs:
           fi
           docker buildx build --platform linux/amd64 \
             "${CACHE_ARGS[@]}" \
+            --progress=plain \
             --load \
             --build-arg "CODEFLARE_CODING_AGENTS=${CODING_AGENTS}" \
             --label "org.opencontainers.image.revision=${REF}" \
-            -t "${IMAGE_NAME}:${TAG}" .
+            -t "${IMAGE_NAME}:${TAG}" . 2>&1 | tee /tmp/buildkit.log
           echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload BuildKit timing evidence
+        if: always() && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: buildkit-timing-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
+          path: /tmp/buildkit.log
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Verify packaged native Pi Chat and official Claude
         if: steps.reuse.outputs.reused != 'true'
@@ -345,7 +355,7 @@ jobs:
               set -eu
               mkdir -p /tmp/pi-runtime/npm
               ln -s /opt/codeflare/pi-agent/npm/node_modules /tmp/pi-runtime/npm/node_modules
-              node -e '\''const fs=require("fs");const p=require("/workspace/preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync("/tmp/pi-runtime/settings.json",JSON.stringify({packages}));'\''
+              node -e '\''const fs=require("fs");const p=require("/workspace/preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync("/tmp/pi-runtime/settings.json",JSON.stringify({packages}));'\''
               node /workspace/scripts/verify-pi-prompt.mjs \
                 --generated /workspace/src/lib/agent-seed.generated.ts \
                 --runtime-agent-dir /tmp/pi-runtime \
@@ -451,7 +461,7 @@ jobs:
             const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
             if (settings["claudeCode.initialPermissionMode"] !== "bypassPermissions" ||
                 settings["claudeCode.allowDangerouslySkipPermissions"] !== true ||
-                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
+                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/run/codeflare/openvscode/sidebar/claude/config") process.exit(1);
           '
           sleep 3
           if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
@@ -597,8 +607,9 @@ jobs:
           # Through the environment, never interpolated into the script body.
           KEEP: ${{ steps.docker-build.outputs.local_ref }}
         run: |
-          sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache
-          sudo chmod 1777 /mnt/trivy-tmp /mnt/trivy-cache
+          sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
+          sudo chown "$(id -u):$(id -g)" /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
+          chmod 0700 /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
           # Guard: an empty KEEP would make grep -vxF match nothing and delete
           # the scan target too.
           if [ -n "$KEEP" ]; then
@@ -617,56 +628,68 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /mnt/trivy-cache
-          key: trivy-db-${{ steps.hash.outputs.trivy_db_key }}
-          restore-keys: trivy-db-
+          key: trivy-db-v2-${{ steps.hash.outputs.trivy_db_key }}
+          restore-keys: trivy-db-v2-
 
-      - name: Scan container image for vulnerabilities
+      - name: Install locked Trivy
         if: steps.reuse.outputs.reused != 'true'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.70.0
+          cache: true
+
+      - name: Scan image, generate SBOM, and prepare push tooling
+        if: steps.reuse.outputs.reused != 'true'
         env:
-          # Both the uncompressed-image export and the vuln DB go to the big
-          # /mnt resource disk; the root disk stays out of the equation.
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+          REGISTRY: ${{ inputs.registry }}
           TMPDIR: /mnt/trivy-tmp
           TRIVY_CACHE_DIR: /mnt/trivy-cache
-        with:
-          image-ref: ${{ steps.docker-build.outputs.local_ref }}
-          severity: HIGH,CRITICAL
-          # Gate only on CVEs that have an available fix. Unfixed base-image
-          # CVEs (blank Fixed Version, no upstream patch) cannot be remediated
-          # by rebuilding and would otherwise block every deploy whenever the
-          # Trivy feed adds one. The following step applies the only remaining
-          # bounded exception and rejects every other reported finding.
-          ignore-unfixed: true
-          exit-code: 0
-          format: json
-          output: /tmp/trivy-result.json
-          scanners: vuln
-          trivyignores: .trivyignore
-          timeout: 15m
+        run: |
+          set -euo pipefail
+          # Prime the shared DB once before concurrent read-only scans. Running
+          # both image traversals together removes their serial wall-clock sum;
+          # Wrangler preparation uses otherwise-idle network/CPU in the same window.
+          trivy image --download-db-only
+          trivy image --download-java-db-only
+          sbom_cache=/mnt/trivy-sbom-cache
+          find "$sbom_cache" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          cp -a "$TRIVY_CACHE_DIR/." "$sbom_cache/"
+          trivy image \
+            --skip-db-update \
+            --skip-java-db-update \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 0 \
+            --format json \
+            --output /tmp/trivy-result.json \
+            --scanners vuln \
+            --ignorefile .trivyignore \
+            --timeout 15m \
+            "$IMAGE" &
+          scan_pid=$!
+          TRIVY_CACHE_DIR="$sbom_cache" trivy image \
+            --skip-db-update \
+            --skip-java-db-update \
+            --scanners vuln \
+            --format cyclonedx \
+            --output /tmp/sbom.cdx.json \
+            --timeout 15m \
+            "$IMAGE" &
+          sbom_pid=$!
+          if [ "$REGISTRY" = "cloudflare" ]; then
+            npm ci --prefix .github/npm-tools/wrangler --no-audit --no-fund &
+          else
+            true &
+          fi
+          wrangler_pid=$!
+
+          source scripts/ci/image-prerequisite-gate.sh
+          wait_for_image_prerequisites "$scan_pid" "$sbom_pid" "$wrangler_pid"
 
       - name: Enforce vulnerability scan and bounded exceptions
         if: steps.reuse.outputs.reused != 'true'
         run: node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json
-
-      - name: Generate an SBOM for the image
-        if: steps.reuse.outputs.reused != 'true'
-        # The Trivy scan answers "are there known CVEs today". It does not answer
-        # "what is actually in this image", which is the question asked after a
-        # new CVE lands — and answering it by re-scanning assumes the image is
-        # still pullable and still the one that shipped. A CycloneDX SBOM
-        # recorded at build time answers it from the artifact itself.
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TMPDIR: /mnt/trivy-tmp
-          TRIVY_CACHE_DIR: /mnt/trivy-cache
-        with:
-          image-ref: ${{ steps.docker-build.outputs.local_ref }}
-          scan-type: image
-          format: cyclonedx
-          output: /tmp/sbom.cdx.json
-          # An SBOM is an inventory, not a gate — findings are the scan's job.
-          exit-code: 0
-          timeout: 15m
 
       - name: Upload the SBOM
         if: steps.reuse.outputs.reused != 'true'
@@ -676,10 +699,6 @@ jobs:
           path: /tmp/sbom.cdx.json
           retention-days: 90
           if-no-files-found: error
-
-      - name: Install locked wrangler
-        if: steps.reuse.outputs.reused != 'true' && inputs.registry == 'cloudflare'
-        run: npm ci --prefix .github/npm-tools/wrangler --no-audit --no-fund
 
       - name: Push image
         id: push

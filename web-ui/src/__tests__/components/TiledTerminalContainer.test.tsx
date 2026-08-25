@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { createSignal, onCleanup, onMount } from 'solid-js';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import TiledTerminalContainer from '../../components/TiledTerminalContainer';
 import type { TerminalTab } from '../../types';
 
@@ -210,6 +211,40 @@ describe('TiledTerminalContainer Component', () => {
 
       expect(slot1).not.toHaveClass('tiled-terminal-slot--active');
       expect(slot2).toHaveClass('tiled-terminal-slot--active');
+    });
+
+    it('REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes', async () => {
+      const terminals = createTerminals(2);
+      const [activeTabId, setActiveTabId] = createSignal<string | null>('1');
+      const mounted: string[] = [];
+      const disposed: string[] = [];
+      const PaneProbe = (props: { id: string }) => {
+        onMount(() => mounted.push(props.id));
+        onCleanup(() => disposed.push(props.id));
+        return <div data-testid={`terminal-pane-${props.id}`} />;
+      };
+
+      render(() => (
+        <TiledTerminalContainer
+          sessionId={mockSessionId}
+          terminals={terminals}
+          tabOrder={['1', '2']}
+          layout="2-split"
+          activeTabId={activeTabId()}
+          onTileClick={setActiveTabId}
+          renderTerminal={(tabId) => <PaneProbe id={tabId} />}
+        />
+      ));
+
+      expect(mounted).toEqual(['1', '2']);
+      expect(screen.getByTestId('tiled-slot-1')).toHaveAttribute('data-active', 'true');
+      fireEvent.click(screen.getByTestId('tiled-slot-2'));
+
+      await waitFor(() => expect(screen.getByTestId('tiled-slot-2')).toHaveAttribute('data-active', 'true'));
+      expect(screen.getByTestId('terminal-pane-1')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-pane-2')).toBeInTheDocument();
+      expect(mounted).toEqual(['1', '2']);
+      expect(disposed).toEqual([]);
     });
 
     it('should handle null activeTabId gracefully', () => {

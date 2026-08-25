@@ -3,7 +3,7 @@
  * Handles GET /health, /startup-status
  */
 import { Hono } from 'hono';
-import type { Env } from '../../types';
+import { resolveSessionWorkspace, type Env, type Session } from '../../types';
 import { getContainerContext, safeCheckContainerHealth, type HealthData } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
@@ -12,6 +12,7 @@ import {
   fetchWithTimeout,
 } from './shared';
 import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
+import { getSessionKey, putSessionWithMetadata } from '../../lib/kv-keys';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -39,6 +40,7 @@ function buildReadyResponse(
   syncStatus: string,
   healthData: HealthData,
   containerStatus: string,
+  terminalServerOk = true,
 ): StartupResponse {
   response.stage = 'ready';
   response.progress = 100;
@@ -56,7 +58,8 @@ function buildReadyResponse(
   response.details.containerStatus = containerStatus;
   response.details.syncStatus = syncStatus;
   response.details.healthServerOk = true;
-  response.details.terminalServerOk = true;
+  response.details.terminalServerOk = terminalServerOk;
+  if (healthData.editorReady !== undefined) response.details.editorReady = healthData.editorReady;
   populateMetrics(response.details, healthData);
   return response;
 }
@@ -174,6 +177,7 @@ app.get('/startup-status', async (c) => {
       syncError?: string | null;
       healthServerOk?: boolean;
       terminalServerOk?: boolean;
+      editorReady?: boolean;
       cpu?: string;
       mem?: string;
       hdd?: string;
@@ -186,7 +190,10 @@ app.get('/startup-status', async (c) => {
 
   try {
     const user = c.get('user');
-    const { bucketName, containerId, container } = getContainerContext(c);
+    const { bucketName, sessionId, containerId, container } = getContainerContext(c);
+    const sessionKey = getSessionKey(bucketName, sessionId);
+    const session = await c.env.KV.get<Session>(sessionKey, 'json');
+    const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
 
     // Populate response details now that we have context
     response.details.bucketName = bucketName;
@@ -249,6 +256,47 @@ app.get('/startup-status', async (c) => {
     // Step 3: Check R2 sync status
     // syncStatus values: "pending", "syncing", "success", "failed", "skipped"
     const syncStatus = healthData.syncStatus || 'pending';
+
+    if (sessionWorkspace === 'vscode') {
+      const cStatus = containerState?.status || 'running';
+      response.details.containerStatus = cStatus;
+      response.details.syncStatus = syncStatus;
+      response.details.healthServerOk = true;
+      response.details.terminalServerOk = false;
+      response.details.editorReady = healthData.editorReady === true;
+      populateMetrics(response.details, healthData);
+
+      if (syncStatus === 'pending' || syncStatus === 'syncing') {
+        return c.json(buildSyncingResponse(response, syncStatus, healthData, cStatus));
+      }
+      if (syncStatus === 'failed') {
+        return c.json(buildSyncFailedResponse(response, healthData, cStatus));
+      }
+      if (healthData.editorReady === true) {
+        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
+        if (freshSession && (freshSession.editorReady !== true || freshSession.editorReadyError === true)) {
+          const { editorReadyError: _previousEditorError, ...sessionWithoutError } = freshSession;
+          await putSessionWithMetadata(c.env.KV, sessionKey, { ...sessionWithoutError, editorReady: true });
+        }
+        return c.json(buildReadyResponse(response, syncStatus, healthData, cStatus, false));
+      }
+      if (healthData.editorReadyTimedOut === true) {
+        const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
+        if (freshSession && freshSession.editorReadyError !== true) {
+          await putSessionWithMetadata(c.env.KV, sessionKey, { ...freshSession, editorReady: false, editorReadyError: true });
+        }
+        response.stage = 'error';
+        response.progress = 0;
+        response.message = 'VS Code did not become ready. Retry starting the session.';
+        response.error = response.message;
+        return c.json(response);
+      }
+
+      response.stage = 'mounting';
+      response.progress = 90;
+      response.message = 'Preparing VS Code...';
+      return c.json(response);
+    }
 
     // Step 4: Check if the terminal server (sessions endpoint) is already responding.
     // This distinguishes startup sync from on-demand sync:

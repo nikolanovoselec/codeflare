@@ -37,7 +37,9 @@ function installHeader(pi: ExtensionAPI, ctx: ExtensionContext): void {
 
 	ctx.ui.setHeader((_tui, theme) => ({
 		render(width: number): string[] {
-			const innerWidth = Math.max(44, width - 2);
+			const renderWidth = Math.max(0, width);
+			if (renderWidth < 2) return renderWidth === 1 ? ["+"] : [];
+			const innerWidth = renderWidth - 2;
 			const horizontalPadding = 2;
 			const logoWidth = 16;
 			const gapWidth = 4;

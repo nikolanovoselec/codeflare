@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys } from '../../types';
+import { resolveSessionWorkspace } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -25,7 +26,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
-import { getActiveManagedRelease } from '../../lib/managed-release-active';
+import { getCachedActiveManagedRelease } from '../../lib/managed-release-active';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -36,6 +37,19 @@ export { ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
 // ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
+
+async function runStartStage<T>(logger: Logger, stage: string, operation: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  logger.info('Container start stage started', { stage });
+  try {
+    const result = await operation();
+    logger.info('Container start stage completed', { stage, durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    logger.error('Container start stage failed', toError(error), { stage, durationMs: Date.now() - startedAt });
+    throw error;
+  }
+}
 
 /**
  * Start or restart the container based on current state.
@@ -63,7 +77,6 @@ export async function startOrRestartContainer(params: {
   const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
-  let destroyedForRestart = false;
   let currentState;
   try {
     currentState = await container.getState();
@@ -86,7 +99,6 @@ export async function startOrRestartContainer(params: {
       // declines by design, and the 4503 gate then refuses every terminal upgrade
       // until the user starts the session by hand (REQ-SESSION-020 AC3).
       currentState = { status: 'stopped' };
-      destroyedForRestart = true;
       await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
@@ -101,31 +113,25 @@ export async function startOrRestartContainer(params: {
     }
   }
 
-  // Mark session as running in KV. sessionData is a pre-destroy snapshot, so
-  // after a destroy-driven restart it still reads 'running' while the record
-  // itself now reads 'stopped' (destroy() writes it). Trusting the snapshot there
-  // would leave the record stopped for the whole boot, and the terminal upgrade's
-  // 4503 gate is non-retryable — the tab would give up rather than back off
-  // (REQ-SESSION-020 AC5).
-  if (sessionData.status !== 'running' || destroyedForRestart) {
-    // On the restart path the snapshot is also stale in the other direction:
-    // destroy() refreshed lastActiveAt on its way out, and a tick may have written
-    // metrics, both of which spreading the snapshot would revert. Re-read there,
-    // as the start-failure rollback below already does.
-    const base = destroyedForRestart
-      ? (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData
-      : sessionData;
-    const updated = { ...base, status: 'running' as const };
-    await putSessionWithMetadata(env.KV, sessionKey, updated);
-  }
-
-  // If container is already running/healthy with correct bucket, return immediately
+  // If container is already running/healthy with correct bucket, return immediately.
+  // This preserves readiness for the live editor and avoids an unnecessary KV write.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
     return {
       status: 'already_running',
       containerState: currentState.status,
     };
   }
+
+  // Every path below starts a replacement container. Re-read KV so concurrent
+  // activity/metrics survive, then clear editor readiness before startup polling
+  // can expose Open for an editor that no longer exists.
+  const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
+  const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
+  await putSessionWithMetadata(env.KV, sessionKey, {
+    ...sessionWithoutReadiness,
+    status: 'running' as const,
+    ...(resolveSessionWorkspace(base.workspace) === 'vscode' && { editorReady: false }),
+  });
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -179,13 +185,25 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const sessionId = getSessionIdFromQuery(c);
     const user = c.get('user');
     const preferencesKey = getPreferencesKey(bucketName);
-    const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
-    const sessionMode = await resolveEffectiveSessionMode(preferences, user, c.env);
+    const preferences = await runStartStage(
+      reqLogger,
+      'preferences',
+      async () => await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {},
+    );
+    const sessionMode = await runStartStage(
+      reqLogger,
+      'session_mode',
+      () => resolveEffectiveSessionMode(preferences, user, c.env),
+    );
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
     let remoteCurationManifestDigest: string | undefined;
     try {
-      const activeManagedRelease = await getActiveManagedRelease(c.env);
+      const activeManagedRelease = await runStartStage(
+        reqLogger,
+        'managed_release_snapshot',
+        () => getCachedActiveManagedRelease(c.env),
+      );
       const applied = preferences.managedEnvironmentApplied;
       const mismatch = activeManagedRelease
         ? applied?.digest !== activeManagedRelease.digest
@@ -199,7 +217,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       remoteCurationManifestDigest = applied?.managedExtensionsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
-      // A transient deployment-cache read failure may continue only from a
+      // A transient persisted-snapshot read failure may continue only from a
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
       if (
@@ -218,14 +236,14 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // encryption regime. A container bakes the bucket's SSE-C regime at boot and its rclone
     // daemon writes R2 directly; starting one mid-flip would write the wrong regime. 409
     // until the migration verifies + flips status back to ready (reuses the Upgrading UX).
-    if (await isBucketMigrating(c.env, bucketName)) {
+    if (await runStartStage(reqLogger, 'migration_gate', () => isBucketMigrating(c.env, bucketName))) {
       throw new BucketMigratingError();
     }
 
     const maxSessions = getMaxSessions(user.role, c.env);
 
     // Step 1: Validate session and check limits (including usage quota)
-    const sessionData = await validateSessionAndCheckLimits({
+    const sessionData = await runStartStage(reqLogger, 'session_validation', () => validateSessionAndCheckLimits({
       env: c.env,
       bucketName,
       sessionId,
@@ -234,7 +252,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       accessTier: user.accessTier,
       billingStatus: user.billingStatus,
       billingPeriodEnd: user.billingPeriodEnd,
-    });
+    }));
     const sessionAgent = sessionData.agentType ?? 'claude-code';
     if (!installedAgents(c.env).includes(sessionAgent)) {
       throw new ValidationError(`Agent type '${sessionAgent}' is not available in this deployment`);
@@ -254,34 +272,46 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const contextModeEnabled = effectiveTier === 'unlimited' && sessionMode === 'advanced';
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
-    const cryptoKey = await getOrImportKey(c.env);
-    const [llmKeys, deployKeys] = await Promise.all([
+    const cryptoKey = await runStartStage(reqLogger, 'credential_key', () => getOrImportKey(c.env));
+    const [llmKeys, deployKeys] = await runStartStage(reqLogger, 'credentials', () => Promise.all([
       getAndDecrypt<LlmKeys>(c.env.KV, getLlmKeysKey(bucketName), cryptoKey),
       getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
-    ]);
+    ]));
 
     // REQ-BROWSER-007: in enterprise the per-user Push & Deploy accordion is hidden,
     // so the Cloudflare Browser Rendering token + account that browser-run needs come
     // from the admin-global Setup value rather than per-user deploy-keys. No-op in
     // every other mode (returns deployKeys unchanged).
-    let effectiveDeployKeys = await applyEnterpriseBrowserToken(c.env, deployKeys, cryptoKey);
+    let effectiveDeployKeys = await runStartStage(
+      reqLogger,
+      'enterprise_browser_token',
+      () => applyEnterpriseBrowserToken(c.env, deployKeys, cryptoKey),
+    );
 
     // Refresh an expiring Connect-to-Cloudflare OAuth token before injection so the
     // container always receives a currently-valid CLOUDFLARE_API_TOKEN (no-op for a
     // pasted PAT or the enterprise browser token; fails closed if un-refreshable).
-    effectiveDeployKeys = await applyCloudflareOAuthToken(c.env, effectiveDeployKeys, bucketName);
+    effectiveDeployKeys = await runStartStage(
+      reqLogger,
+      'cloudflare_oauth_token',
+      () => applyCloudflareOAuthToken(c.env, effectiveDeployKeys, bucketName),
+    );
 
     // Step 2: Ensure R2 bucket exists and seed if new
-    const { r2Config, r2SseDisabled } = await ensureBucketAndSeed({
+    const { r2Config, r2SseDisabled } = await runStartStage(reqLogger, 'bucket_seed', () => ensureBucketAndSeed({
       env: c.env,
       bucketName,
       sessionMode,
       contextModeEnabled,
       logger: reqLogger,
-    });
+    }));
 
     // Step 3: Get scoped R2 credentials
-    const scopedCreds = await setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger, cryptoKey);
+    const scopedCreds = await runStartStage(
+      reqLogger,
+      'scoped_r2_credentials',
+      () => setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger, cryptoKey),
+    );
 
     // Get container instance
     const container = getContainer(c.env.CONTAINER, containerId);
@@ -328,6 +358,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       workspaceSyncEnabled,
       fastStartEnabled,
       sessionMode,
+      sessionWorkspace: resolveSessionWorkspace(sessionData.workspace),
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
       // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).

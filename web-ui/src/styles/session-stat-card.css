@@ -12,6 +12,21 @@
   box-shadow: inset 2px 0 0 var(--color-success);
 }
 
+.session-stat-card--selection-disabled {
+  cursor: default;
+}
+
+.session-stat-card__selector {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
 /* Name truncation (font/color via .type-section-header) */
 .session-stat-card__name {
   flex: 1;
@@ -51,6 +66,8 @@
 
 /* Menu trigger */
 .session-stat-card__menu-trigger {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -78,6 +95,8 @@
 
 /* Sleep timer icon */
 .session-stat-card__timer {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;

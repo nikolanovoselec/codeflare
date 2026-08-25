@@ -1376,6 +1376,34 @@ export async function configureManagedEnvironment(input: {
   }
 }
 
+/**
+ * Read only the locally persisted managed-environment selection.
+ * Latency-sensitive request paths use this snapshot and leave repository/cache
+ * refresh to the dashboard reconciliation path.
+ */
+export async function readManagedEnvironmentSnapshot(
+  env: Pick<Env, 'KV'>,
+): Promise<{
+  configured: boolean;
+  enabled: boolean;
+  config?: ManagedEnvironmentConfig;
+  active?: ActiveManagedRelease;
+}> {
+  const config = await loadManagedEnvironmentConfig(env.KV, true);
+  if (!config) return { configured: false, enabled: false };
+  if (!config.enabled) return { configured: true, enabled: false, config };
+  const state = await readFreshnessState(env.KV, getManagedEnvironmentStateKey(config.configFingerprint));
+  const active = state.active?.runtimeDependencyHash === PRESEED_RUNTIME_DEPENDENCY_HASH
+    ? state.active
+    : undefined;
+  return {
+    configured: true,
+    enabled: true,
+    config,
+    ...(active ? { active } : {}),
+  };
+}
+
 export async function resolveManagedEnvironment(input: {
   env: Pick<Env, 'KV' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY' | 'CLOUDFLARE_API_TOKEN' | 'CLOUDFLARE_WORKER_NAME'>;
   fetcher?: typeof fetch;

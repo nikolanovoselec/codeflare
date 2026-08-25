@@ -147,6 +147,8 @@ export interface HealthResponse {
   readonly prewarmReady: boolean;
   readonly initFlagObserved: boolean;
   readonly terminalServiceReady: boolean;
+  readonly editorReady: boolean;
+  readonly editorReadyTimedOut: boolean;
   readonly cpu: string;
   readonly mem: string;
   readonly hdd: string;

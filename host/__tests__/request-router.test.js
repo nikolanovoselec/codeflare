@@ -25,7 +25,7 @@ function hasMetaRefresh(html) {
 }
 
 function makeDeps(overrides = {}) {
-  const readiness = { prewarmReady: false, initFlagObserved: false, terminalServiceReady: false };
+  const readiness = { prewarmReady: false, initFlagObserved: false, terminalServiceReady: false, editorReady: false, editorReadyTimedOut: false };
   return {
     readinessState: readiness,
     deps: {
@@ -125,23 +125,35 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(body.error, 'Unauthorized');
   });
 
-  it('serves /health auth-exempt and reads the readiness flags LIVE at request time', async () => {
+  it('REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live', async () => {
     const first = await getJson(port, '/health');
     assert.equal(first.status, 200);
     assert.equal(first.body.status, 'healthy');
     assert.equal(first.body.sessions, 3);
     assert.equal(first.body.terminalServiceReady, false);
+    assert.equal(first.body.editorReady, false);
+    assert.equal(first.body.editorReadyTimedOut, false);
 
     // Flip the flags the composition root owns; the router must observe the
     // new values without being re-created (the readiness() closure contract).
-    readinessState.prewarmReady = true;
     readinessState.initFlagObserved = true;
-    readinessState.terminalServiceReady = true;
+    readinessState.editorReadyTimedOut = true;
 
-    const second = await getJson(port, '/health');
-    assert.equal(second.body.prewarmReady, true);
-    assert.equal(second.body.initFlagObserved, true);
-    assert.equal(second.body.terminalServiceReady, true);
+    const timedOut = await getJson(port, '/health');
+    assert.equal(timedOut.body.editorReady, false);
+    assert.equal(timedOut.body.editorReadyTimedOut, true);
+
+    readinessState.prewarmReady = true;
+    readinessState.terminalServiceReady = true;
+    readinessState.editorReady = true;
+    readinessState.editorReadyTimedOut = false;
+
+    const recovered = await getJson(port, '/health');
+    assert.equal(recovered.body.prewarmReady, true);
+    assert.equal(recovered.body.initFlagObserved, true);
+    assert.equal(recovered.body.terminalServiceReady, true);
+    assert.equal(recovered.body.editorReady, true);
+    assert.equal(recovered.body.editorReadyTimedOut, false);
   });
 
   it('falls through to 404 for unknown paths (with a valid bearer token)', async () => {

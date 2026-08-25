@@ -70,6 +70,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     remoteCurationReleaseDigest: params.remoteCurationReleaseDigest ?? null,
     remoteCurationManifestDigest: params.remoteCurationManifestDigest ?? null,
     sessionMode: params.sessionMode,
+    sessionWorkspace: params.sessionWorkspace,
     sleepAfter: params.sleepAfter,
     // REQ-ENTERPRISE-004: forward the user's matched Access groups so the
     // LlmInterceptor stamps one cf-aig-metadata tag per group for the gateway.

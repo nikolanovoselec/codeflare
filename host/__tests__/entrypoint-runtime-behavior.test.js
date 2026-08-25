@@ -10,6 +10,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 const CAVEMAN_IMAGE_CONFIG = resolve(__dirname, '../../image/pi/caveman.json');
 
+function runtimeEnv(env = {}) {
+  const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+}
+
 function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\) \\{`).test(line));
@@ -26,7 +32,7 @@ function extractFunction(name) {
 function runFunction(name, setup, invocation, env = {}) {
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${setup}\n${invocation}`], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: runtimeEnv(env),
   });
 }
 
@@ -36,7 +42,7 @@ function runStartupInvocation(name, env = {}) {
   if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: runtimeEnv(env),
   });
 }
 
@@ -77,12 +83,12 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { automaticTurns: 10, minIntervalMs: 60_000 },
+      continuationLimits: { automaticTurns: 10, minIntervalMs: 180_000 },
     });
     assert.equal(existsSync(conflictingPath), false);
   });
 
-  it('REQ-AGENT-129 AC2/AC3: adds missing values while preserving explicit and unknown preferences', () => {
+  it('REQ-AGENT-129 AC2/AC3: enforces three-minute pacing while preserving unrelated preferences', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-settings-merge-'));
     const configPath = join(fixture, '.pi/agent/pi-goal.json');
     const env = { USER_HOME: fixture };
@@ -106,14 +112,14 @@ describe('entrypoint production helpers', () => {
         automaticTurns: null,
         noProgressTurns: 8,
         customLimit: 'keep',
-        minIntervalMs: 60_000,
+        minIntervalMs: 180_000,
       },
       rpc: { enabled: true, customTransport: 'keep' },
       unknownRoot: { enabled: null },
     });
 
     writeFileSync(configPath, JSON.stringify({
-      continuationLimits: { minIntervalMs: 1_250 },
+      continuationLimits: { minIntervalMs: 0 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     }));
@@ -121,7 +127,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(missing.status, 0, missing.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { minIntervalMs: 1_250, automaticTurns: 10 },
+      continuationLimits: { minIntervalMs: 180_000, automaticTurns: 10 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     });
@@ -161,7 +167,7 @@ describe('entrypoint production helpers', () => {
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), EXPECTED_PLAN_MODE_SETTINGS);
   });
 
-  it('REQ-AGENT-155 AC2: overwrites Caveman with full mode and no footer on every start', () => {
+  it('REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-caveman-settings-'));
     const configPath = join(fixture, '.pi/agent/caveman.json');
     const conflictingPath = join(fixture, 'legacy/caveman.json');
@@ -174,7 +180,7 @@ describe('entrypoint production helpers', () => {
     const first = runStartupInvocation('configure_pi_caveman', env);
     assert.equal(first.status, 0, first.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      defaultLevel: 'full',
+      defaultLevel: 'lite',
       showStatus: false,
     });
     assert.equal(existsSync(conflictingPath), false);
@@ -195,7 +201,7 @@ exec "$REAL_NODE" "$@"
     });
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
-      defaultLevel: 'full',
+      defaultLevel: 'lite',
       showStatus: false,
     });
   });
@@ -302,6 +308,28 @@ exec "$REAL_NODE" "$@"
     );
     assert.equal(custom.status, 0, custom.stderr);
     assert.equal(readFileSync(managed, 'utf8'), '{"dismissed_version":"operator-owned"}\n');
+  });
+
+  it('REQ-AGENT-160 AC1: keeps late Pi extension output writable outside disposable /tmp', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-jiti-runtime-'));
+    const runtimeTmp = join(fixture, 'run/codeflare/pi-tmp');
+    const imageCache = join(fixture, 'opt/codeflare/jiti-cache');
+    const disposableTmp = join(fixture, 'tmp');
+    mkdirSync(imageCache, { recursive: true });
+    mkdirSync(join(disposableTmp, 'jiti'), { recursive: true });
+
+    const result = runFunction(
+      'configure_pi_jiti_runtime_cache',
+      '',
+      'configure_pi_jiti_runtime_cache "$TEST_ISOLATION_ROOT"; rm -rf "$TEST_ISOLATION_ROOT/tmp"; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
+      { CODEFLARE_RUNTIME_ROOT: join(fixture, 'run/codeflare'), TEST_ISOLATION_ROOT: fixture },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.endsWith(runtimeTmp), true);
+    assert.equal(existsSync(disposableTmp), false);
+    assert.equal(readlinkSync(join(runtimeTmp, 'jiti')), imageCache);
+    assert.equal(readFileSync(join(imageCache, 'chunks-interactive-ui.test.mjs'), 'utf8'), 'compiled');
   });
 
   it('REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata', () => {

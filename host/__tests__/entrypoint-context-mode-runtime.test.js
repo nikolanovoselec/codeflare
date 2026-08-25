@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,8 +17,17 @@ function startupPrefix() {
 
 function observeBridgeIdleEnv(inherited) {
   const home = mkdtempSync(join(tmpdir(), 'entrypoint-context-mode-'));
-  const prefix = startupPrefix().replace('USER_HOME="/home/user"', `USER_HOME=${JSON.stringify(home)}`);
-  const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"`;
+  const imageCache = join(home, 'opt/codeflare/jiti-cache');
+  const runtimeRoot = join(home, 'run');
+  mkdirSync(imageCache, { recursive: true });
+  const prefix = startupPrefix()
+    .replace('export CODEFLARE_RUNTIME_ROOT="/run/codeflare"', `export CODEFLARE_RUNTIME_ROOT=${JSON.stringify(runtimeRoot)}`)
+    .replace('USER_HOME="/home/user"', `USER_HOME=${JSON.stringify(home)}`)
+    .replace(
+      '\nconfigure_pi_jiti_runtime_cache\n',
+      `\nconfigure_pi_jiti_runtime_cache ${JSON.stringify(home)}\n`,
+    );
+  const script = `${prefix}\nprintf 'BRIDGE_IDLE=%s\\n' "\${CONTEXT_MODE_BRIDGE_IDLE_MS-unset}"\nenv -u NODE_OPTIONS node -e 'console.log("NODE_TMPDIR=" + require("node:os").tmpdir())'`;
   const env = { ...process.env, USER_TIMEZONE: '' };
   if (inherited === undefined) delete env.CONTEXT_MODE_BRIDGE_IDLE_MS;
   else env.CONTEXT_MODE_BRIDGE_IDLE_MS = inherited;
@@ -31,6 +40,13 @@ describe('REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reapi
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /BRIDGE_IDLE=180000/);
+  });
+
+  it('REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR', () => {
+    const result = observeBridgeIdleEnv(undefined);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /NODE_TMPDIR=.*\/run\/pi-tmp/);
   });
 
   it('REQ-AGENT-076 AC7: creates no global override when the container environment omits one', () => {

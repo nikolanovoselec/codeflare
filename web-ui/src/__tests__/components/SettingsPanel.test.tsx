@@ -5,12 +5,13 @@ import { createSignal } from 'solid-js';
 import SettingsPanel from '../../components/SettingsPanel';
 import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings';
 import type { Settings } from '../../lib/settings';
+import type { UserPreferences } from '../../types';
 import * as storageApi from '../../api/storage';
 
 const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false, iosInstall: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
-  preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as { workspaceSyncEnabled: boolean | undefined; fastStartEnabled: boolean | undefined; sessionMode?: string | undefined },
+  preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as UserPreferences,
   updatePreferences: vi.fn(async () => undefined),
   // The Standard/Pro session-mode selector is SaaS-gated (REQ-ENTERPRISE-008 AC3);
   // these tests exercise its behavior, so default to SaaS mode.
@@ -118,6 +119,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       skipped: [],
     });
     sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+    sessionStoreState.saasMode = true;
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
     mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
     mockGetLlmKeys.mockResolvedValue({});
@@ -382,13 +384,22 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sessionMode: 'advanced' });
     });
 
-    it('clicking "Default" calls updatePreferences with sessionMode "default"', () => {
-      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: 'advanced' } as typeof sessionStoreState.preferences;
+    it('clicking "Default" resets mode and workspace in one preference update', () => {
+      sessionStoreState.preferences = {
+        workspaceSyncEnabled: false,
+        fastStartEnabled: undefined,
+        sessionMode: 'advanced',
+        defaultWorkspace: 'vscode',
+      };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       fireEvent.click(screen.getByTestId('session-mode-default'));
-      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sessionMode: 'default' });
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledTimes(1);
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({
+        sessionMode: 'default',
+        defaultWorkspace: 'terminal',
+      });
     });
 
     it('clicking already-selected mode is a no-op', () => {
@@ -456,6 +467,44 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const advancedRadio = screen.getByTestId('session-mode-advanced');
       expect(advancedRadio).toHaveAttribute('disabled');
+    });
+  });
+
+  describe('Default Workspace', () => {
+    it('falls back to Terminal and persists VS Code through preferences', () => {
+      sessionStoreState.preferences = {
+        workspaceSyncEnabled: false,
+        fastStartEnabled: true,
+        sessionMode: 'advanced',
+      };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
+      fireEvent.click(screen.getByTestId('default-workspace-vscode'));
+
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ defaultWorkspace: 'vscode' });
+    });
+
+    it('hides selector for Standard mode', () => {
+      sessionStoreState.preferences = {
+        workspaceSyncEnabled: false,
+        fastStartEnabled: true,
+        sessionMode: 'default',
+      };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.queryByTestId('default-workspace-control')).not.toBeInTheDocument();
+    });
+
+    it('shows selector in enterprise forced Advanced mode', () => {
+      sessionStoreState.saasMode = false;
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: true };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} enterpriseMode={true} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('default-workspace-control')).toBeInTheDocument();
     });
   });
 

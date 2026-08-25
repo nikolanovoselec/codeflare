@@ -16,6 +16,13 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
+function runtimeEnv(base) {
+  const root = join(base, '.runtime');
+  const syncRuntimeDir = join(root, 'sync');
+  mkdirSync(syncRuntimeDir, { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: root, SYNC_RUNTIME_DIR: syncRuntimeDir };
+}
+
 /** Slice entrypoint.sh from a start marker up to (and including) an end marker. */
 function extractBetween(startMarker, endMarker, label) {
   const start = entrypoint.indexOf(startMarker);
@@ -43,7 +50,7 @@ const createRcloneConfig = () =>
 const layDownFn = () =>
   extractBetween(
     'lay_down_agent_seed_preseed() {',
-    '    echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log\n}',
     'lay_down_agent_seed_preseed',
   );
 
@@ -57,7 +64,7 @@ const compareFlagFragment = () =>
 const relayFn = () =>
   extractBetween(
     'relay_managed_pi_extensions() {',
-    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) (+${added} new from mode bake) from image source over post-sync tree" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log\n}',
     'relay_managed_pi_extensions',
   );
 
@@ -79,7 +86,7 @@ function runRcloneConfig({ r2SseDisabled, encryptionKey }) {
     createRcloneConfig(),
     'create_rclone_config',
   ].join('\n');
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(dir) });
   const confPath = join(dir, '.config/rclone/rclone.conf');
   const conf = existsSync(confPath) ? readFileSync(confPath, 'utf8') : '';
   return { code: res.status, stderr: res.stderr, conf };
@@ -129,7 +136,7 @@ function runLayDown({ r2SseDisabled, sessionMode = 'default', seedModes = ['defa
     layDownFn(),
     'lay_down_agent_seed_preseed',
   ].join('\n');
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(home) });
   return { code: res.status, stderr: res.stderr, home };
 }
 
@@ -209,7 +216,7 @@ function runRelay({ warmFiles, destFiles, bakeFiles, sessionMode, warmPresent = 
     relayFn(),
     'relay_managed_pi_extensions',
   ].join('\n');
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(home) });
   return { code: res.status, stderr: res.stderr, home, destExt };
 }
 
@@ -401,7 +408,7 @@ function runRcloneFilterWiring() {
     'establish_bisync_baseline',
     'bisync_with_r2 ""',
   ].join('\n');
-  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(home) });
   const rawCalls = existsSync(callsFile) ? readFileSync(callsFile, 'utf8') : '';
   const calls = rawCalls.split('__CALL__\n').slice(1).map((block) => block.trim().split('\n'));
   return { code: result.status, stderr: result.stderr, calls };

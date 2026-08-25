@@ -106,6 +106,7 @@ jobs:
       webui: ${{ steps.filter_fallback.outputs.webui || steps.filter.outputs.webui }}
       landing: ${{ steps.filter_fallback.outputs.landing || steps.filter.outputs.landing }}
       host: ${{ steps.filter_fallback.outputs.host || steps.filter.outputs.host }}
+      pi: ${{ steps.filter_fallback.outputs.pi || steps.filter.outputs.pi }}
       ide: ${{ steps.filter_fallback.outputs.ide || steps.filter.outputs.ide }}
       workflows: ${{ steps.filter_fallback.outputs.workflows || steps.filter.outputs.workflows }}
     steps:
@@ -167,6 +168,18 @@ jobs:
               - *shared
               - 'landing/**'
               - 'src/lib/design-ready.ts'
+            pi:
+              - '.github/workflows/test.yml'
+              - '.github/actions/install-deps/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'preseed/agents/pi/**'
+              - 'src/lib/agent-seed.generated.ts'
+              - 'scripts/agent-seed-core.mjs'
+              - 'scripts/materialize-agent-seed.mjs'
+              - 'scripts/measure-pi-runtime-context.mjs'
+              - 'scripts/pi-prompt-contract.mjs'
+              - 'scripts/verify-pi-prompt.mjs'
             ide:
               - *shared
               - 'host/package.json'
@@ -369,47 +382,21 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 9
       matrix:
-        # Four shards, not two. Roughly 85% of a shard's wall clock is per-file
-        # Vite transform and workerd isolate setup rather than test execution
-        # (measured: 18s of assertions inside 81s), and about half of that
-        # overhead sits in the main process where extra pool workers cannot
-        # reach it. It is per-process, though, so it divides cleanly across
-        # shards — each of which is its own runner.
-        #
-        # The Node-runtime suite is not shardable, so it gets its own leg rather
-        # than riding one shard and making it the straggler (it cost shard 1 an
-        # extra ~35s while its siblings idled).
+        # Run 32892058211 supplies current per-file durations from the eight-group
+        # matrix. With the calibrated 1.6-second per-file Workers startup cost,
+        # longest-first assignment targets eight roughly 49-second groups plus Node.
         include:
-          - shard: '1/4'
-            slug: shard-1
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '2/4'
-            slug: shard-2
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '3/4'
-            slug: shard-3
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: '4/4'
-            slug: shard-4
-            script: test
-            tolerate-pool-crash: 'true'
-            pre-run: ''
-          - shard: ''
-            slug: node
-            script: 'test:node'
-            # Plain Node, no workerd — a non-zero exit here is always a failure.
-            tolerate-pool-crash: 'false'
-            # `pretest` hooks `npm test`, not `npm run test:node`, and these
-            # tests read the generated seeds.
-            pre-run: 'npm run pretest'
+          - { balance-group: '1/8', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/8', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/8', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/8', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/8', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/8', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/8', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/8', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -429,11 +416,12 @@ jobs:
       - name: Run suite (fail-closed gate)
         uses: ./.github/actions/vitest-suite
         with:
-          shard: ${{ matrix.shard }}
+          balance-group: ${{ matrix.balance-group }}
           script: ${{ matrix.script }}
           artifact-name: backend-${{ matrix.slug }}
           pre-run: ${{ matrix.pre-run }}
           tolerate-pool-crash: ${{ matrix.tolerate-pool-crash }}
+          coverage: ${{ matrix.coverage }}
 
   workflow-audit:
     name: Workflow audit
@@ -610,47 +598,58 @@ jobs:
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
   coverage-backend:
-    name: Coverage (backend)
-    needs: changes
+    name: Coverage merge (backend)
+    needs: [changes, backend-tests]
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/coverage-suite
+      - uses: ./.github/actions/merge-coverage
         with:
-          working-directory: .
-          key-prefix: root
+          artifact-pattern: 'backend-shard-*'
+          artifact-prefix: 'backend-shard'
+          expected-shards: '8'
           slug: backend
-          tolerate-pool-crash: 'true'
+          package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
           changed-line-threshold: '80'
+          statements-threshold: '88'
+          branches-threshold: '80'
+          functions-threshold: '89'
+          lines-threshold: '89'
 
   coverage-frontend:
-    name: Coverage (frontend)
-    needs: changes
+    name: Coverage merge (frontend)
+    needs: [changes, frontend-tests]
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.webui == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/coverage-suite
+      - uses: ./.github/actions/merge-coverage
         with:
-          working-directory: web-ui
-          key-prefix: webui
+          artifact-pattern: 'frontend-shard-*'
+          artifact-prefix: 'frontend-shard'
+          expected-shards: '3'
           slug: frontend
+          package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
           changed-line-threshold: '70'
+          statements-threshold: '75'
+          branches-threshold: '63'
+          functions-threshold: '75'
+          lines-threshold: '77'
 
   frontend-tests:
     name: Frontend tests (${{ matrix.slug }})
@@ -701,6 +700,7 @@ jobs:
           working-directory: web-ui
           shard: ${{ matrix.shard }}
           artifact-name: frontend-${{ matrix.slug }}
+          coverage: 'true'
 
   landing-tests:
     name: Landing tests
@@ -741,14 +741,103 @@ jobs:
           working-directory: landing
           artifact-name: landing
 
+  pi-prompt:
+    name: Pi prompt verification
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.pi == 'true'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - uses: ./.github/actions/install-deps
+        with:
+          key-prefix: root
+
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: preseed/agents/pi
+          key-prefix: pi-prompt
+          ignore-scripts: 'true'
+
+      - name: Verify real Pi prompt budget
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/pi-runtime"
+          mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
+          ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node scripts/verify-pi-prompt.mjs \
+            --generated src/lib/agent-seed.generated.ts \
+            --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
+            --pi-package-root preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent \
+            --report "$RUNNER_TEMP/pi-prompt-report.json"
+
+      - name: Measure real Pi initial tool exposure
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/pi-seed" "$RUNNER_TEMP/pi-isolated"
+          mkdir -p "$RUNNER_TEMP/pi-isolated"
+          node scripts/materialize-agent-seed.mjs \
+            --seed src/lib/agent-seed.generated.ts \
+            --out "$RUNNER_TEMP/pi-seed"
+          for mode in default advanced; do
+            agent_dir="$RUNNER_TEMP/pi-seed/$mode/.pi/agent"
+            cp "$RUNNER_TEMP/pi-runtime/settings.json" "$agent_dir/settings.json"
+            mkdir -p "$agent_dir/npm"
+            ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$agent_dir/npm/node_modules"
+            (
+              cd "$RUNNER_TEMP/pi-isolated"
+              PI_AGENT_DIR="$agent_dir" \
+              PI_CODING_AGENT_ROOT="$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent" \
+                node "$GITHUB_WORKSPACE/scripts/measure-pi-runtime-context.mjs" \
+                --agent-dir "$agent_dir" \
+                > "$RUNNER_TEMP/pi-runtime-context-$mode.json"
+            )
+          done
+
+      - name: Verify real Pi runtime reports
+        env:
+          CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs
+
+      - name: Upload Pi prompt reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pi-prompt-report-pr
+          path: |
+            ${{ runner.temp }}/pi-prompt-report.json
+            ${{ runner.temp }}/pi-runtime-context-default.json
+            ${{ runner.temp }}/pi-runtime-context-advanced.json
+          retention-days: 14
+          if-no-files-found: error
+
   host-tests:
-    name: Host tests
+    name: Host tests (${{ matrix.slug }})
     needs: changes
     if: >-
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.host == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        # Run 32890939456 measured the five native partitions at 7, 41, 9, 11,
+        # and 28 seconds. These groups retain exact one-pass coverage while
+        # balancing measured work at approximately 49 and 48 seconds.
+        include:
+          - { shards: '1/5 2/5', slug: shard-1 }
+          - { shards: '3/5 4/5 5/5', slug: shard-2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -768,30 +857,6 @@ jobs:
         with:
           directory: host
           key-prefix: host
-
-      - name: Install exact Pi prompt runtime
-        run: npm ci --ignore-scripts --no-audit --no-fund --prefix preseed/agents/pi
-
-      - name: Verify real Pi prompt budget
-        run: |
-          set -euo pipefail
-          rm -rf "$RUNNER_TEMP/pi-runtime"
-          mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
-          ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
-          node scripts/verify-pi-prompt.mjs \
-            --generated src/lib/agent-seed.generated.ts \
-            --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
-            --pi-package-root preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent \
-            --report "$RUNNER_TEMP/pi-prompt-report.json"
-
-      - name: Upload Pi prompt report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pi-prompt-report-pr
-          path: ${{ runner.temp }}/pi-prompt-report.json
-          retention-days: 14
-          if-no-files-found: error
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
@@ -864,34 +929,25 @@ jobs:
 
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
-        # here. It used to hold 14 entries under one blanket rationale (graphify
-        # CLI, python3 graphify module, rclone state, gh-in-PR-context) that was
-        # accurate for a couple of them and inherited by proximity for the rest.
-        # Seven are back in the lane; each of the five that remain now carries
-        # its own reason in the file, so the list is auditable rather than
-        # inherited. Another, skill-sdd-init-contract.test.js, was excluded
-        # because it FAILED — it pinned SKILL.md prose that had since been
-        # reworded, so it went red against its own staleness while the skill
-        # behaviour it claimed to cover was intact. Deleted rather than repaired;
-        # a red test parked behind an exclusion list is what this lane exists to
-        # prevent. The file list comes from the selection step above, so it is
-        # audited.
+        # here. The file list comes from the audited selection step above. Each
+        # native 1/5 partition appears exactly once across the two measured groups.
+        env:
+          SHARDS: ${{ matrix.shards }}
         run: |
           set -euo pipefail
-          xargs -a "$RUNNER_TEMP/host-tests.txt" \
-            node --experimental-test-module-mocks --test --test-timeout=60000 \
-              --test-reporter=spec --test-reporter-destination=stdout \
-              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report.xml"
+          part=0
+          for shard in $SHARDS; do
+            part=$((part + 1))
+            xargs -a "$RUNNER_TEMP/host-tests.txt" \
+              node --experimental-test-module-mocks --test --test-timeout=60000 \
+                --test-shard="$shard" \
+                --test-reporter=spec --test-reporter-destination=stdout \
+                --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-${part}.xml"
+          done
 
-          # node --test exits 0 when the files it was handed define no tests at
-          # all, so "the selection was non-empty" is not the same as "assertions
-          # ran". This is the host-lane equivalent of check-vitest-report.mjs's
-          # zero-collected-tests gate.
-          # Count <testcase> elements, not the first tests="N" attribute: node's
-          # junit reporter emits one <testsuite> per file, so `head -1` reported
-          # the first FILE's count (13) rather than the run's (hundreds) — and
-          # would have fired a false alarm had that file happened to be empty.
-          COUNT=$(grep -c '<testcase' "$RUNNER_TEMP/host-report.xml" || true)
+          # node --test exits 0 when selected files define no tests. Count actual
+          # testcases across every constituent partition rather than trusting exit 0.
+          COUNT=$(grep -h -c '<testcase' "$RUNNER_TEMP"/host-report-*.xml | awk '{ total += $1 } END { print total + 0 }')
           if [ "${COUNT:-0}" -lt 1 ]; then
             echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
             exit 1
@@ -959,6 +1015,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          license-check: 'true'
+          vulnerability-check: 'true'
+          show-openssf-scorecard: 'true'
+          # GitHub's dependency graph reports null licenses for these six
+          # platform artifacts even though their exact lock metadata is
+          # Apache-2.0. Versioned purls make every future Codex bump re-enter
+          # review instead of inheriting an evergreen exception.
+          allow-dependencies-licenses: >-
+            pkg:npm/@openai/codex-darwin-arm64@0.147.0-darwin-arm64,
+            pkg:npm/@openai/codex-darwin-x64@0.147.0-darwin-x64,
+            pkg:npm/@openai/codex-linux-arm64@0.147.0-linux-arm64,
+            pkg:npm/@openai/codex-linux-x64@0.147.0-linux-x64,
+            pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64,
+            pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64
 
   summary:
     # Check name "test" is the required branch-protection context on main —
@@ -975,6 +1046,7 @@ jobs:
       - backend-tests
       - frontend-tests
       - landing-tests
+      - pi-prompt
       - host-tests
       - browser-ide
       - dependency-review

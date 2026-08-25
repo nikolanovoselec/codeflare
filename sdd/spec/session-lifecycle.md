@@ -27,7 +27,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-001: Session creation with name and agent type
 
-**Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
+**Intent:** A user can create a named session associated with a specific AI agent and immutable workspace snapshot, producing a unique session record stored in KV.
 
 **Applies To:** User
 
@@ -35,9 +35,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, antigravity, opencode, copilot, bash, pi). <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
 2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-3. The session record is persisted durably and retrievable by the user. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
-4. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC4: response returns session object with status 201) -->
-5. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001: Session creation with name and agent type) -->
+3. The session record, including its immutable workspace snapshot, is persisted durably and retrievable across restarts. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC3 / REQ-IDE-048 AC1: persists and retrieves the immutable workspace snapshot) -->
+4. A session record without a workspace snapshot resolves to Terminal. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session-workspace.test.ts (REQ-SESSION-001 AC4: historical sessions resolve to Terminal) -->
+5. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC5: response returns session object with status 201) -->
+6. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC6: session creation is rate-limited) -->
 
 **Constraints:**
 
@@ -48,7 +49,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-creation.test.ts))
+**Verification:** Automated tests ([Creation integration](../../src/__tests__/routes/session-creation.test.ts); [workspace snapshot](../../src/__tests__/routes/session-workspace.test.ts))
 
 **Status:** Implemented
 
@@ -211,7 +212,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before starting a container, running sessions are counted from one storage list operation's metadata fast path. A bounded compatibility fallback reads only legacy keys whose list entries lack metadata; metadata-bearing keys never incur per-session reads. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
+1. Before starting a container, running sessions are counted from one storage list operation's metadata fast path. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 2. If the running count (excluding the session being started) meets or exceeds the tier's concurrent-session cap, the start is rejected with a quota-exceeded error. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 4. Outside SaaS mode, including Enterprise, stored-role defaults apply: 3 sessions for regular users and 10 for admins. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise stored admin gets the role-based admin limit) -->
@@ -299,7 +300,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The batch-status endpoint returns status for all user sessions from one storage list call without container wake. Metadata-bearing records use the list result directly; a bounded compatibility fallback reads only legacy keys that lack metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call) -->
+1. The batch-status endpoint returns status for all user sessions from one storage list call without container wake; metadata-bearing records use the list result directly. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) -->
 2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC2: only running/stopped persisted to KV) -->
 3. The frontend polls batch-status on a fixed cadence (about every 5 seconds). <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
@@ -381,6 +382,29 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
 **Verification:** Automated test ([destroy ordering](../../src/__tests__/container/lifecycle.test.ts), [idle and quota ordering](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-028: Session metadata projection compatibility
+
+**Intent:** Metadata-first session projections preserve legacy records without fallback reads for metadata-bearing comparison or batch entries.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. Concurrent-session counting reads a non-target listed session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-SESSION-028 AC1: reads only metadata-less non-target sessions when enforcing the limit) -->
+2. Batch status reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC2: resolves a mix of fast-path metadata and fallback legacy keys) -->
+
+**Constraints:** Compatibility reads remain bounded to metadata-less entries; current writers keep the primary `session:*` record and its list metadata synchronized without overlays or prefix scans.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-007](#req-session-007-running-session-count-limited-per-tier), [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+
+**Verification:** Automated lifecycle-limit and batch-status tests
 
 **Status:** Implemented
 

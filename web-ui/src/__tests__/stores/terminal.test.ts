@@ -503,7 +503,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-011: resends focused resize authority after a retry reconnect opens', async () => {
+    it('REQ-TERM-011 / REQ-TERM-016 AC2: resends focused resize authority after a retry reconnect opens', async () => {
       const terminal = {
         ...createMockTerminal(),
         cols: 120,
