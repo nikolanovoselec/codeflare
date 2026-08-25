@@ -96,7 +96,10 @@ for (const suite of SUITES) {
   }
   const laneResult = laneResults[suite.lane];
   const dirs = artifactDirs.filter((d) => suite.artifacts.some((a) => d.startsWith(a)));
-  const nestedReports = dirs.flatMap((d) => collect(join(root, d), (e) => e.endsWith('.json')));
+  const nestedReports = dirs.flatMap((d) => collect(
+    join(root, d),
+    (entry) => entry.endsWith('.json') && entry !== 'coverage-final.json',
+  ));
   // download-artifact extracts a single pattern match directly into `root`
   // instead of creating its artifact-named directory. Assign that flat layout
   // only when exactly one suite lane succeeded; otherwise attribution would be

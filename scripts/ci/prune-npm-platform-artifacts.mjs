@@ -9,6 +9,7 @@ const FAMILIES = Object.freeze([
   Object.freeze({ directory: '@github', prefix: 'copilot', keep: Object.freeze(['copilot', 'copilot-linux-x64']) }),
   Object.freeze({ directory: '@openai', prefix: 'codex', keep: Object.freeze(['codex', 'codex-linux-x64']) }),
   Object.freeze({ directory: '', prefix: 'opencode-', keep: Object.freeze(['opencode-ai', 'opencode-linux-x64']) }),
+  Object.freeze({ directory: '@oxlint', prefix: 'binding-', keep: Object.freeze(['binding-linux-x64-gnu']) }),
 ]);
 
 function fileBytes(path) {
