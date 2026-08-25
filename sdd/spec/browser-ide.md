@@ -1048,7 +1048,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - User extensions execute arbitrary root-capable container code; code-server admits proposed APIs broadly.
 - Open VSX is the sole gallery; Microsoft Marketplace and private or user-configured galleries are unsupported.
-- code-server disables VSIX signatures; TLS to Open VSX is the transport boundary because install does not expose artifact bytes.
+- code-server disables VSIX signatures; TLS to Open VSX is the transport boundary.
 - The mode-0600 version-1 regular manifest is bounded to 64 KiB, 50 lowercase IDs, and 32 KiB of settings.
 - Records require `version`; optional platform, UTC RFC3339 timestamp, and lowercase hexadecimal SHA-256 fields are bounded; unknown fields are invalid.
 - Capture excludes fixed IDs, uses the disk registry plus bounded `.obsolete` markers as truth, and writes atomically.
@@ -1458,7 +1458,7 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Activating a stopped VS Code card starts that session. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) -->
 2. A preparing or stopping card has no parent button semantics or tab stop while its child controls remain enabled. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
-4. The card is the sole Open surface. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: makes a ready VS Code card the only Open interaction surface) -->
+4. A whole-card selection control is the sole Open surface and remains separate from menu and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) -->
 5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
 6. A stopped card blocked by a preseed upgrade has no parent button semantics or tab stop. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks on stopped card during upgrade) -->
 

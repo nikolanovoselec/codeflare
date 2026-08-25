@@ -3454,7 +3454,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On each user turn, Pi activates registered basic editing and capability tools; question, Graphify, and other specialized tools stay registered but inactive until selected. Goal terminal tools remain active only when the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. Goal terminal tools remain active only while the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 2. Capability search returns matching registered tools by name or description. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 3. Capability activation additively enables only registered tools without granting authorization. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->
@@ -4221,8 +4221,11 @@ None.
 
 **Constraints:**
 
-- Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata. Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
-- The cap excludes serialized tool schemas and arbitrary additive project context. It includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing. Project context is measured separately and never truncated.
+- Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata.
+- Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
+- The cap excludes serialized tool schemas and arbitrary additive project context.
+- The cap includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing.
+- Project context is measured separately and never truncated.
 - Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
 - A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes; image-owned paths and curation-private content remain independently owned.
 - Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
@@ -4257,7 +4260,8 @@ None.
 - Registered tools, skills, native package discovery, explicit invocation, and context-mode's explicit enablement remain available.
 - Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, XML rewrite, or package-source patch.
 - Codeflare-curation owns complete managed extension bytes and mode membership; Codeflare owns the independent embedded fallback and image/runtime inputs.
-- Tool-schema sizes are diagnostic. Existing controlled-prompt limits remain owned by [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt).
+- Tool-schema sizes are diagnostic.
+- Existing controlled-prompt limits remain owned by [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt).
 
 **Priority:** P1
 

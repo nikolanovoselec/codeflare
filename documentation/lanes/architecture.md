@@ -390,8 +390,8 @@ When two observations disagree, the authority column decides which one wins. A p
 | State | Scope | Authority | Durability | Writers | Readers | Recovery owner |
 |---|---|---|---|---|---|---|
 | User, setup, and configuration records | Deployment/user | Workers KV | Persistent, eventually consistent | Authenticated Worker routes | Worker policy and UI | Owning route/configuration lane |
-| Session status and list metadata | Session | Workers KV record | Persistent | Lifecycle routes and Container DO | Dashboard batch-status | Container lifecycle |
-| Container coordination and recovery evidence | Session | Container DO storage | Durable across DO hibernation/reconstruction | Container DO | Container DO | Container lifecycle |
+| Session status and list metadata | Session | Workers KV record | Persistent | Lifecycle routes and Container DO <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> | Dashboard batch-status <!-- @impl: src/routes/session/lifecycle.ts::app --> | Container lifecycle |
+| Container coordination and recovery evidence | Session | Container DO storage | Durable across DO hibernation/reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container DO | Container lifecycle |
 | Live process and port state | Session | Containers platform plus successful host probes | Ephemeral | Container runtime | Container DO | Container lifecycle |
 | Workspace and selected user files | User | R2 bucket | Persistent | Sync lifecycle and storage API | Session containers and storage UI | Storage & Sync |
 | Local workspace and agent runtime | Session | Container filesystem/processes | Ephemeral | User, agents, IDE, entrypoint | Same session | Restore from R2/Git or restart |

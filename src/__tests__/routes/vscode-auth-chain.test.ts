@@ -215,6 +215,30 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     )).toBe(false);
   });
 
+  it('REQ-IDE-049 AC5: does not recreate a session deleted while editor activity resolves', async () => {
+    mockKV._set(SESSION_KEY, {
+      id: SID,
+      name: 'Deleting',
+      userId: 'test-bucket',
+      workspace: 'vscode',
+      status: 'running',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastAccessedAt: '2026-01-01T00:00:00.000Z',
+    } as Session);
+    mockContainerFetch.mockImplementationOnce(async () => {
+      await mockKV.delete(SESSION_KEY);
+      return new Response('ok');
+    });
+
+    const request = vscodeRequest();
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(200);
+    await Promise.all(waitUntilPromises);
+
+    expect(await mockKV.get(SESSION_KEY, 'json')).toBeNull();
+    expect(mockKV.put.mock.calls.some(([writtenKey]) => writtenKey === SESSION_KEY)).toBe(false);
+  });
+
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
     const request = vscodeRequest(undefined, { Origin: 'https://allowed-alias.example' });
 

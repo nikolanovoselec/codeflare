@@ -1323,9 +1323,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Pi extension-only edits retain the expensive Pi dependency/toolchain layer while still invalidating extension Jiti prewarm. <!-- @impl: Dockerfile::preseed/agents/pi/extensions --> <!-- @test: host/__tests__/container-image-speed.test.js (keeps extension-only edits behind the expensive Pi dependency layer) -->
-2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @test: host/__tests__/container-image-speed.test.js (assembles IDE and seed artifacts after expensive runtime dependency layers) -->
-3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (publishes plain BuildKit timing evidence) -->
+1. Pi extension-only edits retain the expensive Pi dependency/toolchain layer while still invalidating extension Jiti prewarm. <!-- @impl: Dockerfile::preseed/agents/pi/extensions --> <!-- @manual: Confirm exact-head BuildKit output reuses the Pi dependency layer and rebuilds extension prewarm after an extension-only edit. -->
+2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @manual: Confirm exact-head BuildKit output reuses unrelated dependency layers and rebuilds late IDE and seed assembly. -->
+3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm the exact-head deployment retains the uploaded BuildKit timing artifact. -->
 
 **Constraints:** The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
 
@@ -1333,7 +1333,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
 
-**Verification:** Cache-boundary tests; exact-head fresh-image timing evidence
+**Verification:** Exact-head fresh-image cache and timing evidence
 
 **Status:** Implemented
 
@@ -1373,13 +1373,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
-2. A failure from vulnerability scanning, CycloneDX generation, or registry-tool preparation blocks image publication. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (blocks publication when any concurrent image prerequisite fails) -->
+1. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm exact-head job timing shows all three prerequisites overlap and complete before enforcement. -->
+2. A failure from vulnerability scanning, CycloneDX generation, or registry-tool preparation blocks image publication. <!-- @impl: scripts/ci/image-prerequisite-gate.sh::wait_for_image_prerequisites --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (blocks publication when any concurrent image prerequisite fails) -->
 3. Bounded vulnerability validation completes before image push. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
-4. The SBOM uploads before image push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
-5. Trivy scratch and database-cache directories are writable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy scratch and cache directories writable by the runner account) -->
+4. The SBOM uploads before image push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm exact-head job ordering uploads the SBOM before image publication. -->
+5. Trivy scratch and database-cache directories are writable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm exact-head scan and SBOM processes write successfully to their isolated scratch and cache directories. -->
 6. Daily Trivy database-cache metadata restores without an ownership or timestamp warning. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
-7. Concurrent Trivy image traversals complete without a shared cache-lock collision. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+7. Concurrent Trivy image traversals complete without a shared cache-lock collision. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Confirm exact-head concurrent scan and SBOM generation complete without a cache-lock error. -->
 
 **Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation.
 
@@ -1387,7 +1387,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-050](#req-ops-050-hosted-image-build-critical-path-optimization)
 
-**Verification:** Behavioral prerequisite-failure and workflow-order tests; exact-head scan and SBOM evidence
+**Verification:** Behavioral prerequisite-failure tests; exact-head workflow order, scan, and SBOM evidence
 
 **Status:** Implemented
 

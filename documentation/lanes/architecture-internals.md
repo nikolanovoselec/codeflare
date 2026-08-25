@@ -271,7 +271,11 @@ Workers isolates do not share memory. Each cache is an optimization with an expl
 
 After an admin changes configuration, different isolates may enforce old and new values within the listed window. This is the accepted KV-read trade-off; it is not strong-consistency state.
 
-The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. The current contracts are the zero-`KV.get` batch-status fast path, the KV metadata size limit, and the Timekeeper TTL/entry bound above.
+The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. Current contracts are:
+
+- Batch status performs zero per-session `KV.get` calls for metadata-bearing records ([REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard)).
+- Session-list metadata stays within Cloudflare KV's metadata limit. <!-- @impl: src/lib/kv-keys.ts::SessionListMetadata -->
+- The Timekeeper user-record cache retains its 60-second TTL and 100-entry bound. <!-- @impl: src/timekeeper/index.ts::USER_RECORD_CACHE_TTL_MS --> <!-- @impl: src/timekeeper/index.ts::USER_RECORD_CACHE_MAX -->
 
 ---
 

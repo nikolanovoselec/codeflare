@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
-
 import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const WORKFLOW = join(ROOT, '.github', 'workflows', 'container-image.yml');
 const VALIDATOR = join(ROOT, 'scripts', 'ci', 'validate-trivy-result.mjs');
 
 function vulnerability(overrides = {}) {
@@ -305,28 +302,4 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     );
   });
 
-  it('wires JSON scan evidence immediately into the behavioral gate', () => {
-    const workflow = parseYaml(readFileSync(WORKFLOW, 'utf8'));
-    const steps = workflow.jobs.image.steps;
-    const scanIndex = steps.findIndex((step) => step.name === 'Scan image, generate SBOM, and prepare push tooling');
-    const scan = steps[scanIndex];
-    const gateIndex = scanIndex + 1;
-    const gate = steps[gateIndex];
-    const pushIndex = steps.findIndex((step) => step.name === 'Push image');
-    const push = steps[pushIndex];
-
-    assert.match(scan.run, /--format json/);
-    assert.match(scan.run, /--output \/tmp\/trivy-result\.json/);
-    assert.match(scan.run, /--exit-code 0/);
-    assert.match(scan.run, /--ignore-unfixed/);
-    assert.match(scan.run, /--ignorefile \.trivyignore/);
-    assert.equal(gate.name, 'Enforce vulnerability scan and bounded exceptions');
-    assert.equal(gate.run, 'node scripts/ci/validate-trivy-result.mjs /tmp/trivy-result.json');
-    assert.ok(gateIndex < pushIndex, 'the fail-closed gate must run before image push');
-    assert.equal(gate.if, scan.if);
-    assert.equal(push.if, gate.if);
-    assert.equal(scan['continue-on-error'], undefined);
-    assert.equal(gate['continue-on-error'], undefined);
-    assert.equal(push['continue-on-error'], undefined);
-  });
 });

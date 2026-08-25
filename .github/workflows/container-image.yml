@@ -684,11 +684,8 @@ jobs:
           fi
           wrangler_pid=$!
 
-          status=0
-          wait "$scan_pid" || status=$?
-          wait "$sbom_pid" || status=$?
-          wait "$wrangler_pid" || status=$?
-          [ "$status" -eq 0 ] || exit "$status"
+          source scripts/ci/image-prerequisite-gate.sh
+          wait_for_image_prerequisites "$scan_pid" "$sbom_pid" "$wrangler_pid"
 
       - name: Enforce vulnerability scan and bounded exceptions
         if: steps.reuse.outputs.reused != 'true'

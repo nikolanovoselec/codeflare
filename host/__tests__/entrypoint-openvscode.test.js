@@ -146,7 +146,7 @@ setInterval(() => {}, 1_000);
 `);
 }
 
-describe('complete_managed_curation_startup / REQ-IDE-053 AC1/AC2 (workspace launch)', () => {
+describe('complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace launch)', () => {
   it('arms VS Code immediately after init instead of waiting for background baseline work', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}
@@ -199,7 +199,7 @@ complete_managed_curation_startup
   });
 });
 
-describe('_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-053 AC1/AC2 (workspace launch gate)', () => {
+describe('_openvscode_should_launch / REQ-IDE-003 AC1 + REQ-IDE-048 AC3 (workspace launch gate)', () => {
   let dir, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-gate-');

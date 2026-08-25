@@ -1548,51 +1548,45 @@ export async function collectMetrics(
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
         return; // Don't re-arm schedule — zombie DO, let it die
       } else if (ctx.container?.running) {
-        // Only reached while the container is demonstrably running. Fresh-read
-        // after both host probes so this tick cannot restore stale whole-session
-        // state captured before a concurrent readiness or lifecycle write.
+        // destroy() persists this marker before draining or deleting the session.
+        // Check it before the final primary-record read so no metrics/readiness
+        // write can follow a deliberate Stop/Delete. This stays in DO storage;
+        // it does not add a KV overlay or a list-prefix read.
+        const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
         const key = getSessionKey(bucketName, sessionId);
-        const session = await env.KV.get<Session>(key, 'json');
-        if (session) {
-          const metrics = {
-            cpu: health.cpu,
-            mem: health.mem,
-            hdd: health.hdd,
-            syncStatus: health.syncStatus,
-            updatedAt: new Date().toISOString(),
-          };
-          const lastActiveAt = state.lastSeenInputAt
-            ? new Date(state.lastSeenInputAt).toISOString()
-            : session.lastActiveAt;
-          let nextSession: Session = { ...session, metrics, lastActiveAt };
-          if (session.workspace === 'vscode' && health.editorReady === true) {
-            const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
-            nextSession = { ...withoutEditorError, editorReady: true };
-          }
+        if (typeof shutdownRequested === 'number') {
+          logger.info('collectMetrics: shutdown in flight, skipping primary session write', { key });
+        } else {
+          // Only reached while the container is demonstrably running. Fresh-read
+          // after all awaited probes and the shutdown guard, then merge only the
+          // metrics/activity/readiness fields owned by this tick.
+          const session = await env.KV.get<Session>(key, 'json');
+          if (session) {
+            const metrics = {
+              cpu: health.cpu,
+              mem: health.mem,
+              hdd: health.hdd,
+              syncStatus: health.syncStatus,
+              updatedAt: new Date().toISOString(),
+            };
+            const lastActiveAt = state.lastSeenInputAt
+              ? new Date(state.lastSeenInputAt).toISOString()
+              : session.lastActiveAt;
+            let nextSession: Session = { ...session, metrics, lastActiveAt };
+            if (session.workspace === 'vscode' && health.editorReady === true) {
+              const { editorReadyError: _staleEditorError, ...withoutEditorError } = nextSession;
+              nextSession = { ...withoutEditorError, editorReady: true };
+            }
 
-          if (session.status === 'stopped') {
-            // KV reads stopped while the container is demonstrably alive. Read
-            // the PERSISTED deliberate-stop marker (survives a DO eviction that
-            // would reset an in-memory flag) to disambiguate.
-            const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
-            if (typeof shutdownRequested === 'number') {
-              // Deliberate stop in flight (destroy()/user Stop): leave the
-              // stopped status to settle, skip the write so we don't resurrect a
-              // session the user is deliberately stopping.
-              logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
-            } else {
-              // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
-              // alive, KV reads stopped, and no shutdown is in flight, so the
-              // status was wrongly flipped (e.g. onError on a transient error, or
-              // the catch-all racing a recovery). Re-assert running so a live
-              // session is not left showing stopped on the dashboard until the
-              // next start. (idle-stop returns before this block; onStop
-              // deleteSchedules the loop, so those deliberate paths never reach here.)
+            if (session.status === 'stopped') {
+              // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): shutdown was
+              // ruled out above, the container is alive, and KV still reads
+              // stopped, so re-assert the observed running state.
               logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
               await putSessionWithMetadata(env.KV, key, { ...nextSession, status: 'running' as const });
+            } else {
+              await putSessionWithMetadata(env.KV, key, nextSession);
             }
-          } else {
-            await putSessionWithMetadata(env.KV, key, nextSession);
           }
         }
       }

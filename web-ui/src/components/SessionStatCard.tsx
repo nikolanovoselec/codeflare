@@ -85,17 +85,17 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
-      role={isSelectionEnabled() ? 'button' : undefined}
-      tabIndex={isSelectionEnabled() ? 0 : undefined}
       style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
-      onClick={select}
-      onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault();
-          select();
-        }
-      }}
     >
+      <Show when={isSelectionEnabled()}>
+        <button
+          type="button"
+          class="session-stat-card__selector"
+          data-testid={`session-stat-card-${props.session.id}-select`}
+          aria-label={`Activate session ${props.session.name}`}
+          onClick={select}
+        />
+      </Show>
       <div class="stat-card__header">
         <span class="stat-card__icon">
           <Icon path={AGENT_ICON_MAP[props.session.agentType || ''] || mdiConsole} size={14} />

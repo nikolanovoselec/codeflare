@@ -181,22 +181,26 @@ describe('SessionStatCard', () => {
   });
 
   describe('Click behavior', () => {
-    it('calls onSelect when card is clicked', () => {
+    it('calls onSelect when the whole-card selection control is clicked', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} onSelect={onSelect} />);
-      fireEvent.click(screen.getByTestId('session-stat-card-test-1'));
+      fireEvent.click(screen.getByTestId('session-stat-card-test-1-select'));
       expect(onSelect).toHaveBeenCalled();
     });
 
-    it('REQ-IDE-054 AC4: makes a ready VS Code card the only Open interaction surface', () => {
+    it('REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
 
       const card = screen.getByTestId('session-stat-card-test-1');
-      expect(card).toHaveAttribute('role', 'button');
-      expect(card).toHaveAttribute('tabindex', '0');
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      const menu = screen.getByTitle('Session actions');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(selector).toHaveAttribute('type', 'button');
+      expect(selector.contains(menu)).toBe(false);
       expect(screen.queryByText('Open')).not.toBeInTheDocument();
-      fireEvent.click(card);
+      fireEvent.click(selector);
       expect(onSelect).toHaveBeenCalledOnce();
     });
 
@@ -209,6 +213,7 @@ describe('SessionStatCard', () => {
       expect(card).not.toHaveAttribute('role');
       expect(card).not.toHaveAttribute('tabindex');
       expect(card).not.toHaveAttribute('aria-disabled');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
       fireEvent.click(card);
       fireEvent.click(screen.getByTitle('Session actions'));
       expect(onSelect).not.toHaveBeenCalled();
@@ -219,8 +224,8 @@ describe('SessionStatCard', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopped' })} onSelect={onSelect} />);
 
-      const card = screen.getByTestId('session-stat-card-test-1');
-      fireEvent.keyDown(card, { key: 'Enter' });
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      fireEvent.keyDown(selector, { key: 'Enter' });
       expect(onSelect).toHaveBeenCalledOnce();
     });
 
@@ -232,6 +237,7 @@ describe('SessionStatCard', () => {
       expect(card).not.toHaveAttribute('role');
       expect(card).not.toHaveAttribute('tabindex');
       expect(card).not.toHaveAttribute('aria-disabled');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
       fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });
@@ -271,8 +277,11 @@ describe('SessionStatCard', () => {
         lastActiveAt: new Date(Date.now() - 22 * 60_000).toISOString(),
       });
       render(() => <SessionStatCard {...defaultProps} session={session} />);
-      expect(screen.getByTestId('session-stat-card-test-1-timer')).toBeInTheDocument();
-      expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--warning');
+      const timer = screen.getByTestId('session-stat-card-test-1-timer');
+      const selector = screen.getByTestId('session-stat-card-test-1-select');
+      expect(timer).toBeInTheDocument();
+      expect(timer).toHaveClass('session-stat-card__timer--warning');
+      expect(selector.contains(timer)).toBe(false);
     });
 
     it('shows critical timer when remaining < 5 min', () => {
@@ -352,6 +361,7 @@ describe('SessionStatCard', () => {
       expect(card.style.pointerEvents).toBe('none');
       expect(card).not.toHaveAttribute('role');
       expect(card).not.toHaveAttribute('tabindex');
+      expect(screen.queryByTestId('session-stat-card-test-1-select')).not.toBeInTheDocument();
       fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });

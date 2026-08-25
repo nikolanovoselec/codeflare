@@ -180,7 +180,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     // path) and pre-migration keys without metadata (fallback KV.get). This
     // pins that both branches execute in one request and each session lands in
     // the response from its respective path. REQ-SESSION-010 AC1.
-    it('resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
+    it('REQ-SESSION-028 AC2: resolves a mix of fast-path metadata and fallback legacy keys', async () => {
       const fast = makeSession('aabbccdd11223344', 'running');
       const slow = makeSession('eeff001122334455', 'stopped');
       // fast key carries metadata -> fast path; slow key omits it -> fallback.

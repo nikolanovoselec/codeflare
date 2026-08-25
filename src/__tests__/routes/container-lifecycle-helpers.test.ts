@@ -150,6 +150,34 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.id).toBe('session1');
     });
 
+    it('REQ-SESSION-028 AC1: reads only metadata-less legacy sessions when enforcing the limit', async () => {
+      const currentKey = 'session:bucket:session1';
+      const legacyKey = 'session:bucket:legacy00000001';
+      mockKV._set(currentKey, {
+        id: 'session1', name: 'Current', status: 'stopped', createdAt: '2024-01-01T00:00:00Z',
+      });
+      mockKV._set(legacyKey, {
+        id: 'legacy00000001', name: 'Legacy', status: 'running', createdAt: '2024-01-01T00:00:00Z',
+      });
+      mockListAllKvKeys.mockResolvedValue([
+        { name: currentKey, metadata: { s: 's' } },
+        { name: 'session:bucket:metadata00001', metadata: { s: 'r' } },
+        { name: legacyKey },
+      ]);
+
+      await validateSessionAndCheckLimits({
+        env: { KV: mockKV as unknown as KVNamespace } as Env,
+        bucketName: 'bucket',
+        sessionId: 'session1',
+        maxSessions: 3,
+      });
+
+      const readKeys = mockKV.get.mock.calls.map(([key]) => key);
+      expect(readKeys).toContain(currentKey);
+      expect(readKeys).toContain(legacyKey);
+      expect(readKeys).not.toContain('session:bucket:metadata00001');
+    });
+
     it('throws NotFoundError when session does not exist', async () => {
       await expect(
         validateSessionAndCheckLimits({
