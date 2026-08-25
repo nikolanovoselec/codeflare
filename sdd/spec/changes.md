@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-25
 
-- **Every session image includes lock-pinned Oxlint** ([REQ-OPS-039](operations.md#req-ops-039-reduced-image-capability-preservation) AC1 remains Implemented). Image-owned `oxlint` is exposed on the container-wide command path for every coding-agent selection and executed during image assembly after alternate platform bindings are pruned. Its dedicated image lock stays outside managed-seed runtime compatibility.
+- **Every session image includes lock-pinned Oxlint** ([REQ-OPS-039](operations.md#req-ops-039-reduced-image-capability-preservation) AC1 remains Implemented). Image-owned `oxlint` is exposed on the container-wide command path for every coding-agent selection and executed during image assembly after alternate platform bindings are pruned. Its dedicated image lock stays outside managed-seed runtime compatibility and receives cooldown-backed weekly Dependabot updates.
 
 - **Hosted image-build critical path is shorter and measurable** ([REQ-OPS-050](operations.md#req-ops-050-hosted-image-build-critical-path-optimization) added as Implemented). Pi extension, Browser IDE, and generated seed edits now retain unrelated expensive dependency/toolchain layers while invalidating their own late assembly; fresh builds upload plain BuildKit timing evidence; vulnerability scanning, CycloneDX generation, and locked Wrangler preparation run concurrently after one DB preparation; all are awaited and bounded scan enforcement plus SBOM upload still precede push. Runner-owned Trivy scratch/cache directories also restore without the prior root-owned tar metadata warning.
 

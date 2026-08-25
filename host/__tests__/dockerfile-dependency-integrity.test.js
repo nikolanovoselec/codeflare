@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const readJson = (path) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8'));
@@ -19,6 +20,7 @@ const browserRunPackage = readJson('preseed/agents/claude/browser-run-mcp/packag
 const browserRunLock = readJson('preseed/agents/claude/browser-run-mcp/package-lock.json');
 const wranglerPackage = readJson('.github/npm-tools/wrangler/package.json');
 const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
+const dependabot = parseYaml(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8'));
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -70,6 +72,15 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
+  });
+
+  it('image-owned Oxlint has dedicated weekly dependency automation', () => {
+    const update = dependabot.updates.find((entry) => entry.directory === '/image/oxlint');
+    assert.equal(update?.['package-ecosystem'], 'npm');
+    assert.equal(update?.['target-branch'], 'develop');
+    assert.equal(update?.schedule?.interval, 'weekly');
+    assert.equal(update?.cooldown?.['default-days'], 7);
+    assert.equal(update?.cooldown?.['semver-major-days'], 30);
   });
 
   it('dedicated Pi, Browser Run MCP, and Wrangler locks match their manifests', () => {
