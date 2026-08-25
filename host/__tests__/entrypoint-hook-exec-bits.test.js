@@ -26,8 +26,9 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 
 function runtimeEnv() {
   const runtimeRoot = mkdtempSync(join(tmpdir(), 'hook-exec-runtime-'));
-  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot };
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  mkdirSync(syncRuntimeDir, { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, SYNC_RUNTIME_DIR: syncRuntimeDir };
 }
 
 // Extract a top-level shell function body, bounded by its `name() {` opener and

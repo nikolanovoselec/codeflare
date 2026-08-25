@@ -11,7 +11,7 @@ const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 const CAVEMAN_IMAGE_CONFIG = resolve(__dirname, '../../image/pi/caveman.json');
 
 function runtimeEnv(env = {}) {
-  const runtimeRoot = mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
+  const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
   mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
   return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
 }
@@ -322,7 +322,7 @@ exec "$REAL_NODE" "$@"
       'configure_pi_jiti_runtime_cache',
       '',
       'configure_pi_jiti_runtime_cache "$TEST_ISOLATION_ROOT"; rm -rf "$TEST_ISOLATION_ROOT/tmp"; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
-      { TEST_ISOLATION_ROOT: fixture },
+      { CODEFLARE_RUNTIME_ROOT: join(fixture, 'run/codeflare'), TEST_ISOLATION_ROOT: fixture },
     );
 
     assert.equal(result.status, 0, result.stderr);

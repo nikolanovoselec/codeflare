@@ -18,8 +18,9 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 
 function runtimeEnv(base) {
   const root = join(base, '.runtime');
-  mkdirSync(join(root, 'sync'), { recursive: true });
-  return { ...process.env, CODEFLARE_RUNTIME_ROOT: root };
+  const syncRuntimeDir = join(root, 'sync');
+  mkdirSync(syncRuntimeDir, { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: root, SYNC_RUNTIME_DIR: syncRuntimeDir };
 }
 
 /** Slice entrypoint.sh from a start marker up to (and including) an end marker. */
