@@ -359,8 +359,8 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('REQ-VAULT-004 / REQ-OPS-047 AC4: protected global graph publication', () => {
-  it('REQ-VAULT-004 / REQ-OPS-047 AC4: memory-vault.ts publishes through the protected global graph lock', () => {
+describe('REQ-VAULT-004 / REQ-OPS-049 AC3: protected global graph publication', () => {
+  it('REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock', () => {
     const root = mkdtempSync(join(tmpdir(), 'memory-vault-graph-lock-'));
     roots.push(root);
     const bin = join(root, 'bin');

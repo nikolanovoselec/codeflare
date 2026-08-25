@@ -253,7 +253,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated c
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('REQ-IDE-039 AC1: code-server uses the Codeflare app name', () => {
+  it('REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots', () => {
     const stub = writeStub(dir, argsFile);
     // OPENVSCODE_DATA_DIR is intentionally unset so the retained private
     // namespace's production default is exercised.

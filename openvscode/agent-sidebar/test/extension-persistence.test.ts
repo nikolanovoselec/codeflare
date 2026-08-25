@@ -807,7 +807,7 @@ test('REQ-IDE-037 AC2: restores at most two missing extensions concurrently', as
   assert.deepEqual(installed.map((entry: { identifier: { id: string } }) => entry.identifier.id).sort(), [...ids].sort());
 });
 
-test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence', async () => {
+test('REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state', async () => {
   const { extensionsDir, manifestPath, syncPidFile } = fixture();
   writeRegistry(extensionsDir, [{ id: 'RedHat.VSCode-YAML', version: '1.24.0' }]);
   writeFileSync(syncPidFile, '4321\n');

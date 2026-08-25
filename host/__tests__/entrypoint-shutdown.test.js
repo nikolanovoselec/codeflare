@@ -163,7 +163,7 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.equal(bisyncRuns.length, 1, `the guarded handler must run exactly once (saw ${bisyncRuns.length} bisync runs)`);
   });
 
-  it('REQ-OPS-010 AC3: trap handler kills services through protected runtime PID files', () => {
+  it('REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files', () => {
     const { log } = runShutdown({ initPid: '4242' });
 
     // The background init subshell dies FIRST (it would otherwise restart

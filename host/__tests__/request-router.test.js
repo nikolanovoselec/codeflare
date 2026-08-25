@@ -125,7 +125,7 @@ describe('request router seam (server.ts decomposition)', () => {
     assert.equal(body.error, 'Unauthorized');
   });
 
-  it('serves /health auth-exempt and reads the readiness flags LIVE at request time', async () => {
+  it('REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live', async () => {
     const first = await getJson(port, '/health');
     assert.equal(first.status, 200);
     assert.equal(first.body.status, 'healthy');

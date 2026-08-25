@@ -42,7 +42,7 @@ describe('REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reapi
     assert.match(result.stdout, /BRIDGE_IDLE=180000/);
   });
 
-  it('REQ-OPS-047: routes context-mode preload scratch through protected runtime TMPDIR', () => {
+  it('REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR', () => {
     const result = observeBridgeIdleEnv(undefined);
 
     assert.equal(result.status, 0, result.stderr);

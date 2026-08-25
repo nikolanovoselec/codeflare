@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -34,7 +34,10 @@ function captureRcloneArgs(functionName) {
   const runtimeRoot = join(fixture, 'run');
   const syncDir = join(runtimeRoot, 'sync');
   const argsFile = join(fixture, 'rclone-args');
+  const disposableTmp = join(fixture, 'tmp');
   mkdirSync(join(syncDir, 'rclone'), { recursive: true });
+  mkdirSync(disposableTmp, { recursive: true });
+  writeFileSync(join(disposableTmp, 'disposable'), 'remove me');
   const script = [
     'set -e',
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
@@ -44,7 +47,9 @@ function captureRcloneArgs(functionName) {
     "RCLONE_CONFIG='/dev/null'",
     'RCLONE_FILTERS=()',
     `RECOVERY_FILTER_FILE='${syncDir}/recovery-filters.txt'`,
+    `TMPDIR='${disposableTmp}'`,
     `: > "$RECOVERY_FILTER_FILE"`,
+    'rm -rf "$TMPDIR"/*',
     `rclone() { printf '%s\\n' "$*" >> '${argsFile}'; }`,
     'timeout() { shift; "$@"; }',
     'cleanup_main_transcripts() { :; }',
@@ -57,10 +62,12 @@ function captureRcloneArgs(functionName) {
   ].join('\n');
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  return { args: readFileSync(argsFile, 'utf8'), syncDir };
+  const resultArgs = readFileSync(argsFile, 'utf8');
+  rmSync(fixture, { recursive: true, force: true });
+  return { args: resultArgs, syncDir };
 }
 
-describe('REQ-OPS-047: cleanup-safe container runtime state', () => {
+describe('REQ-OPS-047: cleanup-safe synchronization state', () => {
   it('keeps required host runtime paths outside disposable /tmp', () => {
     assert.equal(CODEFLARE_RUNTIME_ROOT, '/run/codeflare');
     for (const path of [
@@ -77,12 +84,12 @@ describe('REQ-OPS-047: cleanup-safe container runtime state', () => {
     }
   });
 
-  it('passes the protected rclone workdir through establish_bisync_baseline', () => {
+  it('REQ-OPS-047 AC2: passes the protected rclone workdir through establish_bisync_baseline after disposable cleanup', () => {
     const { args, syncDir } = captureRcloneArgs('establish_bisync_baseline');
     assert.match(args, new RegExp(`--workdir ${syncDir}/rclone(?:\\s|$)`));
   });
 
-  it('passes the protected rclone workdir through bisync_with_r2', () => {
+  it('REQ-OPS-047 AC3: passes the protected rclone workdir through bisync_with_r2 after disposable cleanup', () => {
     const { args, syncDir } = captureRcloneArgs('bisync_with_r2');
     assert.match(args, new RegExp(`--workdir ${syncDir}/rclone(?:\\s|$)`));
   });

@@ -193,19 +193,26 @@ describe('SessionStatCard', () => {
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
 
       const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card).toHaveAttribute('role', 'button');
+      expect(card).toHaveAttribute('tabindex', '0');
       expect(screen.queryByText('Open')).not.toBeInTheDocument();
       fireEvent.click(card);
       expect(onSelect).toHaveBeenCalledOnce();
     });
 
-    it('REQ-IDE-054 AC2: ignores a preparing VS Code card', () => {
+    it('REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls', () => {
       const onSelect = vi.fn();
-      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: false })} onSelect={onSelect} />);
+      const onMenuClick = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: false })} onSelect={onSelect} onMenuClick={onMenuClick} />);
 
       const card = screen.getByTestId('session-stat-card-test-1');
-      expect(card).toHaveAttribute('aria-disabled', 'true');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(card).not.toHaveAttribute('aria-disabled');
       fireEvent.click(card);
+      fireEvent.click(screen.getByTitle('Session actions'));
       expect(onSelect).not.toHaveBeenCalled();
+      expect(onMenuClick).toHaveBeenCalledOnce();
     });
 
     it('REQ-IDE-054 AC1: activates a stopped card from the keyboard', () => {
@@ -217,12 +224,14 @@ describe('SessionStatCard', () => {
       expect(onSelect).toHaveBeenCalledOnce();
     });
 
-    it('REQ-IDE-054 AC2: ignores a stopping VS Code card', () => {
+    it('REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopping' })} onSelect={onSelect} />);
 
       const card = screen.getByTestId('session-stat-card-test-1');
-      expect(card).toHaveAttribute('aria-disabled', 'true');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(card).not.toHaveAttribute('aria-disabled');
       fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });
@@ -341,6 +350,8 @@ describe('SessionStatCard', () => {
       const card = screen.getByTestId('session-stat-card-test-1');
       expect(card.style.opacity).toBe('0.6');
       expect(card.style.pointerEvents).toBe('none');
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
       fireEvent.click(card);
       expect(onSelect).not.toHaveBeenCalled();
     });

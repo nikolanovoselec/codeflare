@@ -12,7 +12,7 @@
   box-shadow: inset 2px 0 0 var(--color-success);
 }
 
-.session-stat-card[aria-disabled="true"] {
+.session-stat-card--selection-disabled {
   cursor: default;
 }
 

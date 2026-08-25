@@ -10,7 +10,7 @@ function browserWindow() {
 }
 
 describe('browser IDE window ownership', () => {
-  it('REQ-IDE-054 AC6: opens every explicit gesture synchronously', () => {
+  it('REQ-IDE-055 AC1: opens every explicit gesture synchronously', () => {
     const handle = browserWindow();
     let insideGesture = false;
     const openWindow = vi.fn((_url?: string | URL, _target?: string) => {
@@ -31,7 +31,7 @@ describe('browser IDE window ownership', () => {
     expect(handle.opener).toBeNull();
   });
 
-  it('REQ-IDE-054 AC6: focuses a live retained handle without navigation or a second open', () => {
+  it('REQ-IDE-055 AC1: focuses a live retained handle without navigation or a second open', () => {
     const retainedHandle = browserWindow();
     const openWindow = vi.fn().mockReturnValue(retainedHandle);
     const openBrowserIdeWindow = createBrowserIdeWindowOpener(openWindow);
@@ -43,7 +43,7 @@ describe('browser IDE window ownership', () => {
     expect(retainedHandle.focus).toHaveBeenCalledTimes(2);
   });
 
-  it('REQ-IDE-054 AC6: uses independent named targets and retained handles for different sessions', () => {
+  it('REQ-IDE-055 AC1: uses independent named targets and retained handles for different sessions', () => {
     const firstHandle = browserWindow();
     const secondHandle = browserWindow();
     const openWindow = vi.fn()
@@ -72,7 +72,7 @@ describe('browser IDE window ownership', () => {
     expect(openWindow).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-054 AC7: reports a null window.open result as popup blocked', () => {
+  it('REQ-IDE-055 AC2: reports a null window.open result as popup blocked', () => {
     const openWindow = vi.fn(() => null);
     const openBrowserIdeWindow = createBrowserIdeWindowOpener(openWindow);
 

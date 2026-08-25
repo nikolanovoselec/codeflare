@@ -56,9 +56,10 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
     || props.session.status === 'error'
     || props.session.editorReadyError === true
     || (props.session.status === 'running' && props.session.editorReady === true);
+  const isSelectionEnabled = () => isActionable()
+    && !(sessionStore.preseedUpgrading && props.session.status === 'stopped');
   const select = () => {
-    if (!isActionable()) return;
-    if (sessionStore.preseedUpgrading && props.session.status === 'stopped') return;
+    if (!isSelectionEnabled()) return;
     props.onSelect();
   };
 
@@ -81,12 +82,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
 
   return (
     <div
-      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''}`}
+      class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''} ${isSelectionEnabled() ? '' : 'session-stat-card--selection-disabled'}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
-      role="button"
-      tabIndex={isActionable() ? 0 : -1}
-      aria-disabled={isActionable() ? undefined : 'true'}
+      role={isSelectionEnabled() ? 'button' : undefined}
+      tabIndex={isSelectionEnabled() ? 0 : undefined}
       style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
       onClick={select}
       onKeyDown={(event) => {

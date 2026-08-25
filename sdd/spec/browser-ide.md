@@ -1040,9 +1040,9 @@ A full code-server browser editor for an advanced running session. The editor op
 1. Persisted extension records remain inside the documented identity, count, type, and version bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 2. Persisted contributed User settings remain inside the documented key, value, type, and size bounds. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 3. Malformed, oversized, redirected, noncanonical, or unknown persisted content remains byte-for-byte unchanged and is ignored. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::loadExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::_validate_manifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC1+AC2+AC3: malformed manifests fail closed and valid manifests round-trip atomically) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-036 AC3: malformed or unsafe manifests stay byte-for-byte unchanged) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
-6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+4. Capture records canonical non-fixed extension identities with their observed versions and platforms. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+5. Final capture preserves bounded contributed settings recorded by the live editor, including a pending setting-only change at extension deactivation. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::deactivate --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC5: setting-only changes flush during deactivation and restore) --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-036 AC5: welcome deactivation flushes extension persistence) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
+6. Capture removes persisted intent after explicit uninstall evidence even while a stale registry row remains. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6: obsolete evidence removes a stale registry entry without platform metadata) --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-036 AC6 + REQ-IDE-038 AC1: obsolete evidence bypasses warning preflight and removes stale intent) --> <!-- @test: host/__tests__/browser-ide-extensions.test.js (REQ-IDE-016 AC4 + REQ-IDE-036 AC1+AC2+AC3+AC4+AC5+AC6: captures bounded extension registry without settings loss) -->
 
 **Constraints:**
 
@@ -1108,7 +1108,7 @@ A full code-server browser editor for an advanced running session. The editor op
 2. Persisted user-extension code cannot execute until the user accepts the root-capable-code warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
 3. A later restore does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::restoreExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC2+AC3: restore warns before execution and never repeats an accepted warning) -->
 4. A later capture does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC1+AC4: capture warns once before the first persisted user extension) -->
-5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5: capture preserves intent, settings, and uninstall evidence) -->
+5. Removing the final persisted extension does not clear the accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
 6. A fresh activation does not repeat an accepted warning. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-038 AC6: fresh activations do not repeat an acknowledged warning) -->
 
 **Constraints:**
@@ -1135,7 +1135,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
+1. Browser IDE product-name surfaces identify the editor as Codeflare. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
 2. The Pi Chat participant uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/activation.test.ts (REQ-IDE-039 AC2: native Pi registers the Codeflare brand icon) -->
 3. The welcome panel uses the Codeflare brand icon. <!-- @impl: openvscode/agent-sidebar/src/welcome-extension.ts::activate --> <!-- @test: openvscode/agent-sidebar/test/welcome-extension.test.ts (REQ-IDE-039 AC3: welcome panel uses the Codeflare brand icon) -->
 4. The packaged Browser IDE brand icon matches the established product icon. <!-- @impl: Dockerfile::COPY openvscode/agent-sidebar/media/ --> <!-- @test: openvscode/agent-sidebar/test/packaging.test.ts (REQ-IDE-039 AC4: packaged brand icon matches the product icon) -->
@@ -1514,29 +1514,51 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ---
 
-### REQ-IDE-054: Browser IDE card activation and window opening
+### REQ-IDE-054: Browser IDE card activation
 
-**Intent:** One whole-card gesture performs exactly the action allowed by the VS Code session state and owns one stable editor window.
+**Intent:** Whole-card activation performs exactly the action allowed by the VS Code session state without disabling child controls.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Activating a stopped VS Code card starts that session. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card) -->
-2. Activating a preparing or stopping VS Code card has no effect. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card) -->
+2. A preparing or stopping card has no parent button semantics or tab stop while its child controls remain enabled. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a preparing VS Code card without disabling its child controls) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC2: ignores a stopping VS Code card without disabling its child controls) -->
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
 4. The card is the sole Open surface. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: makes a ready VS Code card the only Open interaction surface) -->
 5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
-6. Each synchronous Open action focuses or creates one stable session tab. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-054 AC6: focuses a live retained handle without navigation or a second open) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-054 AC6: opens every explicit gesture synchronously) -->
-7. Popup failure is reported through the dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-054 AC7: surfaces bounded popup-blocked feedback through the existing Layout error seam) -->
+6. A stopped card blocked by a preseed upgrade has no parent button semantics or tab stop. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks on stopped card during upgrade) -->
 
-**Constraints:** Card activation does not create terminal ownership or another editor persistence mechanism.
+**Constraints:** Card activation does not create terminal ownership or disable nested menu and timer controls.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-048](#req-ide-048-dashboard-owned-vs-code-session-lifecycle), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
 
-**Verification:** Frontend dashboard, card, Layout, and window-ownership tests
+**Verification:** Frontend dashboard and card tests
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-055: Retained Browser IDE window opening
+
+**Intent:** Explicit Browser IDE opens reuse one stable window per session and report popup failure.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each synchronous Open action focuses or creates one stable session tab. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: focuses a live retained handle without navigation or a second open) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: opens every explicit gesture synchronously) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC1: uses independent named targets and retained handles for different sessions) -->
+2. Popup failure is reported through the dashboard error surface. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-055 AC2: surfaces bounded popup-blocked feedback through the existing Layout error seam) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-055 AC2: reports a null window.open result as popup blocked) -->
+
+**Constraints:** Window opening introduces no second editor persistence mechanism.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-054](#req-ide-054-browser-ide-card-activation)
+
+**Verification:** Frontend Layout and window-ownership tests
 
 **Status:** Implemented
 

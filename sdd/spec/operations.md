@@ -318,7 +318,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The container image declares a graceful-stop signal that the entrypoint trap can catch. <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC1: the container image declares STOPSIGNAL SIGINT) --> <!-- @manual -->
 2. The container entrypoint's trap handler catches the graceful-stop signal. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC2: the container entrypoint trap handler catches SIGINT/SIGTERM signals) -->
-3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3: trap handler kills services through protected runtime PID files) -->
+3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
 4. A final bidirectional sync to R2 runs before exit, with deletion safeguards to prevent accidental mass deletion. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4: final rclone bisync with --ignore-checksum --max-delete 100 runs to R2 before exit) -->
 5. The shutdown sync runs even when the initial sync timed out. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs) -->
 6. The terminal server is terminated after the final sync completes. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC6: terminal server is killed after the final sync completes) -->
@@ -1234,27 +1234,82 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-047: Cleanup-safe container runtime state
+### REQ-OPS-047: Cleanup-safe synchronization state
 
-**Intent:** Clearing disposable temporary files must not break a running container's synchronization, service lifecycle, readiness, or coordination.
+**Intent:** Clearing disposable temporary files must not break synchronization in a running container.
 
 **Applies To:** Operator
 
 **Acceptance Criteria:**
 
-1. Clearing disposable temporary files during a running session does not interrupt synchronization or remove the control state needed by its next cycle. <!-- @impl: entrypoint.sh::CODEFLARE_RUNTIME_ROOT --> <!-- @impl: host/src/runtime-paths.ts::CODEFLARE_RUNTIME_ROOT --> <!-- @test: host/__tests__/runtime-paths.test.js (keeps required host runtime paths outside disposable /tmp) --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-OPS-047: routes context-mode preload scratch through protected runtime TMPDIR) --> <!-- @manual: In a fresh integration container, enable context-mode, run a Node command through ctx_batch_execute, and confirm its injected NODE_OPTIONS preload path begins with /run/codeflare/pi-tmp/cm-fs-preload- and remains usable after disposable /tmp cleanup. -->
-2. Baseline, cadence, manual recovery, health reporting, and final sync continue from one shared container-lifetime state after temporary cleanup. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/runtime-paths.test.js (passes the protected rclone workdir through establish_bisync_baseline) --> <!-- @test: host/__tests__/runtime-paths.test.js (passes the protected rclone workdir through bisync_with_r2) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200) --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
-3. Temporary cleanup does not prevent service shutdown, readiness signaling, or Browser IDE restart and state capture. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3: trap handler kills services through protected runtime PID files) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1: code-server uses the Codeflare app name) -->
-4. Boot, Claude, Pi, memory, and Vault graph publication remain serialized after temporary cleanup. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::GLOBAL_GRAPH_LOCK --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::GLOBAL_GRAPH_LOCK --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-047 AC4: memory-vault.ts publishes through the protected global graph lock) -->
-5. A detached CI monitor retains its script and result log when disposable temporary files are cleared. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
+1. Required synchronization state remains outside disposable temporary storage. <!-- @impl: entrypoint.sh::CODEFLARE_RUNTIME_ROOT --> <!-- @impl: host/src/runtime-paths.ts::SYNC_RUNTIME_DIR --> <!-- @test: host/__tests__/runtime-paths.test.js (keeps required host runtime paths outside disposable /tmp) -->
+2. Baseline sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC2: passes the protected rclone workdir through establish_bisync_baseline after disposable cleanup) -->
+3. Periodic sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC3: passes the protected rclone workdir through bisync_with_r2 after disposable cleanup) -->
+4. The cadence daemon invokes periodic sync from that state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
+5. Manual sync requests use the protected daemon PID and status files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200) -->
+6. Sync health reporting reads the protected status file. <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
+7. Final sync uses the same protected daemon state as manual sync. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200) -->
 
-**Constraints:** Runtime state remains container-scoped and is not synced to R2. Build-stage temporary files and explicitly disposable agent caches/counters may remain under `/tmp`.
+**Constraints:**
+- Synchronization runtime state remains container-scoped and is not synced to R2.
+- Build-stage files and disposable caches or counters may remain under `/tmp`.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-STOR-002](storage.md#req-stor-002-bidirectional-sync-with-r2), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
+**Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-STOR-002](storage.md#req-stor-002-bidirectional-sync-with-r2)
 
-**Verification:** Host runtime-path, sync-daemon, final-sync, shutdown, metrics, and Browser IDE launch tests; fresh-container `/tmp` deletion acceptance
+**Verification:** Runtime-path, baseline, cadence, trigger, health, and final-sync tests; fresh-container cleanup acceptance
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-048: Cleanup-safe service and Browser IDE state
+
+**Intent:** Clearing disposable temporary files must not break service lifecycle or Browser IDE continuity.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Shutdown reads service PID files from protected runtime storage. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
+2. Host health reports live readiness independently of disposable files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (REQ-OPS-048 AC2: serves /health auth-exempt and reads readiness flags live) -->
+3. Browser IDE restart requests use the protected trigger file. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-OPS-048 AC3: writes the protected restart trigger on first call) -->
+4. Browser IDE data and extension roots remain in protected runtime storage. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-039 AC1 / REQ-OPS-048 AC4: code-server uses protected data and extension roots) -->
+5. Extension state capture remains operational through its protected session paths. <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::activateExtensionPersistence --> <!-- @test: openvscode/agent-sidebar/test/extension-persistence.test.ts (REQ-IDE-016 AC4 + REQ-IDE-036 AC4+AC5+AC6 + REQ-IDE-038 AC5 + REQ-OPS-048 AC5: capture preserves state) -->
+
+**Constraints:** Service and Browser IDE runtime data remains container-scoped and is not synced to R2.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
+
+**Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-049: Cleanup-safe coordination and detached work
+
+**Intent:** Clearing disposable temporary files must not break agent coordination or detached monitoring.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Context-mode preload scratch remains under the protected runtime temporary root. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR) --> <!-- @manual: In a fresh integration container, enable context-mode, run a Node command through ctx_batch_execute, and confirm its injected NODE_OPTIONS preload remains usable after disposable `/tmp` cleanup. -->
+2. Claude active-repository publication acquires the protected global graph lock. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) -->
+3. Pi memory and Vault publication acquires the protected global graph lock. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::GLOBAL_GRAPH_LOCK --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) -->
+4. A detached CI monitor retains its script and result log outside disposable storage. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path) -->
+
+**Constraints:** Coordination locks and detached logs remain container-scoped and are not synced to R2.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-004](vault.md#req-vault-004-unified-global-knowledge-graph), [REQ-AGENT-070](agents.md#req-agent-070-independent-ci-monitoring)
+
+**Verification:** Context-mode, graph-lock, memory publication, and detached-monitor tests; fresh-container cleanup acceptance
 
 **Status:** Implemented
 

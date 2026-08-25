@@ -145,7 +145,7 @@ function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? [], branch
   }
 }
 
-test('REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path', () => {
+test('REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-launch-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
