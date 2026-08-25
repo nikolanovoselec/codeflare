@@ -26,6 +26,12 @@ const REPO_ROOT = join(__dirname, '..', '..');
 const ENTRYPOINT = join(REPO_ROOT, 'entrypoint.sh');
 const RETENTION_SCRIPT = join(REPO_ROOT, 'transcript-retention.mjs');
 
+function shellEnv(base) {
+  const runtimeRoot = join(base, '.runtime');
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot };
+}
+
 function extractShellFunction(name) {
   const body = readFileSync(ENTRYPOINT, 'utf8');
   const start = body.indexOf(`${name}() {`);
@@ -173,6 +179,7 @@ bisync_with_r2 '' || true
 
       execFileSync('bash', ['-c', shell, 'retention-test', scratch.dir, events, RETENTION_SCRIPT], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: shellEnv(scratch.dir),
       });
 
       assert.equal(readFileSync(events, 'utf8').trim(), '10');
@@ -201,6 +208,7 @@ ${startupRelease}
 
       execFileSync('bash', ['-c', shell, 'retention-release-test', events, releaseFlag], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: shellEnv(scratch.dir),
       });
 
       assert.equal(readFileSync(events, 'utf8'), 'cleanup\nrelease\n');
@@ -233,6 +241,7 @@ bisync_with_r2 ''
 
       execFileSync('bash', ['-c', shell, 'retention-failure-test', scratch.dir, events], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: shellEnv(scratch.dir),
       });
 
       assert.equal(readFileSync(events, 'utf8'), 'cleanup-claude\ncleanup-pi\nrclone\n');

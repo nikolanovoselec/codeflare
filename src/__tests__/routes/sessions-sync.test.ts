@@ -44,7 +44,11 @@ const containerBehavior = vi.hoisted(() => ({
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn((_ns: unknown, containerId: string) => ({
-    fetch: vi.fn(async () => {
+    getState: vi.fn().mockResolvedValue({ status: 'running' }),
+    fetch: vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname === '/health') {
+        return new Response(JSON.stringify({ status: 'healthy' }), { status: 200 });
+      }
       const behavior = containerBehavior.map.get(containerId);
       if (behavior?.throws) {
         throw new Error('container fetch boom');

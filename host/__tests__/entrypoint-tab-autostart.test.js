@@ -39,8 +39,11 @@ function extractConfigureBody() {
 function runHarness({ tabConfig, env = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'tab-autostart-harness-'));
   const body = extractConfigureBody();
+  const runtimeRoot = join(dir, 'runtime');
   const envLines = [
     `export USER_HOME='${dir}'`,
+    `export CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `mkdir -p '${runtimeRoot}/services'`,
     ...Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`),
   ];
   if (tabConfig !== undefined) {

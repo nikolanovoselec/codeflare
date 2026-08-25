@@ -131,7 +131,7 @@ describe('SessionStatCard', () => {
       [{ status: 'stopping', editorReady: true }, 'warning'],
       [{ status: 'stopped', editorReady: true }, 'default'],
       [{ status: 'running', editorReady: false, editorReadyError: true }, 'error'],
-    ] as const)('REQ-IDE-050 AC3: maps VS Code readiness %o to %s', (overrides, variant) => {
+    ] as const)('REQ-IDE-050 AC1: maps VS Code readiness %o to %s', (overrides, variant) => {
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', ...overrides })} />);
       expect(screen.getByTestId('session-stat-card-test-1').querySelector(`.session-stat-card__dot--${variant}`)).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe('SessionStatCard', () => {
       expect(onSelect).toHaveBeenCalled();
     });
 
-    it('REQ-IDE-050 AC2: makes a ready VS Code card the only Open interaction surface', () => {
+    it('REQ-IDE-054 AC4: makes a ready VS Code card the only Open interaction surface', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: true })} onSelect={onSelect} />);
 
@@ -198,7 +198,7 @@ describe('SessionStatCard', () => {
       expect(onSelect).toHaveBeenCalledOnce();
     });
 
-    it('REQ-IDE-050 AC1: ignores a preparing VS Code card', () => {
+    it('REQ-IDE-054 AC2: ignores a preparing VS Code card', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'running', editorReady: false })} onSelect={onSelect} />);
 
@@ -208,13 +208,23 @@ describe('SessionStatCard', () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it('REQ-IDE-050 AC1: activates an actionable card from the keyboard', () => {
+    it('REQ-IDE-054 AC1: activates a stopped card from the keyboard', () => {
       const onSelect = vi.fn();
       render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopped' })} onSelect={onSelect} />);
 
       const card = screen.getByTestId('session-stat-card-test-1');
       fireEvent.keyDown(card, { key: 'Enter' });
       expect(onSelect).toHaveBeenCalledOnce();
+    });
+
+    it('REQ-IDE-054 AC2: ignores a stopping VS Code card', () => {
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'vscode', status: 'stopping' })} onSelect={onSelect} />);
+
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(card);
+      expect(onSelect).not.toHaveBeenCalled();
     });
   });
 
@@ -270,7 +280,10 @@ describe('SessionStatCard', () => {
       render(() => <SessionStatCard
         {...defaultProps}
         onSelect={onSelect}
-        session={createSession({ status: 'running', lastActiveAt: new Date().toISOString() })}
+        session={createSession({
+          status: 'running',
+          lastActiveAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+        })}
       />);
       fireEvent.keyDown(screen.getByTestId('session-stat-card-test-1-timer'), { key });
       expect(onSelect).not.toHaveBeenCalled();

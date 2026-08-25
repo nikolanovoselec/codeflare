@@ -56,12 +56,14 @@ export async function startOrRestartContainer(params: {
   containerId: string;
   sessionData: Session;
   sessionKey: string;
+  bucketName: string;
+  sessionId: string;
   env: Env;
   shortContainerId: string;
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, bucketName, sessionId, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
   let currentState;
@@ -114,6 +116,9 @@ export async function startOrRestartContainer(params: {
   // readiness record before startup polling can expose a retired editor.
   const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
   const { editorReady: _previousEditorReady, editorReadyError: _previousEditorError, ...sessionWithoutReadiness } = base;
+  if (resolveSessionWorkspace(base.workspace) === 'vscode') {
+    await putSessionEditorState(env.KV, bucketName, sessionId, { editorReady: false });
+  }
   await putSessionWithMetadata(env.KV, sessionKey, {
     ...sessionWithoutReadiness,
     status: 'running' as const,
@@ -121,9 +126,6 @@ export async function startOrRestartContainer(params: {
   await clearSessionRunningCorrection(env.KV, bucketName, sessionId).catch((error) => {
     logger.warn('Failed to clear bounded running correction during start', { error: String(error) });
   });
-  if (resolveSessionWorkspace(base.workspace) === 'vscode') {
-    await putSessionEditorState(env.KV, bucketName, sessionId, { editorReady: false });
-  }
 
   // Kick off container start in background (non-blocking)
   waitUntil(
@@ -359,6 +361,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       containerId,
       sessionData,
       sessionKey,
+      bucketName,
+      sessionId,
       env: c.env,
       shortContainerId,
       logger: reqLogger,

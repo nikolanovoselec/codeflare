@@ -37,6 +37,7 @@ function captureRcloneArgs(functionName) {
   mkdirSync(join(syncDir, 'rclone'), { recursive: true });
   const script = [
     'set -e',
+    `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `SYNC_RUNTIME_DIR='${syncDir}'`,
     `USER_HOME='${fixture}/home'`,
     "R2_BUCKET_NAME='bucket'",
@@ -51,7 +52,7 @@ function captureRcloneArgs(functionName) {
     'recover_vanished_files() { return 1; }',
     'pgrep() { return 1; }',
     'find() { :; }',
-    extractFunction(functionName).replaceAll('/run/codeflare', runtimeRoot),
+    extractFunction(functionName),
     functionName,
   ].join('\n');
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });

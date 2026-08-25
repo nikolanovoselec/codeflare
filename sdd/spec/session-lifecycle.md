@@ -212,7 +212,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before container start, concurrent owners are counted from bounded session and live-correction metadata lists. A compatibility fallback reads only legacy session keys whose list entries lack metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (counts a stopped durable session with a running correction toward the limit) -->
+1. Before container start, concurrent owners are counted from bounded session and live-correction metadata lists. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (counts a stopped durable session with a running correction toward the limit) -->
 2. If the running count (excluding the session being started) meets or exceeds the tier's concurrent-session cap, the start is rejected with a quota-exceeded error. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
 4. Outside SaaS mode, including Enterprise, stored-role defaults apply: 3 sessions for regular users and 10 for admins. <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise uses the non-SaaS stored-user role limit) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC4: enterprise stored admin gets the role-based admin limit) -->
@@ -300,7 +300,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The batch-status endpoint returns all user sessions from bounded storage-list reads without container wake. Durable fields and concern-owned runtime overlays use list metadata; a compatibility fallback reads only legacy session keys that lack metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (merges concern-owned readiness and metrics without replacing durable fields) -->
+1. The batch-status endpoint returns all user sessions from bounded storage-list reads without container wake. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) -->
 2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC2: only running/stopped persisted to KV) -->
 3. The frontend polls batch-status on a fixed cadence (about every 5 seconds). <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
@@ -572,7 +572,7 @@ None.
 1. A container that exits for any reason (graceful stop, crash, or an SDK-surfaced error) transitions its KV status to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (writes status=stopped to KV only after the not-running confirmation window (catch-all)) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-018 AC1: recovery cleanup failure cannot block the authoritative stopped write) -->
 2. Stopped is written only after the container reads not-running across a confirmation window spanning more than one alarm tick, so a single transient not-running reading never flips a live session to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
 3. A non-transport not-running error does not write stopped; the confirmation window opens and re-arms a metrics tick, deferring the stopped decision to that window. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation --> <!-- @test: src/__tests__/container/lifecycle.test.ts (onError opens the not-running confirmation window and re-arms instead of writing stopped) -->
-4. When host health confirms a stopped-marked container is running, a separate running correction is published unless a persisted shutdown marker proves deliberate stop ownership. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (publishes a running correction when the container is alive but durable KV reads stopped) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (merges concern-owned readiness and metrics without replacing durable fields) -->
+4. When host health confirms a stopped-marked container is running, a separate running correction is published unless a persisted shutdown marker proves deliberate stop ownership. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (publishes a running correction when the container is alive but durable KV reads stopped) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC3: merges concern-owned readiness and metrics without replacing durable fields) -->
 
 **Constraints:**
 
@@ -790,6 +790,30 @@ None.
 **Dependencies:** [REQ-SESSION-024](#req-session-024-transport-recovery-ownership-is-durable)
 
 **Verification:** Automated test ([transport recovery scheduling propagation](../../src/__tests__/container-metrics.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-028: Session metadata projection compatibility
+
+**Intent:** Metadata-first session projections preserve legacy records and keep concern-owned runtime observations separate from durable session fields.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. Concurrent-session counting reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-SESSION-028 AC1: reads metadata-less legacy sessions when enforcing the limit) -->
+2. Batch status reads an individual session only when its bounded list entry lacks metadata. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC2: resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call) -->
+3. Batch status merges concern-owned readiness and metrics metadata without replacing durable session fields. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-028 AC3: merges concern-owned readiness and metrics without replacing durable fields) -->
+
+**Constraints:** Compatibility reads are bounded to metadata-less legacy entries; current writers keep durable and runtime concerns separate.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-007](#req-session-007-running-session-count-limited-per-tier), [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+
+**Verification:** Automated lifecycle-limit and batch-status tests
 
 **Status:** Implemented
 

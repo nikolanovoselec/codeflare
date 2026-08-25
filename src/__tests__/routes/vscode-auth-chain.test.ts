@@ -201,7 +201,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(response.status).toBe(200);
     await Promise.all(waitUntilPromises);
 
-    const stored = await mockKV.get<Session>(SESSION_KEY, 'json');
+    const stored = await mockKV.get(SESSION_KEY, 'json') as Session;
     expect(stored).toMatchObject({
       name: 'Renamed concurrently',
       editorReady: false,
@@ -227,7 +227,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
   });
 
-  it('REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
+  it('REQ-IDE-050 AC4 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
     const { AuthError } = await import('../../lib/error-types');
     mockAuthResult.error = new AuthError('Unauthorized');
     const request = vscodeRequest();
@@ -247,7 +247,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier', async () => {
+  it('REQ-IDE-050 AC4: rejects a Browser IDE request from an inactive SaaS tier', async () => {
     (mockEnv as unknown as { SAAS_MODE: string }).SAAS_MODE = 'active';
     mockAuthResult.result = {
       user: {
@@ -266,7 +266,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own', async () => {
+  it('REQ-IDE-050 AC4: rejects a Browser IDE request for a session the user does not own', async () => {
     mockKV._clear();
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));

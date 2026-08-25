@@ -271,7 +271,7 @@ Workers isolates do not share memory. Each cache is an optimization with an expl
 
 After an admin changes configuration, different isolates may enforce old and new values within the listed window. This is the accepted KV-read trade-off; it is not strong-consistency state.
 
-The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. Batch status now performs bounded metadata-list reads for durable sessions, editor readiness, metrics, and live-status corrections so runtime writers never replace user or lifecycle fields; only legacy session records without metadata require individual `KV.get` calls. The current contracts are the metadata size limit and the Timekeeper TTL/entry bound above.
+The original 1,500-user sizing model estimated that approximately 195-byte session-list metadata reduced KV reads from roughly 901,000 to about 300 per second, while the Timekeeper cache reduced 1,500 user-record reads per minute to about 25. Those figures are historical sizing evidence, not a current service-level guarantee. Batch status now performs bounded metadata-list reads for durable sessions, editor readiness, metrics, and live-status corrections so readiness and metrics writers never replace user or lifecycle fields; only legacy session records without metadata require individual `KV.get` calls. The current contracts are the metadata size limit and the Timekeeper TTL/entry bound above.
 
 ---
 

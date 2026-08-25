@@ -239,7 +239,7 @@ function extractShellFunction(name) {
   const start = lines.findIndex((line) => line === `${name}() {`);
   const end = lines.findIndex((line, index) => index > start && line === '}');
   assert.ok(start >= 0 && end > start, `${name}() is missing from entrypoint.sh`);
-  return lines.slice(start, end + 1).join('\n').replaceAll('/run/codeflare', runtimeFixture);
+  return lines.slice(start, end + 1).join('\n');
 }
 
 function cleanupSyncFixtures() {

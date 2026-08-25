@@ -162,7 +162,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ).rejects.toThrow('Session');
     });
 
-    it('throws RateLimitError when at max sessions', async () => {
+    it('REQ-SESSION-028 AC1: reads metadata-less legacy sessions when enforcing the limit', async () => {
       // Seed 3 running sessions
       const sessionKeys = [];
       for (let i = 1; i <= 3; i++) {
@@ -527,6 +527,8 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       containerId: 'bucket-session1234',
       sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
+      bucketName: 'bucket',
+      sessionId: 'session1234',
       env: { KV: mockKV as unknown as KVNamespace } as Env,
       shortContainerId: 'bucket-ses',
       logger: mockLogger as any,
@@ -593,6 +595,9 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         '',
         { metadata: { er: 0 } },
       );
+      const keys = mockKV.put.mock.calls.map(([key]) => key);
+      expect(keys.indexOf(getSessionEditorKey('bucket', 'session1234')))
+        .toBeLessThan(keys.indexOf('session:bucket:session1234'));
     });
 
     it('clears stale readiness when KV says running but the container is stopped', async () => {

@@ -271,7 +271,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Initialization Tests ===
 
-  it('REQ-IDE-049 AC1: starts a stopped VS Code session from the whole card', () => {
+  it('REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'stopped',
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
@@ -285,7 +285,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('editor');
   });
 
-  it('REQ-IDE-050 AC1: opens from the whole card only after editor readiness', () => {
+  it('REQ-IDE-054 AC3: opens from the whole card only after editor readiness', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'running', editorReady: false,
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',

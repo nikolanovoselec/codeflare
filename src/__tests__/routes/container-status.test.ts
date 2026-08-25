@@ -348,7 +348,7 @@ describe('Container Status Routes', () => {
       expect(body.details.terminalServerOk).toBe(true);
     });
 
-    it('REQ-IDE-050 AC1: keeps a VS Code session mounting until editor readiness', async () => {
+    it('REQ-IDE-053 AC1: keeps a VS Code session mounting until editor readiness', async () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
@@ -369,7 +369,7 @@ describe('Container Status Routes', () => {
       expect(testState.container!.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('REQ-IDE-050 AC1: reports VS Code ready and mirrors readiness into session metadata', async () => {
+    it('REQ-IDE-053 AC1: reports VS Code ready and mirrors readiness into session metadata', async () => {
       const app = createStatusApp();
       mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
         id: 'abcdef1234567890abcdef12', name: 'Editor', userId: 'test-bucket',
@@ -391,7 +391,7 @@ describe('Container Status Routes', () => {
       );
     });
 
-    it('REQ-IDE-050 AC1: preserves concurrent session fields when persisting readiness', async () => {
+    it('REQ-IDE-053 AC1: preserves concurrent session fields when persisting readiness', async () => {
       const app = createStatusApp();
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       const session = {
@@ -419,7 +419,7 @@ describe('Container Status Routes', () => {
       );
     });
 
-    it('REQ-IDE-050 AC1: does not recreate a session deleted while readiness resolves', async () => {
+    it('REQ-IDE-053 AC1: does not recreate a session deleted while readiness resolves', async () => {
       const app = createStatusApp();
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       mockKV._set(key, {
@@ -454,11 +454,13 @@ describe('Container Status Routes', () => {
 
       const res = await app.request(`/container/startup-status${sessionQuery}`);
       const body = await res.json() as { stage: string; message: string };
-      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReadyError?: boolean };
+      const editorState = await mockKV.list({
+        prefix: getSessionEditorKey('test-bucket', 'abcdef1234567890abcdef12'),
+      });
 
       expect(body.stage).toBe('error');
       expect(body.message).toContain('Retry');
-      expect(stored.editorReadyError).toBe(true);
+      expect(editorState.keys[0]?.metadata).toEqual({ er: 0, ee: 1 });
     });
 
     it('REQ-IDE-049 AC3: a successful retry clears the persisted readiness error', async () => {
@@ -478,14 +480,17 @@ describe('Container Status Routes', () => {
         }), { status: 200 }));
 
       await app.request(`/container/startup-status${sessionQuery}`);
-      const failed = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
-      expect(failed).toMatchObject({ editorReady: false, editorReadyError: true });
+      const failed = await mockKV.list({
+        prefix: getSessionEditorKey('test-bucket', 'abcdef1234567890abcdef12'),
+      });
+      expect(failed.keys[0]?.metadata).toEqual({ er: 0, ee: 1 });
 
       const retry = await app.request(`/container/startup-status${sessionQuery}`);
-      const stored = await mockKV.get('session:test-bucket:abcdef1234567890abcdef12', 'json') as { editorReady?: boolean; editorReadyError?: boolean };
+      const stored = await mockKV.list({
+        prefix: getSessionEditorKey('test-bucket', 'abcdef1234567890abcdef12'),
+      });
       expect((await retry.json() as { stage: string }).stage).toBe('ready');
-      expect(stored.editorReady).toBe(true);
-      expect(stored.editorReadyError).toBeUndefined();
+      expect(stored.keys[0]?.metadata).toEqual({ er: 1 });
     });
 
     it('skips mounting stage when health server is ok after sync (single port architecture)', async () => {

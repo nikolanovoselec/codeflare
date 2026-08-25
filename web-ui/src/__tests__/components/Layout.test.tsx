@@ -467,7 +467,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-050 AC4: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
+    it('REQ-IDE-054 AC7: surfaces bounded popup-blocked feedback through the existing Layout error seam', async () => {
       const sessionId = 'abcdef0123456789';
       mockSessions = [createMockSession({ id: sessionId, status: 'running' })];
       mockActiveSessionId = sessionId;
@@ -1170,7 +1170,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-IDE-050 AC6: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
+    it('REQ-IDE-050 AC3: keeps Settings dashboard-owned without opening the terminal Storage panel', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess-vscode', status: 'running', workspace: 'vscode' })];
       mockActiveSessionId = null;

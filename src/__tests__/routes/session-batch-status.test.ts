@@ -151,7 +151,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(Object.keys(body.statuses)).toHaveLength(0);
     });
 
-    it('merges concern-owned readiness and metrics without replacing durable fields', async () => {
+    it('REQ-SESSION-028 AC3: merges concern-owned readiness and metrics without replacing durable fields', async () => {
       const id = 'aabbccdd11223344';
       const session = makeSession(id, 'stopped', { name: 'Renamed' });
       mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
@@ -209,7 +209,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     // path) and pre-migration keys without metadata (fallback KV.get). This
     // pins that both branches execute in one request and each session lands in
     // the response from its respective path. REQ-SESSION-010 AC1.
-    it('resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
+    it('REQ-SESSION-028 AC2: resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
       const fast = makeSession('aabbccdd11223344', 'running');
       const slow = makeSession('eeff001122334455', 'stopped');
       // fast key carries metadata -> fast path; slow key omits it -> fallback.

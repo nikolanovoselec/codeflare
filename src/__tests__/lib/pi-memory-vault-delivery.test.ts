@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -29,6 +30,7 @@ import {
   MEMORY_CAPTURE_MAX_TURN_CHARS,
 } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
+  addGraphToGlobal,
   registerMemoryVault,
   type MemoryVaultDependencies,
   type MemoryVaultPi,
@@ -355,6 +357,39 @@ afterEach(() => {
   delete process.env.USER_TIMEZONE;
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe('REQ-VAULT-004 / REQ-OPS-047 AC4: protected global graph publication', () => {
+  it('REQ-VAULT-004 / REQ-OPS-047 AC4: memory-vault.ts publishes through the protected global graph lock', () => {
+    const root = mkdtempSync(join(tmpdir(), 'memory-vault-graph-lock-'));
+    roots.push(root);
+    const bin = join(root, 'bin');
+    const graph = join(root, 'vault-graph.json');
+    const flockLog = join(root, 'flock.log');
+    const graphifyLog = join(root, 'graphify.log');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(graph, '{"nodes":[],"links":[]}');
+    writeFileSync(join(bin, 'flock'), `#!/bin/sh\nprintf '%s\\n' "$@" > '${flockLog}'\nshift 3\nexec "$@"\n`);
+    writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nprintf '%s\\n' "$@" > '${graphifyLog}'\n`);
+    chmodSync(join(bin, 'flock'), 0o755);
+    chmodSync(join(bin, 'graphify'), 0o755);
+
+    const inheritedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${inheritedPath ?? ''}`;
+    try {
+      addGraphToGlobal(graph, 'user_vault', root);
+    } finally {
+      process.env.PATH = inheritedPath;
+    }
+
+    expect(readFileSync(flockLog, 'utf8').trim().split('\n')).toEqual([
+      '-w', '5', '/run/codeflare/locks/graphify-global.lock',
+      'graphify', 'global', 'add', graph, '--as', 'user_vault',
+    ]);
+    expect(readFileSync(graphifyLog, 'utf8').trim().split('\n')).toEqual([
+      'global', 'add', graph, '--as', 'user_vault',
+    ]);
+  });
 });
 
 describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () => {

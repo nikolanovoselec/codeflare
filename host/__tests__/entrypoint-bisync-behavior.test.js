@@ -74,7 +74,6 @@ function buildHarness({
   // Patch the daemon body: shrink cadence so tests finish in <2s and isolate
   // all protected runtime state under this harness fixture.
   const patched = daemonBody
-    .replaceAll('/run/codeflare', runtimeRoot)
     // Match any `sleep <N>` (where N is a positive integer) in case a
     // future cadence change replaces the literal 900. If no match is
     // found the harness will time out via the waitFor budgets below,
@@ -161,6 +160,7 @@ update_sync_status() {
 }
 # A minimal R2_BUCKET_NAME is referenced by the listing-glob block.
 R2_BUCKET_NAME=test-bucket
+CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'
 SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
 HOME='${runtimeRoot}/home'
 mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone/bisync"

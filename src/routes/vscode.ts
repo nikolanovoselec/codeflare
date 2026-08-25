@@ -21,7 +21,7 @@
  * Implements REQ-IDE-001, REQ-IDE-002, REQ-IDE-003.
  */
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
+import type { Env } from '../types';
 import { putSessionEditorState } from '../lib/kv-keys';
 import {
   REQUEST_ID_LENGTH,
@@ -213,7 +213,6 @@ export async function handleVscodeRequest(
 
     const ownershipResult = await assertSessionOwnership(env, bucketName, sessionId, jsonHeaders);
     if ('errorResponse' in ownershipResult) return ownershipResult.errorResponse;
-    const { sessionKey } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);

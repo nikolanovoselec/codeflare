@@ -126,7 +126,7 @@ function ensureDirs(paths: MemoryVaultPaths): void {
   mkdirSync(join(paths.vaultRoot, "graphify-out"), { recursive: true });
 }
 
-function addGraphToGlobal(graph: string, tag: string, cwd: string): void {
+export function addGraphToGlobal(graph: string, tag: string, cwd: string): void {
   execFileSync("flock", ["-w", "5", GLOBAL_GRAPH_LOCK, "graphify", "global", "add", graph, "--as", tag], {
     cwd,
     encoding: "utf8",

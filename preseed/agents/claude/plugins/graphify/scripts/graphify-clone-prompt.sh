@@ -150,7 +150,7 @@ fi
 # state does not persist across sessions or container restarts.
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="ppid-$PPID"
-MARKER_DIR="/run/codeflare/markers/graphify-prompted-$SESSION_ID"
+MARKER_DIR="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/markers/graphify-prompted-$SESSION_ID"
 if [ -n "$TARGET_DIR" ]; then
   mkdir -p "$MARKER_DIR" 2>/dev/null || true
   MARKER="$MARKER_DIR/$(echo "$TARGET_DIR" | tr '/ ' '__')"
