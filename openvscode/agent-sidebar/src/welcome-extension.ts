@@ -23,7 +23,7 @@ const SESSION_AGENT_TERMINAL = 'Codeflare Session Agent';
 let persistenceActivation: Promise<(() => Promise<void>) | undefined> = Promise.resolve(undefined);
 
 export function activate(context: ExtensionContext): void {
-  const sessionAgentTerminal = process.env.CODEFLARE_SESSION_WORKSPACE === 'vscode'
+  const getSessionAgentTerminal = () => process.env.CODEFLARE_SESSION_WORKSPACE === 'vscode'
     ? window.terminals.find(({ name }) => name === SESSION_AGENT_TERMINAL)
       ?? window.createTerminal({ name: SESSION_AGENT_TERMINAL })
     : undefined;
@@ -68,7 +68,7 @@ export function activate(context: ExtensionContext): void {
 
   const startupTimer = setTimeout(() => {
     openWelcome();
-    sessionAgentTerminal?.show(false);
+    getSessionAgentTerminal()?.show(false);
   }, OPEN_DELAY_MS);
   context.subscriptions.push(
     commands.registerCommand(OPEN_WELCOME_COMMAND, openWelcome),

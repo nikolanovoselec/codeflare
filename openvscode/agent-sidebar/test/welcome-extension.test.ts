@@ -167,6 +167,28 @@ test('REQ-IDE-048 AC4: VS Code activation reuses and focuses a surviving session
   for (const subscription of subscriptions) subscription.dispose();
 });
 
+test('REQ-IDE-048 AC4: restored terminal hydration wins before activation creates a replacement', () => {
+  vi.useFakeTimers();
+  process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
+  const subscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions } as never);
+  host.terminals.push({
+    name: 'Codeflare Session Agent',
+    show: (preserveFocus?: boolean) => {
+      host.terminalShows.push({ name: 'Codeflare Session Agent', preserveFocus });
+    },
+  });
+  vi.runAllTimers();
+
+  assert.deepEqual(host.terminalCreates, []);
+  assert.deepEqual(host.terminalShows, [{
+    name: 'Codeflare Session Agent',
+    preserveFocus: false,
+  }]);
+  for (const subscription of subscriptions) subscription.dispose();
+});
+
 test('REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent terminal', () => {
   vi.useFakeTimers();
   process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
