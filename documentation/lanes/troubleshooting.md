@@ -43,13 +43,13 @@ Every recipe inherits this record contract unless it overrides a field: **Sympto
 <a id="browser-ide"></a>
 **Browser IDE**
 
-### VS Code session stays on Preparing or opens another tab ([REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-explicit-browser-ide-open-and-ownership))
+### VS Code session stays on Preparing or opens another tab ([REQ-IDE-049](../../sdd/spec/browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](../../sdd/spec/browser-ide.md#req-ide-050-browser-ide-status-and-ownership), [REQ-IDE-054](../../sdd/spec/browser-ide.md#req-ide-054-browser-ide-card-activation))
 
-**Symptom:** A VS Code session never enables **Open**, shows **Retry**, enters a terminal view, or creates another editor tab each time **Open** is clicked.
+**Symptom:** A ready VS Code card never opens its editor, a failed card never retries, the session enters a terminal view, or activating the ready card creates another editor tab.
 
 **Cause:** The stored session workspace may not have reached `CODEFLARE_SESSION_WORKSPACE`, host editor readiness may have timed out, or the browser may have blocked the stable named window. Terminal panes or WebSockets for that session indicate stale frontend routing rather than an editor problem.
 
-**Fix:** Keep the session on the dashboard. Use **Retry** after a readiness failure and allow pop-ups for the Codeflare origin if the dashboard reports blocking. Inspect the session record, container environment, private host `/health`, code-server supervisor log, and the `Codeflare Session Agent` integrated terminal. Do not convert the session by changing **Default workspace**, create a fallback host PTY, attach the editor to terminal tab 1, or force-close the retained browser tab. Stop and delete remain available throughout recovery.
+**Fix:** Keep the session on the dashboard. Activate the failed card to retry, then activate the ready card to open the editor; allow pop-ups for the Codeflare origin if the dashboard reports blocking. Inspect the session record, container environment, private host `/health`, code-server supervisor log, and the `Codeflare Session Agent` integrated terminal. Do not convert the session by changing **Default workspace**, create a fallback host PTY, attach the editor to terminal tab 1, or force-close the retained browser tab. Stop and delete remain available throughout recovery.
 
 ### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
 
