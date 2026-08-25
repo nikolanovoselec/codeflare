@@ -329,13 +329,10 @@
 
   .dashboard-panel-right {
     width: 100%;
-    /* Size to content up to the cap so a short panel — the connect card or a few
-       repos — collapses instead of reserving the whole column; overflow scrolls
-       inside the list (.github-repo-rows / .storage-drop-zone). flex:0 0 auto stops
-       the column from stretching the panel to fill the viewport when it is short.
-       ONE shared used height for both faces is measured from the taller natural face
-       and capped to this viewport limit. That keeps short pairs compact while an
-       unequal GitHub/Storage pair cannot resize the panel when flipped. */
+    /* Size the active face to its own content up to the shared viewport cap.
+       Overflow scrolls inside .github-repo-rows or .storage-drop-zone, while
+       flex:0 0 auto stops short content from stretching to fill the viewport.
+       Flipping recomputes the used height from the newly active face. */
     flex: 0 0 auto;
     min-height: 0;
     max-height: 75vh;

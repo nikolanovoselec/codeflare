@@ -847,7 +847,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column', () => {
+  it('REQ-GITHUB-012: sizes each mobile flip face to its own capped content height', () => {
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
     const origGBCR = HTMLElement.prototype.getBoundingClientRect;
@@ -866,9 +866,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       (githubStore as any)._setEnabled(true);
       render(() => <Dashboard {...defaultProps} />);
       const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
-      expect(right.style.height).toBe('300px');
+      expect(right.style.height).toBe('180px');
       fireEvent.click(screen.getByTestId('gh-stub-flip'));
       expect(right.style.height).toBe('300px');
+      fireEvent.click(screen.getByTestId('storage-flip-btn'));
+      expect(right.style.height).toBe('180px');
     } finally {
       HTMLElement.prototype.getBoundingClientRect = origGBCR;
       (globalThis as any).requestAnimationFrame = RealRAF;
