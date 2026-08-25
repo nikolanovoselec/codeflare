@@ -607,9 +607,9 @@ jobs:
           # Through the environment, never interpolated into the script body.
           KEEP: ${{ steps.docker-build.outputs.local_ref }}
         run: |
-          sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache
-          sudo chown "$(id -u):$(id -g)" /mnt/trivy-tmp /mnt/trivy-cache
-          chmod 0700 /mnt/trivy-tmp /mnt/trivy-cache
+          sudo mkdir -p /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
+          sudo chown "$(id -u):$(id -g)" /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
+          chmod 0700 /mnt/trivy-tmp /mnt/trivy-cache /mnt/trivy-sbom-cache
           # Guard: an empty KEEP would make grep -vxF match nothing and delete
           # the scan target too.
           if [ -n "$KEEP" ]; then
@@ -628,8 +628,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /mnt/trivy-cache
-          key: trivy-db-${{ steps.hash.outputs.trivy_db_key }}
-          restore-keys: trivy-db-
+          key: trivy-db-v2-${{ steps.hash.outputs.trivy_db_key }}
+          restore-keys: trivy-db-v2-
 
       - name: Install locked Trivy
         if: steps.reuse.outputs.reused != 'true'
@@ -651,8 +651,13 @@ jobs:
           # both image traversals together removes their serial wall-clock sum;
           # Wrangler preparation uses otherwise-idle network/CPU in the same window.
           trivy image --download-db-only
+          trivy image --download-java-db-only
+          sbom_cache=/mnt/trivy-sbom-cache
+          find "$sbom_cache" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          cp -a "$TRIVY_CACHE_DIR/." "$sbom_cache/"
           trivy image \
             --skip-db-update \
+            --skip-java-db-update \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --exit-code 0 \
@@ -663,8 +668,9 @@ jobs:
             --timeout 15m \
             "$IMAGE" &
           scan_pid=$!
-          trivy image \
+          TRIVY_CACHE_DIR="$sbom_cache" trivy image \
             --skip-db-update \
+            --skip-java-db-update \
             --scanners vuln \
             --format cyclonedx \
             --output /tmp/sbom.cdx.json \

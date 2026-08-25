@@ -71,8 +71,8 @@ describe('REQ-OPS-050: hosted image-build speed', () => {
     const body = steps[provisionIndex].run;
 
     assert.ok(provisionIndex < restoreIndex);
-    assert.match(body, /sudo chown "\$\(id -u\):\$\(id -g\)" \/mnt\/trivy-tmp \/mnt\/trivy-cache/);
-    assert.match(body, /chmod 0700 \/mnt\/trivy-tmp \/mnt\/trivy-cache/);
+    assert.match(body, /sudo chown "\$\(id -u\):\$\(id -g\)" \/mnt\/trivy-tmp \/mnt\/trivy-cache \/mnt\/trivy-sbom-cache/);
+    assert.match(body, /chmod 0700 \/mnt\/trivy-tmp \/mnt\/trivy-cache \/mnt\/trivy-sbom-cache/);
   });
 
   it('runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push', () => {
@@ -88,6 +88,10 @@ describe('REQ-OPS-050: hosted image-build speed', () => {
     assert.equal(steps[setupIndex].uses, 'aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514');
     assert.equal(steps[setupIndex].with.version, 'v0.70.0');
     assert.match(body, /trivy image --download-db-only/);
+    assert.match(body, /trivy image --download-java-db-only/);
+    assert.match(body, /cp -a "\$TRIVY_CACHE_DIR\/\." "\$sbom_cache\/"/);
+    assert.match(body, /TRIVY_CACHE_DIR="\$sbom_cache" trivy image/);
+    assert.ok((body.match(/--skip-java-db-update/g) ?? []).length >= 2);
     assert.match(body, /--format json/);
     assert.match(body, /--format cyclonedx/);
     assert.match(body, /npm ci --prefix \.github\/npm-tools\/wrangler/);
