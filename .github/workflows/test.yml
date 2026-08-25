@@ -382,18 +382,20 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 7
+      max-parallel: 9
       matrix:
-        # Run 32808002321 supplies per-file durations and calibrates the additional
-        # 1.6-second per-file Workers startup cost. Longest-first assignment targets
-        # six roughly 65-second test groups plus job setup.
+        # Run 32890939456 supplies current per-file durations. With the calibrated
+        # 1.6-second per-file Workers startup cost, longest-first assignment targets
+        # eight roughly 48-second test groups plus the independent Node-runtime leg.
         include:
-          - { balance-group: '1/6', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/6', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/6', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/6', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/6', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/6', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/8', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/8', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/8', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/8', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/8', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/8', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/8', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/8', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -830,12 +832,12 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        # Run 32806388629 measured the five native partitions at 37, 7, 11, 28,
-        # and 8 seconds. These two groups retain that exact one-pass partition
-        # while balancing measured work at 45 and 46 seconds.
+        # Run 32890939456 measured the five native partitions at 7, 41, 9, 11,
+        # and 28 seconds. These groups retain exact one-pass coverage while
+        # balancing measured work at approximately 49 and 48 seconds.
         include:
-          - { shards: '1/5 5/5', slug: shard-1 }
-          - { shards: '2/5 3/5 4/5', slug: shard-2 }
+          - { shards: '1/5 2/5', slug: shard-1 }
+          - { shards: '3/5 4/5 5/5', slug: shard-2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

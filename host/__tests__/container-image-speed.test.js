@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -73,6 +74,26 @@ describe('REQ-OPS-050: hosted image-build speed', () => {
     assert.ok(provisionIndex < restoreIndex);
     assert.match(body, /sudo chown "\$\(id -u\):\$\(id -g\)" \/mnt\/trivy-tmp \/mnt\/trivy-cache \/mnt\/trivy-sbom-cache/);
     assert.match(body, /chmod 0700 \/mnt\/trivy-tmp \/mnt\/trivy-cache \/mnt\/trivy-sbom-cache/);
+  });
+
+  it('blocks publication when any concurrent image prerequisite fails', () => {
+    const parallelIndex = stepIndex('Scan image, generate SBOM, and prepare push tooling');
+    const body = steps[parallelIndex].run;
+    const gateOffset = body.indexOf('status=0');
+    assert.notEqual(gateOffset, -1, 'missing concurrent prerequisite status gate');
+    const gate = body.slice(gateOffset);
+
+    const runGate = (scanStatus, sbomStatus, wranglerStatus) => spawnSync('bash', ['-c', `
+      (exit ${scanStatus}) & scan_pid=$!
+      (exit ${sbomStatus}) & sbom_pid=$!
+      (exit ${wranglerStatus}) & wrangler_pid=$!
+      ${gate}
+    `], { encoding: 'utf8' });
+
+    assert.equal(runGate(0, 0, 0).status, 0);
+    assert.notEqual(runGate(17, 0, 0).status, 0);
+    assert.notEqual(runGate(0, 19, 0).status, 0);
+    assert.notEqual(runGate(0, 0, 23).status, 0);
   });
 
   it('runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push', () => {

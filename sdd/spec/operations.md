@@ -1085,10 +1085,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Shared non-agent npm tools remain installed for every valid selection. <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) -->
 2. Pi extension startup remains prewarmed even when the shared Pi launcher is omitted. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @manual: Run complete-image smoke for a selection without Pi and inspect prewarm evidence. -->
 3. Native Pi and official Claude Browser IDE inventories remain packaged for every selection. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Run complete-image smoke for a reduced selection and inspect native inventory evidence. -->
-4. Packaged-image verification starts every selected launcher and rejects omitted launchers that remain on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
-5. Deployment records complete-image byte size as evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect image_bytes in complete-image deployment evidence. -->
-6. Deployment does not reject an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect complete-image deployment policy for the absence of a fixed ceiling. -->
-7. Exact-pinned image-owned Oxlint remains available without joining managed runtime compatibility and receives cooldown-backed weekly dependency updates. <!-- @impl: Dockerfile::/opt/codeflare/oxlint --> <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
+4. Packaged-image verification starts every selected launcher. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+5. Packaged-image verification rejects an omitted launcher that remains on the shared path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
+6. Deployment records complete-image byte size as evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect image_bytes in complete-image deployment evidence. -->
+7. Deployment does not reject an image against a fixed byte ceiling. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Inspect complete-image deployment policy for the absence of a fixed ceiling. -->
 
 **Constraints:** Selection affects shared coding-agent launchers only; prewarm and native IDE assets remain platform-owned.
 
@@ -1315,7 +1315,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-050: Hosted image-build critical-path optimization
 
-**Intent:** Fresh container images complete as quickly as the standard GitHub-hosted runner safely permits without weakening packaged smoke, vulnerability enforcement, SBOM retention, or scan-before-push ordering.
+**Intent:** Fresh container image assembly retains expensive dependency layers while producing bounded timing evidence on the standard GitHub-hosted runner.
 
 **Applies To:** Operator
 
@@ -1324,18 +1324,64 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Pi extension-only edits retain the expensive Pi dependency/toolchain layer while still invalidating extension Jiti prewarm. <!-- @impl: Dockerfile::preseed/agents/pi/extensions --> <!-- @test: host/__tests__/container-image-speed.test.js (keeps extension-only edits behind the expensive Pi dependency layer) -->
 2. Browser IDE source and generated seed edits retain unrelated runtime dependency layers while still invalidating their late final-image assembly. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::agent-seed bake materialized --> <!-- @test: host/__tests__/container-image-speed.test.js (assembles IDE and seed artifacts after expensive runtime dependency layers) -->
 3. Every fresh build uploads plain BuildKit output as bounded layer-timing evidence. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (publishes plain BuildKit timing evidence) -->
-4. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
-5. Any concurrent prerequisite failure blocks image publication; bounded vulnerability validation and SBOM upload complete before push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
-6. Trivy scratch and database-cache directories are writable and metadata-restorable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy cache metadata restorable by the runner account) --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
-7. Concurrent Trivy processes use isolated cache copies so their scan locks cannot collide. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
 
-**Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation. The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
+**Constraints:** The pipeline stays on `ubuntu-latest`; no self-hosted or larger-runner dependency is introduced.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
+**Dependencies:** [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
 
-**Verification:** Workflow-order/cache-boundary tests; exact-head fresh-image deployment timing and artifact evidence
+**Verification:** Cache-boundary tests; exact-head fresh-image timing evidence
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-051: Image-owned Oxlint lifecycle
+
+**Intent:** Every session image provides one exact-pinned Oxlint installation without coupling it to managed runtime compatibility.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Exact-pinned image-owned Oxlint remains available for every coding-agent selection without joining managed runtime compatibility. <!-- @impl: Dockerfile::/opt/codeflare/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has an exact pin and complete committed integrity tree) -->
+2. The dedicated Oxlint lock receives cooldown-backed weekly dependency updates. <!-- @impl: .github/dependabot.yml::/image/oxlint --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (image-owned Oxlint has dedicated weekly dependency automation) -->
+
+**Constraints:** Oxlint remains outside the managed seed and shared npm-tool manifest.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-039](#req-ops-039-reduced-image-capability-preservation)
+
+**Verification:** Image dependency-integrity and dependency-automation tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-052: Concurrent image security preparation
+
+**Intent:** Independent image-security and publication prerequisites run concurrently without weakening vulnerability enforcement, SBOM retention, or scan-before-push ordering.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. After one vulnerability-database preparation, vulnerability scanning, CycloneDX generation, and registry-tool preparation run concurrently and are all awaited. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+2. A failure from vulnerability scanning, CycloneDX generation, or registry-tool preparation blocks image publication. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (blocks publication when any concurrent image prerequisite fails) -->
+3. Bounded vulnerability validation completes before image push. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) -->
+4. The SBOM uploads before image push, preserving the inventory if later publication fails. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+5. Trivy scratch and database-cache directories are writable and metadata-restorable by the runner account. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (makes Trivy cache metadata restorable by the runner account) --> <!-- @manual: Confirm a fresh deployment restores the daily Trivy DB cache without a tar ownership or timestamp warning. -->
+6. Concurrent Trivy processes use isolated cache copies so their scan locks cannot collide. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/container-image-speed.test.js (runs scan, SBOM, and Wrangler preparation concurrently before enforcement and push) -->
+
+**Constraints:** Image push remains strictly after packaged smoke, vulnerability enforcement, and SBOM generation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-050](#req-ops-050-hosted-image-build-critical-path-optimization)
+
+**Verification:** Behavioral prerequisite-failure and workflow-order tests; exact-head scan and SBOM evidence
 
 **Status:** Implemented
 
