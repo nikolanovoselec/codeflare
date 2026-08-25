@@ -17,11 +17,14 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evaluateFinalSync } from '../dist/final-sync.js';
-import { createRequestHandler, FINAL_SYNC_INTERNAL_TIMEOUT_MS } from '../dist/request-router.js';
+const runtimeFixture = mkdtempSync('/tmp/codeflare-final-sync-');
+process.env.CODEFLARE_RUNTIME_ROOT = runtimeFixture;
+const { evaluateFinalSync } = await import('../dist/final-sync.js');
+const { createRequestHandler, FINAL_SYNC_INTERNAL_TIMEOUT_MS } = await import('../dist/request-router.js');
+const { SYNC_DAEMON_PID_FILE, SYNC_STATUS_FILE } = await import('../dist/runtime-paths.js');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
@@ -98,9 +101,10 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
   });
 });
 
-const PID_FILE = '/tmp/sync-daemon.pid';
-const STATUS_FILE = '/tmp/sync-status.json';
-const STATUS_TEMP_FILE = '/tmp/sync-status.final-sync-test.tmp';
+const PID_FILE = SYNC_DAEMON_PID_FILE;
+const STATUS_FILE = SYNC_STATUS_FILE;
+const STATUS_TEMP_FILE = `${runtimeFixture}/sync-status.final-sync-test.tmp`;
+mkdirSync(dirname(PID_FILE), { recursive: true });
 
 function requestRouterDeps(overrides = {}) {
   return {

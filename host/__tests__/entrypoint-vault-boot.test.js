@@ -80,7 +80,12 @@ function mkTmp(prefix) {
 
 // Run a bash script, return { status, stdout, stderr }.
 function runBash(script) {
-  return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const runtimeRoot = mkTmp('vault-boot-runtime-');
+  mkdirSync(join(runtimeRoot, 'locks'), { recursive: true });
+  return spawnSync('bash', ['-c', script], {
+    encoding: 'utf8',
+    env: { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
+  });
 }
 
 // REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot

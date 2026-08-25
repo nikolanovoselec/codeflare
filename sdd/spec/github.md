@@ -350,7 +350,7 @@ None.
 
 ### REQ-GITHUB-012: Responsive GitHub and storage panel allocation
 
-**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one stable, content-sized face when the viewport is narrow or short.
+**Intent:** GitHub and storage share the dashboard's right column as an anchored split when space permits and collapse to one independently content-sized face when the viewport is narrow or short.
 
 **Applies To:** User
 
@@ -358,7 +358,10 @@ None.
 
 1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
 2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
-3. Single-panel mobile/flip mode derives one used height from both faces, capped at the shared viewport limit, and vertically centers the panel; internal lists scroll, flipping never resizes unequal faces, and short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column) -->
+3. Single-panel mode recomputes the active face from its own content after every flip, so unequal faces keep independent geometry. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+4. The active face is capped at the shared viewport limit and centered. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+5. An active face whose content exceeds the cap scrolls inside the shared viewport limit. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
+6. An active face whose content stays below the cap remains compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 
 **Constraints:** None.
 

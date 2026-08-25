@@ -7,7 +7,7 @@
  * inline form in vault.ts.
  */
 import type { Env, Session } from '../../types';
-import { getSessionKey } from '../../lib/kv-keys';
+import { getSessionKey, hasSessionRunningCorrection } from '../../lib/kv-keys';
 
 /**
  * Session-ownership guard. A KV miss under the authenticated bucket
@@ -32,7 +32,7 @@ export async function assertSessionOwnership(
         { status: 404, headers: jsonHeaders }),
     };
   }
-  if (session.status === 'stopped') {
+  if (session.status === 'stopped' && !await hasSessionRunningCorrection(env.KV, bucketName, sessionId)) {
     return {
       errorResponse: new Response(JSON.stringify({ error: 'Container stopped', code: 'CONTAINER_STOPPED' }),
         { status: 503, headers: jsonHeaders }),

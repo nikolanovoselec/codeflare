@@ -31,15 +31,6 @@ vi.mock('../../components/SessionStatCard', () => ({
       <span data-testid="session-name">{props.session.name}</span>
       <button data-testid={`select-${props.session.id}`} onClick={props.onSelect}>Select</button>
       <button data-testid={`menu-${props.session.id}`} onClick={(event) => props.onMenuClick?.(event, props.session)}>Menu</button>
-      {props.workspaceAction && (
-        <button
-          data-testid={`workspace-action-${props.session.id}`}
-          disabled={props.workspaceAction.disabled}
-          onClick={props.workspaceAction.onClick}
-        >
-          {props.workspaceAction.label}
-        </button>
-      )}
     </div>
   )
 }));
@@ -280,37 +271,36 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Initialization Tests ===
 
-  it('REQ-IDE-049 AC1: gives stopped VS Code sessions an explicit Start action', () => {
+  it('REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'stopped',
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
     }];
     render(() => <Dashboard {...defaultProps} sessions={sessions} />);
 
-    const action = screen.getByTestId('workspace-action-editor');
-    expect(action).toHaveTextContent('Start');
-    fireEvent.click(action);
+    fireEvent.click(screen.getByTestId('select-editor'));
 
     expect(defaultProps.onStartSession).toHaveBeenCalledWith('editor');
     expect(defaultProps.onOpenVscodeSession).not.toHaveBeenCalled();
+    expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('editor');
   });
 
-  it('REQ-IDE-050 AC1: enables explicit Open only after editor readiness', () => {
+  it('REQ-IDE-054 AC3: opens from the whole card only after editor readiness', () => {
     const sessions: SessionWithStatus[] = [{
       id: 'editor', name: 'Editor', workspace: 'vscode', status: 'running', editorReady: false,
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
     }];
     render(() => <Dashboard {...defaultProps} sessions={sessions} />);
 
-    expect(screen.getByTestId('workspace-action-editor')).toHaveTextContent('Preparing…');
-    expect(screen.getByTestId('workspace-action-editor')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('select-editor'));
+    expect(defaultProps.onOpenVscodeSession).not.toHaveBeenCalled();
+    expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('editor');
 
     cleanup();
     render(() => <Dashboard {...defaultProps} sessions={[{ ...sessions[0], editorReady: true }]} />);
-    const action = screen.getByTestId('workspace-action-editor');
-    expect(action).toHaveTextContent('Open');
-    fireEvent.click(action);
+    fireEvent.click(screen.getByTestId('select-editor'));
     expect(defaultProps.onOpenVscodeSession).toHaveBeenCalledWith('editor');
+    expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('editor');
   });
 
   it('REQ-IDE-049 AC2: editor failure exposes Retry plus Stop and Delete operations', () => {
@@ -320,9 +310,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }];
     render(() => <Dashboard {...defaultProps} sessions={sessions} />);
 
-    const retry = screen.getByTestId('workspace-action-editor');
-    expect(retry).toHaveTextContent('Retry');
-    fireEvent.click(retry);
+    fireEvent.click(screen.getByTestId('select-editor'));
     expect(defaultProps.onStartSession).toHaveBeenCalledWith('editor');
 
     fireEvent.click(screen.getByTestId('menu-editor'));
@@ -859,7 +847,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
-  it('REQ-GITHUB-012: gives unequal flip faces one capped used height so swapping faces does not resize the column', () => {
+  it('REQ-GITHUB-012: sizes each mobile flip face to its own capped content height', () => {
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
     const origGBCR = HTMLElement.prototype.getBoundingClientRect;
@@ -878,7 +866,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       (githubStore as any)._setEnabled(true);
       render(() => <Dashboard {...defaultProps} />);
       const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
-      expect(right.style.height).toBe('300px');
+      expect(right.style.height).toBe('180px');
       fireEvent.click(screen.getByTestId('gh-stub-flip'));
       expect(right.style.height).toBe('300px');
     } finally {

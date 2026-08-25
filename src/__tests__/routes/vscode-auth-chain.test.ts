@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVscodeRequest, validateVscodeRoute } from '../../routes/vscode';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { getSessionEditorKey } from '../../lib/kv-keys';
 
 /**
  * Integration coverage for the browser-IDE auth chain + path forwarding.
@@ -76,6 +77,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
   let mockKV: ReturnType<typeof createMockKV>;
   let mockEnv: Env;
   let mockCtx: ExecutionContext;
+  let waitUntilPromises: Promise<unknown>[];
 
   const SID = 'abcdef1234567890';
   const SESSION_KEY = `session:test-bucket:${SID}`;
@@ -97,8 +99,9 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
       CONTAINER: {} as DurableObjectNamespace,
     } as unknown as Env;
 
+    waitUntilPromises = [];
     mockCtx = {
-      waitUntil: vi.fn(),
+      waitUntil: vi.fn((promise: Promise<unknown>) => { waitUntilPromises.push(promise); }),
       passThroughOnException: vi.fn(),
     } as unknown as ExecutionContext;
 
@@ -179,6 +182,40 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
+  it('REQ-IDE-049 AC5: successful editor traffic reasserts readiness without losing concurrent session fields', async () => {
+    mockKV._set(SESSION_KEY, {
+      id: SID,
+      name: 'Renamed concurrently',
+      userId: 'test-bucket',
+      workspace: 'vscode',
+      status: 'running',
+      editorReady: false,
+      editorReadyError: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      metrics: { cpu: '42%' },
+    } as Session);
+
+    const request = vscodeRequest();
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(200);
+    await Promise.all(waitUntilPromises);
+
+    const stored = await mockKV.get(SESSION_KEY, 'json') as Session;
+    expect(stored).toMatchObject({
+      name: 'Renamed concurrently',
+      editorReady: false,
+      editorReadyError: true,
+      metrics: { cpu: '42%' },
+      lastAccessedAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(mockKV.put).toHaveBeenCalledWith(
+      getSessionEditorKey('test-bucket', SID),
+      '',
+      { metadata: { er: 1 } },
+    );
+  });
+
   it('REQ-IDE-001 AC3: preserves an allowlisted caller Origin for code-server to compare independently', async () => {
     const request = vscodeRequest(undefined, { Origin: 'https://allowed-alias.example' });
 
@@ -190,7 +227,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(forwarded.headers.get('X-Forwarded-Host')).toBe('codeflare.ch');
   });
 
-  it('REQ-IDE-050 AC7 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
+  it('REQ-IDE-050 AC4 / REQ-IDE-001: rejects an unauthenticated Browser IDE request', async () => {
     const { AuthError } = await import('../../lib/error-types');
     mockAuthResult.error = new AuthError('Unauthorized');
     const request = vscodeRequest();
@@ -210,7 +247,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC7: rejects a Browser IDE request from an inactive SaaS tier', async () => {
+  it('REQ-IDE-050 AC4: rejects a Browser IDE request from an inactive SaaS tier', async () => {
     (mockEnv as unknown as { SAAS_MODE: string }).SAAS_MODE = 'active';
     mockAuthResult.result = {
       user: {
@@ -229,7 +266,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-IDE-050 AC7: rejects a Browser IDE request for a session the user does not own', async () => {
+  it('REQ-IDE-050 AC4: rejects a Browser IDE request for a session the user does not own', async () => {
     mockKV._clear();
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));

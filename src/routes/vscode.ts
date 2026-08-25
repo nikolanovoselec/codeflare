@@ -21,8 +21,8 @@
  * Implements REQ-IDE-001, REQ-IDE-002, REQ-IDE-003.
  */
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
-import { putSessionWithMetadata } from '../lib/kv-keys';
+import type { Env } from '../types';
+import { putSessionEditorState } from '../lib/kv-keys';
 import {
   REQUEST_ID_LENGTH,
   REQUEST_ID_PATTERN,
@@ -213,7 +213,6 @@ export async function handleVscodeRequest(
 
     const ownershipResult = await assertSessionOwnership(env, bucketName, sessionId, jsonHeaders);
     if ('errorResponse' in ownershipResult) return ownershipResult.errorResponse;
-    const { sessionKey } = ownershipResult;
 
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
@@ -255,16 +254,6 @@ export async function handleVscodeRequest(
       }
     }
 
-    // Keep the session alive on IDE activity, out of band (same as
-    // terminal/vault): editing in the IDE should reset idle the same way.
-    ctx.waitUntil((async () => {
-      const fresh = await env.KV.get<Session>(sessionKey, 'json');
-      if (fresh) {
-        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await putSessionWithMetadata(env.KV, sessionKey, touched);
-      }
-    })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
-
     // Preserve the public path/query and body for the container host, but never
     // trust client-supplied forwarding identity. The request URL has already
     // passed the route and Origin/auth chain, so its URL is canonical for the
@@ -291,6 +280,17 @@ export async function handleVscodeRequest(
     // a same-origin value here would neutralize that defense-in-depth check.
     if (!request.headers.has('Origin')) forwardedRequest.headers.delete('Origin');
     const response = await container.fetch(forwardedRequest);
+
+    // Successful editor traffic is direct evidence that the editor is ready.
+    // Readiness has its own KV record so this event cannot replace a concurrent
+    // rename, metrics update, or lifecycle transition on the durable session.
+    // Editor input recency remains owned by the host activity probe and metrics
+    // overlay; proxy traffic does not reorder durable session creation history.
+    if (response.status < 400) {
+      ctx.waitUntil(putSessionEditorState(env.KV, bucketName, sessionId, {
+        editorReady: true,
+      }).catch((err) => logger.warn('Failed to reassert editor readiness', { error: toErrorMessage(err) })));
+    }
     return response;
   } catch (err) {
     logger.error('vscode proxy failed', toError(err));

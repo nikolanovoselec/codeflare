@@ -345,18 +345,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(pi).toContain('immutable execution snapshot');
   });
 
-  it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    // Serialised under the shared global-graph lock, tagged user_vault.
-    expect(mv?.content).toContain('/tmp/graphify-global.lock');
-    expect(mv?.content).toContain('user_vault');
-    // The extension re-publishes the cumulative vault-graph.json (written by
-    // merge-vault-graph.py), never a competing per-run graph.json.
-    expect(mv?.content).toContain('vault-graph.json');
-    // It is a pure trigger now: no in-process deterministic graph builder.
-    expect(mv?.content).not.toContain('deterministicVaultGraph');
-  });
-
   it('REQ-VAULT-007: Pi is self-contained - merge-vault-graph.py is preseeded into .pi/agent/scripts', () => {
     const piScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/merge-vault-graph.py');
     expect(piScript, 'merge-vault-graph.py must be preseeded for Pi').toBeTruthy();

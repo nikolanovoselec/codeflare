@@ -10,6 +10,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 const CAVEMAN_IMAGE_CONFIG = resolve(__dirname, '../../image/pi/caveman.json');
 
+function runtimeEnv(env = {}) {
+  const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
+  mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
+  return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, ...env };
+}
+
 function extractFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\) \\{`).test(line));
@@ -26,7 +32,7 @@ function extractFunction(name) {
 function runFunction(name, setup, invocation, env = {}) {
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${setup}\n${invocation}`], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: runtimeEnv(env),
   });
 }
 
@@ -36,7 +42,7 @@ function runStartupInvocation(name, env = {}) {
   if (!invocation) throw new Error(`Could not locate production startup invocation for ${name}()`);
   return spawnSync('bash', ['-c', `${extractFunction(name)}\n${invocation}`], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: runtimeEnv(env),
   });
 }
 
@@ -316,7 +322,7 @@ exec "$REAL_NODE" "$@"
       'configure_pi_jiti_runtime_cache',
       '',
       'configure_pi_jiti_runtime_cache "$TEST_ISOLATION_ROOT"; rm -rf "$TEST_ISOLATION_ROOT/tmp"; printf compiled > "$TMPDIR/jiti/chunks-interactive-ui.test.mjs"; printf "%s" "$TMPDIR"',
-      { TEST_ISOLATION_ROOT: fixture },
+      { CODEFLARE_RUNTIME_ROOT: join(fixture, 'run/codeflare'), TEST_ISOLATION_ROOT: fixture },
     );
 
     assert.equal(result.status, 0, result.stderr);

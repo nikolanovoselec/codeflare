@@ -894,9 +894,9 @@ export async function restoreExtensionManifest(
 function resolveOptions(options: PersistenceOptions = {}): ResolvedOptions {
   const home = process.env.HOME ?? '/home/codeflare';
   return {
-    extensionsDir: options.extensionsDir ?? process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR ?? '/tmp/openvscode-data/extensions',
+    extensionsDir: options.extensionsDir ?? process.env.CODEFLARE_OPENVSCODE_EXTENSIONS_DIR ?? '/run/codeflare/openvscode/data/extensions',
     manifestPath: options.manifestPath ?? process.env.CODEFLARE_IDE_EXTENSIONS_MANIFEST ?? join(home, '.codeflare', 'ide-extensions.json'),
-    syncPidFile: options.syncPidFile ?? process.env.CODEFLARE_SYNC_DAEMON_PIDFILE ?? '/tmp/sync-daemon.pid',
+    syncPidFile: options.syncPidFile ?? process.env.CODEFLARE_SYNC_DAEMON_PIDFILE ?? '/run/codeflare/sync/sync-daemon.pid',
     managedExtensionsPath: options.managedExtensionsPath ?? join(home, '.codeflare', 'managed-extensions.json'),
     managedReleaseDigest: (() => {
       const value = options.managedReleaseDigest !== undefined

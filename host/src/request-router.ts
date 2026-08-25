@@ -32,6 +32,7 @@ import {
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
+import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE } from './runtime-paths.js';
 
 /**
  * When the current Browser IDE warming episode started, so the warming page can
@@ -387,14 +388,14 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // bisync cycle. Idempotent: signals during a running bisync coalesce
     // to exactly one rerun (see entrypoint.sh trap).
     //
-    // Hibernation note: the daemon PID is read from /tmp/sync-daemon.pid
+    // Hibernation note: daemon PID lives under protected process-lifetime state.
     // at every call, never cached. If the container is sleeping or the
     // daemon has not yet written its PID file, the call returns 503; the
     // Worker fan-out treats 503 as "session not active, skip" rather
     // than propagating a user-visible error.
     if (pathname === '/internal/bisync-trigger' && method === 'POST') {
       try {
-        const pidStr = fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim();
+        const pidStr = fs.readFileSync(SYNC_DAEMON_PID_FILE, 'utf8').trim();
         const pid = Number(pidStr);
         if (!Number.isFinite(pid) || pid <= 0) {
           res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -517,11 +518,11 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       const finalSync = deps.finalSync ?? {
         now: () => Date.now(),
         readStatus: (): { status?: string; ts?: number } => {
-          try { return JSON.parse(fs.readFileSync('/tmp/sync-status.json', 'utf8')); }
+          try { return JSON.parse(fs.readFileSync(SYNC_STATUS_FILE, 'utf8')); }
           catch { return {}; }
         },
         signalDaemon: () => {
-          const pid = Number(fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim());
+          const pid = Number(fs.readFileSync(SYNC_DAEMON_PID_FILE, 'utf8').trim());
           if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid daemon PID');
           process.kill(pid, 'SIGUSR1');
         },
@@ -575,17 +576,17 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (pathname === '/sync-log' && method === 'GET') {
       try {
         const MAX_LOG_SIZE = 100 * 1024; // 100KB
-        const stat = fs.statSync('/tmp/sync.log');
+        const stat = fs.statSync(SYNC_LOG_FILE);
         let logContent: string;
         if (stat.size > MAX_LOG_SIZE) {
           // Read only the last 100KB
           const buffer = Buffer.alloc(MAX_LOG_SIZE);
-          const fd = fs.openSync('/tmp/sync.log', 'r');
+          const fd = fs.openSync(SYNC_LOG_FILE, 'r');
           fs.readSync(fd, buffer, 0, MAX_LOG_SIZE, stat.size - MAX_LOG_SIZE);
           fs.closeSync(fd);
           logContent = '... (truncated)\n' + buffer.toString('utf8');
         } else {
-          logContent = fs.readFileSync('/tmp/sync.log', 'utf8');
+          logContent = fs.readFileSync(SYNC_LOG_FILE, 'utf8');
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ log: logContent }));

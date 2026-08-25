@@ -95,7 +95,7 @@ describe('REQ-IDE-053 AC1/AC2: host startup composition', () => {
   });
 });
 
-describe('REQ-IDE-053 AC1 + REQ-IDE-050 AC1: bounded loopback editor readiness', () => {
+describe('REQ-IDE-053 AC1: bounded loopback editor readiness', () => {
   it('becomes ready only after the code-server health endpoint succeeds', async () => {
     let probes = 0;
     const server = http.createServer((req, res) => {

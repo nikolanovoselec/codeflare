@@ -10,9 +10,9 @@ A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, Co
 
 ## Continuous background monitor pattern
 
-When monitoring is requested, use **one detached bounded monitor** per pushed HEAD. Do not manually issue repeated GitHub Actions polling calls in the conversation. Launch the temp script, print its `CI_MONITOR_STARTED ... log=<path>` handle, and leave the long-running polling inside that script so the main session stays free.
+When monitoring is requested, use **one detached bounded monitor** per pushed HEAD. Do not manually issue repeated GitHub Actions polling calls in the conversation. Launch the protected runtime script, print its `CI_MONITOR_STARTED ... log=<path>` handle, and leave the long-running polling inside that script so the main session stays free.
 
-The monitor appends progress and the terminal `CI_RESULT` line to its durable temp log. The printed log path is the completion source; the short launcher output is not proof of CI success or failure.
+The monitor appends progress and the terminal `CI_RESULT` line to its protected runtime log. The printed log path is the completion source; the short launcher output is not proof of CI success or failure.
 
 ### Toolset selection - runs under Bash *or* `ctx_*`
 
@@ -31,8 +31,10 @@ Use the temp-script launcher below for both Bash and `ctx_execute`; it prints th
 cd <repo>
 BRANCH=<branch>
 HEAD=$(git rev-parse HEAD)
-LOG="/tmp/ci-monitor-${HEAD}.log"
-SCRIPT="/tmp/ci-monitor-${HEAD}.sh"
+RUNTIME_DIR="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/services"
+mkdir -p "$RUNTIME_DIR"
+LOG="$RUNTIME_DIR/ci-monitor-${HEAD}.log"
+SCRIPT="$RUNTIME_DIR/ci-monitor-${HEAD}.sh"
 cat > "$SCRIPT" <<'BASH'
 #!/usr/bin/env bash
 set -u

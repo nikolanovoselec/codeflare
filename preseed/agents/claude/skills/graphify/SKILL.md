@@ -59,7 +59,7 @@ Community labels are optional and never block graph publication. **NEVER run `gr
    The labeled `graph.html` is where names appear in the viz. If apply reports `duplicate_exact` / `numbered_duplicate` / `duplicate_base` / `placeholder`, fix those ids in `.graphify_labels.json` and re-run apply.
 4. **Merge into the global graph** (so cross-repo MCP queries see this repo's nodes/edges), then commit:
    ```
-   flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
+   flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
    ```
    `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html`; include `.graphify_labels.json` only when optional labeling was requested.
 
@@ -102,7 +102,7 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
    - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, optional `.graphify_labels.json` when labeling was requested, and optional `wiki/`.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
-   - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock -w 5` serialises against the capture agent and the vault-extract agent; the 5s timeout prevents a wedged writer from blocking the queue.
+   - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock -w 5` serialises against the capture agent and the vault-extract agent; the 5s timeout prevents a wedged writer from blocking the queue.
 
 4. **Bias toward `--update` and `cluster-only` for repeat runs.** Full LLM extraction is expensive. After the first build:
  - For source changes: `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` (AST-only, free, no token cost; wraps `graphify update` with `GRAPHIFY_MAX_WORKERS=1` + `ulimit -v 1500000` so a runaway rebuild on a large repo cannot OOM-kill the codeflare session).

@@ -57,7 +57,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Sync Daemon | Background process in entrypoint.sh running rclone bisync every 15 minutes, SIGUSR1-interruptible for manual triggers |
 | Sync-now | User-triggered manual sync action. Button in the storage browser ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui) AC1) sends SIGUSR1 to the sync daemon, fanning out to every session of the user's account ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui) AC2). One of three bisync triggers: 15-minute cadence, Sync-now, and final shutdown bisync. |
 | Entrypoint | entrypoint.sh - container initialization script handling sync, config, and terminal server startup |
-| Recovery Filter | Session-scoped rclone filter file (`/tmp/rclone-recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
+| Recovery Filter | Session-scoped rclone filter file (`/run/codeflare/sync/recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |
 | Spec Discipline | The universal SDD enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions; activates only when `sdd/` exists in the project |
 | Autonomy Mode | One of `interactive`, `auto`, or `unleashed` set in `sdd/spec/config.yml`; controls how aggressively spec-reviewer and doc-updater apply fixes without human confirmation |

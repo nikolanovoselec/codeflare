@@ -18,7 +18,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { getSessionKey, hasSessionRunningCorrection, putSessionWithMetadata } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
@@ -199,7 +199,9 @@ export async function handleWebSocketUpgrade(
     // Done BEFORE rate-limit check so a browser reconnect-storm against
     // a stopped container does not burn the user's WS rate-limit budget
     // and self-lock them out for ~2 minutes.
-    if (session.status === 'stopped') {
+    const runningCorrection = session.status === 'stopped'
+      && await hasSessionRunningCorrection(env.KV, bucketName, baseSessionId);
+    if (session.status === 'stopped' && !runningCorrection) {
       const pair = new WebSocketPair();
       pair[1].accept();
       pair[1].close(4503, 'container-stopped');
@@ -222,6 +224,12 @@ export async function handleWebSocketUpgrade(
     // falls through to the normal rate-limit + forward path.
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
+    if (runningCorrection && !warmProbe.healthy) {
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(4503, 'container-stopped');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     if (warmProbe.healthy && warmProbe.data?.terminalServiceReady === false) {
       logger.info('Rejecting WS upgrade: container warming up', { email: user.email, containerId });
       const pair = new WebSocketPair();

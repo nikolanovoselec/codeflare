@@ -7,7 +7,7 @@
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { clearSessionRunningCorrection, getSessionKey, putSessionEditorState, putSessionMetricsState, putSessionRunningCorrection, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -239,6 +239,13 @@ export async function updateKvStatus(
       [field]: new Date().toISOString(),
     };
     await putSessionWithMetadata(env.KV, key, updated);
+    try {
+      await clearSessionRunningCorrection(env.KV, bucketName, sessionId);
+    } catch (err) {
+      // The bounded correction expires within two minutes. Durable status has
+      // already committed, so a failed tombstone is conservative and temporary.
+      logger.warn('updateKvStatus: failed to clear running correction', { key, error: String(err) });
+    }
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
     return 'written';
   } catch (err) {
@@ -1530,7 +1537,7 @@ export async function collectMetrics(
       // Don't parse — just log and re-arm below.
       logger.info('collectMetrics: health non-OK', { status: res.status });
     } else {
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; editorReady?: boolean };
 
       if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
         // Surface in-container bisync failures in Workers logs: the integration
@@ -1542,16 +1549,19 @@ export async function collectMetrics(
       }
 
       if (trustedTickSession.error !== undefined) throw trustedTickSession.error;
-      const { sessionId, bucketName, session } = trustedTickSession;
+      const { sessionId, bucketName } = trustedTickSession;
 
       if (!sessionId || !bucketName) {
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
         return; // Don't re-arm schedule — zombie DO, let it die
       } else if (ctx.container?.running) {
-        // Only reached while the container is demonstrably running (running
-        // branch, after a successful /health fetch). The normal write touches
-        // .metrics and mirrors lastActiveAt; .status is normally left alone.
+        // Only reached while the container is demonstrably running. Metrics,
+        // activity, and editor readiness use concern-owned records; only the
+        // false-stopped recovery path below may update durable session status.
         const key = getSessionKey(bucketName, sessionId);
+        // The activity and health probes can outlive concurrent lifecycle or UI
+        // writes. Merge only into a fresh record so this tick cannot roll them back.
+        const session = await env.KV.get<Session>(key, 'json');
         if (session) {
           const metrics = {
             cpu: health.cpu,
@@ -1563,6 +1573,10 @@ export async function collectMetrics(
           const lastActiveAt = state.lastSeenInputAt
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
+          await putSessionMetricsState(env.KV, bucketName, sessionId, { metrics, lastActiveAt });
+          if (health.editorReady === true && session.workspace === 'vscode') {
+            await putSessionEditorState(env.KV, bucketName, sessionId, { editorReady: true });
+          }
 
           if (session.status === 'stopped') {
             // KV reads stopped while the container is demonstrably alive. Read
@@ -1571,8 +1585,8 @@ export async function collectMetrics(
             const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
             if (typeof shutdownRequested === 'number') {
               // Deliberate stop in flight (destroy()/user Stop): leave the
-              // stopped status to settle, skip the write so we don't resurrect a
-              // session the user is deliberately stopping.
+              // durable stopped status authoritative and publish no running
+              // correction that could resurrect the dashboard card.
               logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
             } else {
               // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
@@ -1582,11 +1596,9 @@ export async function collectMetrics(
               // session is not left showing stopped on the dashboard until the
               // next start. (idle-stop returns before this block; onStop
               // deleteSchedules the loop, so those deliberate paths never reach here.)
-              logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
-              await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+              logger.warn('collectMetrics: container running but KV stopped, publishing running correction', { key });
+              await putSessionRunningCorrection(env.KV, bucketName, sessionId);
             }
-          } else {
-            await putSessionWithMetadata(env.KV, key, { ...session, metrics, lastActiveAt });
           }
         }
       }

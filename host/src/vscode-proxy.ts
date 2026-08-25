@@ -8,10 +8,10 @@
  * helpers live here so the security transformation is unit-testable.
  */
 import fs from 'node:fs';
+import { OPENVSCODE_REQUEST_TRIGGER } from './runtime-paths.js';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
 /** Default lazy-start trigger path the Browser IDE supervisor waits on. */
-const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
 export const CODEFLARE_WORKSPACE_ROOT = '/home/user/workspace';
 const WORKSPACE_SELECTOR_KEYS = Object.freeze(['folder', 'workspace', 'ew']);
 

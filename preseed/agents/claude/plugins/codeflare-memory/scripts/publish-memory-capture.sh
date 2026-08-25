@@ -39,7 +39,7 @@ TOTAL_LINES=$(jq -r '.total_lines // empty' "$VARS_FILE" 2>/dev/null || true)
 [[ "$CURRENT_COUNT" =~ ^[0-9]+$ ]] || { COUNTER_FILE=""; CURRENT_COUNT=0; }
 [[ "$TOTAL_LINES" =~ ^[0-9]+$ ]] || TOTAL_LINES=0
 
-LOCK_FILE="${MEMCAP_GRAPH_LOCK:-/tmp/graphify-global.lock}"
+LOCK_FILE="${MEMCAP_GRAPH_LOCK:-/run/codeflare/locks/graphify-global.lock}"
 PYTHON_BIN="${MEMCAP_PYTHON_BIN:-/root/.local/share/uv/tools/graphifyy/bin/python}"
 MERGE_SCRIPT="${MEMCAP_MERGE_SCRIPT:-/home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py}"
 GRAPHIFY_BIN="${MEMCAP_GRAPHIFY_BIN:-/usr/local/bin/graphify}"
