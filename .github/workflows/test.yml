@@ -384,9 +384,9 @@ jobs:
       fail-fast: false
       max-parallel: 7
       matrix:
-        # Run 32806388629 supplies per-file durations; run 32807234297 calibrates
-        # the additional 1.2-second per-file Workers startup cost. Longest-first
-        # assignment targets six roughly 50-second groups plus job setup.
+        # Run 32808002321 supplies per-file durations and calibrates the additional
+        # 1.6-second per-file Workers startup cost. Longest-first assignment targets
+        # six roughly 65-second test groups plus job setup.
         include:
           - { balance-group: '1/6', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '2/6', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }

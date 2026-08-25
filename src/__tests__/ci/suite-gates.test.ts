@@ -384,12 +384,13 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   });
 
   it('balances backend files by measured weight and covers each native host partition once', () => {
-    expect(assignWeightedFiles(
-      ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'],
-      { 'a.test.ts': 8, 'b.test.ts': 7, 'c.test.ts': 6, 'd.test.ts': 5 },
-      2,
-      10,
-    )).toEqual([
+    const weightedFiles = ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'];
+    const weights = { 'a.test.ts': 100, 'b.test.ts': 1, 'c.test.ts': 1, 'd.test.ts': 1 };
+    expect(assignWeightedFiles(weightedFiles, weights, 2)).toEqual([
+      ['a.test.ts'],
+      ['b.test.ts', 'c.test.ts', 'd.test.ts'],
+    ]);
+    expect(assignWeightedFiles(weightedFiles, weights, 2, 100)).toEqual([
       ['a.test.ts', 'd.test.ts'],
       ['b.test.ts', 'c.test.ts'],
     ]);
