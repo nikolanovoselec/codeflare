@@ -217,7 +217,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       remoteCurationManifestDigest = applied?.managedExtensionsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
-      // A transient deployment-cache read failure may continue only from a
+      // A transient persisted-snapshot read failure may continue only from a
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
       if (
