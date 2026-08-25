@@ -791,11 +791,15 @@ export async function resolveManagedEnvironmentRelease(input: {
   const state = await readFreshnessState(input.kv, input.stateKey);
   const lastChecked = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
   const freshnessAge = now.getTime() - lastChecked;
-  if (!input.requireFresh && state.active && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
+  if (!input.requireFresh && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
     const cachedActive = await readActiveWithFallback(input.cache, undefined);
+    const stateActive = state.active?.runtimeDependencyHash === expectedRuntimeHash ? state.active : undefined;
     if (cachedActive?.runtimeDependencyHash === expectedRuntimeHash
-      && cachedActive.digest === state.active.digest
+      && (!stateActive || cachedActive.digest === stateActive.digest)
       && await hasCachedRelease(input.cache, cachedActive)) {
+      if (!stateActive) {
+        await writeFreshnessState(input.kv, input.stateKey, { ...state, active: cachedActive });
+      }
       return { active: cachedActive, freshness: state.lastError ? 'degraded' : 'fresh', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
     }
   }
@@ -934,17 +938,18 @@ export async function resolveManagedEnvironmentRelease(input: {
     const message = safeError(error, input.token);
     const fallbackActive = await readActiveWithFallback(input.cache, state.active);
     const active = fallbackActive?.runtimeDependencyHash === expectedRuntimeHash ? fallbackActive : undefined;
+    const lastCheckedAt = active ? now.toISOString() : state.lastCheckedAt;
     const failedState: ManagedEnvironmentFreshnessState = {
       schemaVersion: 1,
       ...(state.etag ? { etag: state.etag } : {}),
       ...(active ? { active } : {}),
-      ...(state.lastCheckedAt ? { lastCheckedAt: state.lastCheckedAt } : {}),
+      ...(lastCheckedAt ? { lastCheckedAt } : {}),
       ...(state.patExpiresAt ? { patExpiresAt: state.patExpiresAt } : {}),
       lastError: message,
     };
     await writeFreshnessState(input.kv, input.stateKey, failedState);
     if (input.requireFresh) throw new Error(message);
-    return { active, freshness: 'degraded', lastCheckedAt: state.lastCheckedAt, lastError: message };
+    return { active, freshness: 'degraded', lastCheckedAt, lastError: message };
   }
 }
 

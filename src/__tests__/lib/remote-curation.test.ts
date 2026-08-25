@@ -632,6 +632,50 @@ describe('managed release resolver', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it('REQ-AGENT-154 AC7: recovers missing freshness metadata from the verified cache without GitHub I/O', async () => {
+    const active: ActiveManagedRelease = {
+      schemaVersion: 1,
+      seedAbi: 1,
+      sequence: 24,
+      digest: 'd'.repeat(64),
+      repositoryId: 123456,
+      releaseId: 240,
+      releaseTag: 'release-24',
+      sourceCommit: 'a'.repeat(40),
+      runtimeDependencyHash: 'c'.repeat(64),
+      activatedAt: '2026-08-18T00:00:00.000Z',
+    };
+    const kv = createMockKV();
+    kv._store.set('state', JSON.stringify({
+      schemaVersion: 1,
+      lastCheckedAt: '2026-08-18T00:00:00.000Z',
+      lastError: 'Managed release signature is invalid',
+    }));
+    const fetcher = vi.fn();
+
+    const resolved = await resolveManagedEnvironmentRelease({
+      kv: kv as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache(active).cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: 'ab'.repeat(32),
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:04:59.000Z'),
+    });
+
+    expect(resolved).toEqual({
+      active,
+      freshness: 'degraded',
+      lastCheckedAt: '2026-08-18T00:00:00.000Z',
+      lastError: 'Managed release signature is invalid',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(JSON.parse(kv._store.get('state') ?? '{}')).toMatchObject({ active });
+  });
+
   it('does not reuse a fresh cached release from a different build hash', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'c'.repeat(64) }));
     const incompatible: ActiveManagedRelease = {
@@ -718,7 +762,7 @@ describe('managed release resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-SETUP-014 AC5: degraded diagnostics redact repository credentials', async () => {
+  it('REQ-SETUP-014 AC5 and REQ-AGENT-154 AC8: degraded diagnostics redact credentials and bound refresh retries', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
@@ -738,24 +782,43 @@ describe('managed release resolver', () => {
       lastCheckedAt: '2026-08-18T00:00:00.000Z',
       etag: '"etag"',
     }));
+    const fetcher = vi.fn(async () => { throw new Error('secret-pat failed during GitHub outage'); });
+    const cache = resolverCache(active).cache;
 
     const resolved = await resolveManagedEnvironmentRelease({
       kv: kv as unknown as KVNamespace,
       stateKey: 'state',
-      cache: resolverCache(active).cache,
+      cache,
       repository: 'acme/curation',
       repositoryId: 123456,
       token: 'secret-pat',
       publicKeyHex: 'ab'.repeat(32),
       expectedRuntimeHash: 'c'.repeat(64),
-      fetcher: vi.fn(async () => { throw new Error('secret-pat failed during GitHub outage'); }),
+      fetcher: fetcher as typeof fetch,
       now: new Date('2026-08-18T00:05:01.000Z'),
     });
 
     expect(resolved.active).toEqual(active);
     expect(resolved.freshness).toBe('degraded');
+    expect(resolved.lastCheckedAt).toBe('2026-08-18T00:05:01.000Z');
     expect(resolved.lastError).toContain('[redacted]');
     expect(resolved.lastError).not.toContain('secret-pat');
+
+    const repeated = await resolveManagedEnvironmentRelease({
+      kv: kv as unknown as KVNamespace,
+      stateKey: 'state',
+      cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: 'ab'.repeat(32),
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher: fetcher as typeof fetch,
+      now: new Date('2026-08-18T00:05:02.000Z'),
+    });
+
+    expect(repeated.freshness).toBe('degraded');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement', async () => {
