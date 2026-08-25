@@ -632,7 +632,7 @@ describe('managed release resolver', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('REQ-AGENT-154 AC7: recovers missing freshness metadata from the verified cache without GitHub I/O', async () => {
+  it('REQ-AGENT-162 AC1: recovers missing freshness metadata from the verified cache without GitHub I/O', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,
@@ -762,7 +762,7 @@ describe('managed release resolver', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-SETUP-014 AC5 and REQ-AGENT-154 AC8: degraded diagnostics redact credentials and bound refresh retries', async () => {
+  it('REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2: degraded diagnostics redact credentials and bound refresh retries', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
       seedAbi: 1,

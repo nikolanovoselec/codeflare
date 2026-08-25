@@ -4136,8 +4136,6 @@ None.
 4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
 5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
 6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
-7. Within the freshness window, a complete compatible active cache repairs missing freshness metadata without GitHub I/O. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC7: recovers missing freshness metadata from the verified cache without GitHub I/O) -->
-8. A failed refresh with a complete compatible active cache records the attempt and suppresses another GitHub refresh until the next freshness interval. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-154 AC8: degraded diagnostics redact credentials and bound refresh retries) -->
 
 **Constraints:** GitHub history pagination uses at most ten 100-record pages; validation remains memory-bounded and fail closed.
 
@@ -4146,6 +4144,29 @@ None.
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
 **Verification:** Automated Worker release-discovery tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-162: Managed-release freshness cache recovery
+
+**Intent:** A complete compatible active cache keeps session startup and status reads bounded when freshness metadata is missing or remote refresh fails.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Within the freshness window, a complete compatible active cache repairs missing freshness metadata without GitHub I/O. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-162 AC1: recovers missing freshness metadata from the verified cache without GitHub I/O) -->
+2. A failed refresh with a complete compatible active cache records the attempt and suppresses another GitHub refresh until the next freshness interval. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-014 AC5 and REQ-AGENT-162 AC2: degraded diagnostics redact credentials and bound refresh retries) -->
+
+**Constraints:** Missing or incompatible active cache data never suppresses discovery, and fresh-required setup validation remains fail closed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery)
+
+**Verification:** Automated Worker freshness-cache recovery tests
 
 **Status:** Implemented
 
