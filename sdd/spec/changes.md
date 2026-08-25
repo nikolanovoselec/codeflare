@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-25
 
-- **Mobile GitHub and Storage flip faces use independent content geometry** ([REQ-GITHUB-012](github.md#req-github-012-responsive-github-and-storage-panel-allocation) AC3 corrected; remains Implemented). Single-panel mobile and short-window layouts retain each face's measured natural height and apply the shared viewport cap only to the active face. Flipping from GitHub to R2 Storage therefore adopts Storage's own content height instead of retaining sibling geometry; flipping back restores GitHub's height. Desktop and tablet split allocation remain unchanged.
+- **Mobile GitHub and Storage flip faces use independent content geometry** ([REQ-GITHUB-012](github.md#req-github-012-responsive-github-and-storage-panel-allocation) AC3 corrected; remains Implemented). Single-panel mobile and short-window layouts retain each face's measured natural height and apply the current viewport cap only to the active face. Flipping from GitHub to R2 Storage therefore adopts Storage's own content height instead of retaining sibling geometry; flipping back restores GitHub's height, and viewport resizing refreshes the cap. Desktop and tablet split allocation remain unchanged.
 
 - **Every session image includes lock-pinned Oxlint** ([REQ-OPS-051](operations.md#req-ops-051-image-owned-oxlint-lifecycle) added as Implemented). Image-owned `oxlint` is exposed on the container-wide command path for every coding-agent selection and executed during image assembly after alternate platform bindings are pruned. Its dedicated image lock stays outside managed-seed runtime compatibility and receives cooldown-backed weekly Dependabot updates.
 

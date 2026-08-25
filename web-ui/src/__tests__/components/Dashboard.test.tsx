@@ -848,11 +848,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it('REQ-GITHUB-012: sizes each mobile flip face to its own capped content height', () => {
+    let roCb: () => void = () => {};
+    const RealRO = (globalThis as any).ResizeObserver;
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
     const origGBCR = HTMLElement.prototype.getBoundingClientRect;
     const realInnerWidth = window.innerWidth;
     const realInnerHeight = window.innerHeight;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
     (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
     (globalThis as any).cancelAnimationFrame = () => {};
     (window as any).innerWidth = 500;
@@ -869,10 +873,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(right.style.height).toBe('180px');
       fireEvent.click(screen.getByTestId('gh-stub-flip'));
       expect(right.style.height).toBe('300px');
+      (window as any).innerHeight = 600;
+      roCb();
+      expect(right.style.height).toBe('420px');
       fireEvent.click(screen.getByTestId('storage-flip-btn'));
       expect(right.style.height).toBe('180px');
     } finally {
       HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
       (globalThis as any).cancelAnimationFrame = RealCAF;
       (window as any).innerWidth = realInnerWidth;

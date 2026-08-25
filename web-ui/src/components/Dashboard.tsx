@@ -87,9 +87,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
+  const [flipViewportCap, setFlipViewportCap] = createSignal<number | null>(null);
   const activeFlipHeight = () => {
     const natural = effectiveFace() === 'github' ? githubMaxH() : storageMaxH();
-    return natural == null ? null : Math.min(natural, Math.floor(window.innerHeight * 0.75));
+    const cap = flipViewportCap();
+    return natural == null || cap == null ? null : Math.min(natural, cap);
   };
 
   // Measure a face's TRUE natural height — what it wants with all its content shown
@@ -135,6 +137,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // layout caps that small, so it would wrongly flip every tablet/laptop.
     const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
+    const viewportCap = Math.floor(window.innerHeight * 0.75);
+    setFlipViewportCap((previous) => (previous === viewportCap ? previous : viewportCap));
     // A sole Storage face needs no shared geometry. In flip mode, measure both
     // faces (including the hidden one); the active face gets its own natural,
     // viewport-capped height so flipping never retains its sibling's geometry.
