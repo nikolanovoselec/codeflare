@@ -60,6 +60,7 @@ jobs:
     name: Analyze
     if: always()
     needs: analyze
+    permissions: {}
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 1
     steps:

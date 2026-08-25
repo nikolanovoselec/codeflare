@@ -328,7 +328,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 10], ['frontend-tests', 3], ['host-tests', 4]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 12], ['frontend-tests', 3], ['host-tests', 4]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -438,7 +438,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       [source]: {
         path: source,
         statementMap: {
-          0: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
+          0: { start: { line: 1, column: 0 }, end: { line: 1, column: null } },
           1: { start: { line: 2, column: 0 }, end: { line: 2, column: 1 } },
         },
         fnMap: { 0: { name: 'covered', decl: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } }, loc: { start: { line: 1, column: 0 }, end: { line: 2, column: 1 } }, line: 1 } },

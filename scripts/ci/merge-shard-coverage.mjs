@@ -27,7 +27,9 @@ function validateHits(value, label) {
 function validateLocation(value, label) {
   if (!isRecord(value) || !isRecord(value.start) || !isRecord(value.end)) throw new Error(`${label} must be a source location`);
   for (const [name, position] of [['start', value.start], ['end', value.end]]) {
-    if (!Number.isSafeInteger(position.line) || position.line < 0 || !Number.isSafeInteger(position.column) || position.column < 0) {
+    const validColumn = (Number.isSafeInteger(position.column) && position.column >= 0)
+      || (name === 'end' && position.column === null);
+    if (!Number.isSafeInteger(position.line) || position.line < 1 || !validColumn) {
       throw new Error(`${label} ${name} position is invalid`);
     }
   }
@@ -50,10 +52,7 @@ function validateCoverageRecord(source, coverage) {
     if (JSON.stringify(mapKeys) !== JSON.stringify(counterKeys)) throw new Error(`${source} ${label} map and counter keys differ`);
     for (const key of mapKeys) {
       if (!isRecord(map[key])) throw new Error(`${source} ${label} map ${key} must be an object`);
-      if (label === 'statement') {
-        validateLocation(map[key], `${source} statement map ${key}`);
-        if (map[key].start.line < 1) throw new Error(`${source} statement map ${key} must start on a positive line`);
-      }
+      if (label === 'statement') validateLocation(map[key], `${source} statement map ${key}`);
       if (label === 'function') {
         validateLocation(map[key].decl, `${source} function declaration ${key}`);
         validateLocation(map[key].loc, `${source} function location ${key}`);
