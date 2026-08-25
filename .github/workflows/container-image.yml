@@ -451,7 +451,7 @@ jobs:
             const settings = require("/tmp/openvscode-claude-smoke-data/data/User/settings.json");
             if (settings["claudeCode.initialPermissionMode"] !== "bypassPermissions" ||
                 settings["claudeCode.allowDangerouslySkipPermissions"] !== true ||
-                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/tmp/codeflare-sidebar/claude/config") process.exit(1);
+                settings["claudeCode.environmentVariables"]?.[0]?.value !== "/run/codeflare/openvscode/sidebar/claude/config") process.exit(1);
           '
           sleep 3
           if docker logs "$container" 2>&1 | grep -E 'Unsupported platform|Extension activation failed.*[Aa]nthropic|anthropic\.claude-code.*(error|failed)'; then
