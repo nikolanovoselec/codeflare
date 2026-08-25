@@ -19,10 +19,25 @@ const host = vi.hoisted(() => ({
   terminalCreates: [] as Array<{ name: string }>,
   terminals: [] as Array<{ name: string; show(preserveFocus?: boolean): void }>,
   terminalShows: [] as Array<{ name: string; preserveFocus?: boolean }>,
+  terminalClaims: new Set<string>(),
 }));
 
 vi.mock('node:crypto', () => ({
   randomBytes: () => ({ toString: () => 'fixed-nonce-value' }),
+}));
+
+vi.mock('node:fs', () => ({
+  openSync: (path: string) => {
+    if (host.terminalClaims.has(path)) {
+      const error = new Error('claimed') as NodeJS.ErrnoException;
+      error.code = 'EEXIST';
+      throw error;
+    }
+    host.terminalClaims.add(path);
+    return 1;
+  },
+  closeSync: () => undefined,
+  unlinkSync: (path: string) => { host.terminalClaims.delete(path); },
 }));
 
 vi.mock('../src/extension-persistence.ts', () => ({
@@ -97,6 +112,8 @@ afterEach(() => {
   vi.useRealTimers();
   delete process.env.CODEFLARE_SIDEBAR_AGENT;
   delete process.env.CODEFLARE_SESSION_WORKSPACE;
+  delete process.env.CODEFLARE_OPENVSCODE_GENERATION;
+  delete process.env.CODEFLARE_RUNTIME_ROOT;
   host.commandHandler = undefined;
   host.messageHandler = undefined;
   host.disposeHandler = undefined;
@@ -108,6 +125,7 @@ afterEach(() => {
   host.terminalCreates = [];
   host.terminals = [];
   host.terminalShows = [];
+  host.terminalClaims.clear();
   persistence.activations = 0;
   persistence.deactivations = 0;
   persistence.pending = undefined;
@@ -205,6 +223,24 @@ test('REQ-IDE-048 AC4: reconnect creates exactly one managed session-agent termi
     { name: 'Codeflare Session Agent', preserveFocus: false },
   ]);
   for (const subscription of [...firstSubscriptions, ...reconnectSubscriptions]) subscription.dispose();
+});
+
+test('REQ-IDE-048 AC4: separate browser windows and server generations share one container-scoped terminal claim', () => {
+  vi.useFakeTimers();
+  process.env.CODEFLARE_SESSION_WORKSPACE = 'vscode';
+  process.env.CODEFLARE_OPENVSCODE_GENERATION = '11111111-1111-4111-8111-111111111111';
+  const firstSubscriptions: Array<{ dispose(): void }> = [];
+  const secondSubscriptions: Array<{ dispose(): void }> = [];
+
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions: firstSubscriptions } as never);
+  vi.runAllTimers();
+  host.terminals = [];
+  process.env.CODEFLARE_OPENVSCODE_GENERATION = '22222222-2222-4222-8222-222222222222';
+  activate({ extensionUri: { fsPath: '/extension' }, subscriptions: secondSubscriptions } as never);
+  vi.runAllTimers();
+
+  assert.deepEqual(host.terminalCreates, [{ name: 'Codeflare Session Agent' }]);
+  for (const subscription of [...firstSubscriptions, ...secondSubscriptions]) subscription.dispose();
 });
 
 test('REQ-IDE-048 AC6: non-VS Code workspaces never create or focus an agent terminal', () => {
