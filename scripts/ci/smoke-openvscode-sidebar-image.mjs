@@ -104,8 +104,7 @@ export function verifyOxlintRuntime({
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
-  const escapedVersion = expectedVersion.replaceAll('.', '\\.');
-  assert.match(output, new RegExp(`(?:^|\\D)${escapedVersion}(?:\\D|$)`), `Oxlint must report exact version ${expectedVersion}`);
+  assert.equal(output, `Version: ${expectedVersion}`, `Oxlint must report exact version ${expectedVersion}`);
   return output;
 }
 

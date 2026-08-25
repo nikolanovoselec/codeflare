@@ -131,10 +131,12 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     });
     assert.equal(version, 'Version: 1.77.0');
     assert.deepEqual(calls, [['/usr/local/bin/oxlint', ['--version']]]);
-    assert.throws(
-      () => verifyOxlintRuntime({ run: () => 'Version: 1.78.0\n' }),
-      /must report exact version 1\.77\.0/,
-    );
+    for (const reported of ['Version: 1.78.0\n', 'Version: 1.77.0-beta.1\n', 'Version: 1.77.0.1\n']) {
+      assert.throws(
+        () => verifyOxlintRuntime({ run: () => reported }),
+        /must report exact version 1\.77\.0/,
+      );
+    }
   });
 
   it('the packaged-image smoke starts selected launchers and requires omitted launchers to be absent', async () => {

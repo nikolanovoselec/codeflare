@@ -128,7 +128,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml::pull_request --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. Every vitest suite runs through one composite action as parallel sharded jobs: eight duration-weighted Workers groups, an unsharded Node-runtime leg, three frontend shards, and landing; host tests run alongside. <!-- @impl: .github/actions/vitest-suite/action.yml::runs --> <!-- @manual -->
+3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @manual -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
@@ -517,7 +517,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The fuzz workflow runs weekly (Sunday 04:00 UTC). <!-- @manual -->
 4. The fuzz workflow supports `workflow_dispatch`. <!-- @manual -->
 5. Root, frontend, and host fuzz dependencies use the shared lock-keyed, bounded-retry installer before their suites execute. <!-- @impl: .github/actions/install-deps/action.yml::runs --> <!-- @impl: .github/workflows/fuzz.yml::fuzz --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (shared CI components) --> <!-- @test: host/__tests__/install-deps.test.js (shared dependency installer contract) -->
-6. Managed release activation fuzzing preserves a newer compatible winner and rejects conflicting identity at the same sequence. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (Fuzz: managed release activation) -->
+6. Managed release activation fuzzing preserves a newer compatible winner. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (never replaces a newer compatible active release with an older candidate) -->
+7. Managed release activation fuzzing rejects conflicting identity at the same sequence. <!-- @impl: src/lib/remote-curation-cache.ts::activateCachedManagedRelease --> <!-- @test: src/__tests__/fuzz/runtime-config.fuzz.test.ts (rejects conflicting release identity at the same sequence) -->
 
 **Constraints:** Extended runs retain the workflow timeout; dependency installation remains bounded and retryable.
 
