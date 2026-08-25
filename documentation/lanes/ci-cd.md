@@ -27,7 +27,7 @@ Workflows covering deploy, testing, fuzzing, penetration testing, stress testing
 
 ### Dependabot Configuration
 
-Dependabot runs weekly against `develop` for seven npm directories: `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing`, and `/openvscode/agent-sidebar`. It also covers Docker images and GitHub Actions. Every ecosystem declares a `cooldown` (7 days default, 30 for majors — 7 is zizmor's floor for `default-days`): the waiting period gives the ecosystem time to revoke a malicious release before automation proposes it. <!-- @impl: .github/dependabot.yml -->
+Dependabot runs weekly against `develop` for seven npm directories: `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing`, and `/openvscode/agent-sidebar`. It also covers Docker images and GitHub Actions. Every npm ecosystem declares a `cooldown` of 7 days by default and 30 days for majors. Docker and GitHub Actions use their supported seven-day default cooldown. The waiting period gives the ecosystem time to revoke a malicious release before automation proposes it. <!-- @impl: .github/dependabot.yml -->
 
 The root npm lane owns application Wrangler. Container Image instead uses the dedicated `/.github/npm-tools/wrangler` manifest and committed lock, installed with `npm ci`; its separate Dependabot lane owns that privileged workflow pin. Stress Test no longer installs Wrangler or mutates deployment state.
 

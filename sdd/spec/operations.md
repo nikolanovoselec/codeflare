@@ -128,7 +128,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. PR Checks runs for pull requests to main or develop, pushes to main, and manual dispatches. <!-- @impl: .github/workflows/test.yml::pull_request --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) -->
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
-3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @manual -->
+3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
 5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
