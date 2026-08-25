@@ -106,6 +106,7 @@ jobs:
       webui: ${{ steps.filter_fallback.outputs.webui || steps.filter.outputs.webui }}
       landing: ${{ steps.filter_fallback.outputs.landing || steps.filter.outputs.landing }}
       host: ${{ steps.filter_fallback.outputs.host || steps.filter.outputs.host }}
+      pi: ${{ steps.filter_fallback.outputs.pi || steps.filter.outputs.pi }}
       ide: ${{ steps.filter_fallback.outputs.ide || steps.filter.outputs.ide }}
       workflows: ${{ steps.filter_fallback.outputs.workflows || steps.filter.outputs.workflows }}
     steps:
@@ -167,6 +168,18 @@ jobs:
               - *shared
               - 'landing/**'
               - 'src/lib/design-ready.ts'
+            pi:
+              - '.github/workflows/test.yml'
+              - '.github/actions/install-deps/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'preseed/agents/pi/**'
+              - 'src/lib/agent-seed.generated.ts'
+              - 'scripts/agent-seed-core.mjs'
+              - 'scripts/materialize-agent-seed.mjs'
+              - 'scripts/measure-pi-runtime-context.mjs'
+              - 'scripts/pi-prompt-contract.mjs'
+              - 'scripts/verify-pi-prompt.mjs'
             ide:
               - *shared
               - 'host/package.json'
@@ -735,7 +748,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.host == 'true'
+      needs.changes.outputs.pi == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
@@ -789,6 +802,11 @@ jobs:
                 > "$RUNNER_TEMP/pi-runtime-context-$mode.json"
             )
           done
+
+      - name: Verify real Pi runtime reports
+        env:
+          CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs
 
       - name: Upload Pi prompt reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

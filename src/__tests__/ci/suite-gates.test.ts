@@ -224,6 +224,25 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(matchesAny('documentation/lanes/container.md', idePatterns)).toBe(false);
   });
 
+  it('routes every real Pi runtime verifier input through its dedicated owner', () => {
+    const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
+      jobs: { changes: { steps: Array<{ id?: string; with?: { filters?: string } }> } };
+    };
+    const source = workflow.jobs.changes.steps.find((step) => step.id === 'filter')?.with?.filters;
+    const filters = parseYaml(source!) as Record<string, unknown[]>;
+    const piPatterns = flattenPatterns(filters.pi);
+    for (const path of [
+      'preseed/agents/pi/package-lock.json',
+      'preseed/agents/pi/test/runtime-projection.test.mjs',
+      'src/lib/agent-seed.generated.ts',
+      'scripts/materialize-agent-seed.mjs',
+      'scripts/measure-pi-runtime-context.mjs',
+      'scripts/pi-prompt-contract.mjs',
+      'scripts/verify-pi-prompt.mjs',
+    ]) expect(matchesAny(path, piPatterns), `${path} must select pi-prompt`).toBe(true);
+    expect(matchesAny('documentation/lanes/container.md', piPatterns)).toBe(false);
+  });
+
   it('audits production lockfiles without depending on restored node_modules trees', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string }> } };
@@ -465,26 +484,38 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(duplicate.stderr).toContain('expected exactly one coverage report for shard-2');
 
     const partialRoot = join(work, 'partial-coverage');
+    const partialReport = join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json');
     mkdirSync(join(partialRoot, 'shard-1', 'coverage'), { recursive: true });
-    const malformed = coverage(1, 0);
-    malformed[source].s[0] = '1' as unknown as number;
-    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(malformed));
-    const invalid = spawnSync(process.execPath, [
-      COVERAGE_MERGER, partialRoot, join(work, 'invalid'), '1', 'shard', '0', '0', '0', '0',
-    ], { encoding: 'utf8' });
-    expect(invalid.status).toBe(1);
-    expect(invalid.stderr).toContain('statement counter 0 must be a finite non-negative number');
+    type MutableCoverage = {
+      statementMap: Record<string, { start: { line: number; column: number }; end: { line: number; column: number } }>;
+      fnMap?: Record<string, { decl: { start: { line: number; column: number }; end: { line: number; column: number } }; loc: { start: { line: number; column: number }; end: { line: number; column: number } } }>;
+      branchMap: Record<string, { locations: Array<{ start: { line: number; column: number }; end: { line: number; column: number } }> }>;
+      s: Record<string, number>;
+      f: Record<string, number>;
+      b: Record<string, number[]>;
+    };
+    const malformedCases: Array<[string, (record: MutableCoverage) => void, string]> = [
+      ['counter-type', (record) => { record.s['0'] = '1' as unknown as number; }, 'statement counter 0 must be a finite non-negative number'],
+      ['missing-map', (record) => { delete record.fnMap; }, 'function map and counters must be objects'],
+      ['key-mismatch', (record) => { delete record.s['1']; }, 'statement map and counter keys differ'],
+      ['statement-location', (record) => { record.statementMap['0'].start.column = -1; }, 'statement map 0 start position is invalid'],
+      ['function-location', (record) => { record.fnMap!['0'].loc.start.line = -1; }, 'function location 0 start position is invalid'],
+      ['branch-locations', (record) => { record.branchMap['0'].locations = []; }, 'branch map 0 must have locations'],
+      ['branch-cardinality', (record) => { record.b['0'] = [1]; }, 'branch counter 0 must match its locations'],
+      ['branch-hit', (record) => { record.b['0'][0] = -1; }, 'branch counter 0[0] must be a finite non-negative number'],
+    ];
+    for (const [name, mutate, message] of malformedCases) {
+      const malformed = coverage(1, 0);
+      mutate(malformed[source] as unknown as MutableCoverage);
+      writeFileSync(partialReport, JSON.stringify(malformed));
+      const invalid = spawnSync(process.execPath, [
+        COVERAGE_MERGER, partialRoot, join(work, `invalid-${name}`), '1', 'shard', '0', '0', '0', '0',
+      ], { encoding: 'utf8' });
+      expect(invalid.status, name).toBe(1);
+      expect(invalid.stderr, name).toContain(message);
+    }
 
-    const missingMap = coverage(1, 0);
-    delete (missingMap[source] as { fnMap?: unknown }).fnMap;
-    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(missingMap));
-    const invalidMap = spawnSync(process.execPath, [
-      COVERAGE_MERGER, partialRoot, join(work, 'invalid-map'), '1', 'shard', '0', '0', '0', '0',
-    ], { encoding: 'utf8' });
-    expect(invalidMap.status).toBe(1);
-    expect(invalidMap.stderr).toContain('function map and counters must be objects');
-
-    writeFileSync(join(partialRoot, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+    writeFileSync(partialReport, JSON.stringify(coverage(1, 0)));
     const belowFloor = spawnSync(process.execPath, [
       COVERAGE_MERGER, partialRoot, join(work, 'below-floor'), '1', 'shard', '80', '80', '80', '80',
     ], { encoding: 'utf8' });

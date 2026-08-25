@@ -19,7 +19,15 @@ permissions: read-all
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: worker
+            config: ./.github/codeql/codeql-worker.yml
+          - shard: container-ui
+            config: ./.github/codeql/codeql-container-ui.yml
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     permissions:
@@ -38,10 +46,24 @@ jobs:
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           languages: javascript-typescript
-          config-file: ./.github/codeql/codeql-config.yml
+          config-file: ${{ matrix.config }}
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          category: /language:javascript-typescript/${{ matrix.shard }}
+
+  gate:
+    name: Analyze
+    if: always()
+    needs: analyze
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 1
+    steps:
+      - name: Require every CodeQL shard
+        env:
+          RESULT: ${{ needs.analyze.result }}
+        run: test "$RESULT" = success

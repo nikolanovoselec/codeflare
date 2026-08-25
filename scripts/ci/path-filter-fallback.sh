@@ -16,6 +16,6 @@ changed_files="$RUNNER_TEMP/changed-files.txt"
 git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$changed_files"
 printf '::warning::Path-filter API failed; selecting every lane from the verified local %s..%s diff (%s files).\n' \
   "$BASE_SHA" "$HEAD_SHA" "$(wc -l < "$changed_files")"
-for lane in backend webui landing host ide workflows; do
+for lane in backend webui landing host pi ide workflows; do
   printf '%s=true\n' "$lane" >> "$GITHUB_OUTPUT"
 done

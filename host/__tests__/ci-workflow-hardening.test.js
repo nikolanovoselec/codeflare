@@ -19,6 +19,7 @@ const pentest = load('pentest.yml');
 const promotion = load('promotion-source.yml');
 const release = load('sign-release.yml');
 const prChecks = load('test.yml');
+const coverageAction = parseYaml(readFileSync(join(ROOT, '.github', 'actions', 'merge-coverage', 'action.yml'), 'utf8'));
 
 const step = (job, name) => job.steps.find((candidate) => candidate.name === name);
 

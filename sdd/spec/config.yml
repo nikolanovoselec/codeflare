@@ -44,6 +44,7 @@ test_globs:
   - "src/__tests__/**/*.test.{ts,js,tsx,jsx,mjs}"
   - "src/__tests__/**/*.spec.{ts,js,tsx,jsx,mjs}"
   - "host/__tests__/**/*.test.{js,mjs}"
+  - "preseed/agents/pi/test/**/*.test.mjs"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
   - "landing/src/__tests__/**/*.test.{ts,tsx}"
