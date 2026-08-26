@@ -32,7 +32,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Permit a bounded unauthenticated bootstrap window | Setup routes relax authentication and CSRF until `setup:complete` reaches KV, enabling self-hosted configuration before Cloudflare Access exists. | Security | Active |
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Allow credentialed CORS through boundary-checked suffix patterns | `matchesPattern()` accepts configured suffixes such as `.workers.dev` with credentials while enforcing domain boundaries and leaving JWT validation as the primary gate. | Security | Active |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | Use a non-atomic KV lock for one-time setup | Setup reads and then writes `setup:complete` in KV because its Cloudflare API steps are idempotent and a rare race causes redundant calls rather than corrupt state. | Security | Active |
-| [AD13](#ad13-per-user-scoped-r2-tokens) | Issue bucket-scoped R2 credentials per user | Each container receives an AES-256-GCM-cached R2 token limited to its user's bucket, reducing cross-user exposure despite requiring token-edit permission. | Security | Active |
+| [AD13](#ad13-per-user-scoped-r2-tokens) | Issue bucket-scoped R2 credentials per user | Per-user R2 tokens remain bucket-scoped; [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces direct container delivery only under strict interception. | Security | Partially superseded |
 | ~~[AD14](#ad14-never-auto---resync-on-bisync-failure)~~ | ~~Replace the ban on automatic bisync resync~~ | [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) permits baseline re-establishment only after bounded recovery fails, while preserving deletion-safety concerns. | Storage | Superseded |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | Allow arbitrary bounded tab command strings | `TabConfigSchema` accepts command strings up to 200 characters because users already control a root shell inside their own ephemeral sandbox. | UI/Frontend | Active |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | Retain the large entrypoint shell implementation | `entrypoint.sh` keeps its accumulated orchestration logic because rewriting production-tested migration, sync, PTY, and shutdown paths risks reviving solved defects. | Architecture | Active |
@@ -106,7 +106,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) | Retain the Vault worker key and open ready Vaults directly | The grafted Vault worker keeps its AES key until natural termination, and a green Vault control opens through the bootstrap hop without redundant readiness checks. | Architecture | Active |
 | [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Offer strict Gateway egress as a default-off boundary | An enterprise wizard toggle wires a fail-closed catch-all egress controller through the Workers VPC binding, applying customer Gateway policy to container web traffic. | Architecture, Security | Active |
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Exempt own-account platform traffic from strict egress | Own-account platform traffic bypasses Gateway only after account-scoped matching, while EgressController preserves fail-closed direct-internet routing. | Architecture, Security | Active |
-| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing, WebSocket bridging, and props-based strict state remain; [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) moved browser-token injection to its per-host interceptor. | Architecture, Security | Partially superseded |
+| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing, WebSocket bridging, and props-based strict state remain; [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces deployment-wide signer authority. | Architecture, Security | Partially superseded |
 | [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Compare bisync state with server modification times | Both bisync paths use `--use-server-modtime` with fast listings and 64 checkers, eliminating per-object HEAD storms while accepting R2 upload time as the conflict key. | Storage | Active |
 | [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode controls deployment-wide R2 SSE-C policy | The enterprise-only KV toggle controls R2 SSE-C policy, separating deployment-wide encryption mode from the verified migration state machine. | Architecture, Security, Storage | Active |
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Bake Governed Mode seed files for checksum delta sync | Governed Mode lays an image-baked agent seed down before checksum-based R2 sync, avoiding full seed downloads while preserving user deltas. | Storage | Active |
@@ -161,6 +161,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
 | [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) | Use delivery-only review ingress with joint completion | Push and PR creation launch automatically, clone alone asks for consent, and acknowledgement waits for reviewer plus exact-head CI triage. | Agents, Architecture, Build / Container | Active |
+| [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
 ---
 
 ## Decisions
@@ -396,7 +397,7 @@ Read `setup:complete`, check if false, perform setup, write true. Not atomic -- 
 
 **Category:** Security
 
-**Status:** Accepted (date not recorded)
+**Status:** Partially superseded by [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for direct credential delivery under strict interception. Bucket scope, creation, caching, verification, and revocation remain active.
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -407,7 +408,7 @@ Replaces previous shared credential model. Token lifecycle:
 1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket
 2. **Caching**: Token data cached in KV as `r2token:{email}` (encrypted via AES-256-GCM) -- survives container restarts
 3. **Verification**: `verifyTokenExists()` validates cached tokens via `GET /tokens/{id}` before use. Only 404 invalidates; transient errors assume valid (prevents API blips from causing rclone 401s)
-4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config
+4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config. [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces the env/rclone leg with Worker-side props when strict interception is active.
 5. **Revocation**: `deleteScopedR2Token()` on user deletion
 
 **Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.
@@ -2608,7 +2609,7 @@ own-account R2 (the `.r2.cloudflarestorage.com` suffix requires the leading dot,
 
 **Category:** Architecture, Security
 
-**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container): browser-token injection only. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
+**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) for browser-token injection and [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for R2 signer authority. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
 
 **Context:** AD86 narrowed strict egress to direct-internet traffic and added an account-scoped exemption, but its first deploy left three problems on `enterprise-integration`:
 
@@ -3949,5 +3950,27 @@ Reviewer calls start together and exact-head CI starts immediately afterward. Ac
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerOutputPath -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ci_completion_line_for_current_head -->
+
+---
+
+### AD143: Strict R2 interception signs only with the bound user's scoped credential
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-08-26). Supersedes [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) only for R2 signer authority and [AD13](#ad13-per-user-scoped-r2-tokens) only for strict-mode container delivery.
+
+**Context:** AD13 created one Object Read and Write token scoped to each user's exact bucket. AD87 later removed real R2 credentials from strict-mode containers, but its first implementation re-signed intercepted requests with deployment-wide Worker credentials. Account-host validation did not preserve the per-user bucket boundary, so strict interception widened data-plane authority while claiming to contain it.
+
+**Decision:** The Container Durable Object passes its existing memory-only scoped credential and bound bucket to `EgressController` through Worker-side props. Path-style and virtual-hosted own-account R2 requests must identify that exact bucket. Another bucket or missing scoped credentials fails before any upstream send. The controller constructs its signer only from the scoped pair and never falls back to deployment-wide R2 credentials. A validated restart payload that carries scoped credentials restores the complete pair atomically before interception wiring after a Durable Object wake.
+
+Placeholder credentials remain inside the strict container. Streaming request bodies, SSE-C headers, Governed Mode, account-scoped direct routing, WebSocket bridging, and strict state resolved through props remain as AD87 decided.
+
+**Consequences:** Strict interception retains AD13's user-bucket authority without exposing the usable credential to root inside the container. Durable Object reconstruction depends on the existing start payload to restore credentials in memory; a missing pair fails closed instead of silently acquiring broader authority.
+
+**Related REQs:** [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport).
+
+<!-- @impl: src/container/container-interception.ts::strictEgress -->
+<!-- @impl: src/container/container-router.ts::handleSetBucketName -->
+<!-- @impl: src/egress-controller.ts::EgressController -->
 
 ---

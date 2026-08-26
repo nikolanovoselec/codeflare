@@ -142,19 +142,19 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Responsibility:** Force otherwise-unclaimed enterprise direct-internet traffic through the customer's Cloudflare Gateway boundary.
 
-**Inputs:** Catch-all intercepted requests, account identity, strict-egress state, and the VPC egress binding.
+**Inputs:** Catch-all intercepted requests, account identity, bound user bucket, bucket-scoped R2 credentials, strict-egress state, and the VPC egress binding.
 
-**Outputs:** Gateway-routed traffic, direct own-account platform traffic, bridged WebSockets, or fail-closed boundary errors.
+**Outputs:** Gateway-routed traffic, scoped own-account platform traffic, bridged WebSockets, or fail-closed boundary errors.
 
-**State owned:** No durable state; strict mode and account identity arrive as Container DO props.
+**State owned:** No durable state; strict mode, account identity, bound bucket, and memory-only scoped R2 credentials arrive as Container DO props. The controller validates exact R2 bucket identity and owns R2 re-signing with that scoped pair.
 
-**Does not own:** Customer Gateway policy, host-specific credential injection, or own-account service authorization.
+**Does not own:** Customer Gateway policy, host-specific credential injection outside R2, or non-R2 own-account service authorization.
 
 **Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
 
 **Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport)
 
-**Decisions:** [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props)
+**Decisions:** [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props), [AD143](../decisions/README.md#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential)
 
 **Detailed documentation:** [Security](security.md#strict-gateway-egress-enterprise-mode), [Configuration](configuration.md), [Deployment](deployment.md#strict-gateway-egress-enterprise-mode)
 

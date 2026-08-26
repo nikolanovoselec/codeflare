@@ -136,6 +136,77 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(host.envVars.GIT_CLONE_REF).toBe('develop');
   });
 
+  it('restores scoped R2 credentials from the validated restart payload after a Durable Object wake', async () => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _r2AccessKeyId: null,
+      _r2SecretAccessKey: null,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: 'scoped-access',
+        r2SecretAccessKey: 'scoped-secret',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(host._r2AccessKeyId).toBe('scoped-access');
+    expect(host._r2SecretAccessKey).toBe('scoped-secret');
+  });
+
+  it('rejects invalid restart credentials without replacing the in-memory scoped pair', async () => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _r2AccessKeyId: 'prior-access',
+      _r2SecretAccessKey: 'prior-secret',
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: '',
+        r2SecretAccessKey: 'replacement-secret',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(400);
+    expect(host._r2AccessKeyId).toBe('prior-access');
+    expect(host._r2SecretAccessKey).toBe('prior-secret');
+  });
+
+  it.each([
+    { r2AccessKeyId: 'replacement-access' },
+    { r2SecretAccessKey: 'replacement-secret' },
+  ])('rejects a partial restart credential pair without mutating prior credentials: %o', async (credentials) => {
+    const host = makeHost({
+      _bucketName: 'b',
+      _r2AccessKeyId: 'prior-access',
+      _r2SecretAccessKey: 'prior-secret',
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({ bucketName: 'b', ...credentials }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(400);
+    expect(host._r2AccessKeyId).toBe('prior-access');
+    expect(host._r2SecretAccessKey).toBe('prior-secret');
+  });
+
   // REQ-ENTERPRISE-005: the first-config persistence path must store an EMPTY-STRING
   // default route/reasoning (the "reasoning off / first-route fallback" reset), not swallow
   // it the way a truthiness guard would - mirroring applyPrefsOnRestart's empty-reset
