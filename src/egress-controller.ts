@@ -64,6 +64,16 @@ interface EgressProps {
   strict?: boolean;
 }
 
+function requestedR2Bucket(url: URL, accountId: string | undefined): string | undefined {
+  const account = accountId?.trim().toLowerCase();
+  if (!account) return undefined;
+  const accountHost = `${account}.r2.cloudflarestorage.com`;
+  const host = url.hostname.trim().toLowerCase().replace(/\.$/, '');
+  if (host === accountHost) return url.pathname.split('/')[1];
+  const suffix = `.${accountHost}`;
+  return host.endsWith(suffix) ? host.slice(0, -suffix.length) : undefined;
+}
+
 export class EgressController extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const props = (this.ctx as unknown as { props?: EgressProps }).props;
@@ -88,7 +98,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
       ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
       : null;
     if (ownR2) {
-      const requestedBucket = url.pathname.split('/')[1];
+      const requestedBucket = requestedR2Bucket(url, accountId);
       if (!props.bucket || requestedBucket !== props.bucket) {
         return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
       }

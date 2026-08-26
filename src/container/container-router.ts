@@ -164,10 +164,29 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, sessionMode, sessionWorkspace, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
+    const validationError = validateBucketNameInput({
+      bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
+      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace,
+    });
+    if (validationError) {
+      return new Response(JSON.stringify({ error: validationError }), {
+        status: 400,
+        headers: JSON_HEADERS,
+      });
+    }
+
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
     // But always store sessionId so collectMetrics/onStop can find the KV entry
     // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
     if (host._bucketName) {
+      // Scoped credentials live only in memory. Restore them from each validated start
+      // payload before interception is wired after a Durable Object wake.
+      const r2CredentialsChanged =
+        (r2AccessKeyId !== undefined && r2AccessKeyId !== host._r2AccessKeyId)
+        || (r2SecretAccessKey !== undefined && r2SecretAccessKey !== host._r2SecretAccessKey);
+      if (r2AccessKeyId !== undefined) host._r2AccessKeyId = r2AccessKeyId;
+      if (r2SecretAccessKey !== undefined) host._r2SecretAccessKey = r2SecretAccessKey;
+
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
@@ -185,24 +204,12 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         await host.ctx.storage.put('sleepAfter', sleepAfterPref);
       }
 
-      if (prefsChanged) {
+      if (prefsChanged || r2CredentialsChanged) {
         updateEnvVars(host);
       }
 
       return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
         status: 409,
-        headers: JSON_HEADERS,
-      });
-    }
-
-    // FIX-15: Validate inputs
-    const validationError = validateBucketNameInput({
-      bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace,
-    });
-    if (validationError) {
-      return new Response(JSON.stringify({ error: validationError }), {
-        status: 400,
         headers: JSON_HEADERS,
       });
     }

@@ -128,7 +128,30 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('rejects another bucket in the same account before signing or forwarding', async () => {
+  it('accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
+    const res = await controller.fetch(new Request('https://bound-bucket.acc.r2.cloudflarestorage.com/key'));
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalled();
+    const signed = fetchSpy.mock.calls[0][0] as Request;
+    expect(signed.headers.get('authorization')).toContain('Credential=user-r2-key/');
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects another virtual-hosted bucket in the same account before signing or forwarding', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
+    const res = await controller.fetch(new Request('https://other-bucket.acc.r2.cloudflarestorage.com/key'));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_R2_BUCKET_FORBIDDEN');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects another path-style bucket in the same account before signing or forwarding', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
     const res = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/other-bucket/key'));
