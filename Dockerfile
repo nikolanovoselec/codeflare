@@ -163,7 +163,7 @@ RUN ZOXIDE_VERSION="0.10.0" && \
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
 RUN YAZI_VERSION="26.8.15" && \
-    YAZI_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    YAZI_SHA256="a6702034790afcdbb546b73b288c9b184a751fa3f2f17f0ad4d26fc302fb8d45" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
@@ -212,7 +212,7 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # replaces both runtime copies. Drop each overlay after its upstream artifact
 # contains at least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.133.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
     CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
     CODE_SERVER_CODE_VERSION="1.133.0" && \
     CODE_SERVER_VSCODE_COMMIT="a5b500951314efd502d07465bd138dfbd714a960" && \
@@ -480,8 +480,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.3
-ARG UV_X86_64_LINUX_SHA256=600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101
+ARG UV_VERSION=0.12.5
+ARG UV_X86_64_LINUX_SHA256=68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
