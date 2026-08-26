@@ -124,7 +124,7 @@ function ghPoison(cwd) {
 function writeTranscript(cwd, lines, { ciResult = true } = {}) {
   const path = join(cwd, 'transcript.jsonl');
   const withCi = [...lines];
-  if (ciResult && lines.some((line) => line.includes(TRIAGE_HEADER))) {
+  if (ciResult && (ciResult === 'always' || lines.some((line) => line.includes(TRIAGE_HEADER)))) {
     const head = currentHead(cwd);
     const terminal = JSON.stringify({
       type: 'custom_message',
@@ -1073,27 +1073,23 @@ describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
     );
   });
 
-  it('prompts on branch navigation and acknowledges the exact head after the user declines', () => {
+  it('keeps branch navigation inert and preserves an unused bypass sentinel', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA'));
     const prompt = runReminder(cwd, 'git switch review', binDir);
     assert.equal(prompt.status, 0);
-    assert.match(prompt.stdout, /FIRST use AskUserQuestion/);
-    assert.match(prompt.stdout, /Acknowledge without review/);
+    assert.equal(prompt.stdout, '');
 
     const bypassFile = join(cwd, 'review-bypass');
     writeFileSync(bypassFile, '');
     const transcript = writeTranscript(cwd, [COMMAND_LINE('git switch review')]);
-    const declined = runHook(cwd, { transcriptPath: transcript, bypassFile, binDir });
+    const inert = runHook(cwd, { transcriptPath: transcript, bypassFile, binDir });
 
-    assert.equal(declined.status, 0);
-    assert.equal(declined.stdout, '');
-    assert.equal(existsSync(bypassFile), false);
-    assert.equal(
-      readFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), 'utf8').trim(),
-      spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
-    );
+    assert.equal(inert.status, 0);
+    assert.equal(inert.stdout, '');
+    assert.equal(existsSync(bypassFile), true);
+    assert.equal(ackOf(cwd), '');
   });
 
   it('preserves the sentinel when no PR exists for the current branch', () => {
@@ -1528,7 +1524,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b3'),
       // Terminal records may have reached the transcript while the root model
       // was already running, before their native notifications reached its context.
-    ]);
+    ], { ciResult: 'always' });
     const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(deliveryTurn.status, 0);
     assert.equal(deliveryTurn.stdout, '',
@@ -1722,7 +1718,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b2'),
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
-    ]);
+    ], { ciResult: 'always' });
 
     const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(deliveryTurn.stdout, '',
@@ -1754,7 +1750,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
     ];
-    const t = writeTranscript(cwd, lanes);
+    const t = writeTranscript(cwd, lanes, { ciResult: 'always' });
 
     runHook(cwd, { transcriptPath: t, binDir });
     assert.notEqual(ackOf(cwd), headSha,
@@ -1812,7 +1808,7 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_DONE_LINE('toolu_b2'),
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_b3'),
       LANE_BASH_DONE_LINE('toolu_b3'),
-    ]);
+    ], { ciResult: 'always' });
     const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(deliveryTurn.status, 0);
     assert.equal(deliveryTurn.stdout, '',

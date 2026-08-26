@@ -520,6 +520,7 @@ async function registerFixture(
       observeQuery?.(repo, target);
       return fixture.pr;
     },
+    headRetryDelaysMs: [0],
   });
   return harness;
 }
@@ -990,6 +991,29 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.reviewPrompts).toEqual([]);
       expect(harness.sent).toEqual([]);
     }
+  });
+
+  it('REQ-AGENT-120/REQ-AGENT-121/REQ-AGENT-132: repeats cancelled clone consent until launch', async () => {
+    const fixture = makeReviewFixture();
+    const parent = dirname(fixture.repo);
+    const harness = await registerFixture(fixture, parent);
+    harness.setReviewDecisions([undefined, 'launch']);
+    const command = `git clone --branch pi https://github.com/owner/repo.git ${fixture.repo}`;
+    appendSession(fixture.sessionFile,
+      assistantTool('clone-cancelled', 'bash', { command }),
+      toolResult('clone-cancelled', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command, 'clone-cancelled'));
+    expect(harness.reviewPrompts).toHaveLength(1);
+    expect(harness.sent).toEqual([]);
+
+    await harness.emit('agent_settled');
+    expect(harness.reviewPrompts).toHaveLength(2);
+    expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
+      boundaryToolUseId: 'clone-cancelled',
+      head: fixture.head,
+    }));
   });
 
   it('REQ-AGENT-120/REQ-AGENT-121: launches review and CI when clone consent is accepted', async () => {

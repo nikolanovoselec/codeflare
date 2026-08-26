@@ -491,7 +491,7 @@ describe('Pi round-limit no-op', () => {
 });
 
 describe('native Pi transcript review facts', () => {
-  it('REQ-AGENT-055/REQ-AGENT-063: correlates reviewers after the latest executable git or gh candidate', async () => {
+  it('REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
@@ -505,13 +505,13 @@ describe('native Pi transcript review facts', () => {
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.boundary).toEqual({
-      toolUseId: 'push-new',
-      command: 'gh pr update-branch 42',
+      toolUseId: 'push-old',
+      command: 'git push origin pi',
       toolName: 'bash',
-      toolArguments: { command: 'gh pr update-branch 42' },
+      toolArguments: { command: 'git push origin pi' },
     });
     expect(facts.lanes).toEqual({
-      'code-reviewer': { state: 'missing' },
+      'code-reviewer': { state: 'terminal', toolUseId: 'code-old' },
       'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'in-flight', toolUseId: 'doc-new' },
     });

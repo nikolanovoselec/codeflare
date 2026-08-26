@@ -907,7 +907,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "",
       "Submit its returned public `ci-monitor` subagent request unchanged exactly once.",
       "",
-      "CI is independent of review acknowledgement.",
+      "CI success, failure, or timeout is terminal evidence for joint triage; acknowledgement waits for that exact-head result.",
     ].join("\n"));
   }
   const lastLaunchSection = sections.length - 1;

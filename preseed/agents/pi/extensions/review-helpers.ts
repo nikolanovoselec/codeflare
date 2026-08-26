@@ -474,7 +474,7 @@ function ciTerminalResult(
   expected: { repository: string; prNumber: number; head: string },
 ): CiTerminalResult | undefined {
   const result = /^CI_RESULT\s+(success|failure|timeout)\s*$/mi.exec(text)?.[1] as CiTerminalResult | undefined;
-  const identity = /^pr=(\d+)\s+head=([0-9a-f]{40})\s+repo=(\S+)(?:\s+.*)?$/mi.exec(text);
+  const identity = /^pr=(\d+)\s+head=([0-9a-f]{40})\s+repo=([^\s<]+)(?:\s+[^<]*)?(?:<|$)/mi.exec(text);
   return result
     && Number(identity?.[1]) === expected.prNumber
     && identity?.[2] === expected.head
@@ -715,9 +715,13 @@ export function reviewTranscriptFacts(input: {
 
         const nativeTerminal = later.slice(entryIndex + 1)
           .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
-          .find((candidate) => candidate.value?.toolUseId === call.id
-            && candidate.value.succeeded
-            && ciTerminalResult(candidate.value.text, ci) !== undefined);
+          .find((candidate) => {
+            const notification = candidate.value;
+            return notification !== undefined
+              && notification.toolUseId === call.id
+              && notification.succeeded
+              && ciTerminalResult(notification.text, ci) !== undefined;
+          });
         const launchResult = later.find((candidate) => candidate.type === "message"
           && candidate.message?.role === "toolResult"
           && candidate.message?.toolCallId === call.id

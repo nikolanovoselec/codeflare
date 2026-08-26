@@ -176,9 +176,10 @@ describe('git-push-review-reminder.sh — structural shell boundaries', () => {
     it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
       const cwd = makeFixture();
       withSdd(cwd);
-      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      const r = runHook(cwd, command, fakeGhFails(cwd));
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
     });
   }
 });
@@ -428,10 +429,10 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
     assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
   });
 
-  it('classifies read-only git commands from ctx_batch_execute', () => {
+  it('keeps read-only git commands from ctx_batch_execute inert', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const binDir = fakeGhFails(cwd);
     const r = runHookWithInput(
       cwd,
       {
@@ -445,13 +446,14 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
   });
 
-  it('classifies git commit from ctx_execute regardless of message text', () => {
+  it('keeps git commit from ctx_execute inert regardless of message text', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const binDir = fakeGhFails(cwd);
     const r = runHookWithInput(
       cwd,
       {
@@ -463,7 +465,8 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
   });
 });
 

@@ -1535,13 +1535,10 @@ fi
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
   CI_COMPLETE_LINE=$(ci_completion_line_for_current_head 2>/dev/null || true)
-  if [ -z "$CI_COMPLETE_LINE" ]; then
-    emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: reviewers are complete, but exact-head CI has not returned CI_RESULT success, failure, or timeout. Wait for that terminal result before publishing the joint triage table."
-  fi
-  if [ -n "$ROUND_COMPLETE_LINE" ] && [ "$CI_COMPLETE_LINE" -gt "$ROUND_COMPLETE_LINE" ] 2>/dev/null; then
+  if [ -n "$CI_COMPLETE_LINE" ] && [ -n "$ROUND_COMPLETE_LINE" ] && [ "$CI_COMPLETE_LINE" -gt "$ROUND_COMPLETE_LINE" ] 2>/dev/null; then
     ROUND_COMPLETE_LINE=$CI_COMPLETE_LINE
   fi
-  if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
+  if [ -n "$CI_COMPLETE_LINE" ] && [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     if ! write_acknowledgement; then
       emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
     fi
@@ -1580,6 +1577,9 @@ if all_required_lanes_completed_for_current_head; then
     # already running. Ending this turn is what lets their native notifications
     # become root-visible before any verdict can be demanded.
     exit 0
+  fi
+  if [ -z "$CI_COMPLETE_LINE" ]; then
+    emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: reviewers are complete, but exact-head CI has not returned CI_RESULT success, failure, or timeout. Wait for that terminal result before publishing the joint triage table."
   fi
   # The demand must never cost more than it protects. Five unanswered demands
   # would otherwise leave this head unacked forever, and a wedged checkpoint is
