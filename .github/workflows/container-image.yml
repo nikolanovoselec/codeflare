@@ -285,7 +285,7 @@ jobs:
       # The docker-container driver supports the registry-backed cache shared
       # across deployment refs. GitHub's `type=gha` cache is ref-scoped, while
       # this registry cache remains available to later deployment runs.
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         if: steps.reuse.outputs.reused != 'true'
 
       - name: Build container image
@@ -633,7 +633,7 @@ jobs:
 
       - name: Install locked Trivy
         if: steps.reuse.outputs.reused != 'true'
-        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
           version: v0.70.0
           cache: true

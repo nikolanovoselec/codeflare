@@ -66,14 +66,6 @@ function report(results = [
         PkgPath: 'usr/local/lib/node_modules/npm/node_modules/ip-address/package.json',
         PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.1.0' },
       }),
-      ipAddressVulnerability('10.2.0', {
-        PkgPath: 'opt/code-server/lib/vscode/node_modules/ip-address/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
-      }),
-      undiciVulnerability('7.28.0', {
-        PkgPath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/undici@7.28.0' },
-      }),
     ],
   },
 ]) {
@@ -86,10 +78,8 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     assert.deepEqual(result.accepted, [
       'Node.js@5.0.5',
       'Node.js@10.1.0',
-      'Node.js@10.2.0',
-      'Node.js@7.28.0',
     ]);
-    assert.equal(result.evidence.length, 4);
+    assert.equal(result.evidence.length, 2);
   });
 
   it('reports scanner package identities for accepted reviewed findings', () => {
@@ -113,8 +103,6 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       assert.deepEqual(identities, [
         `${prefix}CVE-2026-69152 brace-expansion 5.0.5 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json; purl=pkg:npm/brace-expansion@5.0.5]`,
         `${prefix}CVE-2026-69192 ip-address 10.1.0 at Node.js [path=usr/local/lib/node_modules/npm/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.1.0]`,
-        `${prefix}CVE-2026-69192 ip-address 10.2.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/ip-address/package.json; purl=pkg:npm/ip-address@10.2.0]`,
-        `${prefix}CVE-2026-13697 undici 7.28.0 at Node.js [path=opt/code-server/lib/vscode/node_modules/undici/package.json; purl=pkg:npm/undici@7.28.0]`,
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -160,21 +148,22 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     }
   });
 
-  it('rejects the retired code-server server-tree ip-address finding', () => {
-    // code-server 4.132.0 lifted its server tree to patched ip-address 10.4.0,
-    // so this tuple's exception is gone while the VS Code tree keeps its own.
-    // Binding on the path is what separates the two: a match key that stopped
-    // distinguishing them would let the retained VS Code entry absorb this
-    // occurrence, and re-adding the exception would accept it outright.
-    const input = report();
-    input.Results[0].Vulnerabilities.push(ipAddressVulnerability('10.2.0', {
-      PkgPath: 'opt/code-server/node_modules/ip-address/package.json',
-      PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
-    }));
-    assert.throws(
-      () => validateTrivyResult(input),
-      /unexpected HIGH\/CRITICAL finding.*path=opt\/code-server\/node_modules\/ip-address\/package\.json/s,
-    );
+  it('rejects retired code-server findings after the Code upgrade', () => {
+    const retiredFindings = [
+      ipAddressVulnerability('10.2.0', {
+        PkgPath: 'opt/code-server/lib/vscode/node_modules/ip-address/package.json',
+        PkgIdentifier: { PURL: 'pkg:npm/ip-address@10.2.0' },
+      }),
+      undiciVulnerability('7.28.0', {
+        PkgPath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
+        PkgIdentifier: { PURL: 'pkg:npm/undici@7.28.0' },
+      }),
+    ];
+    for (const finding of retiredFindings) {
+      const input = report();
+      input.Results[0].Vulnerabilities.push(finding);
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+    }
   });
 
   it('rejects duplicate reviewed findings', () => {
@@ -231,12 +220,12 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
   it('rejects missing occurrences from the reviewed deployment tuples', () => {
     const nodeResult = structuredClone(report().Results[0]);
     nodeResult.Vulnerabilities.splice(
-      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.2.0'),
+      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'ip-address' && finding.InstalledVersion === '10.1.0'),
       1,
     );
     assert.throws(
       () => validateTrivyResult(report([nodeResult])),
-      /missing reviewed finding.*ip-address 10\.2\.0.*path=opt\/code-server\/lib\/vscode\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.2\.0/s,
+      /missing reviewed finding.*ip-address 10\.1\.0.*path=usr\/local\/lib\/node_modules\/npm\/node_modules\/ip-address\/package\.json; purl=pkg:npm\/ip-address@10\.1\.0/s,
     );
   });
 

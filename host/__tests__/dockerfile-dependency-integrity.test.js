@@ -70,6 +70,30 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assertCompleteIntegrityTree(npmToolsLock);
   });
 
+  it('locks every Claude platform package at the exact CLI release', () => {
+    const version = npmToolsPackage.dependencies['@anthropic-ai/claude-code'];
+    const platforms = [
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-arm64',
+      'linux-arm64-musl',
+      'linux-x64',
+      'linux-x64-musl',
+      'win32-arm64',
+      'win32-x64',
+    ];
+    for (const platform of platforms) {
+      const name = `@anthropic-ai/claude-code-${platform}`;
+      const metadata = npmToolsLock.packages[`node_modules/${name}`];
+      assert.equal(metadata.version, version, `${name} must match the exact Claude CLI release`);
+      assert.equal(
+        metadata.resolved,
+        `https://registry.npmjs.org/${name}/-/claude-code-${platform}-${version}.tgz`,
+      );
+      assert.match(metadata.integrity, /^sha512-/);
+    }
+  });
+
   it('Codex platform license exceptions match exact Apache-2.0 lock metadata', () => {
     const platforms = [
       'darwin-arm64',
@@ -88,7 +112,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.77.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.79.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });

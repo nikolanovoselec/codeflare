@@ -4300,6 +4300,127 @@ None.
 
 ---
 
+### REQ-AGENT-163: Impeccable browser-question idle lifecycle
+
+**Intent:** The vendored Impeccable decision page preserves an unanswered user choice across brief page suspension without mistaking the wait for abandonment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @test: host/__tests__/impeccable-runtime.test.js (keeps wait clients alive throughout the configured idle grace) -->
+2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @test: host/__tests__/impeccable-runtime.test.js (keeps wait clients alive throughout the configured idle grace) -->
+
+**Constraints:** Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** Spawned CLI lifecycle tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-165: Impeccable next-hand delivery lifecycle
+
+**Intent:** A retained Impeccable question accepts only valid next hands and keeps closure detection stable across the bounded delivery-to-claim transition.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A next-hand update rejects a payload without a non-empty options array before creating pending delivery state. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+2. A valid next hand reaches its live retained question session. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+3. A fresh delivery file suppresses closed-page detection during the bounded claim window. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+4. An expired delivery file no longer suppresses closed-page detection. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+5. A fresh page-claim timestamp preserves closed-page suppression after the delivery file is claimed. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+6. An expired page-claim timestamp cannot renew closed-page suppression. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+
+**Constraints:** Claude and Pi carry byte-identical question-server behavior.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
+
+**Verification:** Spawned CLI lifecycle tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-164: Impeccable raster scan traversal
+
+**Intent:** Impeccable discovers raster source assets without escaping the requested directory boundary or failing on filesystem links.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+
+**Constraints:** Scan mode never follows a symbolic link.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-166: Impeccable raster prompt recovery
+
+**Intent:** Impeccable recognizes recoverable generation intent stored in supported raster metadata or an adjacent sidecar.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+
+**Constraints:** Prompt recovery is read-only during scan mode.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-167: Impeccable raster scan result contract
+
+**Intent:** Impeccable distinguishes incomplete raster provenance from an invalid scan request through stable observable results.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+2. An invalid target fails explicitly with status 1. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+
+**Constraints:** Claude and Pi carry byte-identical prompt-metadata audit behavior.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
+
+**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-157: Managed local-check delivery policy
 
 **Intent:** Pi and Claude expose bounded read-only local checks only through the managed wrapper while keeping detailed operation guidance lazy.

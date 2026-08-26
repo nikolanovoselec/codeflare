@@ -14,13 +14,13 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "node-pty": "^1.1.0",
-    "ws": "^8.21.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
     "fast-check": "^4.9.0",
-    "jsdom": "^27.4.0",
+    "jsdom": "^29.1.1",
     "mermaid": "^11.16.1",
     "typescript": "^7.0.2"
   }

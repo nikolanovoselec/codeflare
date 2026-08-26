@@ -100,7 +100,7 @@ export async function verifySelectedAgentLaunchers(
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.77.0',
+  expectedVersion = '1.79.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
