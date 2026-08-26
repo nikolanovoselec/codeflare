@@ -630,8 +630,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Every shared npm-cooldown caller opens a bump for a strictly newer numeric semantic version. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
 4. Equal or older npm-cooldown candidates do not open a bump. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
 5. Malformed npm-cooldown candidates fail before mutation. <!-- @impl: scripts/ci/semver-forward.mjs::strictSemverUpgrade --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/semver-forward.test.js (strictSemverUpgrade) --> <!-- @test: host/__tests__/semver-forward.test.js (shadow-pin workflow forward-only routing) -->
-6. Every affected committed runtime lock resolves reviewed dependency security floors, including undici 8.9.0 in both Pi runtime trees and ip-address 10.3.1 or later in all three affected runtime trees. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
-7. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
 
 **Constraints:** Package updates remain subject to the configured supply-chain cooldown and normal PR review.
 
@@ -640,6 +638,30 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
 **Verification:** Automated manifest-update, lifecycle-safe lock-regeneration, and forward-only semantic-version tests; workflow execution manual
+
+**Status:** Implemented
+
+---
+
+<a id="req-ops-054-committed-npm-runtime-lock-integrity"></a>
+### REQ-OPS-054: Committed NPM Runtime Lock Integrity
+
+**Intent:** Committed npm runtime locks must preserve reviewed dependency security floors and release-family coherence.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Every affected committed runtime lock resolves reviewed dependency security floors, including undici 8.9.0 in both Pi runtime trees and ip-address 10.3.1 or later in all three affected runtime trees. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+2. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
+
+**Constraints:** Runtime-lock changes remain subject to normal PR review.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-OPS-033](#req-ops-033-generated-seed-and-prewarm-lock-integrity)
+
+**Verification:** Automated committed runtime-lock integrity tests
 
 **Status:** Implemented
 
