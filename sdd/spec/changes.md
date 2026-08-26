@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-26
+
+- **Impeccable decision and asset-audit workflows retain bounded user intent** ([REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-lifecycle) and [REQ-AGENT-164](agents.md#req-agent-164-impeccable-prompt-metadata-audit) added as Implemented). Question waits use the same configurable idle grace as their retained server, while validated next-hand delivery keeps its separate short claim window. Prompt-metadata scans recursively report missing intent with their existing exit contract, skip nested hidden/dependency trees, and never follow broken, cyclic, or boundary-escaping symbolic links. Spawned behavioral coverage exercises both Claude and Pi copies.
+
+- **Active subagent resume remains guarded after the 19.3.2 review** ([REQ-AGENT-159](agents.md#req-agent-159-active-subagent-resume-guard) remains Implemented). Upstream still routes any session-ready record to `manager.resume()` without rejecting queued or running status. The independent Codeflare guard and its behavioral coverage therefore remain, and the fail-closed compatibility sentinel advances to the reviewed package version.
+
 ## 2026-08-25
 
 - **Mobile GitHub and Storage flip faces use independent content geometry** ([REQ-GITHUB-012](github.md#req-github-012-responsive-github-and-storage-panel-allocation) AC3-AC5 corrected; remains Implemented). Single-panel mobile and short-window layouts retain each face's measured natural height and apply the current viewport cap only to the active face. Flipping from GitHub to R2 Storage therefore adopts Storage's own content height instead of retaining sibling geometry; flipping back restores GitHub's height, and viewport resizing refreshes the cap. Desktop and tablet split allocation remain unchanged.

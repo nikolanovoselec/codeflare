@@ -42,13 +42,21 @@ if (scanMode) {
   const RASTER = /\.(png|jpe?g|webp)$/i;
   const rasters = [];
   const walk = (p, isRoot) => {
-    const stat = fs.statSync(p);
+    let stat;
+    try { stat = fs.lstatSync(p); }
+    catch (error) { console.error(`embed-prompt: cannot inspect ${p}: ${error.message}`); process.exit(1); }
+    // A scan audits files rooted in the requested tree. Following symlinks can
+    // escape that boundary, recurse through cycles, or fail on a broken target.
+    if (stat.isSymbolicLink()) return;
     if (stat.isDirectory()) {
       const base = p.replace(/\/+$/, '').split('/').pop();
       // Skip installed deps and hidden dirs found during the walk, but honor a
       // hidden dir the caller passed explicitly (e.g. .impeccable/mocks).
       if (!isRoot && (base === 'node_modules' || base.startsWith('.'))) return;
-      for (const entry of fs.readdirSync(p)) walk(`${p.replace(/\/+$/, '')}/${entry}`, false);
+      let entries;
+      try { entries = fs.readdirSync(p); }
+      catch (error) { console.error(`embed-prompt: cannot inspect ${p}: ${error.message}`); process.exit(1); }
+      for (const entry of entries) walk(`${p.replace(/\/+$/, '')}/${entry}`, false);
     } else if (RASTER.test(p)) {
       rasters.push(p);
     }

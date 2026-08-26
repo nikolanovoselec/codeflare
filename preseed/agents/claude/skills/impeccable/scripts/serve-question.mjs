@@ -277,7 +277,7 @@ if (hasFlag('wait')) {
         // claim stamp the server persisted covers the same bounded gap.
         return Boolean(state.claimedAt) && Date.now() - state.claimedAt < NEXT_CLAIM_GRACE_MS;
       })();
-      if (!midDelivery && state.lastBeat && Date.now() - state.lastBeat > 15000) { sawClose = true; break; }
+      if (!midDelivery && state.lastBeat && Date.now() - state.lastBeat > idleGraceMs) { sawClose = true; break; }
     } catch { /* state mid-write */ }
     await new Promise((r) => setTimeout(r, 1000));
   }

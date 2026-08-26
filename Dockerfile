@@ -205,7 +205,7 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
-# code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
+# The pinned code-server release vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
 # the overlay pins 4.3.1 under an independent integrity hash as defence in
 # depth. The immutable Node and code-server artifacts also carry node-tar
 # versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact

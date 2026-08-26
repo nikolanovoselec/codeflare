@@ -4300,6 +4300,58 @@ None.
 
 ---
 
+### REQ-AGENT-163: Impeccable browser-question lifecycle
+
+**Intent:** The vendored Impeccable decision page preserves an unanswered user choice across brief page suspension and delivers a validated next hand without mistaking its reload window for abandonment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A wait client treats a live question page as open throughout the configured positive idle grace, reports a still-unanswered wait without inventing a choice, and reports page closure only after that same grace expires. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @test: host/__tests__/impeccable-runtime.test.js (keeps wait clients alive throughout the configured idle grace) -->
+2. A next-hand update requires a non-empty options array, reaches the retained question session, and suppresses closed-page detection only for its bounded delivery/claim window. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @test: host/__tests__/impeccable-runtime.test.js (delivers a validated next hand and bounds its closed-page grace) -->
+
+**Constraints:**
+
+- Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
+- Claude and Pi carry byte-identical question-server behavior.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** Spawned CLI lifecycle tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-164: Impeccable prompt-metadata audit
+
+**Intent:** Impeccable can recursively identify raster source assets that lack recoverable generation intent without escaping the requested tree or failing on filesystem links.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Scan mode recursively audits PNG, JPEG, and WebP files rooted at each explicit target while excluding nested hidden directories, installed dependencies, and symbolic links. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+2. Scan mode reports each raster without embedded or sidecar prompt metadata and exits with status 3 when any are missing; invalid targets fail explicitly. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @test: host/__tests__/impeccable-runtime.test.js (skips broken and cyclic symlinks while retaining missing-metadata exit status) -->
+
+**Constraints:**
+
+- Scan mode never follows a symbolic link.
+- Claude and Pi carry byte-identical prompt-metadata audit behavior.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
+
+**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-157: Managed local-check delivery policy
 
 **Intent:** Pi and Claude expose bounded read-only local checks only through the managed wrapper while keeping detailed operation guidance lazy.
