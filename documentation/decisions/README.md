@@ -3942,8 +3942,12 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 Reviewer calls start together and exact-head CI starts immediately afterward. Acknowledgement and FIX wait for every required reviewer, terminal CI success, failure, or timeout, and one later joint triage table. Failure and timeout must appear in that table. Delivery reconciliation retries immediately and then after 1, 3, 5, 10, and 15 seconds. Goal pause ownership, head drift, closure, bypass, and reload recovery retain their existing lifecycle.
 
-**Consequences:** Read-only commands cannot open or move a review round. A clone command cannot borrow consent state from another target in the same tool call. Each reviewer prompt names its temporary report path, and CI evidence is correlated with the exact launched monitor before acknowledgement.
+**Consequences:** Read-only commands cannot open or move a review round. A clone command cannot borrow consent state from another target in the same tool call. Each Pi reviewer prompt names its temporary report path, and CI evidence is correlated with the exact launched monitor before acknowledgement.
 
 **Related REQs:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization), and [REQ-AGENT-132](../../sdd/spec/agents.md#req-agent-132-pr-delivery-and-existing-head-consent).
+
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerOutputPath -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ci_completion_line_for_current_head -->
 
 ---

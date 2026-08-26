@@ -2791,21 +2791,23 @@ None.
 **Acceptance Criteria:**
 
 1. Routine non-boundary pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual -->
-2. Claude invokes `ci-monitoring` for an eligible PR-boundary plan, an explicit request, or a fresh deploy/merge gate. PR-boundary CI starts independently after reviewer launch rather than waiting for review completion. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual -->
-3. The Claude monitor launcher returns the monitored head, detached process identity, and durable log path. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path) --> <!-- @manual -->
-4. Claude success requires a non-empty workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) --> <!-- @manual -->
-5. A failed workflow row writes a terminal failure result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) --> <!-- @manual -->
-6. Unavailable GitHub CLI access writes a terminal timeout result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log) --> <!-- @manual -->
+2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. PR-boundary launch follows reviewers and carries canonical repository, PR, head, branch, and working directory. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::CI_PROMPT --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (keeps ordinary activity inert but auto-launches after push or PR creation) --> <!-- @manual -->
+3. The dedicated Agent returns one native terminal result carrying its repository, PR, and head identity. <!-- @impl: preseed/agents/claude/agents/ci-monitor.md::ci-monitoring/scripts/monitor-ci.mjs --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::summary --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3/AC4: Claude attached CI monitor returns correlated success only after a stable terminal fingerprint) -->
+4. Claude success requires a non-empty exact-head workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3/AC4: Claude attached CI monitor returns correlated success only after a stable terminal fingerprint) -->
+5. A failed exact-head workflow row returns terminal failure evidence. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude attached CI monitor reports failed workflow rows) -->
+6. Unavailable GitHub CLI access returns a terminal timeout. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC6: Claude attached CI monitor reports unavailable GitHub access as timeout) -->
 
 **Constraints:**
 
 - Claude monitoring remains independent of Pi's automatic policy in [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring).
+- Root session neither polls nor launches a detached shell monitor.
+- Monitor deadline remains shorter than dedicated Agent's Bash timeout.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Manual check
+**Verification:** Automated tests ([Claude boundary reminder tests](../../host/__tests__/git-push-review-reminder.test.js), [Claude CI monitor tests](../../host/__tests__/ci-monitoring-skill.test.js))
 
 **Status:** Implemented
 
@@ -4541,7 +4543,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Triage waits for every required reviewer and a terminal result from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ci_completion_line_for_current_head --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects an unrelated subagent notification that quotes a matching CI result) -->
+1. Triage waits for every required reviewer and a terminal result from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ci_completion_line_for_current_head --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects an unrelated subagent notification that quotes a matching CI result) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects a CI launch for the same PR and head in another repository) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects same-prefix repository CI completion for the same PR and head) -->
 2. CI failure or timeout must appear in a structural triage row before acknowledgement; a clean successful round may use an empty table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::stacked_table_in_stream --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires failed or timed-out CI to appear in joint triage) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->
 4. Every Pi reviewer prompt includes its deterministic lane-specific temporary output path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerOutputPath --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074/REQ-AGENT-110/REQ-AGENT-132: emits one plan before settled recovery) -->

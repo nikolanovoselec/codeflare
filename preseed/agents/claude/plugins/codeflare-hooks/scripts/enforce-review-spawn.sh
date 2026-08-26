@@ -5,7 +5,7 @@
 #
 #   Layer 1 (BOUNDARY) finds only executable delivery commands (`git push` and
 #     `gh pr create`). Ordinary Git/GitHub activity and `gh pr merge` neither
-#     open enforcement nor move the coverage window (AD121).
+#     open enforcement nor move the coverage window (AD142).
 #   Layer 2 (TRUTH) requires a normal checked-out branch whose open
 #     main/master/develop PR head exactly equals local HEAD.
 #   Layer 3 (CHECKPOINT) stores the acknowledged SHA by PR number.
@@ -480,6 +480,14 @@ case "$BASE_REF" in main|master|develop) ;; *) exit 0 ;; esac
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
+REPO_ID_CACHE="$GIT_DIR/sdd-review-repository"
+CURRENT_REPO=$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null) || CURRENT_REPO=""
+if printf '%s' "$CURRENT_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
+  printf '%s\n' "$CURRENT_REPO" > "$REPO_ID_CACHE" 2>/dev/null || true
+else
+  CURRENT_REPO=$(cat "$REPO_ID_CACHE" 2>/dev/null)
+  printf '%s' "$CURRENT_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || exit 0
+fi
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 COUNT_FILE="$GIT_DIR/sdd-review-count-pr-$PR_NUMBER"
 CLOSED_NOTICE_FILE="$GIT_DIR/sdd-review-closed-notified-pr-$PR_NUMBER"
@@ -748,13 +756,15 @@ ci_spawn_record_for_current_head() {
   local nr line_content tool_use_id
   awk -v c="$COVERAGE_LINE" 'NR >= c { print NR "\t" $0 }' "$TRANSCRIPT" \
     | while IFS="$(printf '\t')" read -r nr line_content; do
-      tool_use_id=$(printf '%s' "$line_content" | jq -r --arg h "$CURRENT_PR_HEAD" --arg p "$PR_NUMBER" '
+      tool_use_id=$(printf '%s' "$line_content" | jq -r \
+        --arg h "$CURRENT_PR_HEAD" --arg p "$PR_NUMBER" --arg r "$CURRENT_REPO" '
         [ .message.content[]?
           | select(.type? == "tool_use" and (.name? == "Agent" or .name? == "subagent"))
           | select(.input.subagent_type? == "ci-monitor" and .input.run_in_background? == true)
-          | select((.input.prompt? // "") as $prompt
-            | ($prompt | contains($h))
-            and (($prompt | contains("pr=" + $p)) or ($prompt | contains("\"pr\":" + $p))))
+          | select((.input.prompt? // "" | fromjson?) as $identity
+            | $identity.repo? == $r
+            and ($identity.pr? | tostring) == $p
+            and $identity.head? == $h)
           | .id? // empty ][0] // empty
       ' 2>/dev/null) || continue
       [ -n "$tool_use_id" ] && printf '%s|%s\n' "$nr" "$tool_use_id"
@@ -768,11 +778,21 @@ ci_completion_line_for_current_head() {
   spawn_line=${spawn_record%%|*}
   tool_use_id=${spawn_record#*|}
   [ -n "$spawn_line" ] && [ -n "$tool_use_id" ] || return 1
-  awk -v h="$CURRENT_PR_HEAD" -v p="$PR_NUMBER" -v s="$spawn_line" -v id="$tool_use_id" '
+  awk -v h="$CURRENT_PR_HEAD" -v p="$PR_NUMBER" -v r="$CURRENT_REPO" -v s="$spawn_line" -v id="$tool_use_id" '
+    function exact_field(text, prefix, value, start, next_char) {
+      start = index(text, prefix value)
+      while (start) {
+        next_char = substr(text, start + length(prefix value), 1)
+        if (next_char == "" || index(" \t\r\n<\"\\", next_char)) return 1
+        text = substr(text, start + 1)
+        start = index(text, prefix value)
+      }
+      return 0
+    }
     NR > s && index($0, "subagent-notification") && index($0, "tool-use-id>" id "<") \
       && (index($0, "<status>completed</status>") || index($0, "<status>Completed</status>") || index($0, "<status>Done</status>")) \
       && (index($0, "CI_RESULT success") || index($0, "CI_RESULT failure") || index($0, "CI_RESULT timeout")) \
-      && index($0, "pr=" p " ") && index($0, "head=" h) { line = NR }
+      && exact_field($0, "pr=", p) && exact_field($0, "head=", h) && exact_field($0, "repo=", r) { line = NR }
     END { if (line) print line }
   ' "$TRANSCRIPT"
 }

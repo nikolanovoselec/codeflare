@@ -90,6 +90,10 @@ if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; th
   printf '{"number":42,"state":"${state}","headRefOid":"%s","baseRefName":"${base}"}\\n' "$HEAD_OID"
   exit 0
 fi
+if [[ "$ARGS" == "repo view --json nameWithOwner" ]]; then
+  printf '{"nameWithOwner":"owner/repo"}\\n'
+  exit 0
+fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
 exit 99`;
 }
@@ -121,7 +125,7 @@ function ghPoison(cwd) {
   return binDir;
 }
 
-function ciLaunchLine(head, toolUseId = 'toolu_ci_monitor_fixture') {
+function ciLaunchLine(head, toolUseId = 'toolu_ci_monitor_fixture', repo = 'owner/repo') {
   return JSON.stringify({
     type: 'assistant',
     message: { content: [{
@@ -132,17 +136,17 @@ function ciLaunchLine(head, toolUseId = 'toolu_ci_monitor_fixture') {
         subagent_type: 'ci-monitor',
         run_in_background: true,
         inherit_context: false,
-        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo' }),
+        prompt: JSON.stringify({ repo, pr: 42, head, cwd: '/repo' }),
       },
     }] },
   });
 }
 
-function ciDoneLine(head, result = 'success', toolUseId = 'toolu_ci_monitor_fixture') {
+function ciDoneLine(head, result = 'success', toolUseId = 'toolu_ci_monitor_fixture', repo = 'owner/repo') {
   return JSON.stringify({
     type: 'custom_message',
     customType: 'subagent-notification',
-    content: `<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\nCI_RESULT ${result}\npr=42 head=${head} repo=owner/repo`,
+    content: `<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\nCI_RESULT ${result}\npr=42 head=${head} repo=${repo}`,
   });
 }
 
@@ -1613,6 +1617,54 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_f3'),
       LANE_BASH_DONE_LINE('toolu_f3'),
       unrelated,
+      TRIAGE_LINE(),
+    ], { ciResult: false });
+
+    runHook(cwd, { transcriptPath: t, binDir });
+    const result = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), '');
+    assert.match(JSON.parse(result.stdout).reason, /exact-head CI has not returned/);
+  });
+
+  it('rejects a CI launch for the same PR and head in another repository', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_launch_repo1'),
+      LANE_BASH_DONE_LINE('toolu_launch_repo1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_launch_repo2'),
+      LANE_BASH_DONE_LINE('toolu_launch_repo2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_launch_repo3'),
+      LANE_BASH_DONE_LINE('toolu_launch_repo3'),
+      ciLaunchLine(headSha, 'toolu_wrong_launch_repo', 'other/repo'),
+      ciDoneLine(headSha, 'success', 'toolu_wrong_launch_repo', 'other/repo'),
+      TRIAGE_LINE(),
+    ], { ciResult: false });
+
+    runHook(cwd, { transcriptPath: t, binDir });
+    const result = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), '');
+    assert.match(JSON.parse(result.stdout).reason, /exact-head CI has not returned/);
+  });
+
+  it('rejects same-prefix repository CI completion for the same PR and head', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_repo1'),
+      LANE_BASH_DONE_LINE('toolu_repo1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_repo2'),
+      LANE_BASH_DONE_LINE('toolu_repo2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_repo3'),
+      LANE_BASH_DONE_LINE('toolu_repo3'),
+      ciLaunchLine(headSha, 'toolu_other_repo', 'owner/repo'),
+      ciDoneLine(headSha, 'success', 'toolu_other_repo', 'owner/repo-extra'),
       TRIAGE_LINE(),
     ], { ciResult: false });
 

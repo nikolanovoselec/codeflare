@@ -1,226 +1,112 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const CLAUDE_SKILL = new URL('../../preseed/agents/claude/skills/ci-monitoring/SKILL.md', import.meta.url);
+import { monitorCi } from '../../preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs';
+
+const REPO = 'owner/repo';
+const PR = 42;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 
-function monitorScript(skill = CLAUDE_SKILL) {
-  const text = readFileSync(skill, 'utf8');
-  const match = text.match(/cat > "\$SCRIPT" <<'BASH'\n([\s\S]*?)\nBASH/);
-  assert.ok(match, 'ci-monitoring skill must contain a bash monitor body');
-  return speedUp(match[1]);
+function result(value) {
+  return { stdout: JSON.stringify(value), stderr: '', exitCode: 0 };
 }
 
-function launcherScript(repo, skill = CLAUDE_SKILL) {
-  const text = readFileSync(skill, 'utf8');
-  const blocks = [...text.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((m) => m[1]);
-  const launcher = blocks.find((b) => b.includes('CI_MONITOR_STARTED'));
-  assert.ok(launcher, 'ci-monitoring skill must contain a launcher snippet that emits CI_MONITOR_STARTED');
-  return speedUp(launcher)
-    .replace('cd <repo>', `cd '${repo}'`)
-    .replace('BRANCH=<branch>', 'BRANCH=multiview');
-}
-
-function speedUp(script) {
-  return script
-    .replace('no_rows_deadline=$((SECONDS + 300))', 'no_rows_deadline=$((SECONDS + 1))')
-    .replace('deadline=$((SECONDS + 1800))', 'deadline=$((SECONDS + 2))')
-    .replaceAll('sleep 15', 'sleep 0.02');
-}
-
-function row(id, patch = {}) {
+function run(conclusion, patch = {}) {
   return {
-    databaseId: id,
-    workflowName: `workflow-${id}`,
-    event: 'pull_request',
+    databaseId: 1,
+    workflowName: 'PR Checks',
     headSha: HEAD,
-    status: 'completed',
-    conclusion: 'success',
-    url: `https://example.test/runs/${id}`,
+    status: conclusion ? 'completed' : 'in_progress',
+    conclusion: conclusion ?? '',
+    event: 'pull_request',
+    url: 'https://github.test/owner/repo/actions/runs/1',
     ...patch,
   };
 }
 
-function fakeFailingGh(binDir) {
-  const path = join(binDir, 'gh');
-  writeFileSync(path, `#!/usr/bin/env bash
-set -eu
-printf 'gh auth failed\n' >&2
-exit 4
-`);
-  chmodSync(path, 0o755);
+function fakeClock() {
+  let time = 0;
+  return {
+    clock: { now: () => time },
+    sleep: async (milliseconds) => { time += milliseconds; },
+    elapsed: () => time,
+  };
 }
 
-function fakeGh(binDir) {
-  const path = join(binDir, 'gh');
-  writeFileSync(path, `#!/usr/bin/env bash
-set -eu
-count=0
-[ -f "$GH_CALLS" ] && count=$(cat "$GH_CALLS")
-count=$((count + 1))
-printf '%s' "$count" > "$GH_CALLS"
-file="$GH_FIXTURES/$count.json"
-[ -f "$file" ] || file="$GH_FIXTURES/default.json"
-cat "$file"
-`);
-  chmodSync(path, 0o755);
-}
-
-function fakeGit(binDir) {
-  const path = join(binDir, 'git');
-  writeFileSync(path, `#!/usr/bin/env bash
-set -eu
-if [ "$1 \${2:-}" = "rev-parse HEAD" ]; then
-  printf '%s\n' "$GIT_HEAD"
-  exit 0
-fi
-if [ "$1" = "rev-parse" ] && [[ "\${2:-}" == refs/heads/* ]]; then
-  count=0
-  if [ -n "\${GIT_REF_CALLS:-}" ] && [ -f "$GIT_REF_CALLS" ]; then count=$(cat "$GIT_REF_CALLS"); fi
-  count=$((count + 1))
-  if [ -n "\${GIT_REF_CALLS:-}" ]; then printf '%s' "$count" > "$GIT_REF_CALLS"; fi
-  file="\${GIT_REF_FIXTURES:-}/$count.txt"
-  if [ -n "\${GIT_REF_FIXTURES:-}" ] && [ -f "$file" ]; then
-    cat "$file"
-  else
-    printf '%s\n' "\${GIT_BRANCH_HEAD:-$GIT_HEAD}"
-  fi
-  exit 0
-fi
-exit 2
-`);
-  chmodSync(path, 0o755);
-}
-
-function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? [], branchHeads = []) {
-  const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-'));
-  const bin = join(dir, 'bin');
-  const fixtures = join(dir, 'fixtures');
-  const refs = join(dir, 'refs');
-  const repo = join(dir, 'repo');
-  const calls = join(dir, 'calls');
-  const refCalls = join(dir, 'ref-calls');
-  const script = join(dir, 'monitor.sh');
-  const log = join(dir, 'monitor.log');
-
-  mkdirSync(bin);
-  mkdirSync(fixtures);
-  mkdirSync(refs);
-  mkdirSync(repo);
-  fakeGh(bin);
-  fakeGit(bin);
-  sequence.forEach((rows, index) => writeFileSync(join(fixtures, `${index + 1}.json`), JSON.stringify(rows)));
-  branchHeads.forEach((head, index) => writeFileSync(join(refs, `${index + 1}.txt`), `${head}\n`));
-  writeFileSync(join(fixtures, 'default.json'), JSON.stringify(fallback));
-  writeFileSync(script, monitorScript(skill));
-  chmodSync(script, 0o755);
-
-  try {
-    const result = spawnSync('bash', [script, repo, 'multiview', HEAD, log], {
-      encoding: 'utf8',
-      timeout: 6000,
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-        GH_CALLS: calls,
-        GH_FIXTURES: fixtures,
-        GIT_HEAD: HEAD,
-        GIT_BRANCH_HEAD: HEAD,
-        GIT_REF_CALLS: refCalls,
-        GIT_REF_FIXTURES: refs,
-      },
-    });
-    return {
-      status: result.status,
-      stderr: result.stderr,
-      log: existsSync(log) ? readFileSync(log, 'utf8') : '',
-      calls: existsSync(calls) ? Number(readFileSync(calls, 'utf8')) : 0,
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-test('REQ-AGENT-070 AC3 / REQ-OPS-049 AC4: CI monitor uses a durable detached log path', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-launch-'));
-  const bin = join(dir, 'bin');
-  const fixtures = join(dir, 'fixtures');
-  const repo = join(dir, 'repo');
-  const calls = join(dir, 'calls');
-  const runtimeRoot = join(dir, 'runtime');
-
-  mkdirSync(bin);
-  mkdirSync(fixtures);
-  mkdirSync(repo);
-  fakeGh(bin);
-  fakeGit(bin);
-  writeFileSync(join(fixtures, 'default.json'), JSON.stringify([row(1, { status: 'in_progress', conclusion: null })]));
-
-  const started = Date.now();
-  const result = spawnSync('bash', ['-c', launcherScript(repo, CLAUDE_SKILL)], {
-    cwd: repo,
-    encoding: 'utf8',
-    timeout: 2000,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, GH_CALLS: calls, GH_FIXTURES: fixtures, GIT_HEAD: HEAD, CODEFLARE_RUNTIME_ROOT: runtimeRoot },
+async function drive(runRows, { unavailable = false } = {}) {
+  let calls = 0;
+  const time = fakeClock();
+  const output = await monitorCi({
+    repo: REPO,
+    pr: PR,
+    head: HEAD,
+    branch: 'develop',
+    clock: time.clock,
+    sleep: time.sleep,
+    runner: async (_command, args) => {
+      assert.deepEqual(args.slice(0, 7), ['run', 'list', '--repo', REPO, '--branch', 'develop', '--limit']);
+      if (unavailable) throw new Error('gh unavailable');
+      const rows = runRows[Math.min(calls, runRows.length - 1)];
+      calls += 1;
+      return result(rows);
+    },
   });
+  return { output, calls, elapsed: time.elapsed() };
+}
 
+function assertIdentity(output, status) {
+  assert.match(output, new RegExp(`^CI_RESULT ${status}\\n`));
+  assert.match(output, new RegExp(`pr=${PR}(?:\\s|$)`));
+  assert.match(output, new RegExp(`head=${HEAD}(?:\\s|$)`));
+  assert.match(output, new RegExp(`repo=${REPO}(?:\\s|$)`));
+}
+
+test('REQ-AGENT-070 AC3/AC4: Claude attached CI monitor returns correlated success only after a stable terminal fingerprint', async () => {
+  const monitored = await drive([[run('success')], [run('success')]]);
+
+  assert.equal(monitored.calls, 2);
+  assertIdentity(monitored.output, 'success');
+});
+
+test('REQ-AGENT-070 AC5: Claude attached CI monitor reports failed workflow rows', async () => {
+  const monitored = await drive([[run('failure')]]);
+
+  assert.equal(monitored.calls, 1);
+  assertIdentity(monitored.output, 'failure');
+  assert.match(monitored.output, /link=https:\/\/github\.test\/owner\/repo\/actions\/runs\/1/);
+});
+
+test('REQ-AGENT-070 AC6: Claude attached CI monitor reports unavailable GitHub access as timeout', async () => {
+  const monitored = await drive([], { unavailable: true });
+
+  assert.equal(monitored.calls, 0);
+  assert.equal(monitored.elapsed, 8 * 60_000,
+    'monitor deadline must remain below the Agent Bash timeout');
+  assertIdentity(monitored.output, 'timeout');
+  assert.match(monitored.output, /deadline_exceeded/);
+});
+
+test('REQ-OPS-049 AC4: attached Claude CI monitoring creates no script, PID, or result-log artifact', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'claude-attached-ci-'));
   try {
-    assert.equal(result.status, 0, result.stderr);
-    assert.ok(Date.now() - started < 500, 'launcher should not wait for CI completion');
-    assert.match(result.stdout, new RegExp(`CI_MONITOR_STARTED head=${HEAD} pid=\\d+ log=${runtimeRoot}/services/ci-monitor-`));
-  } finally {
-    const pid = Number(result.stdout.match(/pid=(\d+)/)?.[1]);
-    if (Number.isFinite(pid)) {
-      try { process.kill(-pid, 'SIGTERM'); } catch {}
-      try { process.kill(pid, 'SIGTERM'); } catch {}
-    }
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success', () => {
-  const result = runMonitorFor(CLAUDE_SKILL, [[row(1)], [row(1)]]);
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.calls, 2);
-  assert.match(result.log, /CI_RESULT success/);
-});
-
-test('REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows', () => {
-  const result = runMonitorFor(CLAUDE_SKILL, [[row(1, { conclusion: 'failure' })]]);
-
-  assert.equal(result.status, 10, result.stderr);
-  assert.equal(result.calls, 1);
-  assert.match(result.log, /CI_RESULT failure/);
-});
-
-test('REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-gh-fail-'));
-  const bin = join(dir, 'bin');
-  const repo = join(dir, 'repo');
-  const script = join(dir, 'monitor.sh');
-  const log = join(dir, 'monitor.log');
-
-  mkdirSync(bin);
-  mkdirSync(repo);
-  fakeFailingGh(bin);
-  writeFileSync(script, monitorScript(CLAUDE_SKILL));
-  chmodSync(script, 0o755);
-
-  try {
-    const result = spawnSync('bash', [script, repo, 'multiview', HEAD, log], {
-      encoding: 'utf8',
-      timeout: 2000,
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    const before = readdirSync(cwd);
+    const time = fakeClock();
+    const output = await monitorCi({
+      repo: REPO,
+      pr: PR,
+      head: HEAD,
+      branch: 'develop',
+      cwd,
+      clock: time.clock,
+      sleep: time.sleep,
+      runner: async () => result([run('failure')]),
     });
-
-    assert.equal(result.status, 124, result.stderr);
-    assert.match(readFileSync(log, 'utf8'), /CI_RESULT timeout gh_unavailable_or_auth_failed head=/);
+    assertIdentity(output, 'failure');
+    assert.deepEqual(readdirSync(cwd), before);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
   }
 });

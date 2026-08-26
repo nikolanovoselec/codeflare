@@ -52,6 +52,10 @@ if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; th
   ${state ? `echo '{"number":42,"state":"${state}","headRefOid":"${head}","baseRefName":"${base}"}'` : ''}
   exit ${exitCode}
 fi
+if [[ "$ARGS" == "repo view --json nameWithOwner" ]]; then
+  echo '{"nameWithOwner":"owner/repo"}'
+  exit 0
+fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
 exit 99
 `;
@@ -225,7 +229,17 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
         'successful delivery must auto-launch review rather than asking again');
       assert.match(automatic.stdout, /do NOT relaunch a lane while its first call is still in flight/,
         'scope correction must not create a duplicate reviewer wave');
-      assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
+      assert.match(automatic.stdout, /ci-monitor background Agent exactly once/);
+      const context = JSON.parse(automatic.stdout).hookSpecificOutput.additionalContext;
+      const prompt = context.match(/and prompt '([^']+)'/)?.[1];
+      assert.ok(prompt, 'directive must carry one exact CI monitor prompt');
+      assert.deepEqual(JSON.parse(prompt), {
+        repo: 'owner/repo',
+        pr: 42,
+        head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+        branch: spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+        cwd,
+      });
     }
   });
 
@@ -238,7 +252,16 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
 
     assert.match(r.stdout, /FIRST use AskUserQuestion/);
     assert.match(r.stdout, /Acknowledge without review/);
-    assert.match(r.stdout, /ci-monitoring skill exactly once/);
+    assert.match(r.stdout, /ci-monitor background Agent exactly once/);
+    const context = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+    const prompt = context.match(/and prompt '([^']+)'/)?.[1];
+    assert.deepEqual(JSON.parse(prompt), {
+      repo: 'owner/repo',
+      pr: 42,
+      head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim(),
+      branch: spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim(),
+      cwd: repo,
+    });
   });
 
   it('rejects a masked clone failure targeting an existing repository', () => {
@@ -579,6 +602,10 @@ if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; th
   echo '{"number":42,"state":"${state}","headRefOid":"${headSha}","baseRefName":"${base}"}'
   exit 0
 fi
+if [[ "$ARGS" == "repo view --json nameWithOwner" ]]; then
+  echo '{"nameWithOwner":"owner/repo"}'
+  exit 0
+fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
 exit 99
 `;
@@ -808,6 +835,10 @@ if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; th
   n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
   if [ "$n" -ge ${catchesUpAfter} ]; then head=${landed}; else head=${stale}; fi
   echo '{"number":42,"state":"OPEN","headRefOid":"'"$head"'","baseRefName":"main"}'
+  exit 0
+fi
+if [[ "$ARGS" == "repo view --json nameWithOwner" ]]; then
+  echo '{"nameWithOwner":"owner/repo"}'
   exit 0
 fi
 exit 99

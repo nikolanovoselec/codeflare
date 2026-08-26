@@ -24,6 +24,12 @@
       "advanced"
     ]
   },
+  "agents/ci-monitor.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "agents/memory-capture.md": {
     "modes": [
       "advanced"
@@ -417,6 +423,12 @@
     ]
   },
   "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/scripts/monitor-ci.mjs": {
     "modes": [
       "default",
       "advanced"

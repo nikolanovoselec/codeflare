@@ -294,8 +294,16 @@ case "$BOUNDARY_KIND" in
     ;;
 esac
 [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] || exit 0
+CURRENT_REPO=""
+for REPO_DELAY in 0 1 3 5 10 15; do
+  [ "$REPO_DELAY" = 0 ] || sleep "$REPO_DELAY"
+  CURRENT_REPO=$(gh repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty' 2>/dev/null) || CURRENT_REPO=""
+  printf '%s' "$CURRENT_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' && break
+done
+printf '%s' "$CURRENT_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || exit 0
 GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR" ] || exit 0
+printf '%s\n' "$CURRENT_REPO" > "$GIT_DIR/sdd-review-repository" 2>/dev/null || true
 ACK_FILE="$GIT_DIR/sdd-review-ack-pr-$PR_NUMBER"
 LAST_ACK_PR_HEAD=""
 ACK_IS_PR_SPECIFIC=0
@@ -416,7 +424,8 @@ else
   DIRECTIVE="$DIRECTIVE Each lane reviews the full PR diff against its default base (base branch unresolved)."
 fi
 DIRECTIVE="$DIRECTIVE Run each required lane as a BACKGROUND Bash call, all lanes issued in ONE message so they execute concurrently: 'bash $RUNNER --lane <name> --boundary-pr $PR_NUMBER $LANE_SCOPE' with run_in_background: true. Copy that boundary command unchanged: the runner binds it to this PR checkpoint and normalizes any stale full-diff scope to the acknowledged incremental range. Foreground Bash calls are serialised by the harness, which would make the lanes sequential and trebles wall-clock. Collect each lane's structured report from its background output when it completes. Do NOT spawn review subagents, do NOT paste diffs into the command, and do NOT relaunch a lane while its first call is still in flight - a terminal failure is re-demanded by the Stop hook."
-DIRECTIVE="$DIRECTIVE Immediately after launching reviewers, invoke the existing ci-monitoring skill exactly once for branch $CURRENT at exact head $CURRENT_PR_HEAD; its detached monitor is independent of review acknowledgement and is the final launch."
+CI_PROMPT=$(jq -cn --arg repo "$CURRENT_REPO" --argjson pr "$PR_NUMBER" --arg head "$CURRENT_PR_HEAD" --arg branch "$CURRENT" --arg cwd "$PWD" '{repo:$repo,pr:$pr,head:$head,branch:$branch,cwd:$cwd}') || exit 0
+DIRECTIVE="$DIRECTIVE Immediately after launching reviewers, launch the ci-monitor background Agent exactly once with subagent_type=ci-monitor, run_in_background=true, and prompt '$CI_PROMPT'. Submit those fields unchanged; this exact repository, PR, and head correlation is the final launch."
 DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes."
 # VISIBILITY. This replaces an earlier instruction to run the round silently.
 # That instruction also contradicted the constitution's review-result handoff
