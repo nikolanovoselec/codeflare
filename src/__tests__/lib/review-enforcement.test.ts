@@ -1005,10 +1005,6 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent(command, 'clone-cancelled'));
-    expect(harness.reviewPrompts).toHaveLength(1);
-    expect(harness.sent).toEqual([]);
-
-    await harness.emit('agent_settled');
     expect(harness.reviewPrompts).toHaveLength(2);
     expect(harness.sent[0]?.message.details).toEqual(expect.objectContaining({
       boundaryToolUseId: 'clone-cancelled',

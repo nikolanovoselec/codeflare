@@ -301,9 +301,8 @@ fs.readFileSync(process.argv[2], 'utf8').split(/\n/).forEach((raw, index) => {
 NODE
 }
 # Two views over ONE parse: the transcript is walked once and both views filter
-# the same output. Enforcement triggers on any git/gh activity, which is the
-# long-standing contract; the coverage window narrows to a real delivery so a
-# read-only call cannot move it past a round's own lane spawns.
+# the same output. Only delivery boundaries open enforcement; ordinary Git and
+# GitHub activity cannot create a round or move its coverage anchor.
 # Two ways this scan can answer "no delivery" without having looked, and each
 # gets its own guard because each is a separate failure. `transcript_scan`
 # swallows stderr, so either one leaves PUSH_LINE empty and the line below exits
@@ -332,8 +331,8 @@ TRANSCRIPT_SCAN=$(transcript_scan 2>/dev/null)
 candidate_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF { print $1 }'; }
 delivery_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF && $2 != "-" { print $1 }'; }
 
-PUSH_LINE=$(candidate_line_numbers | tail -1)
-[ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
+PUSH_LINE=$(delivery_line_numbers | tail -1)
+[ -n "$PUSH_LINE" ] || exit 0  # No delivery, no enforcement
 
 # Anchor for lane coverage and retroactive acknowledgement. With no delivery in
 # the transcript there is no round for a delivery to have opened, so every spawn

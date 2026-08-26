@@ -424,8 +424,9 @@ describe('enforce-review-spawn.sh — FIX-phase directive delivery', () => {
     const { reason, fixFile, headSha } = atFixPhase();
     assert.equal(readFileSync(fixFile, 'utf-8').trim(), headSha,
       'the shown-marker is keyed to the PR and records the head that saw the contract');
-    assert.ok(reason.length > 500,
+    assert.match(reason, /Apply the accepted MINIMAL DECISION rows/,
       'a spent lane counter must not collapse the first delivery into the terse form');
+    assert.doesNotMatch(reason, /full contract shown earlier this PR/);
   });
 
   it('stays terse for every later round of the same PR', () => {
@@ -1586,6 +1587,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       TRIAGE_LINE(),
     ], { ciResult: false });
 
+    const deliveryTurn = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(deliveryTurn.stdout, '');
     const r = runHook(cwd, { transcriptPath: t, binDir });
 
     assert.equal(ackOf(cwd), '');

@@ -473,7 +473,7 @@ function ciTerminalResult(
   text: string,
   expected: { repository: string; prNumber: number; head: string },
 ): CiTerminalResult | undefined {
-  const result = /^CI_RESULT\s+(success|failure|timeout)\s*$/mi.exec(text)?.[1] as CiTerminalResult | undefined;
+  const result = /(?:^|>)CI_RESULT\s+(success|failure|timeout)\b/mi.exec(text)?.[1] as CiTerminalResult | undefined;
   const identity = /^pr=(\d+)\s+head=([0-9a-f]{40})\s+repo=([^\s<]+)(?:\s+[^<]*)?(?:<|$)/mi.exec(text);
   return result
     && Number(identity?.[1]) === expected.prNumber
