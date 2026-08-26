@@ -32,34 +32,6 @@ const REVIEWED_FINDINGS = [
     fixedVersion: '10.3.1',
     severity: 'HIGH',
   },
-  {
-    // The same complete scans reported two 10.2.0 declarations. Evidence run
-    // 30896944558 bound them to code-server's VS Code and server package trees.
-    // code-server 4.132.0 lifted only the server tree to patched 10.4.0, so the
-    // server-tree exception is retired and this VS Code one still stands; the
-    // bundled Code tree carries its own older copy.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-69192',
-    packageName: 'ip-address',
-    packagePath: 'opt/code-server/lib/vscode/node_modules/ip-address/package.json',
-    packagePurl: 'pkg:npm/ip-address@10.2.0',
-    installedVersion: '10.2.0',
-    fixedVersion: '10.3.1',
-    severity: 'HIGH',
-  },
-  {
-    // Node/npm image tooling carries undici 7.28.0. Codeflare does not enable
-    // its shared cache interceptor; use remains inside one user's container.
-    // Remove when the pinned Node base image carries undici 7.29.0 or later.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-13697',
-    packageName: 'undici',
-    packagePath: 'opt/code-server/lib/vscode/node_modules/undici/package.json',
-    packagePurl: 'pkg:npm/undici@7.28.0',
-    installedVersion: '7.28.0',
-    fixedVersion: '7.29.0, 8.9.0',
-    severity: 'HIGH',
-  },
 ];
 
 function matchesReviewedFinding(reviewed, finding) {
