@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-26
 
-- **Patched Code dependencies retire two bounded Trivy exceptions** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) and [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) remain Implemented). Integration scan run `32956748637` at head `7beb84165b8fe3f959d8957c2f3c66bee46992ed` proved the VS Code tree no longer contains `ip-address` 10.2.0 or `undici` 7.28.0. Both exact exceptions are removed, and behavioral coverage now rejects either tuple if it returns.
+- **Patched Code dependencies retire two bounded Trivy exceptions** ([REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) and [REQ-OPS-002](operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) remain Implemented). Integration scan run `32956748637` proved the VS Code tree no longer contains `ip-address` 10.2.0 or `undici` 7.28.0. Both exact exceptions are removed, and behavioral coverage now rejects either tuple if it returns.
 
 - **Committed runtime-lock integrity has one focused owner** ([REQ-OPS-054](operations.md#req-ops-054-committed-npm-runtime-lock-integrity) added as Implemented; contract extracted from [REQ-OPS-033](operations.md#req-ops-033-lock-backed-npm-bump-coherence)). Reviewed dependency security floors and exact Claude CLI/platform release coherence are owned separately from npm bump candidate routing and lock regeneration. Every platform-specific Claude package in the privileged npm runtime lock must match the exact CLI manifest pin, preventing image installation from failing on a partially advanced optional dependency set.
 

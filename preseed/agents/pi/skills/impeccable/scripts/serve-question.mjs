@@ -259,10 +259,6 @@ if (hasFlag('wait')) {
       console.log('BUILD PATH FLIPPED: comp (for this session only; never write it to settings). The table is still open and the page shows shimmer where the images will land: generate each open card’s comp into its declared path now, lead first, then collect the answer with --wait again. A card whose comp already exists needs nothing.');
       process.exit(0);
     }
-    if (!alive()) {
-      console.log('serve-question: the question server is gone with no answer. This is a server failure, not a user decision: restart it with --start and the same payload, reopen the URL for the user, and wait again. Never proceed without their choice while their browser session is open.');
-      process.exit(2);
-    }
     try {
       const state = JSON.parse(fs.readFileSync(stateFile(key), 'utf8'));
       // A silent page is not a closed one while a freshly delivered next
@@ -279,6 +275,12 @@ if (hasFlag('wait')) {
       })();
       if (!midDelivery && state.lastBeat && Date.now() - state.lastBeat > idleGraceMs) { sawClose = true; break; }
     } catch { /* state mid-write */ }
+    // Classify a retained stale heartbeat before probing the daemon: the
+    // daemon exits on this same idle threshold and may win the race.
+    if (!alive()) {
+      console.log('serve-question: the question server is gone with no answer. This is a server failure, not a user decision: restart it with --start and the same payload, reopen the URL for the user, and wait again. Never proceed without their choice while their browser session is open.');
+      process.exit(2);
+    }
     await new Promise((r) => setTimeout(r, 1000));
   }
   if (sawClose && !answered()) {

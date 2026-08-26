@@ -54,6 +54,31 @@ describe('REQ-AGENT-163: Impeccable browser-question lifecycle', () => {
     }
   });
 
+  it('reports a closed page even when its detached daemon has already exited', () => {
+    for (const skillRoot of skillRoots) {
+      const cwd = mkdtempSync(join(tmpdir(), 'codeflare-impeccable-daemon-exit-'));
+      try {
+        const questions = join(cwd, '.impeccable', 'questions');
+        mkdirSync(questions, { recursive: true });
+        writeFileSync(join(questions, 'choice.state.json'), JSON.stringify({
+          pid: 2_147_483_647,
+          lastBeat: Date.now() - 20_000,
+        }));
+
+        const result = runSkill(skillRoot, 'serve-question.mjs', [
+          '--wait', '--key', 'choice', '--poll', '0.1', '--idle-grace', '0.01',
+        ], cwd);
+
+        assert.equal(result.signal, null, result.stderr);
+        assert.equal(result.status, 4, result.stderr || result.stdout);
+        assert.match(result.stdout, /PAGE CLOSED/);
+        assert.doesNotMatch(result.stdout, /server failure/);
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
   it('delivers a validated next hand and bounds its closed-page grace', () => {
     for (const skillRoot of skillRoots) {
       const cwd = mkdtempSync(join(tmpdir(), 'codeflare-impeccable-update-'));
