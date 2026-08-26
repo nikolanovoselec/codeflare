@@ -659,7 +659,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P2
 
-**Dependencies:** [REQ-OPS-033](#req-ops-033-generated-seed-and-prewarm-lock-integrity)
+**Dependencies:** [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
 **Verification:** Automated committed runtime-lock integrity tests
 
