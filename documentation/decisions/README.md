@@ -3552,15 +3552,11 @@ The same breadth reached `retroactive_ack_scan`. That scan carried its own narro
 
 `git-push-review-reminder.sh` had already solved the classification, and Pi's `classifyReviewBoundaryCommand` solves it the same way: parse any `git`/`gh` in command position, then read the subcommand to name the event.
 
-**Decision:** Separate what triggers enforcement from what anchors the coverage window. Candidacy stays exactly as broad as it has always been: any executable `git` or `gh` command triggers the gate, and Layer 2 (`gh pr view`) decides eligibility. That breadth is a tested contract, not an accident, and narrowing it silently disables enforcement for read-only activity that a reviewed head still depends on.
+**Decision:** One parsed delivery boundary both triggers enforcement and anchors the coverage window. Automatic ingress is limited to executable `git push` and `gh pr create`. Ordinary Git/GitHub activity and `gh pr merge` are inert. Successful clone consent is handled separately by the post-tool reminder. Layer 2 (`gh pr view`) still decides whether the resulting checkout has an eligible open exact head.
 
-What narrows is the anchor. The delivery vocabulary is `git push`, `gh pr create`, and `gh pr merge`, classified with the global-option sets both siblings already share, and lane coverage plus `retroactive_ack_scan` measure from the last delivery rather than the last candidate. Both views come from one parse, so they cannot drift apart the way the two matchers did. Marking the event decides only *where* a delivery happened; it grants no authority over whether that delivery is reviewable.
+Lane coverage and `retroactive_ack_scan` measure from the same delivery boundary, so the trigger and anchor cannot drift. The PreToolUse triage gate may still block `git commit` and `gh pr merge` while a launched review awaits joint triage; that mutation guard does not create a new review round.
 
-`git-push-review-reminder.sh` needs no anchor and keeps only the candidate surface, varying which message it emits.
-
-**Consequences:** With no delivery anywhere in the transcript the anchor is the start of the file, so every lane spawn present counts; anchoring on the last candidate instead would subtract earned coverage and would reinstate this decision's own defect whenever the delivery sits outside a rotated transcript.
-
-A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.
+**Consequences:** With no delivery in the transcript, Stop enforcement remains inert. Read-only commands cannot start a review, consume bypass state, or move coverage past returned lanes. A PR opened by a path outside the vocabulary, such as `gh api repos/.../pulls`, produces no automatic boundary. That gap is accepted rather than closed with broad command matching. Both runtime classifiers must move together when the vocabulary changes.
 
 ### AD122: The CI monitor observes and reports; it does not cancel runs or chase the remote
 

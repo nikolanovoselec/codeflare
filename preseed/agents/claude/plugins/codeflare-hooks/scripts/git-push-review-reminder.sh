@@ -46,9 +46,9 @@ INPUT=$(cat 2>/dev/null) || exit 0
 #   3. mcp__*__ctx_batch_execute → .tool_input.commands[].command (array of
 #                              objects; concatenated with `; ` for one structural pass)
 #
-# Issue #317: when context-mode's enforce-ctx-mode.sh denies `gh pr create` /
-# `gh pr merge` in Bash, agents retry through MCP shell tools. Without this
-# multi-shape parsing, candidate parsing was applied to a JSON shape that has
+# Issue #317: when context-mode's enforce-ctx-mode.sh denies `gh pr create` in
+# Bash, agents retry through MCP shell tools. Without this multi-shape parsing,
+# candidate parsing was applied to a JSON shape that has
 # no `.tool_input.command` field, COMMAND was empty, and the review-pipeline
 # directive silently never fired for the redirected invocation.
 COMMAND=$(echo "$INPUT" | jq -r '

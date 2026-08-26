@@ -61,7 +61,8 @@ function boundaryEvent(executable, rest, options) {
   // has to stop a commit, because a commit minted mid-window is the head the
   // round was never run against.
   if (executable === 'git' && args[0] === 'commit' && options && options.commit) return 'commit';
-  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) return args[1];
+  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'create') return 'create';
+  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) return 'merge';
   return '';
 }
 function heredocDeclarations(line) {

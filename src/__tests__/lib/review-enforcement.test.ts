@@ -141,7 +141,7 @@ function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: Revie
   };
 }
 
-function ciArgs(fixture: ReturnType<typeof makeReviewFixture>, overrides: { cwd?: string; pr?: number; repo?: string } = {}): Record<string, unknown> {
+function ciArgs(fixture: ReturnType<typeof makeReviewFixture>, overrides: { cwd?: string; pr?: number; repo?: string; head?: string } = {}): Record<string, unknown> {
   return {
     subagent_type: 'ci-monitor',
     run_in_background: true,
@@ -149,7 +149,7 @@ function ciArgs(fixture: ReturnType<typeof makeReviewFixture>, overrides: { cwd?
     prompt: JSON.stringify({
       repo: overrides.repo ?? 'owner/repo',
       pr: overrides.pr ?? fixture.pr.number,
-      head: fixture.head,
+      head: overrides.head ?? fixture.pr.headRefOid,
       cwd: overrides.cwd ?? fixture.repo,
     }),
   };
@@ -160,11 +160,12 @@ function ciLaunch(
   fixture: ReturnType<typeof makeReviewFixture>,
   timestamp?: string,
   terminal = true,
+  head = fixture.pr.headRefOid,
 ): Record<string, unknown>[] {
   return [
-    assistantTool(toolUseId, 'subagent', ciArgs(fixture), timestamp),
+    assistantTool(toolUseId, 'subagent', ciArgs(fixture, { head }), timestamp),
     toolResult(toolUseId, 'subagent'),
-    ...(terminal ? [ciNotification(fixture, toolUseId, 'success')] : []),
+    ...(terminal ? [ciNotification(fixture, toolUseId, 'success', head)] : []),
   ];
 }
 
@@ -266,10 +267,11 @@ function ciNotification(
   fixture: ReturnType<typeof makeReviewFixture>,
   toolUseId: string,
   result: 'success' | 'failure' | 'timeout',
+  head: string,
 ): Record<string, unknown> {
   return {
     ...notification(toolUseId),
-    content: `<task-notification>\n<task-id>agent-${toolUseId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>Done</status>\n<result>CI_RESULT ${result}\npr=${fixture.pr.number} head=${fixture.head} repo=owner/repo</result>\n</task-notification>`,
+    content: `<task-notification>\n<task-id>agent-${toolUseId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>Done</status>\n<result>CI_RESULT ${result}\npr=${fixture.pr.number} head=${head} repo=owner/repo</result>\n</task-notification>`,
   };
 }
 
@@ -1149,6 +1151,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-drift'),
       notification('spec-drift'),
       notification('doc-drift'),
+      ...ciLaunch('ci-drift', fixture, undefined, true, reviewedHead),
       triageMessage(),
     );
     const liveHead = 'd'.repeat(40);
@@ -1184,6 +1187,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-before-delivered-fix'),
       notification('spec-before-delivered-fix'),
       notification('doc-before-delivered-fix'),
+      ...ciLaunch('ci-before-delivered-fix', fixture, undefined, true, reviewedHead),
       triageMessage(),
     );
     await harness.emit('agent_end');
@@ -1230,6 +1234,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-resume-race'),
       notification('spec-resume-race'),
       notification('doc-resume-race'),
+      ...ciLaunch('ci-resume-race', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     harness.setGoalResumeRaceActive('goal-1');
@@ -1275,6 +1280,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-persisted'),
       notification('spec-persisted'),
       notification('doc-persisted'),
+      ...ciLaunch('ci-persisted', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     await harness.emit('agent_end');
@@ -1318,6 +1324,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-2'),
       notification('spec-2'),
       notification('doc-2'),
+      ...ciLaunch('ci-2', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     await harness.emit('agent_end');
@@ -1427,6 +1434,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-2'),
       notification('spec-2'),
       notification('doc-2'),
+      ...ciLaunch('ci-2-rollback', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     await harness.emit('agent_end');
@@ -1515,6 +1523,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      ...ciLaunch('ci-goal-removed', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     harness.setGoalControlAvailable(false);
@@ -1549,6 +1558,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      ...ciLaunch('ci-replacement-goal', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
 
@@ -1580,6 +1590,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      ...ciLaunch('ci-reactivated-goal', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
 
@@ -2023,8 +2034,8 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch and rejects detached HEAD', async () => {
-    for (const [index, command] of ['git push', 'git push origin', 'git pull --ff-only', 'gh pr view'].entries()) {
+  it('REQ-AGENT-036/REQ-AGENT-063: verifies only the checked-out branch for delivery commands and rejects detached HEAD', async () => {
+    for (const [index, command] of ['git push', 'git push origin'].entries()) {
       const fixture = makeReviewFixture();
       const queries: Array<{ repo: string; target: string | undefined }> = [];
       const harness = await registerFixture(fixture, fixture.repo, (repo, target) => queries.push({ repo, target }));
@@ -2036,10 +2047,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent(command, toolUseId));
 
-      expect(queries).toEqual(Array.from(
-        { length: command.startsWith('git push') ? 1 : 2 },
-        () => ({ repo: fixture.repo, target: 'pi' }),
-      ));
+      expect(queries).toEqual([{ repo: fixture.repo, target: 'pi' }]);
       expect(harness.sent).toHaveLength(1);
     }
 
@@ -2135,7 +2143,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-063: pairs the latest batch candidate with its command repository', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063: keeps the delivery repository when later batch activity is ordinary', async () => {
     const ambient = makeReviewFixture();
     const boundary = makeReviewFixture();
     const { registerReviewEnforcement } = await plannedEnforcement();
@@ -2166,10 +2174,10 @@ describe('Pi review reminder and settled enforcement', () => {
       isError: false,
     });
 
-    expect(queriedRepos).toEqual([ambient.repo, ambient.repo]);
+    expect(queriedRepos).toEqual([boundary.repo]);
     expect(harness.sent[0]?.message.details).toMatchObject({
-      ...boundaryIdentity(ambient, 'batch-cross-repo'),
-      head: ambient.head,
+      ...boundaryIdentity(boundary, 'batch-cross-repo'),
+      head: boundary.head,
     });
   });
 
@@ -2312,6 +2320,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-1'),
       notification('spec-1'),
       notification('doc-1'),
+      ...ciLaunch('ci-create-1', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
 
@@ -2515,9 +2524,10 @@ describe('Pi review reminder and settled enforcement', () => {
     registerReviewEnforcement(harness.pi, {
       queryPr: async () => ({
         ...fixture.pr,
-        headRefOid: ++queries < 3 ? staleHead : fixture.head,
+        headRefOid: ++queries < 13 ? staleHead : fixture.head,
       }),
       queryHead: async () => fixture.head,
+      sleep: async () => undefined,
     });
     appendSession(fixture.sessionFile,
       assistantTool('push-recovery', 'bash', { command: 'git push origin pi' }),
@@ -2731,7 +2741,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(harness.sent).toEqual([]);
 
-    appendSession(fixture.sessionFile, ciNotification(fixture, 'ci-joint', 'failure'), triageMessage());
+    appendSession(fixture.sessionFile, ciNotification(fixture, 'ci-joint', 'failure', fixture.pr.headRefOid), triageMessage());
     await harness.emit('agent_end');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
@@ -2831,6 +2841,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-second-cycle'),
       notification('spec-second-cycle'),
       notification('doc-second-cycle'),
+      ...ciLaunch('ci-second-cycle', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
     await harness.emit('agent_end');
@@ -3456,6 +3467,7 @@ describe('Pi review reminder and settled enforcement', () => {
       notification('code-acknowledged'),
       notification('spec-acknowledged'),
       notification('doc-acknowledged'),
+      ...ciLaunch('ci-acknowledged', fixture, undefined, true, fixture.pr.headRefOid),
       triageMessage(),
     );
 

@@ -3,10 +3,9 @@
 #
 # Architecture: authoritative checked-out branch state plus a per-PR checkpoint.
 #
-#   Layer 1 (CANDIDATE) finds executable `git` or `gh` commands, and separately
-#     marks the delivery ones (`git push`, `gh pr create`, `gh pr merge`).
-#     Candidates trigger enforcement; only a delivery anchors the coverage
-#     window (AD121).
+#   Layer 1 (BOUNDARY) finds only executable delivery commands (`git push` and
+#     `gh pr create`). Ordinary Git/GitHub activity and `gh pr merge` neither
+#     open enforcement nor move the coverage window (AD121).
 #   Layer 2 (TRUTH) requires a normal checked-out branch whose open
 #     main/master/develop PR head exactly equals local HEAD.
 #   Layer 3 (CHECKPOINT) stores the acknowledged SHA by PR number.
@@ -328,20 +327,14 @@ if [ ! -r "$CLASSIFIER_LIB" ] && grep -qE '(^|[^a-zA-Z])(git|gh)([^a-zA-Z]|$)' "
   exit 2
 fi
 TRANSCRIPT_SCAN=$(transcript_scan 2>/dev/null)
-candidate_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF { print $1 }'; }
 delivery_line_numbers() { printf '%s\n' "$TRANSCRIPT_SCAN" | awk 'NF && $2 != "-" { print $1 }'; }
 
 PUSH_LINE=$(delivery_line_numbers | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No delivery, no enforcement
 
-# Anchor for lane coverage and retroactive acknowledgement. With no delivery in
-# the transcript there is no round for a delivery to have opened, so every spawn
-# present counts and the anchor is the start of the file. Anchoring on the last
-# candidate instead would only subtract coverage that was legitimately earned,
-# and would reinstate this fix's own bug whenever the delivery sits outside the
-# file, which the rotation case at the top of this script describes.
-COVERAGE_LINE=$(delivery_line_numbers | tail -1)
-[ -n "$COVERAGE_LINE" ] || COVERAGE_LINE=1
+# One delivery both opens the round and anchors lane coverage. Ordinary activity
+# cannot create or truncate the active window.
+COVERAGE_LINE=$PUSH_LINE
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 

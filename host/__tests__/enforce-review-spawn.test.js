@@ -1187,7 +1187,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [COMMAND_LINE('git status --short')]);
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
@@ -2192,86 +2192,33 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
   });
 
-  // REQ-AGENT-021 AC7: gh pr merge must be recognised as a PUSH_LINE
-  // trigger across all three tool surfaces. Server-side merges into
-  // develop advance the develop->main PR HEAD without producing a local
-  // git push line; without these matches the review pipeline silently
-  // fails to arm. Spec-reviewer flagged the missing coverage as MEDIUM
-  // because the named-incident behaviour was unverified by CI.
   const bashGhMerge = (
     ts = '2026-05-03T12:00:00.000Z',
     command = 'gh pr merge 394 --merge',
-  ) =>
-    JSON.stringify({
-      type: 'assistant',
-      message: {
-        content: [
-          {
-            type: 'tool_use',
-            name: 'Bash',
-            input: { command },
-          },
-        ],
-      },
-      timestamp: ts,
-    });
-
-  it('blocks on Bash gh pr merge', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [bashGhMerge()]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.equal(r.rawStatus, 2, 'Bash gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
+  ) => JSON.stringify({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', name: 'Bash', input: { command } }] },
+    timestamp: ts,
   });
 
-  it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [
+  it('keeps gh pr merge inert across shell tool surfaces', () => {
+    const cases = [
+      bashGhMerge(),
       ctxExecPush('2026-05-03T12:00:00.000Z', 'gh pr merge 394 --merge'),
-    ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.equal(r.rawStatus, 2, 'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
+      ctxBatchPush('2026-05-03T12:00:00.000Z', [{ label: 'merge', command: 'gh pr merge 394 --merge' }]),
+      ctxExecPush('2026-05-03T12:00:00.000Z', 'git fetch origin && gh pr merge 394 --merge'),
+    ];
+    for (const line of cases) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const r = runHook(cwd, { transcriptPath: writeTranscript(cwd, [line]), binDir: ghPoison(cwd) });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
+    }
   });
 
-  it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [
-      ctxBatchPush('2026-05-03T12:00:00.000Z', [
-        { label: 'merge', command: 'gh pr merge 394 --merge' },
-      ]),
-    ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.equal(r.rawStatus, 2, 'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
-    assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
-  });
-
-  it('detects chained gh pr merge inside ctx_execute shell code', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
-    const t = writeTranscript(cwd, [
-      ctxExecPush(
-        '2026-05-03T12:00:00.000Z',
-        'git fetch origin && gh pr merge 394 --merge',
-      ),
-    ]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
-    assert.match(r.stdout, /run code-reviewer/, 'and it demands the lane, so a truncated directive fails here');
-  });
-
-  it('blocks on Bash gh pr edit protected-base retargets across flag forms', () => {
+  it('keeps Bash gh pr edit inert across flag forms', () => {
     for (const command of [
       'gh pr edit 394 --base main',
       'gh pr edit --base=master',
@@ -2279,32 +2226,32 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     ]) {
       const cwd = makeFixture();
       withSdd(cwd);
-      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const binDir = ghPoison(cwd);
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.equal(r.rawStatus, 2, command);
-      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
+      assert.equal(r.stdout, '', command);
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     }
   });
 
-  it('evaluates authoritative state after non-protected and metadata-only gh pr edit commands', () => {
+  it('keeps non-protected and metadata-only gh pr edit inert', () => {
     for (const command of [
       'gh pr edit 394 --base develop',
       'gh pr edit 394 --title metadata-only',
     ]) {
       const cwd = makeFixture();
       withSdd(cwd);
-      const binDir = fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main'));
+      const binDir = ghPoison(cwd);
       const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.equal(r.rawStatus, 2, command);
-      assert.match(r.stdout, /run code-reviewer/, 'the directive demands its lanes');
+      assert.equal(r.stdout, '', command);
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     }
   });
 
-  it('blocks on ctx_execute and ctx_batch_execute gh pr edit retargets', () => {
+  it('keeps ctx_execute and ctx_batch_execute gh pr edit inert', () => {
     const cases = [
       ctxExecPush('2026-05-03T12:00:00.000Z', 'gh pr edit 394 --base main'),
       ctxBatchPush('2026-05-03T12:00:00.000Z', [
@@ -2314,11 +2261,12 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     for (const line of cases) {
       const cwd = makeFixture();
       withSdd(cwd);
-      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const binDir = ghPoison(cwd);
       const t = writeTranscript(cwd, [line]);
       const r = runHook(cwd, { transcriptPath: t, binDir });
       assert.equal(r.status, 0);
-      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     }
   });
 });
@@ -2330,16 +2278,14 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
     'printf "%s\\n" "$(gh pr view)"',
     'echo ready && "git" status --short',
   ]) {
-    it(`enforces after executable activity in: ${command}`, () => {
+    it(`keeps executable ordinary activity inert in: ${command}`, () => {
       const cwd = makeFixture();
       withSdd(cwd);
       const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
-      const r = runHook(cwd, {
-        transcriptPath: t,
-        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
-      });
+      const r = runHook(cwd, { transcriptPath: t, binDir: ghPoison(cwd) });
       assert.equal(r.status, 0);
-      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     });
   }
 
@@ -2364,16 +2310,14 @@ describe('enforce-review-spawn.sh - structural shell boundaries', () => {
     'printf "%s\\n" "<<EOF"\ngit status --short',
     'printf "%s\\n" \\<\\<EOF\ngit status --short',
   ]) {
-    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
+    it(`keeps ordinary activity inert despite quoted or escaped << in: ${command}`, () => {
       const cwd = makeFixture();
       withSdd(cwd);
       const t = writeTranscript(cwd, [COMMAND_LINE(command)]);
-      const r = runHook(cwd, {
-        transcriptPath: t,
-        binDir: fakeGh(cwd, ghReturning('OPEN', currentHead(cwd), 'main')),
-      });
+      const r = runHook(cwd, { transcriptPath: t, binDir: ghPoison(cwd) });
       assert.equal(r.status, 0);
-      assert.equal(r.rawStatus, 2, 'the directive is delivered as rewake feedback, not a JSON block');
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/);
     });
   }
 });
