@@ -2610,6 +2610,8 @@ own-account R2 (the `.r2.cloudflarestorage.com` suffix requires the leading dot,
 
 **Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container): browser-token injection only. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
 
+**2026-08-26 authority correction:** “Worker-held key” means the existing DO-held credential scoped to the session user's exact bucket, not the deployment-wide R2 credential. The bound bucket and scoped pair reach `EgressController` through Worker-side props. Another bucket or missing scoped credentials fails before any send. This restores [AD13](#ad13-per-user-scoped-r2-tokens) without changing placeholder containment, streaming, SSE-C, or Governed Mode.
+
 **Context:** AD86 narrowed strict egress to direct-internet traffic and added an account-scoped exemption, but its first deploy left three problems on `enterprise-integration`:
 
 1. **browser-run still failed.**
@@ -2626,7 +2628,7 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 - **R2 key containment via re-sign.** When strict is active, `buildEnvVars` emits a **non-secret placeholder** R2 key into the container (`ENTERPRISE_R2_KEY_PLACEHOLDER`, which is the single canonical enterprise placeholder value `'codeflare-enterprise'`).
 
-  That value is the same as the GitHub-token placeholder and entrypoint.sh's `ENTERPRISE_PLACEHOLDER_TOKEN`. rclone runs in signed mode with the placeholder; for own-account R2 the `EgressController` **strips the placeholder `Authorization` and re-signs** the request with the worker-held key (`createR2Client` / aws4fetch) at the R2 boundary.
+  That value is the same as the GitHub-token placeholder and entrypoint.sh's `ENTERPRISE_PLACEHOLDER_TOKEN`. rclone runs in signed mode with the placeholder; for own-account R2 the `EgressController` **strips the placeholder `Authorization` and re-signs** the request with the session's Worker-held, bucket-scoped key (`createR2Client` / aws4fetch) at the R2 boundary. The 2026-08-26 correction above replaced the initial deployment-wide signer and added exact-bucket rejection.
 
   The re-sign reuses the request's existing `x-amz-content-sha256` so the body streams through unbuffered, and signs every present header so SSE-C `x-amz-*` headers are preserved. The real R2 key never enters the container. Non-enterprise / strict-off sessions keep the real key (rclone connects to R2 directly), byte-identical to today.
 - **WebSocket upgrades are bridged, not returned as-is.**

@@ -426,6 +426,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await vi.waitFor(() => {
         expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
       });
+      instance._bucketName = 'codeflare-enterprise-nikola-novoselec-ch';
+      instance._r2AccessKeyId = 'scoped-access-key';
+      instance._r2SecretAccessKey = 'scoped-secret-key';
 
       await instance.startAndWaitForPorts(8080);
 
@@ -434,7 +437,15 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // WS3 account-scoped exemption (REQ-ENTERPRISE-016): the DO threads its own
       // account id (resolved via getR2Config) so the controller exempts ONLY this
       // account's R2 / CF API. getR2Config is mocked to return accountId 'test-account'.
-      expect(EgressController).toHaveBeenCalledWith({ props: { accountId: 'test-account', strict: true } });
+      expect(EgressController).toHaveBeenCalledWith({
+        props: {
+          accountId: 'test-account',
+          bucket: 'codeflare-enterprise-nikola-novoselec-ch',
+          r2AccessKeyId: 'scoped-access-key',
+          r2SecretAccessKey: 'scoped-secret-key',
+          strict: true,
+        },
+      });
       // ALL interceptOutboundHttps calls (LLM + GitHub + catch-all) precede the
       // container boot so the CA is mounted before entrypoint.sh — the same
       // load-bearing ordering as the per-host registrations.

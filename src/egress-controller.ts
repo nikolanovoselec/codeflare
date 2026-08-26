@@ -3,16 +3,18 @@
  * hosts (REQ-ENTERPRISE-016).
  *
  * A WorkerEntrypoint the container DO wires as a catch-all (`interceptOutboundHttps('*',
- * controller)`) when strict Gateway egress is ON; the DO passes `{ accountId, strict }`
- * via props (resolved once at wiring — no per-request KV read). For most hosts it is a
+ * controller)`) when strict Gateway egress is ON; the DO passes the account, bound bucket,
+ * bucket-scoped R2 credentials, and strict state via props (resolved once at wiring — no
+ * per-request KV read). For most hosts it is a
  * TRANSPARENT PROXY: it stamps no identity and preserves the caller's `authorization` /
  * `cookie` / `set-cookie`, forcing genuine direct-internet traffic through the mandatory
  * `env.EGRESS` Workers VPC binding (the customer's Zero Trust Gateway) for inspection.
  *
  * The deployment's OWN-account platform destinations egress DIRECT, never cf1:network
  * ({@link isAccountScopedDestination}; account id from `ctx.props.accountId`):
- *   - own R2 ({@link isOwnAccountR2}): the container's PLACEHOLDER `authorization` is
- *     STRIPPED and the request is RE-SIGNED with the worker-held R2 key (aws4fetch,
+ *   - own R2 ({@link isOwnAccountR2}): only the bound user bucket is accepted; the
+ *     container's PLACEHOLDER `authorization` is STRIPPED and the request is RE-SIGNED with
+ *     that bucket's Worker-held scoped R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
  *     and SSE-C headers are preserved) — so the real R2 key never enters the container.
  *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
@@ -53,6 +55,11 @@ const logger = createLogger('egress-controller');
 interface EgressProps {
   /** This deployment's own Cloudflare account id; selects the account-scoped exemption. */
   accountId?: string;
+  /** User bucket bound to this container session. */
+  bucket?: string;
+  /** Bucket-scoped credentials held by the DO and passed only to this Worker entrypoint. */
+  r2AccessKeyId?: string;
+  r2SecretAccessKey?: string;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
 }
@@ -76,6 +83,19 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     const accountId = props.accountId;
     const accountScoped = isAccountScopedDestination(url, accountId);
+    const ownR2 = isOwnAccountR2(url, accountId);
+    const scopedR2Credentials = props.r2AccessKeyId && props.r2SecretAccessKey
+      ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
+      : null;
+    if (ownR2) {
+      const requestedBucket = url.pathname.split('/')[1];
+      if (!props.bucket || requestedBucket !== props.bucket) {
+        return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
+      }
+      if (!scopedR2Credentials) {
+        return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
+      }
+    }
 
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
     // socket. Forward the original request VERBATIM (transparent proxy). Browser-run's CDP WS
@@ -130,19 +150,21 @@ export class EgressController extends WorkerEntrypoint<Env> {
       redirect: 'manual',
     });
 
-    const ownR2 = isOwnAccountR2(url, accountId);
     let upstream: Response;
     let resigned = false;
     const t0 = Date.now();
     try {
-      if (ownR2) {
-        // Own R2: strip the container's PLACEHOLDER signature and RE-SIGN with the
-        // worker-held key. aws4fetch reuses the request's existing x-amz-content-sha256
+      if (ownR2 && scopedR2Credentials) {
+        // Own R2: strip the container's PLACEHOLDER signature and RE-SIGN with the bound
+        // bucket's scoped key. aws4fetch reuses the request's existing x-amz-content-sha256
         // (so the body streams through unbuffered) and signs every present header (SSE-C
         // x-amz-* preserved). Account-scoped ⇒ egresses direct, never env.EGRESS.
         const signHeaders = new Headers(forward.headers);
         signHeaders.delete('authorization');
-        const signed = await createR2Client(this.env).sign(url.toString(), {
+        const signed = await createR2Client({
+          R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
+          R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
+        }).sign(url.toString(), {
           method: forward.method,
           headers: signHeaders,
           body: hasBody ? forward.body : undefined,

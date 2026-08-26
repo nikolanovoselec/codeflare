@@ -216,7 +216,7 @@ export function buildEnvVars(
   const bucketName = state._bucketName || 'unknown-bucket';
   // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
   // container — emit a non-secret placeholder so rclone runs in signed mode while the
-  // EgressController strips it and re-signs with the worker-held key at the R2 boundary
+  // EgressController strips it and re-signs with the Worker-held user-scoped key at the R2 boundary
   // (egress-controller.ts). Only when strict is active; non-enterprise / strict-off keep
   // the real key (rclone connects to R2 directly, byte-identical to today).
   const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';

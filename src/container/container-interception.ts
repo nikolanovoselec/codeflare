@@ -39,6 +39,8 @@ export interface InterceptionHost {
   _userGroups: string[];
   _cloudflareApiToken: string | null;
   _r2AccountId: string | null;
+  _r2AccessKeyId: string | null;
+  _r2SecretAccessKey: string | null;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
   _strictEgress: boolean;
 }
@@ -202,7 +204,9 @@ const browserRendering: InterceptorSpec = {
  * through the EgressController, which forces genuine direct-internet traffic through the
  * mandatory env.EGRESS Workers VPC binding (the customer's Zero Trust Gateway). The
  * account-scoped exemption: `_r2AccountId` is resolved in the DO constructor before wiring;
- * absent => fail-secure (nothing exempt, all egress Gateway-inspected).
+ * absent => fail-secure (nothing exempt, all egress Gateway-inspected). The bound bucket and
+ * its scoped credentials stay Worker-side in props so intercepted R2 cannot use deployment-wide
+ * credentials or cross the per-user bucket boundary.
  */
 const strictEgress: InterceptorSpec = {
   mode: 'enterprise',
@@ -210,7 +214,13 @@ const strictEgress: InterceptorSpec = {
     if (!host._strictEgress) return null;
     return {
       entrypoint: 'EgressController',
-      props: { accountId: host._r2AccountId ?? undefined, strict: true },
+      props: {
+        accountId: host._r2AccountId ?? undefined,
+        bucket: host._bucketName ?? undefined,
+        r2AccessKeyId: host._r2AccessKeyId ?? undefined,
+        r2SecretAccessKey: host._r2SecretAccessKey ?? undefined,
+        strict: true,
+      },
       hosts: ['*'],
       wiredLog: 'Enterprise strict Gateway egress wired (catch-all)',
       failLog: 'Failed to wire enterprise strict Gateway egress',

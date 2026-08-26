@@ -265,7 +265,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
 
   // REQ-ENTERPRISE-016: when strict Gateway egress is active the real R2 key must NEVER
   // enter the container — the R2_* names get a non-secret placeholder; the EgressController
-  // strips it and re-signs with the worker-held key at the R2 boundary. (The AWS_*-named
+  // strips it and re-signs with the Worker-held user-scoped key at the R2 boundary. (The AWS_*-named
   // duplicates are no longer emitted in any mode — they had no consumer; see the secret-
   // hygiene tests in container-env-llm.test.ts.)
   it('REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key when _strictEgress is true (real key never enters the container); no AWS_*', () => {
