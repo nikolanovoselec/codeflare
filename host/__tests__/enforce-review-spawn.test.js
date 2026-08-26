@@ -1700,6 +1700,8 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       assert.equal(ackOf(omitted.cwd), '');
       const incidental = drive(ciResult, CI_TRIAGE_LINE(ciResult, 'Reviewer', `CI parser ignored ${ciResult} wording`));
       assert.equal(ackOf(incidental.cwd), '');
+      const wrongCase = drive(ciResult, CI_TRIAGE_LINE(ciResult, 'exact-head ci'));
+      assert.equal(ackOf(wrongCase.cwd), '');
       const negated = drive(ciResult, CI_TRIAGE_LINE(ciResult, 'Exact-head CI', `CI_RESULT ${ciResult} was not observed`));
       assert.equal(ackOf(negated.cwd), '');
       const included = drive(ciResult, CI_TRIAGE_LINE(ciResult));

@@ -838,7 +838,7 @@ stacked_table_in_stream() {
           proposed = cells[4]
           gsub(/^[ \t]+|[ \t]+$/, "", finding)
           gsub(/^[ \t]+|[ \t]+$/, "", proposed)
-          if (tolower(finding) == "exact-head ci" && proposed == "CI_RESULT " expected) exit 0
+          if (finding == "Exact-head CI" && proposed == "CI_RESULT " expected) exit 0
         }
       }
       exit 1

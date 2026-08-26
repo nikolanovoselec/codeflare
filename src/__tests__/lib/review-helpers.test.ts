@@ -789,6 +789,7 @@ describe('native Pi transcript review facts', () => {
       if (result !== 'success') {
         for (const misleadingRow of [
           `| Reviewer | VALID | CI parser ignored ${result} wording | proportional | none |`,
+          `| exact-head ci | VALID | CI_RESULT ${result} | proportional | none |`,
           `| Exact-head CI | VALID | CI_RESULT ${result} was not observed | proportional | none |`,
         ]) {
           const misleading = writeSession([

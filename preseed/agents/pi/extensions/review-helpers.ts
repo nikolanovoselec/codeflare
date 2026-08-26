@@ -492,7 +492,7 @@ function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalRes
       if (!lines[row].endsWith("|")) continue;
       const cells = lines[row].slice(1, -1).split("|").map((cell) => cell.trim());
       if (cells.length === 5
-        && cells[0].toLowerCase() === "exact-head ci"
+        && cells[0] === "Exact-head CI"
         && cells[2] === `CI_RESULT ${result}`) return true;
     }
   }
