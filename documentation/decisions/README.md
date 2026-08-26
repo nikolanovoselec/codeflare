@@ -3961,7 +3961,7 @@ Reviewer calls start together and exact-head CI starts immediately afterward. Ac
 
 **Context:** AD13 created one Object Read and Write token scoped to each user's exact bucket. AD87 later removed real R2 credentials from strict-mode containers, but its first implementation re-signed intercepted requests with deployment-wide Worker credentials. Account-host validation did not preserve the per-user bucket boundary, so strict interception widened data-plane authority while claiming to contain it.
 
-**Decision:** The Container Durable Object passes its existing memory-only scoped credential and bound bucket to `EgressController` through Worker-side props. Path-style and virtual-hosted own-account R2 requests must identify that exact bucket. Another bucket or missing scoped credentials fails before any upstream send. The controller constructs its signer only from the scoped pair and never falls back to deployment-wide R2 credentials. Each validated restart payload restores the memory-only pair before interception wiring after a Durable Object wake.
+**Decision:** The Container Durable Object passes its existing memory-only scoped credential and bound bucket to `EgressController` through Worker-side props. Path-style and virtual-hosted own-account R2 requests must identify that exact bucket. Another bucket or missing scoped credentials fails before any upstream send. The controller constructs its signer only from the scoped pair and never falls back to deployment-wide R2 credentials. A validated restart payload that carries scoped credentials restores the complete pair atomically before interception wiring after a Durable Object wake.
 
 Placeholder credentials remain inside the strict container. Streaming request bodies, SSE-C headers, Governed Mode, account-scoped direct routing, WebSocket bridging, and strict state resolved through props remain as AD87 decided.
 
@@ -3970,7 +3970,7 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 **Related REQs:** [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport).
 
 <!-- @impl: src/container/container-interception.ts::strictEgress -->
-<!-- @impl: src/container/container-router.ts::dispatchInternalRoute -->
+<!-- @impl: src/container/container-router.ts::handleSetBucketName -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
 
 ---

@@ -181,11 +181,13 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     if (host._bucketName) {
       // Scoped credentials live only in memory. Restore them from each validated start
       // payload before interception is wired after a Durable Object wake.
-      const r2CredentialsChanged =
-        (r2AccessKeyId !== undefined && r2AccessKeyId !== host._r2AccessKeyId)
-        || (r2SecretAccessKey !== undefined && r2SecretAccessKey !== host._r2SecretAccessKey);
-      if (r2AccessKeyId !== undefined) host._r2AccessKeyId = r2AccessKeyId;
-      if (r2SecretAccessKey !== undefined) host._r2SecretAccessKey = r2SecretAccessKey;
+      const r2CredentialsProvided = r2AccessKeyId !== undefined && r2SecretAccessKey !== undefined;
+      const r2CredentialsChanged = r2CredentialsProvided
+        && (r2AccessKeyId !== host._r2AccessKeyId || r2SecretAccessKey !== host._r2SecretAccessKey);
+      if (r2CredentialsProvided) {
+        host._r2AccessKeyId = r2AccessKeyId;
+        host._r2SecretAccessKey = r2SecretAccessKey;
+      }
 
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.

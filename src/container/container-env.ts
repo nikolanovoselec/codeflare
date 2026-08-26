@@ -158,6 +158,9 @@ export function validateBucketNameInput(input: {
   if (r2SecretAccessKey !== undefined && (typeof r2SecretAccessKey !== 'string' || r2SecretAccessKey.trim() === '')) {
     return 'r2SecretAccessKey must be a non-empty string when provided';
   }
+  if ((r2AccessKeyId === undefined) !== (r2SecretAccessKey === undefined)) {
+    return 'r2AccessKeyId and r2SecretAccessKey must be provided together';
+  }
   if (workspaceSyncEnabled !== undefined && typeof workspaceSyncEnabled !== 'boolean') {
     return 'workspaceSyncEnabled must be a boolean when provided';
   }
