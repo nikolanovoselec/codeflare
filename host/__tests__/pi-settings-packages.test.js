@@ -98,7 +98,10 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
     assert.equal(usage.version, version);
     assert.equal(usage.resolved, `https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-${version}.tgz`);
     assert.match(usage.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
-    assert.deepEqual(usage.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
+    assert.deepEqual(usage.peerDependencies, {
+      '@earendil-works/pi-ai': '*',
+      '@earendil-works/pi-coding-agent': '*',
+    });
   });
 });
 
@@ -161,7 +164,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.4.0');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.6.0');
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });

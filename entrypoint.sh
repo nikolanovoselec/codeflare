@@ -2573,19 +2573,19 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@19.2.1',
+  'npm:@gotgenes/pi-subagents@19.3.2',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.4.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.4.0',
-  'npm:@juicesharp/rpiv-todo@2.4.0',
-  'npm:pi-web-access@0.18.0',
-  'npm:pi-mcp-adapter@2.21.0',
+  'npm:@juicesharp/rpiv-advisor@2.6.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.6.0',
+  'npm:@juicesharp/rpiv-todo@2.6.0',
+  'npm:pi-web-access@0.23.0',
+  'npm:pi-mcp-adapter@2.26.0',
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.53.0',
   'npm:@narumitw/pi-plan-mode@0.52.0',
-  'npm:@narumitw/pi-usage@0.50.0',
+  'npm:@narumitw/pi-usage@0.52.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.

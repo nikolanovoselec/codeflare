@@ -1,7 +1,7 @@
 ---
 name: impeccable
 description: Use when designing, auditing, polishing, or transforming frontend UI, UX, layout, motion, accessibility, or design systems.
-version: 4.1.0
+version: 4.1.1
 user-invocable: true
 argument-hint: "[shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live] [target]"
 license: Apache 2.0

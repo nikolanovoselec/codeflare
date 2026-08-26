@@ -162,8 +162,8 @@ RUN ZOXIDE_VERSION="0.10.0" && \
     rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.5.6" && \
-    YAZI_SHA256="1031a02560d053301537195a6661d227c15cb4ce5c30481050b31e2b88681bff" && \
+RUN YAZI_VERSION="26.8.15" && \
+    YAZI_SHA256="a6702034790afcdbb546b73b288c9b184a751fa3f2f17f0ad4d26fc302fb8d45" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
@@ -205,17 +205,17 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
-# code-server 4.132.0 vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
+# The pinned code-server release vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
 # the overlay pins 4.3.1 under an independent integrity hash as defence in
 # depth. The immutable Node and code-server artifacts also carry node-tar
 # versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
 # replaces both runtime copies. Drop each overlay after its upstream artifact
 # contains at least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.132.0" && \
-    CODE_SERVER_SHA256="a38d26f4cb81f768feddff79e2937fd3f39c83d3da8be3da7225e1087e62e4ed" && \
-    CODE_SERVER_COMMIT="313bf0359b4d391ba18f1fa131aad8a583bc2919" && \
-    CODE_SERVER_CODE_VERSION="1.132.0" && \
-    CODE_SERVER_VSCODE_COMMIT="df53daabb18cd157bdb08c7f01c34df936cf12f4" && \
+RUN CODE_SERVER_VERSION="4.133.0" && \
+    CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
+    CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
+    CODE_SERVER_CODE_VERSION="1.133.0" && \
+    CODE_SERVER_VSCODE_COMMIT="a5b500951314efd502d07465bd138dfbd714a960" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     NODE_TAR_VERSION="7.5.21" && \
@@ -480,8 +480,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.2
-ARG UV_X86_64_LINUX_SHA256=d66e96b5f1ca3b99806eee283a8125d33a0bd669e6e6d9bc4ab7ffda63c41bf4
+ARG UV_VERSION=0.12.5
+ARG UV_X86_64_LINUX_SHA256=68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
