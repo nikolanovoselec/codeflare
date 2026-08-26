@@ -47,7 +47,10 @@ if (scanMode) {
     catch (error) { console.error(`embed-prompt: cannot inspect ${p}: ${error.message}`); process.exit(1); }
     // A scan audits files rooted in the requested tree. Following symlinks can
     // escape that boundary, recurse through cycles, or fail on a broken target.
-    if (stat.isSymbolicLink()) return;
+    if (stat.isSymbolicLink()) {
+      if (isRoot) { console.error(`embed-prompt: scan target cannot be a symbolic link: ${p}`); process.exit(1); }
+      return;
+    }
     if (stat.isDirectory()) {
       const base = p.replace(/\/+$/, '').split('/').pop();
       // Skip installed deps and hidden dirs found during the walk, but honor a

@@ -94,6 +94,29 @@ describe('REQ-AGENT-163: Impeccable browser-question lifecycle', () => {
         ], cwd);
         assert.equal(expiredWait.status, 4, expiredWait.stderr || expiredWait.stdout);
         assert.match(expiredWait.stdout, /PAGE CLOSED/);
+
+        rmSync(nextFile);
+        writeFileSync(join(questions, 'choice.state.json'), JSON.stringify({
+          pid: process.pid,
+          lastBeat: Date.now() - 20_000,
+          claimedAt: Date.now(),
+        }));
+        const claimedWait = runSkill(skillRoot, 'serve-question.mjs', [
+          '--wait', '--key', 'choice', '--poll', '0.1', '--idle-grace', '0.01',
+        ], cwd);
+        assert.equal(claimedWait.status, 3, claimedWait.stderr || claimedWait.stdout);
+        assert.match(claimedWait.stdout, /WAITING: no answer yet/);
+
+        writeFileSync(join(questions, 'choice.state.json'), JSON.stringify({
+          pid: process.pid,
+          lastBeat: Date.now() - 20_000,
+          claimedAt: Date.now() - 20_000,
+        }));
+        const expiredClaim = runSkill(skillRoot, 'serve-question.mjs', [
+          '--wait', '--key', 'choice', '--poll', '0.1', '--idle-grace', '0.01',
+        ], cwd);
+        assert.equal(expiredClaim.status, 4, expiredClaim.stderr || expiredClaim.stdout);
+        assert.match(expiredClaim.stdout, /PAGE CLOSED/);
       } finally {
         rmSync(cwd, { recursive: true, force: true });
       }
@@ -109,10 +132,22 @@ describe('REQ-AGENT-164: Impeccable prompt-metadata audit', () => {
         const assets = join(cwd, 'assets');
         mkdirSync(assets);
         writeFileSync(join(assets, 'missing.png'), Buffer.from('not-a-png'));
+        const nested = join(assets, 'nested');
+        mkdirSync(nested);
+        const png = join(nested, 'provenanced.png');
+        const jpeg = join(nested, 'provenanced.jpg');
+        const webp = join(nested, 'provenanced.webp');
+        writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+        writeFileSync(jpeg, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        writeFileSync(webp, Buffer.from('RIFF'));
+        for (const raster of [png, jpeg, webp]) {
+          const embedded = runSkill(skillRoot, 'embed-prompt.mjs', [raster, '--prompt', 'source intent'], cwd);
+          assert.equal(embedded.status, 0, embedded.stderr || embedded.stdout);
+        }
         mkdirSync(join(assets, '.hidden'));
         writeFileSync(join(assets, '.hidden', 'ignored.png'), Buffer.from('not-a-png'));
         mkdirSync(join(assets, 'node_modules'));
-        writeFileSync(join(assets, 'node_modules', 'ignored.png'), Buffer.from('not-a-png'));
+        writeFileSync(join(assets, 'node_modules', 'ignored.webp'), Buffer.from('RIFF'));
         symlinkSync('absent.png', join(assets, 'broken.png'));
         symlinkSync('.', join(assets, 'cycle'));
 
@@ -122,7 +157,14 @@ describe('REQ-AGENT-164: Impeccable prompt-metadata audit', () => {
         assert.equal(result.status, 3, result.stderr || result.stdout);
         assert.equal(result.stderr, '');
         assert.match(result.stdout, /MISSING: .*missing\.png/);
-        assert.match(result.stdout, /SCAN: 1 raster, 1 missing/);
+        assert.doesNotMatch(result.stdout, /provenanced\.(png|jpe?g|webp)/);
+        assert.match(result.stdout, /SCAN: 4 rasters, 1 missing/);
+
+        const rootLink = join(cwd, 'linked-assets');
+        symlinkSync(assets, rootLink);
+        const linked = runSkill(skillRoot, 'embed-prompt.mjs', ['--scan', rootLink], cwd);
+        assert.equal(linked.status, 1, linked.stderr || linked.stdout);
+        assert.match(linked.stderr, /scan target cannot be a symbolic link/);
 
         const invalid = runSkill(skillRoot, 'embed-prompt.mjs', [
           '--scan', join(cwd, 'absent'),
