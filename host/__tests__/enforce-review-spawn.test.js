@@ -121,18 +121,38 @@ function ghPoison(cwd) {
   return binDir;
 }
 
+function ciLaunchLine(head, toolUseId = 'toolu_ci_monitor_fixture') {
+  return JSON.stringify({
+    type: 'assistant',
+    message: { content: [{
+      type: 'tool_use',
+      name: 'Agent',
+      id: toolUseId,
+      input: {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo' }),
+      },
+    }] },
+  });
+}
+
+function ciDoneLine(head, result = 'success', toolUseId = 'toolu_ci_monitor_fixture') {
+  return JSON.stringify({
+    type: 'custom_message',
+    customType: 'subagent-notification',
+    content: `<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\nCI_RESULT ${result}\npr=42 head=${head} repo=owner/repo`,
+  });
+}
+
 function writeTranscript(cwd, lines, { ciResult = true } = {}) {
   const path = join(cwd, 'transcript.jsonl');
   const withCi = [...lines];
   if (ciResult && (ciResult === 'always' || lines.some((line) => line.includes(TRIAGE_HEADER)))) {
     const head = currentHead(cwd);
-    const terminal = JSON.stringify({
-      type: 'custom_message',
-      customType: 'subagent-notification',
-      content: `<status>completed</status>\nCI_RESULT success\npr=42 head=${head} repo=owner/repo`,
-    });
     const triageIndex = withCi.findIndex((line) => line.includes(TRIAGE_HEADER));
-    withCi.splice(triageIndex < 0 ? withCi.length : triageIndex, 0, terminal);
+    withCi.splice(triageIndex < 0 ? withCi.length : triageIndex, 0, ciLaunchLine(head), ciDoneLine(head));
   }
   writeFileSync(path, withCi.join('\n') + '\n');
   return path;
@@ -280,6 +300,13 @@ const CLEAN_TRIAGE_LINE = () =>
     type: 'assistant',
     message: {
       content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|` }],
+    },
+  });
+const CI_TRIAGE_LINE = (result) =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT ${result} | proportional | fix CI |` }],
     },
   });
 
@@ -1569,6 +1596,59 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'a fix push is the next boundary, not a new decision to put to the user');
     assert.match(reason, /joint reviewer-and-CI triage/,
       'FIX is bound to the reviewer and CI decisions already triaged together');
+  });
+
+  it('rejects an unrelated subagent notification that quotes a matching CI result', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const unrelated = ciDoneLine(headSha, 'success', 'toolu_unrelated');
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_f1'),
+      LANE_BASH_DONE_LINE('toolu_f1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_f2'),
+      LANE_BASH_DONE_LINE('toolu_f2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_f3'),
+      LANE_BASH_DONE_LINE('toolu_f3'),
+      unrelated,
+      TRIAGE_LINE(),
+    ], { ciResult: false });
+
+    runHook(cwd, { transcriptPath: t, binDir });
+    const result = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(ackOf(cwd), '');
+    assert.match(JSON.parse(result.stdout).reason, /exact-head CI has not returned/);
+  });
+
+  it('requires failed or timed-out CI to appear in joint triage', () => {
+    const drive = (ciResult, triageLine) => {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const headSha = currentHead(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+      const t = writeTranscript(cwd, [
+        PUSH_LINE('2026-05-03T12:00:00.000Z'),
+        LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_t1'),
+        LANE_BASH_DONE_LINE('toolu_t1'),
+        LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_t2'),
+        LANE_BASH_DONE_LINE('toolu_t2'),
+        LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_t3'),
+        LANE_BASH_DONE_LINE('toolu_t3'),
+        ciLaunchLine(headSha),
+        ciDoneLine(headSha, ciResult),
+        triageLine,
+      ], { ciResult: false });
+      return { cwd, headSha, result: runHook(cwd, { transcriptPath: t, binDir }) };
+    };
+
+    for (const ciResult of ['failure', 'timeout']) {
+      const omitted = drive(ciResult, CLEAN_TRIAGE_LINE());
+      assert.equal(ackOf(omitted.cwd), '');
+      const included = drive(ciResult, CI_TRIAGE_LINE(ciResult));
+      assert.equal(ackOf(included.cwd), included.headSha);
+    }
   });
 
   it('waits for exact-head CI before accepting a reviewer-complete triage table', () => {

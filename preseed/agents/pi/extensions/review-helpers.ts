@@ -483,6 +483,19 @@ function ciTerminalResult(
     : undefined;
 }
 
+function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalResult | undefined): boolean {
+  const lines = text.split("\n").map((line) => line.trim());
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] !== REVIEW_TRIAGE_HEADER || lines[index + 1] !== REVIEW_TRIAGE_DIVIDER) continue;
+    if (result !== "failure" && result !== "timeout") return true;
+    for (let row = index + 2; row < lines.length && lines[row].startsWith("|"); row += 1) {
+      const value = lines[row].toLowerCase();
+      if (/\bci\b/.test(value) && value.includes(result)) return true;
+    }
+  }
+  return false;
+}
+
 function completedPublicCiResult(
   text: string,
   expected: { repository: string; prNumber: number; head: string },
@@ -767,9 +780,7 @@ export function reviewTranscriptFacts(input: {
   const triageComplete = completionIndex !== undefined && later.some((entry, index) =>
     index > completionIndex
     && toolCalls(entry).length === 0
-    && messageText(entry, "assistant").split("\n").some((line, lineIndex, lines) =>
-      line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
-    ),
+    && triageTableIncludesRequiredCiResult(messageText(entry, "assistant"), ciResult),
   );
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const fixDelivered = later.some((entry) => entry.type === "custom_message"

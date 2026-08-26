@@ -784,7 +784,20 @@ describe('native Pi transcript review facts', () => {
       });
       expect(afterFacts.ciTerminal).toBe(true);
       expect(afterFacts.ciResult).toBe(result);
-      expect(afterFacts.triageComplete).toBe(true);
+      expect(afterFacts.triageComplete).toBe(result === 'success');
+
+      if (result !== 'success') {
+        const withCiOutcome = writeSession([
+          ...common,
+          ciNotification('ci-current', result, head),
+          assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT ' + result + ' | proportional | fix CI |'),
+        ]);
+        expect(reviewTranscriptFacts({
+          sessionFile: withCiOutcome,
+          requiredLanes: ALL_LANES,
+          ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+        }).triageComplete).toBe(true);
+      }
     }
   });
 

@@ -140,7 +140,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Mark seeded R2 objects with verified provenance metadata | Seed writes stamp a build hash in R2 custom metadata, so cleanup deletes retired files only with positive product-ownership evidence and preserves user replacements. | Storage, Agents | Active |
 | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Run pinned code-server behind the session proxy | The Browser IDE uses a checksum-verified unmodified code-server release on loopback while preserving authenticated session routes, fixed inventories, and lazy lifecycle. | Architecture, Security, Build / Container | Active |
 | [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Fix Browser IDE workspace selection and export safe UI state | The host rejects public workspace selectors and projects `/home/user/workspace`, while a bounded allowlist persists only safe UI preferences across sessions. | Architecture, Security, Storage, Build / Container | Active |
-| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | Anchor review coverage on delivery subcommands | Review candidacy still inspects any Git or GitHub CLI command, but lane coverage anchors only on push, PR creation, or merge to avoid read-only commands erasing earned coverage. | Architecture, Build / Container | Active |
+| ~~[AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)~~ | ~~Anchor review coverage on delivery subcommands~~ | [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) replaces broad Git/GitHub candidacy and merge delivery with automatic push/PR-create ingress plus clone-only consent. | Architecture, Build / Container | Superseded |
 | [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | Keep the CI monitor observational | The CI monitor reports GitHub's terminal result with its head SHA and leaves cancellation to workflow concurrency, avoiding ambiguous branch-based remote control. | Architecture, Build / Container | Active |
 | [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | Let Claude's FIX directive own conditional delivery | Claude's FIX directive commits, handles any terminal CI result, and then pushes, while Pi keeps standing-rule delivery because its follow-up has different precedence. | Architecture, Cost | Active |
 | [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Redeliver memory capture requests within a fixed bound | Claude persists and reissues a capture request up to six times instead of blocking tools, preventing review-gate deadlocks while retrying failed publication. | Architecture, Cost, Agents | Active |
@@ -160,6 +160,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
+| [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) | Use delivery-only review ingress with joint completion | Push and PR creation launch automatically, clone alone asks for consent, and acknowledgement waits for reviewer plus exact-head CI triage. | Agents, Architecture, Build / Container | Active |
 ---
 
 ## Decisions
@@ -3544,7 +3545,7 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 
 **Category:** Architecture, Build / Container
 
-**Status:** Accepted (2026-08-11).
+**Status:** Superseded by [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) (2026-08-26).
 
 **Context:** `enforce-review-spawn.sh` measures lane coverage strictly after `PUSH_LINE`, the last transcript line its Layer 1 detector matched. That detector matched the bare words `git` and `gh` in command position, so every `git log`, `git status`, and `git diff` was a boundary. Reading a lane report is done with exactly those commands, so the anchor routinely moved past the spawns of the round being read and the gate re-demanded lanes that had already returned. Replayed against one session's transcript: 58 matches against 8 real pushes, with `PUSH_LINE` resolving to a `git diff` issued while diagnosing this.
 
@@ -3552,11 +3553,15 @@ The same breadth reached `retroactive_ack_scan`. That scan carried its own narro
 
 `git-push-review-reminder.sh` had already solved the classification, and Pi's `classifyReviewBoundaryCommand` solves it the same way: parse any `git`/`gh` in command position, then read the subcommand to name the event.
 
-**Decision:** One parsed delivery boundary both triggers enforcement and anchors the coverage window. Automatic ingress is limited to executable `git push` and `gh pr create`. Ordinary Git/GitHub activity and `gh pr merge` are inert. Successful clone consent is handled separately by the post-tool reminder. Layer 2 (`gh pr view`) still decides whether the resulting checkout has an eligible open exact head.
+**Decision:** Separate what triggers enforcement from what anchors the coverage window. Candidacy stays exactly as broad as it has always been: any executable `git` or `gh` command triggers the gate, and Layer 2 (`gh pr view`) decides eligibility. That breadth is a tested contract, not an accident, and narrowing it silently disables enforcement for read-only activity that a reviewed head still depends on.
 
-Lane coverage and `retroactive_ack_scan` measure from the same delivery boundary, so the trigger and anchor cannot drift. The PreToolUse triage gate may still block `git commit` and `gh pr merge` while a launched review awaits joint triage; that mutation guard does not create a new review round.
+What narrows is the anchor. The delivery vocabulary is `git push`, `gh pr create`, and `gh pr merge`, classified with the global-option sets both siblings already share, and lane coverage plus `retroactive_ack_scan` measure from the last delivery rather than the last candidate. Both views come from one parse, so they cannot drift apart the way the two matchers did. Marking the event decides only *where* a delivery happened; it grants no authority over whether that delivery is reviewable.
 
-**Consequences:** With no delivery in the transcript, Stop enforcement remains inert. Read-only commands cannot start a review, consume bypass state, or move coverage past returned lanes. A PR opened by a path outside the vocabulary, such as `gh api repos/.../pulls`, produces no automatic boundary. That gap is accepted rather than closed with broad command matching. Both runtime classifiers must move together when the vocabulary changes.
+`git-push-review-reminder.sh` needs no anchor and keeps only the candidate surface, varying which message it emits.
+
+**Consequences:** With no delivery anywhere in the transcript the anchor is the start of the file, so every lane spawn present counts; anchoring on the last candidate instead would subtract earned coverage and would reinstate this decision's own defect whenever the delivery sits outside a rotated transcript.
+
+A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a push wrapper, produces no boundary and no enforcement until the next qualifying command on that branch. That gap is accepted rather than closed by pattern-matching REST paths inside the classifier, which would rebuild the imprecision this decision removes; every PR in this repository is opened with `gh pr create`. `gh pr ready` is deliberately excluded: it changes a draft flag, not a head. Both hooks must move together when the vocabulary changes, and they hold two copies of the classifier today; a shared `lib/` extraction is the standing follow-up.
 
 ### AD122: The CI monitor observes and reports; it does not cancel runs or chase the remote
 
@@ -3922,5 +3927,23 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Consequences:** VS Code sessions become editor-ready without duplicate host PTYs, while Terminal startup remains unchanged. Startup status has workspace-specific readiness semantics, and restart must clear stale editor readiness before a replacement container begins warming.
 
 **Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions).
+
+---
+
+### AD142: Review ingress is delivery-only and completion is joint
+
+**Category:** Agents, Architecture, Build / Container
+
+**Status:** Accepted (2026-08-26). Supersedes [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation).
+
+**Context:** AD121 kept every executable Git or GitHub command as a review candidate and treated merge as delivery. That breadth moved coverage during ordinary inspection, while one-shot GitHub lookup and pre-delivery launch state made real push and PR-create boundaries easy to miss. Reviewer completion also advanced independently from exact-head CI, so the visible triage could omit terminal CI evidence.
+
+**Decision:** Automatic ingress is limited to successful executable `git push` and `gh pr create`. Successful clone is the only consent boundary and applies to the checkout that command produced. Ordinary Git/GitHub activity and `gh pr merge` are inert for review ingress; the mutation guard may still block merge while triage is pending. GitHub remains authoritative for the open protected-base PR, branch, and exact head.
+
+Reviewer calls start together and exact-head CI starts immediately afterward. Acknowledgement and FIX wait for every required reviewer, terminal CI success, failure, or timeout, and one later joint triage table. Failure and timeout must appear in that table. Delivery reconciliation retries immediately and then after 1, 3, 5, 10, and 15 seconds. Goal pause ownership, head drift, closure, bypass, and reload recovery retain their existing lifecycle.
+
+**Consequences:** Read-only commands cannot open or move a review round. A clone command cannot borrow consent state from another target in the same tool call. Each reviewer prompt names its temporary report path, and CI evidence is correlated with the exact launched monitor before acknowledgement.
+
+**Related REQs:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization), and [REQ-AGENT-132](../../sdd/spec/agents.md#req-agent-132-pr-delivery-and-existing-head-consent).
 
 ---

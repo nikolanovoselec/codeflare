@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -629,6 +629,10 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(markdownValue(plan, '- Prompt scope: ')).toBe(
       `\`scope=diff\` and \`review_range=${fixture.base}..${fixture.head}\``,
     );
+    for (const lane of ALL_LANES) {
+      expect(plan).toContain(`- \`${lane}\`: \`/tmp/codeflare-pr-42-${fixture.head.slice(0, 12)}-${lane}.md\``);
+    }
+    expect(plan).toContain("Every reviewer prompt must include its lane's exact `output_file=<path>` value.");
     expect(markdownValue(plan, '- `event`: ')).toBe('`push`');
     expect(markdownValue(plan, '- `changed`: ')).toBe('`true`');
     expect(markdownValue(plan, '- `repo`: ')).toBe('`<owner/repo>`');
@@ -752,6 +756,30 @@ describe('Pi review reminder and settled enforcement', () => {
       options: ['Launch review and CI', 'Acknowledge without review'],
     }]);
     expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
+  it('REQ-AGENT-121/REQ-AGENT-132: tracks preexistence for the selected target in a multi-clone command', async () => {
+    const fixture = makeReviewFixture();
+    const parent = dirname(fixture.repo);
+    const existing = mkdtempSync(join(parent, 'existing-clone-'));
+    execFileSync('git', ['init', '-q'], { cwd: existing });
+    const movedGit = join(fixture.repo, '.git-after-clone');
+    renameSync(join(fixture.repo, '.git'), movedGit);
+    const harness = await registerFixture(fixture, parent);
+    harness.setReviewDecision('acknowledge');
+    const command = `git clone https://github.com/owner/old.git ${existing}; git clone https://github.com/owner/repo.git ${fixture.repo}`;
+    const event = boundaryEvent(command, 'clone-multiple');
+
+    await harness.emit('tool_call', event);
+    renameSync(movedGit, join(fixture.repo, '.git'));
+    appendSession(fixture.sessionFile,
+      assistantTool('clone-multiple', 'bash', { command }),
+      toolResult('clone-multiple', 'bash'),
+    );
+    await harness.emit('tool_result', event);
+
+    expect(harness.reviewPrompts).toHaveLength(1);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
 

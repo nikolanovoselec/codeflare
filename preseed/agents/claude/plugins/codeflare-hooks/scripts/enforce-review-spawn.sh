@@ -248,32 +248,20 @@ if [ -z "$PRETOOL_MODE" ]; then
 #                                   sibling `"language":"shell"` appears on
 #                                   the same JSONL line)
 #
-# Candidate commands are executable `git` and `gh` commands; authoritative
-# checked-out branch state below filters false positives and unchanged heads.
+# Only delivery commands create a Stop boundary: executable `git push` and
+# `gh pr create`. Ordinary Git/GitHub activity and `gh pr merge` are inert.
+# Successful clone consent is handled by the post-tool reminder instead.
 #
 # Issue #319: prior to multi-tool scanning, `git push` made via ctx_execute
 # or ctx_batch_execute was invisible to PUSH_LINE detection because the awk
 # regex required `"name":"Bash"`. The review gate silently fell through
-# (exit 0 - "no candidate") and unreviewed PR HEADs slipped past the
-# Stop hook. The fix mirrors the multi-shape parsing already shipped in
-# git-push-review-reminder.sh for issue #317.
+# (exit 0 - "no delivery") and unreviewed PR HEADs slipped past the Stop hook.
 #
-# The structural parser recognizes command position across quoting, Git global
-# options, shell lists/control words, and command substitutions. Quoted prose
-# and heredoc bodies remain inert; authoritative Layer 2 still decides whether
-# the parsed activity corresponds to an eligible PR boundary.
-#
-# Candidacy stays broad: any executable `git`/`gh` triggers enforcement, and
-# Layer 2 decides eligibility. What narrowed is the COVERAGE anchor. Lane
-# coverage is measured strictly after that anchor, and while it was the last
-# candidate, one `git log` run between a lane spawn and the Stop event moved it
-# past that spawn and the gate re-demanded a lane that had already returned.
-# Measured on one session's transcript: 58 candidates against 8 real deliveries,
-# with the anchor resolving to a `git diff` issued while diagnosing this.
-#
-# Marking the event here decides only WHERE a delivery happened. Layer 2
-# (`gh pr view`) remains the sole authority on whether it is an open, eligible,
-# unacknowledged PR head.
+# The structural parser recognizes delivery subcommands across quoting, Git
+# global options, shell lists/control words, and command substitutions. Quoted
+# prose, heredoc bodies, and non-delivery commands remain inert. Layer 2
+# (`gh pr view`) decides whether the delivery produced an open, eligible,
+# unacknowledged exact PR head.
 # ---------------------------------------------------------------------------
 transcript_scan() {
   node - "$TRANSCRIPT" "$CLASSIFIER_LIB" <<'NODE'
@@ -756,14 +744,45 @@ spawn_completion_line() {
   ' "$TRANSCRIPT"
 }
 
+ci_spawn_record_for_current_head() {
+  local nr line_content tool_use_id
+  awk -v c="$COVERAGE_LINE" 'NR >= c { print NR "\t" $0 }' "$TRANSCRIPT" \
+    | while IFS="$(printf '\t')" read -r nr line_content; do
+      tool_use_id=$(printf '%s' "$line_content" | jq -r --arg h "$CURRENT_PR_HEAD" --arg p "$PR_NUMBER" '
+        [ .message.content[]?
+          | select(.type? == "tool_use" and (.name? == "Agent" or .name? == "subagent"))
+          | select(.input.subagent_type? == "ci-monitor" and .input.run_in_background? == true)
+          | select((.input.prompt? // "") as $prompt
+            | ($prompt | contains($h))
+            and (($prompt | contains("pr=" + $p)) or ($prompt | contains("\"pr\":" + $p))))
+          | .id? // empty ][0] // empty
+      ' 2>/dev/null) || continue
+      [ -n "$tool_use_id" ] && printf '%s|%s\n' "$nr" "$tool_use_id"
+    done | tail -1
+}
+
 ci_completion_line_for_current_head() {
-  awk -v h="$CURRENT_PR_HEAD" -v p="$PR_NUMBER" -v c="$COVERAGE_LINE" '
-    NR >= c && index($0, "subagent-notification") \
+  local spawn_record spawn_line tool_use_id
+  spawn_record=$(ci_spawn_record_for_current_head)
+  [ -n "$spawn_record" ] || return 1
+  spawn_line=${spawn_record%%|*}
+  tool_use_id=${spawn_record#*|}
+  [ -n "$spawn_line" ] && [ -n "$tool_use_id" ] || return 1
+  awk -v h="$CURRENT_PR_HEAD" -v p="$PR_NUMBER" -v s="$spawn_line" -v id="$tool_use_id" '
+    NR > s && index($0, "subagent-notification") && index($0, "tool-use-id>" id "<") \
       && (index($0, "<status>completed</status>") || index($0, "<status>Completed</status>") || index($0, "<status>Done</status>")) \
       && (index($0, "CI_RESULT success") || index($0, "CI_RESULT failure") || index($0, "CI_RESULT timeout")) \
       && index($0, "pr=" p " ") && index($0, "head=" h) { line = NR }
     END { if (line) print line }
   ' "$TRANSCRIPT"
+}
+
+ci_result_at_line() {
+  awk -v line="$1" 'NR == line {
+    if (index($0, "CI_RESULT success")) print "success"
+    else if (index($0, "CI_RESULT failure")) print "failure"
+    else if (index($0, "CI_RESULT timeout")) print "timeout"
+  }' "$TRANSCRIPT"
 }
 
 # An assistant message whose TEXT carries the triage table.
@@ -785,11 +804,17 @@ ci_completion_line_for_current_head() {
 # The canonical stacked shape on stdin: header and divider on consecutive
 # lines, followed only by actual finding rows when the round has findings.
 stacked_table_in_stream() {
-  awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" '
+  local expected_ci_result="${1:-}"
+  awk -v h="$REVIEW_TRIAGE_HEADER" -v d="$REVIEW_TRIAGE_DIVIDER" -v expected="$expected_ci_result" '
     { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); rows[++n] = line }
     END {
       for (i = 1; i <= n; i++) {
-        if (rows[i] == h && rows[i + 1] == d) exit 0
+        if (rows[i] != h || rows[i + 1] != d) continue
+        if (expected != "failure" && expected != "timeout") exit 0
+        for (j = i + 2; j <= n && rows[j] ~ /^\|/; j++) {
+          value = tolower(rows[j])
+          if (value ~ /(^|[^a-z])ci([^a-z]|$)/ && index(value, expected)) exit 0
+        }
       }
       exit 1
     }'
@@ -797,11 +822,12 @@ stacked_table_in_stream() {
 
 triage_published_after_line() {
   local min_line="$1"
+  local expected_ci_result="${2:-}"
   awk -v s="$min_line" '
     NR > s && index($0, "\"type\":\"assistant\"")
   ' "$TRANSCRIPT" \
     | jq -R -r 'fromjson? | [ .message.content[]? | select(.type? == "text") | .text? // empty ] | .[]' 2>/dev/null \
-    | stacked_table_in_stream
+    | stacked_table_in_stream "$expected_ci_result"
 }
 
 # ---------------------------------------------------------------------------
@@ -1530,7 +1556,9 @@ if all_required_lanes_completed_for_current_head; then
   if [ -n "$CI_COMPLETE_LINE" ] && [ -n "$ROUND_COMPLETE_LINE" ] && [ "$CI_COMPLETE_LINE" -gt "$ROUND_COMPLETE_LINE" ] 2>/dev/null; then
     ROUND_COMPLETE_LINE=$CI_COMPLETE_LINE
   fi
-  if [ -n "$CI_COMPLETE_LINE" ] && [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
+  CI_RESULT_VALUE=""
+  [ -n "$CI_COMPLETE_LINE" ] && CI_RESULT_VALUE=$(ci_result_at_line "$CI_COMPLETE_LINE")
+  if [ -n "$CI_COMPLETE_LINE" ] && [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE" "$CI_RESULT_VALUE"; then
     if ! write_acknowledgement; then
       emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
     fi

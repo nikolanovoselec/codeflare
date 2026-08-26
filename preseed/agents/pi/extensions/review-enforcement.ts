@@ -537,7 +537,8 @@ function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | un
         classification,
         toolUseId,
         repo: clonedPath ? findGitRoot(clonedPath) : undefined,
-        cloneTargetPreexisted: classification.clone && cloneTargetHadGit(toolUseId) === true,
+        cloneTargetPreexisted: classification.clone && clonedPath !== undefined
+          && cloneTargetHadGit(toolUseId, clonedPath) === true,
       };
     })
     .filter(({ classification, repo }) => classification.reminder && (!classification.clone || repo));
@@ -871,6 +872,10 @@ function reviewerPromptScope(pr: PrState, range: string | undefined): string {
     : `\`scope=diff\` and \`review_base=origin/${pr.baseRefName}\``;
 }
 
+function reviewerOutputPath(pr: PrState, lane: ReviewLane): string {
+  return `/tmp/codeflare-pr-${pr.number}-${pr.headRefOid.slice(0, 12)}-${lane}.md`;
+}
+
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   activateRegisteredTools(pi, ["subagent"]);
   const sections: string[] = [];
@@ -884,6 +889,9 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "- Calls: public background subagents",
       "- `inherit_context`: `false`",
       `- Prompt scope: ${reviewerPromptScope(input.pr, input.range)}`,
+      "- Output files:",
+      ...input.reviewers.map((lane) => `  - \`${lane}\`: \`${reviewerOutputPath(input.pr, lane)}\``),
+      "- Every reviewer prompt must include its lane's exact `output_file=<path>` value.",
     ].join("\n"));
   }
   if (input.ciEvent) {
@@ -1238,12 +1246,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   const recordCloneTargetState = (event: any, ctx: ReviewContext): void => {
     const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
-    if (typeof toolUseId !== "string" || cloneTargetHadGit(toolUseId) !== undefined) return;
+    if (typeof toolUseId !== "string") return;
     for (const invocation of shellInvocations(event, ctx.cwd)) {
       if (!classifyReviewBoundaryCommand(invocation.command).clone) continue;
       const target = cloneTargetPath(invocation.command, invocation.cwd);
-      if (target) rememberCloneTargetHadGit(toolUseId, existsSync(join(target, ".git")));
-      return;
+      if (target && cloneTargetHadGit(toolUseId, target) === undefined) {
+        rememberCloneTargetHadGit(toolUseId, target, existsSync(join(target, ".git")));
+      }
     }
   };
 

@@ -687,9 +687,11 @@ export default function (pi: ExtensionAPI) {
     if (command) {
       const id = toolEventId(event);
       const cloneCmd = shellCommandText(event);
-      if (id && isGitClone(cloneCmd) && cloneTargetHadGit(id) === undefined) {
+      if (id && isGitClone(cloneCmd)) {
         const target = cloneTargetPath(cloneCmd, ctx.sessionManager.getCwd());
-        if (target) rememberCloneTargetHadGit(id, existsSync(join(target, ".git")));
+        if (target && cloneTargetHadGit(id, target) === undefined) {
+          rememberCloneTargetHadGit(id, target, existsSync(join(target, ".git")));
+        }
       }
       try {
         updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
@@ -725,7 +727,10 @@ export default function (pi: ExtensionAPI) {
     const cloneCmd = shellCommandText(event);
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
-    const targetWasAlreadyCloned = id ? cloneTargetHadGit(id) === true : false;
+    const cloneTarget = cloneTargetPath(cloneCmd, cwd, resultText(event));
+    const targetWasAlreadyCloned = id && cloneTarget
+      ? cloneTargetHadGit(id, cloneTarget) === true
+      : false;
     // The interactive runtime is never a review lane, so clone prompts use lane depth 0.
     // The depth parameter remains part of the pure decision helper contract.
     const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, 0);
