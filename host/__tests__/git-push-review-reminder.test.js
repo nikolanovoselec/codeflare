@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -103,20 +103,18 @@ describe('git-push-review-reminder.sh — pre-filter', () => {
 });
 
 describe('git-push-review-reminder.sh — substring false-positive guard', () => {
-  // Candidate detection follows the executable command, not words in its
-  // arguments. A git commit is a candidate regardless of its message, while
-  // echo and similarly quoted examples remain inert.
-  it('classifies git commit from executable position regardless of message text', () => {
+  it('keeps ordinary git activity inert regardless of message text', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const binDir = fakeGhFails(cwd);
     const r = runHook(
       cwd,
       'git commit -m "fix: integration findings — git push hardening"',
       binDir,
     );
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
   });
 
   it('does NOT classify an echo whose argument mentions "git push"', () => {
@@ -145,12 +143,13 @@ describe('git-push-review-reminder.sh — structural shell boundaries', () => {
     'printf "%s\\n" "$(gh pr view)"',
     'echo ready && "git" status --short',
   ]) {
-    it(`classifies executable activity in: ${command}`, () => {
+    it(`keeps ordinary executable activity inert in: ${command}`, () => {
       const cwd = makeFixture();
       withSdd(cwd);
-      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+      const r = runHook(cwd, command, fakeGhFails(cwd));
       assert.equal(r.status, 0);
-      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
+      assert.equal(r.stdout, '');
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
     });
   }
 
@@ -194,7 +193,7 @@ describe('git-push-review-reminder.sh — vibe-coding gate', () => {
 });
 
 describe('git-push-review-reminder.sh — authoritative checked-out branch state', () => {
-  for (const command of ['git push origin HEAD', 'git status --short', 'git pull --ff-only', 'gh pr view', 'gh pr merge 42 --squash']) {
+  for (const command of ['git push origin HEAD', 'gh pr create --base main --title review --body body']) {
     it(`emits for unacknowledged current PR state after ${command}`, () => {
       const cwd = makeFixture();
       withSdd(cwd);
@@ -205,19 +204,11 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     });
   }
 
-  it('asks before review for non-delivery Git activity but auto-launches after push or PR creation', () => {
+  it('keeps ordinary activity inert but auto-launches after push or PR creation', () => {
     const statusRepo = makeFixture();
     withSdd(statusRepo);
-    const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
-    assert.match(status.stdout, /FIRST use AskUserQuestion/);
-    assert.match(status.stdout, /Acknowledge without review/);
-    assert.match(status.stdout, /do not recommend either choice/i,
-      'the agent must present the user-only bypass neutrally');
-    assert.match(status.stdout, /self-verification never substitutes/i,
-      'the agent may not recommend bypass because it considers the diff already verified');
-    assert.match(status.stdout, /If the question is cancelled, ask it again/);
-    assert.match(status.stdout, /ci-monitoring skill exactly once/);
-    assert.match(status.stdout, /Issue the lane calls in that same message\. Immediately after those calls, launch CI as the final launch\. Once CI is launched, END YOUR TURN\./);
+    const status = runHook(statusRepo, 'git switch review', fakeGhFails(statusRepo));
+    assert.equal(status.stdout, '');
 
     for (const command of [
       'git push origin HEAD',
@@ -237,18 +228,29 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     }
   });
 
-  it('auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: reviewed base');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: review finding');
-    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
+  it('asks only for an eligible repository produced by a successful clone', () => {
+    const repo = makeFixture();
+    withSdd(repo);
+    const parent = dirname(repo);
+    const command = `git clone --branch review https://github.com/owner/repo.git ${repo}`;
+    const r = runHook(parent, command, fakeGh(repo, { state: 'OPEN', base: 'main' }));
 
-    assert.doesNotMatch(r.stdout, /FIRST use AskUserQuestion/);
-    assert.match(r.stdout, /review-fix continuation/i);
-    assert.match(r.stdout, /Execute NOW/);
-    assert.match(r.stdout, new RegExp(`--range ${ackSha}\\.\\.${headSha}`));
+    assert.match(r.stdout, /FIRST use AskUserQuestion/);
+    assert.match(r.stdout, /Acknowledge without review/);
+    assert.match(r.stdout, /ci-monitoring skill exactly once/);
+  });
+
+  it('rejects a masked clone failure targeting an existing repository', () => {
+    const repo = makeFixture();
+    withSdd(repo);
+    const command = `git clone --branch review https://github.com/owner/repo.git ${repo}; true`;
+    const r = runHookWithInput(dirname(repo), {
+      tool_input: { command },
+      tool_response: { stderr: `fatal: destination path '${repo}' already exists and is not an empty directory.` },
+    }, fakeGhFails(repo));
+
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
   });
 
   it('does not treat a repository-global legacy acknowledgement as same-PR continuation evidence', () => {
@@ -259,9 +261,8 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: current PR finding');
     const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
 
-    assert.match(r.stdout, /FIRST use AskUserQuestion/,
-      'a legacy repository-global SHA cannot prove acknowledgement by this PR');
-    assert.doesNotMatch(r.stdout, /detected after review-fix continuation/);
+    assert.equal(r.stdout, '',
+      'ordinary activity cannot open consent when only a legacy checkpoint exists');
   });
 
   it('does not accept a repository-global legacy acknowledgement for the current PR exact head', () => {
@@ -271,8 +272,8 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), headSha);
     const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
 
-    assert.match(r.stdout, /FIRST use AskUserQuestion/,
-      'a legacy repository-global SHA cannot acknowledge this exact PR head');
+    assert.equal(r.stdout, '',
+      'ordinary activity stays inert when a legacy checkpoint equals the head');
   });
 
   it('does not repeat the launch reminder for the same unacknowledged head', () => {
@@ -809,6 +810,8 @@ fi
 exit 99
 `);
     chmodSync(join(binDir, 'gh'), 0o755);
+    writeFileSync(join(binDir, 'sleep'), `#!/usr/bin/env bash\necho "$1" >> "${binDir}/sleeps"\n`);
+    chmodSync(join(binDir, 'sleep'), 0o755);
     return { stale, landed, binDir };
   };
 
@@ -821,6 +824,7 @@ exit 99
       'a landed delivery must open its round; the API being briefly behind is not a verdict');
     assert.ok(r.stdout.includes(landed),
       'and the round must name the authoritative head, never one inferred locally');
+    assert.deepEqual(readFileSync(join(binDir, 'sleeps'), 'utf8').trim().split('\n'), ['1', '3']);
   });
 
   it('gives up silently when the head never synchronizes', () => {
@@ -832,8 +836,9 @@ exit 99
       'the retry is bounded: a head that never matches stays ineligible rather than looping');
     // Without this the bound has no oracle: widening 3 attempts to 30 keeps the
     // assertion above green, merely slower. Only non-termination would fail.
-    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 4,
-      'one initial query plus exactly three retries');
+    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 6,
+      'one initial query plus exactly five retries');
+    assert.deepEqual(readFileSync(join(binDir, 'sleeps'), 'utf8').trim().split('\n'), ['1', '3', '5', '10', '15']);
   });
 
   // The ancestor guard separates waiting out an API lag from waiting on a push
@@ -881,8 +886,8 @@ exit 99
     const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
     const r = runHook(cwd, 'git status --short', binDir);
     assert.equal(r.stdout, '', 'an unsynchronized checkout is ineligible either way');
-    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
-      'a single authoritative query: ordinary Git activity must never pay the retry wait');
+    assert.equal(existsSync(join(binDir, 'calls')), false,
+      'ordinary Git activity must not query GitHub or pay the retry wait');
   });
 });
 
@@ -925,10 +930,11 @@ describe('git-push-review-reminder.sh - user-visible round notice', () => {
       'the notice must name the acknowledged base the lanes actually diff against');
   });
 
-  it('stays silent on the consent path, which asks the user directly', () => {
+  it('stays silent on the clone-consent path, which asks the user directly', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const r = runHook(cwd, 'git switch review', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const command = `git clone --branch review https://github.com/owner/repo.git ${cwd}`;
+    const r = runHook(dirname(cwd), command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
     const out = JSON.parse(r.stdout);
     assert.match(out.hookSpecificOutput.additionalContext, /FIRST use AskUserQuestion/,
       'the fixture must still be on the consent path for this row to mean anything');

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from "./graphify-helpers";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -62,7 +63,7 @@ type ReviewContext = {
 };
 
 type ReviewPi = ToolActivationPi & {
-  on(event: "session_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   events: { emit(channel: string, payload: unknown): void };
   appendEntry(customType: string, data: unknown): void;
   sendMessage(
@@ -462,6 +463,8 @@ type ClassifiedBoundary = {
   invocation: ShellInvocation;
   classification: ReturnType<typeof classifyReviewBoundaryCommand>;
   toolUseId: string;
+  repo?: string;
+  cloneTargetPreexisted?: boolean;
 };
 
 function appendBoundaryEvaluation(
@@ -523,14 +526,22 @@ function ambiguousPrCreateFailure(event: any, boundary: ClassifiedBoundary | und
 function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | undefined {
   const toolUseId = typeof event?.toolCallId === "string" ? event.toolCallId : undefined;
   if (!toolUseId) return undefined;
-  return shellInvocations(event, sessionCwd)
-    .map((invocation) => ({
-      invocation,
-      classification: classifyReviewBoundaryCommand(invocation.command),
-      toolUseId,
-    }))
-    .filter(({ classification }) => classification.reminder)
-    .at(-1);
+  const candidates = shellInvocations(event, sessionCwd)
+    .map((invocation) => {
+      const classification = classifyReviewBoundaryCommand(invocation.command);
+      const clonedPath = classification.clone
+        ? cloneTargetPath(invocation.command, invocation.cwd, resultText(event))
+        : undefined;
+      return {
+        invocation,
+        classification,
+        toolUseId,
+        repo: clonedPath ? findGitRoot(clonedPath) : undefined,
+        cloneTargetPreexisted: classification.clone && cloneTargetHadGit(toolUseId) === true,
+      };
+    })
+    .filter(({ classification, repo }) => classification.reminder && (!classification.clone || repo));
+  return candidates.filter(({ classification }) => classification.event).at(-1) ?? candidates.at(-1);
 }
 
 function successful(event: any): boolean {
@@ -600,7 +611,9 @@ async function currentReview(
     markRetryable?.();
     return undefined;
   }
-  const delays = dependencies.headRetryDelaysMs ?? [0];
+  const delays = markRetryable
+    ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
+    : [0];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
@@ -697,8 +710,8 @@ async function launchBoundaryPlan(
   queuedFollowUps: Set<string>,
   restoreExistingGoalPause = false,
 ): Promise<BoundaryLaunchResult | undefined> {
-  const eventRepo = resolveShellInvocationRepo(boundary.invocation);
-  if (!eventRepo) return undefined;
+  const eventRepo = boundary.repo ?? resolveShellInvocationRepo(boundary.invocation);
+  if (!eventRepo || boundary.cloneTargetPreexisted) return undefined;
   let retryable = false;
   const isDeliveryCandidate = boundary.classification.event !== undefined;
   const review = await currentReview(
@@ -827,18 +840,22 @@ async function launchBoundaryPlan(
     appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
     return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: false };
   }
-  if (!appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent)) return "retry";
+  try {
+    sendLaunchMessage(pi, {
+      phase: "plan",
+      repo: review.repo,
+      pr: review.pr,
+      boundaryToolUseId: planBoundaryToolUseId,
+      ackHead,
+      range,
+      reviewers: requiredLanes,
+      ciEvent,
+    });
+  } catch {
+    return "retry";
+  }
   queuedFollowUps.add(key);
-  sendLaunchMessage(pi, {
-    phase: "plan",
-    repo: review.repo,
-    pr: review.pr,
-    boundaryToolUseId: planBoundaryToolUseId,
-    ackHead,
-    range,
-    reviewers: requiredLanes,
-    ciEvent,
-  });
+  appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
   return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: true };
 }
 
@@ -906,7 +923,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     "After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.",
   ].join("\n");
   if (input.reviewers.length > 0) {
-    order.push("TRIAGE + ACK", "FIX");
+    order.push("JOINT TRIAGE + ACK", "FIX");
     sections.push([
       `### ${sections.length + 1}. Triage and acknowledge before fixing`,
       "",
@@ -914,11 +931,16 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "",
       "**Fix delivery:** next-turn follow-up after acknowledgement",
       "",
-      "Wait for every required reviewer result, then publish one table:",
+      ...(input.ciEvent
+        ? ["Wait for every required reviewer and exact-head CI result, then publish one joint table:"]
+        : ["Wait for every required reviewer result, then publish one joint table:"]),
       "",
       REVIEW_TRIAGE_HEADER,
       REVIEW_TRIAGE_DIVIDER,
       "",
+      ...(input.ciEvent
+        ? ["Include the CI outcome in the joint triage table. CI success, failure, and timeout are terminal outcomes; none may be omitted.", ""]
+        : []),
       "For every finding:",
       "",
       "- verify that it is evidence-backed and in scope",
@@ -1074,12 +1096,19 @@ function persistedBoundary(ctx: ReviewContext, file: string): ClassifiedBoundary
     toolName: boundary.toolName,
     input: boundary.toolArguments,
   }, ctx.cwd)
-    .map((invocation) => ({
-      invocation,
-      classification: classifyReviewBoundaryCommand(invocation.command),
-      toolUseId: boundary.toolUseId,
-    }))
-    .filter(({ classification }) => classification.reminder)
+    .map((invocation) => {
+      const classification = classifyReviewBoundaryCommand(invocation.command);
+      const clonedPath = classification.clone
+        ? cloneTargetPath(invocation.command, invocation.cwd)
+        : undefined;
+      return {
+        invocation,
+        classification,
+        toolUseId: boundary.toolUseId,
+        repo: clonedPath ? findGitRoot(clonedPath) : undefined,
+      };
+    })
+    .filter(({ classification, repo }) => classification.reminder && (!classification.clone || repo))
     .at(-1);
 }
 
@@ -1194,43 +1223,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let deferredSettledRecoveryHead: string | undefined;
   let pendingGoalPauseHead: string | undefined;
   const pendingBoundaries = new Map<string, ClassifiedBoundary>();
-  const deferredBoundaries = new Map<string, ClassifiedBoundary>();
   const queuedFollowUps = new Set<string>();
   const queuedMissingFollowUps = new Map<string, number>();
-
-  const deliveryPendingForRepo = (repo: string): boolean =>
-    Array.from(pendingBoundaries.values()).some((candidate) => candidate.classification.event
-      && resolveShellInvocationRepo(candidate.invocation) === repo);
 
   const recordLaunch = (launch: BoundaryLaunch | undefined): void => {
     if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
     if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
-  };
-
-  const retryDeferredBoundaries = async (ctx: ReviewContext, repo: string): Promise<void> => {
-    if (deliveryPendingForRepo(repo)) return;
-    for (const boundary of deferredBoundaries.values()) {
-      if (resolveShellInvocationRepo(boundary.invocation) !== repo) continue;
-      const launch = await launchBoundaryPlan(
-        pi,
-        ctx,
-        dependencies,
-        boundary,
-        queuedFollowUps,
-        resumedWithoutBoundary,
-      );
-      if (launch === "retry") {
-        deferredBoundaries.delete(boundary.toolUseId);
-        pendingBoundaries.set(boundary.toolUseId, boundary);
-        continue;
-      }
-      deferredBoundaries.delete(boundary.toolUseId);
-      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-      }
-      resumedWithoutBoundary = false;
-      recordLaunch(launch);
-    }
   };
 
   const retryPendingBoundaries = async (ctx: ReviewContext): Promise<void> => {
@@ -1245,15 +1243,27 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       );
       if (launch === "retry") continue;
       pendingBoundaries.delete(boundary.toolUseId);
-      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+      if (!launch && !boundaryWasEvaluated(ctx, boundary.toolUseId)) {
         pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
       }
       resumedWithoutBoundary = false;
       recordLaunch(launch);
-      const repo = resolveShellInvocationRepo(boundary.invocation);
-      if (repo) await retryDeferredBoundaries(ctx, repo);
     }
   };
+
+  const recordCloneTargetState = (event: any, ctx: ReviewContext): void => {
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    if (typeof toolUseId !== "string" || cloneTargetHadGit(toolUseId) !== undefined) return;
+    for (const invocation of shellInvocations(event, ctx.cwd)) {
+      if (!classifyReviewBoundaryCommand(invocation.command).clone) continue;
+      const target = cloneTargetPath(invocation.command, invocation.cwd);
+      if (target) rememberCloneTargetHadGit(toolUseId, existsSync(join(target, ".git")));
+      return;
+    }
+  };
+
+  pi.on("tool_call", recordCloneTargetState);
+  pi.on("tool_execution_start", recordCloneTargetState);
 
   pi.on("session_start", (event, ctx) => {
     const file = rootSessionFile(ctx);
@@ -1263,7 +1273,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     deferredSettledRecoveryHead = undefined;
     pendingGoalPauseHead = undefined;
     pendingBoundaries.clear();
-    deferredBoundaries.clear();
     queuedFollowUps.clear();
     queuedMissingFollowUps.clear();
   });
@@ -1282,12 +1291,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
     if (boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pendingBoundaries.delete(boundary.toolUseId);
-      deferredBoundaries.delete(boundary.toolUseId);
-      return;
-    }
-    const boundaryRepo = resolveShellInvocationRepo(boundary.invocation);
-    if (!boundary.classification.event && boundaryRepo && deliveryPendingForRepo(boundaryRepo)) {
-      deferredBoundaries.set(boundary.toolUseId, boundary);
       return;
     }
     const launch = await launchBoundaryPlan(
@@ -1303,15 +1306,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     pendingBoundaries.delete(boundary.toolUseId);
-    deferredBoundaries.delete(boundary.toolUseId);
-    if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+    if (!launch && !boundaryWasEvaluated(ctx, boundary.toolUseId)) {
       pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
     }
     resumedWithoutBoundary = false;
     recordLaunch(launch);
-    if (boundary.classification.event && boundaryRepo) {
-      await retryDeferredBoundaries(ctx, boundaryRepo);
-    }
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -1338,7 +1337,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     await retryPendingBoundaries(ctx);
     if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
       pendingBoundaries.clear();
-      deferredBoundaries.clear();
       resumedWithoutBoundary = false;
     }
     const recoveryFile = rootSessionFile(ctx);
@@ -1362,7 +1360,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
             pendingBoundaries.set(boundary.toolUseId, boundary);
             return;
           }
-          if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
+          if (!launch && !boundaryWasEvaluated(ctx, boundary.toolUseId)) {
             pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
           }
           resumedWithoutBoundary = false;

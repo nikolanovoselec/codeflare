@@ -11,6 +11,7 @@ type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: BoundaryEvent;
+  clone?: boolean;
 };
 type TranscriptFacts = {
   boundary?: {
@@ -28,6 +29,9 @@ type TranscriptFacts = {
   reviewBoundaryToolUseId?: string;
   bypassed: boolean;
   ciLaunched: boolean;
+  ciRequired: boolean;
+  ciTerminal: boolean;
+  ciResult?: 'success' | 'failure' | 'timeout';
   triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
@@ -154,7 +158,13 @@ function toolResult(
   });
 }
 
-function reviewReminder(head: string, reviewRange: string, base = 'main', boundaryToolUseId = 'push-1'): Record<string, unknown> {
+function reviewReminder(
+  head: string,
+  reviewRange: string,
+  base = 'main',
+  boundaryToolUseId = 'push-1',
+  ciEvent?: BoundaryEvent,
+): Record<string, unknown> {
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
@@ -166,6 +176,7 @@ function reviewReminder(head: string, reviewRange: string, base = 'main', bounda
       prNumber: 42,
       base,
       boundaryToolUseId,
+      ciEvent,
     },
     display: true,
   });
@@ -175,6 +186,14 @@ function notification(toolUseId: string, status = 'Done'): Record<string, unknow
   return sessionEntry('custom_message', {
     customType: 'subagent-notification',
     content: `<task-notification>\n<task-id>agent-${toolUseId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>${status}</status>\n</task-notification>`,
+    display: true,
+  });
+}
+
+function ciNotification(toolUseId: string, result: 'success' | 'failure' | 'timeout', head: string): Record<string, unknown> {
+  return sessionEntry('custom_message', {
+    customType: 'subagent-notification',
+    content: `<task-notification>\n<task-id>agent-${toolUseId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>Done</status>\n<result>CI_RESULT ${result}\npr=42 head=${head} repo=owner/repo${result === 'timeout' ? ' reason=deadline_exceeded' : ''}</result>\n</task-notification>`,
     display: true,
   });
 }
@@ -192,30 +211,32 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies delivery commands for automatic review and other Git activity for confirmation', async () => {
+  it('REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies only delivery and clone review boundaries', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = { reminder: true, settled: true, event: 'push' as const };
     const prCreate = { reminder: true, settled: true, event: 'pr-create' as const };
-    const confirm = { reminder: true, settled: true };
+    const clone = { reminder: true, settled: true, clone: true };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
       ['git -C . push origin 0123456789012345678901234567890123456789:develop', push],
-      ['git status --short', confirm],
-      ['git switch develop && git pull --ff-only', confirm],
+      ['git status --short', none],
+      ['git switch develop && git pull --ff-only', none],
       ['gh pr create --base main --title review', prCreate],
       ['gh --repo owner/repo pr create --base develop --title review', prCreate],
-      ['gh pr merge 42 --squash', confirm],
-      ['gh pr view 42', confirm],
+      ['git clone --branch pi https://github.com/owner/repo.git cloned', clone],
+      ['gh repo clone owner/repo cloned -- --branch pi', clone],
+      ['gh pr merge 42 --squash', none],
+      ['gh pr view 42', none],
       ['CI=1 git push origin pi', push],
-      ['env GH_TOKEN=x gh pr view', confirm],
-      ['printf done; git status --short', confirm],
+      ['env GH_TOKEN=x gh pr view', none],
+      ['printf done; git status --short', none],
       ["printf '%s' 'git push origin pi'", none],
       ["printf '%s' 'gh pr merge 42'", none],
       ['cat <<EOF\ngit push origin pi\nEOF', none],
       ["cat <<'END-1'\ngit push origin pi\nEND-1", none],
-      ['cat <<ONE <<TWO\ngit push origin pi\nONE\ngh pr merge 42\nTWO\ngit status', confirm],
-      ['cat <<EOF\ngit push origin pi\nEOF\ngit status', confirm],
+      ['cat <<ONE <<TWO\ngit push origin pi\nONE\ngh pr merge 42\nTWO\ngit status', none],
+      ['cat <<EOF\ngit push origin pi\nEOF\ngit status', none],
       ['printf done', none],
     ];
 
@@ -716,6 +737,83 @@ describe('native Pi transcript review facts', () => {
     });
     expect(facts.ciLaunched).toBe(true);
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
+  });
+
+  it('REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    for (const result of ['success', 'failure', 'timeout'] as const) {
+      const common = [
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+        reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
+        assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
+        assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
+        assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
+        notification('code-1'),
+        notification('spec-1'),
+        notification('doc-1'),
+        assistantTool('ci-current', 'subagent', {
+          subagent_type: 'ci-monitor',
+          run_in_background: true,
+          inherit_context: false,
+          prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo with spaces' }),
+        }),
+        toolResult('ci-current', 'subagent'),
+      ];
+      const beforeTerminal = writeSession([...common, assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|')]);
+      const beforeFacts = reviewTranscriptFacts({
+        sessionFile: beforeTerminal,
+        requiredLanes: ALL_LANES,
+        ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+      });
+      expect(beforeFacts.ciRequired).toBe(true);
+      expect(beforeFacts.ciTerminal).toBe(false);
+      expect(beforeFacts.triageComplete).toBe(false);
+
+      const afterTerminal = writeSession([
+        ...common,
+        assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|'),
+        ciNotification('ci-current', result, head),
+        assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|'),
+      ]);
+      const afterFacts = reviewTranscriptFacts({
+        sessionFile: afterTerminal,
+        requiredLanes: ALL_LANES,
+        ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+      });
+      expect(afterFacts.ciTerminal).toBe(true);
+      expect(afterFacts.ciResult).toBe(result);
+      expect(afterFacts.triageComplete).toBe(true);
+    }
+  });
+
+  it('REQ-AGENT-053/REQ-AGENT-074: accepts only completed public CI result retrieval', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    for (const [status, terminal] of [['running', false], ['completed', true], ['done', true]] as const) {
+      const resultText = `Agent: agent-ci\nType: ci-monitor | Status: ${status}\nCI_RESULT failure\npr=42 head=${head} repo=owner/repo`;
+      const sessionFile = writeSession([
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+        reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
+        assistantTool('ci-launch', 'subagent', {
+          subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false,
+          prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head, cwd: '/repo' }),
+        }),
+        toolResult('ci-launch', 'subagent', false, { details: { agentId: 'agent-ci' } }),
+        assistantTool('ci-result', 'get_subagent_result', { agent_id: 'agent-ci' }),
+        toolResult('ci-result', 'get_subagent_result', false, { text: resultText }),
+      ]);
+
+      const facts = reviewTranscriptFacts({
+        sessionFile,
+        requiredLanes: [],
+        ci: { repository: 'owner/repo', repo: '/repo', prNumber: 42, head },
+      });
+      expect(facts.ciTerminal).toBe(terminal);
+      expect(facts.ciResult).toBe(terminal ? 'failure' : undefined);
+    }
   });
 
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {

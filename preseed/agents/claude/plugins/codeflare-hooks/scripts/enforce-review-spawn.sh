@@ -764,6 +764,16 @@ spawn_completion_line() {
   ' "$TRANSCRIPT"
 }
 
+ci_completion_line_for_current_head() {
+  awk -v h="$CURRENT_PR_HEAD" -v p="$PR_NUMBER" -v c="$COVERAGE_LINE" '
+    NR >= c && index($0, "subagent-notification") \
+      && (index($0, "<status>completed</status>") || index($0, "<status>Completed</status>") || index($0, "<status>Done</status>")) \
+      && (index($0, "CI_RESULT success") || index($0, "CI_RESULT failure") || index($0, "CI_RESULT timeout")) \
+      && index($0, "pr=" p " ") && index($0, "head=" h) { line = NR }
+    END { if (line) print line }
+  ' "$TRANSCRIPT"
+}
+
 # An assistant message whose TEXT carries the triage table.
 #
 # Structural, not substring. The gate's own demand text quotes both constants,
@@ -1524,6 +1534,13 @@ fi
 # never relaunches review or CI for that head.
 if all_required_lanes_completed_for_current_head; then
   ROUND_COMPLETE_LINE=$(latest_required_completion_line 2>/dev/null || true)
+  CI_COMPLETE_LINE=$(ci_completion_line_for_current_head 2>/dev/null || true)
+  if [ -z "$CI_COMPLETE_LINE" ]; then
+    emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: reviewers are complete, but exact-head CI has not returned CI_RESULT success, failure, or timeout. Wait for that terminal result before publishing the joint triage table."
+  fi
+  if [ -n "$ROUND_COMPLETE_LINE" ] && [ "$CI_COMPLETE_LINE" -gt "$ROUND_COMPLETE_LINE" ] 2>/dev/null; then
+    ROUND_COMPLETE_LINE=$CI_COMPLETE_LINE
+  fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && triage_published_after_line "$ROUND_COMPLETE_LINE"; then
     if ! write_acknowledgement; then
       emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: triage is complete but the acknowledgement could not be persisted. Do not enter FIX or push; repair the local checkpoint write first."
@@ -1535,11 +1552,9 @@ if all_required_lanes_completed_for_current_head; then
     # rule, so with no order here the round simply stopped after the commit and
     # waited to be prodded.
     #
-    # The CI wait is a gate, not a delay. An earlier wording said to push
-    # "immediately afterwards" once the terminal line landed, which reads the
-    # same for a pass and a failure and would deliver straight past a red head.
-    # A failing CI_RESULT is a finding like any other: it is fixed in the same
-    # commit, and only then does the push happen.
+    # CI is already terminal before joint triage and acknowledgement. A failing
+    # CI_RESULT remains a finding like any other: it is fixed in the same commit,
+    # and only then does the push happen.
     # A round's rows can take several turns to apply, and every turn end
     # re-enters this branch. Re-emitting the whole directive each time taught
     # nothing after the first read and buried the session in a wall of
@@ -1555,10 +1570,10 @@ if all_required_lanes_completed_for_current_head; then
     # write failed silently, and the full directive re-emitted every turn.
     FIX_SHOWN_FILE="$GIT_DIR/sdd-review-fix-shown-pr-$PR_NUMBER"
     if [ -f "$FIX_SHOWN_FILE" ]; then
-      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase (full contract shown earlier this PR). Accepted rows only; wait for this head's CI_RESULT; commit and push; nothing accepted → push nothing."
+      emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase (full contract shown earlier this PR). Accepted reviewer and CI rows only; commit and push; nothing accepted → push nothing."
     fi
     printf '%s\n' "$CURRENT_PR_HEAD" 2>/dev/null > "$FIX_SHOWN_FILE" || true
-    emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows only, over as many turns as they need; rejected rows stay rejected. Wait for this head's terminal CI_RESULT unless no monitor exists for it or its log has not advanced since your last read; a failing result is a finding to fix in the same commit, and a head whose CI failure is unaddressed is never pushed. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
+    emit_block "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} — FIX phase. This head is acknowledged: do not relaunch its review or CI. Apply the accepted MINIMAL DECISION rows from the joint reviewer-and-CI triage only, over as many turns as they need; rejected rows stay rejected. A failing CI result must be addressed before the next push. Then commit and push the checked-out PR branch without asking, and end the turn. If nothing was accepted and CI passed, push nothing. State what you fixed and what you deliberately left."
   fi
   if [ -n "$ROUND_COMPLETE_LINE" ] && completion_delivery_pending "$ROUND_COMPLETE_LINE"; then
     # The terminal records may have landed while the current model request was
@@ -1574,7 +1589,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane has a terminal record and its notification-delivery turn has elapsed, but no triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane and exact-head CI have terminal records and their notification-delivery turn has elapsed, but no joint triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0

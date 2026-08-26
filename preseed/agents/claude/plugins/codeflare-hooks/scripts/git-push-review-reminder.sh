@@ -137,8 +137,13 @@ function classify(tool, args) {
     ? 'push'
     : tool === 'gh' && command[0] === 'pr' && command[1] === 'create'
       ? 'pr-create'
-      : 'prompt';
-  if (next !== 'prompt' || kind === 'none') kind = next;
+      : tool === 'git' && command[0] === 'clone'
+        ? 'clone'
+        : tool === 'gh' && command[0] === 'repo' && command[1] === 'clone'
+          ? 'clone'
+          : 'none';
+  if (next === 'push' || next === 'pr-create') kind = next;
+  else if (next === 'clone' && kind === 'none') kind = next;
 }
 function scan(source) {
   let word = '', command = true, prefix = false, tool = '', args = [];
@@ -199,6 +204,38 @@ NODE
 ) || exit 0
 [ "$BOUNDARY_KIND" != "none" ] || exit 0
 
+if [ "$BOUNDARY_KIND" = "clone" ]; then
+  HOOK_CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+  [ -n "$HOOK_CWD" ] || HOOK_CWD=$PWD
+  RESPONSE=$(printf '%s' "$INPUT" | jq -r '[.tool_response.stdout // empty, .tool_response.output // empty, .tool_response.stderr // empty, ((.tool_response.content // [] | map(.text? // empty)) | join("\n"))] | join("\n")' 2>/dev/null)
+  printf '%s' "$RESPONSE" | grep -qiE 'fatal:|destination path .* already exists|clone failed' && exit 0
+  CLONE_TARGET=$(printf '%s' "$RESPONSE" | sed -nE "s/.*Cloning into ['\"]([^'\"]+)['\"].*/\1/p" | head -1)
+  if [ -z "$CLONE_TARGET" ]; then
+    CLONE_TARGET=$(node - "$COMMAND" <<'NODE'
+const text = process.argv[2];
+const match = /(?:^|[;&|\n]\s*)(?:env\s+)?(?:[A-Za-z_]\w*=\S*\s+)*(?:git\s+clone|gh\s+repo\s+clone)\s+(.+?)(?:[;&|\n]|$)/.exec(text);
+if (!match) process.exit(0);
+const words = match[1].match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/^("|')(.*)\1$/, '$2')) ?? [];
+const valueOptions = new Set(['-b','--branch','--depth','--filter','--origin','-o','--template','--reference','--reference-if-able','--separate-git-dir','--jobs','-j','--config','-c']);
+const positional = [];
+for (let index = 0; index < words.length; index++) {
+  const word = words[index];
+  if (word === '--') continue;
+  if (word.startsWith('--') && word.includes('=')) continue;
+  if (valueOptions.has(word)) { index++; continue; }
+  if (word.startsWith('-')) continue;
+  positional.push(word);
+}
+const source = positional[0] ?? '';
+process.stdout.write(positional[1] ?? source.split('/').pop()?.replace(/\.git$/, '') ?? '');
+NODE
+)
+  fi
+  [ -n "$CLONE_TARGET" ] || exit 0
+  case "$CLONE_TARGET" in /*) ;; *) CLONE_TARGET="$HOOK_CWD/$CLONE_TARGET" ;; esac
+  cd "$CLONE_TARGET" 2>/dev/null || exit 0
+fi
+
 [ -d sdd ] && [ -f sdd/README.md ] || exit 0
 [ -d .git ] || exit 0
 
@@ -243,7 +280,7 @@ printf '%s' "$CURRENT_PR_HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 # recorded rather than probed.
 case "$BOUNDARY_KIND" in
   push|pr-create)
-    for RETRY_DELAY in 0.3 0.6 1.2; do
+    for RETRY_DELAY in 1 3 5 10 15; do
       [ "$LOCAL_HEAD" = "$CURRENT_PR_HEAD" ] && break
       # Only wait when the checkout could plausibly be what the PR is about to
       # report. A push that never landed leaves the reported head unreachable
@@ -281,15 +318,6 @@ if [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
   # Equal legacy state is not this PR's checkpoint and cannot provide a
   # meaningful review range; fall back to the initial full-PR consent path.
   LAST_ACK_PR_HEAD=""
-fi
-
-# A reviewed head followed by a synchronized descendant on the SAME PR is the
-# review loop continuing, even if the original push's PostToolUse directive was
-# missed and a later `git status` or `gh run view` is what exposes it. Treat that
-# as delivery instead of asking whether to stop because one prior lane was clean.
-if [ "$BOUNDARY_KIND" = "prompt" ] && [ "$ACK_IS_PR_SPECIFIC" = "1" ] \
-    && [ -n "$LAST_ACK_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
-  BOUNDARY_KIND="review-fix continuation"
 fi
 
 PLAN_FILE="$GIT_DIR/sdd-review-plan-pr-$PR_NUMBER"
@@ -331,7 +359,7 @@ case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
 case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
 case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
-if [ "$BOUNDARY_KIND" = "prompt" ]; then
+if [ "$BOUNDARY_KIND" = "clone" ]; then
   DIRECTIVE="SDD $CONTEXT detected outside a push, PR creation, or acknowledged review-fix continuation. FIRST use AskUserQuestion to ask whether the user wants review and CI for PR #$PR_NUMBER at exact head $CURRENT_PR_HEAD. Offer 'Launch review' and 'Acknowledge without review' as neutral choices: do not recommend either choice, and self-verification never substitutes for required review. If the question is cancelled, ask it again until the user explicitly chooses; cancellation neither launches nor acknowledges. If the user chooses acknowledge, create the existing /tmp/review-bypass sentinel and end the turn; the Stop hook will revalidate and acknowledge this exact head. If the user chooses launch, continue with the review instructions below."
 else
   DIRECTIVE="SDD $CONTEXT detected after $BOUNDARY_KIND. Execute NOW, and keep the user informed as described at the end of this directive. A successful push, PR creation, or acknowledged review-fix continuation is a delivery boundary: auto-launch review and CI and never ask the user for renewed consent."
@@ -396,7 +424,7 @@ DIRECTIVE="$DIRECTIVE Reviewers do not write project or triage files. The root e
 # user's to see, and a silent round makes an autofix look like an unexplained
 # edit. Lane names are deliberately not written here: several emission tests
 # assert the directive carries no lane literal outside its Lanes: line.
-DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message. Immediately after those calls, launch CI as the final launch. Once CI is launched, END YOUR TURN. While the lanes and CI are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane has returned, then publish ONE triage table in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. A fully clean round publishes the header and divider with no synthetic clean-lane rows; lane completion already proves the round happened and the Stop hook can acknowledge that empty finding table. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
+DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, print a short overview for the user: which lanes are about to run, why each other lane was excluded, and the exact range under review. Issue the lane calls in that same message. Immediately after those calls, launch CI as the final launch. Once CI is launched, END YOUR TURN. While the lanes and CI are running do NOTHING else: no further tool calls, no unrelated edits, no other task started. WAIT until every required lane and the exact-head CI monitor have returned a terminal result. Then publish ONE joint triage table that includes the CI outcome in exactly this shape, same columns and same order: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |' over '|---|---|---|---|---|'. One row per finding across all lanes. A fully clean round publishes the header and divider with no synthetic clean-lane rows; lane completion already proves the round happened and the Stop hook can acknowledge that empty finding table. For every finding: verify it is evidence-backed and in scope; judge the finding separately from its proposed fix; reject unsupported or overengineered proposals; prefer the smallest correction that reuses existing machinery. A rejected row states its cause in VALIDITY - never a deferral. After publishing the table, make no file or Git changes and end the turn immediately. The Stop hook acknowledges this head and injects the separate FIX directive next turn."
 
 # The directive above is model-facing only. Everything it starts -- the lanes
 # and the CI monitor -- then runs as a background process, so without a line of
@@ -409,15 +437,17 @@ DIRECTIVE="$DIRECTIVE VISIBILITY AND SEQUENCING (binding). BEFORE launching, pri
 # doc-only push announces one lane, and announcing three would describe a round
 # that is not running. The consent path is deliberately silent -- it is about
 # to raise an AskUserQuestion, which is louder than any notice.
-if [ "$BOUNDARY_KIND" != "prompt" ]; then
+if [ "$BOUNDARY_KIND" != "clone" ]; then
   set -- $REQUIRED_LANES
   LANE_NOUN="lanes"
   [ "$#" -eq 1 ] && LANE_NOUN="lane"
   NOTICE="Review round starting for PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7} - $# $LANE_NOUN ($(printf '%s' "$REQUIRED_LANES" | sed 's/ /, /g')) + CI monitor, $SCOPE_NOTE."
 fi
 
-printf '%s\n' "$CURRENT_PR_HEAD" > "$PLAN_FILE" 2>/dev/null || true
-jq -n --arg ctx "$DIRECTIVE" --arg note "${NOTICE:-}" \
+OUTPUT=$(jq -n --arg ctx "$DIRECTIVE" --arg note "${NOTICE:-}" \
   '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}
-   + (if $note != "" then {systemMessage:$note} else {} end)'
+   + (if $note != "" then {systemMessage:$note} else {} end)') || exit 0
+[ -n "$OUTPUT" ] || exit 0
+printf '%s\n' "$OUTPUT" || exit 0
+printf '%s\n' "$CURRENT_PR_HEAD" > "$PLAN_FILE" 2>/dev/null || true
 exit 0

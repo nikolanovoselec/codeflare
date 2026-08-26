@@ -14,6 +14,7 @@ type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
+  clone?: boolean;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 type TranscriptBoundary = {
@@ -36,6 +37,9 @@ export type TranscriptFacts = {
   reviewRequiredLanes?: ReviewLane[];
   bypassed: boolean;
   ciLaunched: boolean;
+  ciRequired: boolean;
+  ciTerminal: boolean;
+  ciResult?: "success" | "failure" | "timeout";
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
@@ -175,19 +179,20 @@ export function shellSegments(command: string): string[] {
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let candidate = false;
   let event: ReviewBoundaryEvent | undefined;
+  let clone = false;
   for (const words of executableShellCommands(command)) {
     const executable = shellCommandExecutable(words);
     if (executable !== "git" && executable !== "gh") continue;
-    candidate = true;
     const args = shellCommandArguments(words, executable);
     if (executable === "git" && args[0] === "push") event = "push";
     if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
+    if ((executable === "git" && args[0] === "clone")
+      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) clone = true;
   }
-  return candidate
-    ? { reminder: true, settled: true, ...(event ? { event } : {}) }
-    : { reminder: false, settled: false };
+  if (event) return { reminder: true, settled: true, event };
+  if (clone) return { reminder: true, settled: true, clone: true };
+  return { reminder: false, settled: false };
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
@@ -454,12 +459,37 @@ function userText(entry: Record<string, any>): string {
   return messageText(entry, "user");
 }
 
-function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
+function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean; text: string } | undefined {
   if (entry.type !== "custom_message" || entry.customType !== "subagent-notification" || typeof entry.content !== "string") return undefined;
   const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
   if (!toolUseId) return undefined;
   const status = /<status>([^<]+)<\/status>/.exec(entry.content)?.[1]?.trim() ?? "";
-  return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
+  return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status), text: entry.content };
+}
+
+type CiTerminalResult = "success" | "failure" | "timeout";
+
+function ciTerminalResult(
+  text: string,
+  expected: { repository: string; prNumber: number; head: string },
+): CiTerminalResult | undefined {
+  const result = /^CI_RESULT\s+(success|failure|timeout)\s*$/mi.exec(text)?.[1] as CiTerminalResult | undefined;
+  const identity = /^pr=(\d+)\s+head=([0-9a-f]{40})\s+repo=(\S+)(?:\s+.*)?$/mi.exec(text);
+  return result
+    && Number(identity?.[1]) === expected.prNumber
+    && identity?.[2] === expected.head
+    && identity?.[3] === expected.repository
+    ? result
+    : undefined;
+}
+
+function completedPublicCiResult(
+  text: string,
+  expected: { repository: string; prNumber: number; head: string },
+): CiTerminalResult | undefined {
+  return /^Type:\s*ci-monitor\s*\|\s*Status:\s*(?:completed|done)\b/mi.test(text)
+    ? ciTerminalResult(text, expected)
+    : undefined;
 }
 
 type ReviewWindow = {
@@ -528,6 +558,10 @@ export function reviewTranscriptFacts(input: {
       && entry.message?.toolName === "subagent"
       && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
+  const referencedBoundaryIds = new Set(entries
+    .map(reviewWindow)
+    .map((window) => window?.boundaryToolUseId)
+    .filter((toolUseId): toolUseId is string => typeof toolUseId === "string"));
   const boundaries = new Map<string, { index: number; value: NonNullable<TranscriptFacts["boundary"]> }>();
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
@@ -535,7 +569,7 @@ export function reviewTranscriptFacts(input: {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
         if ((successfulToolIds.has(call.id) || reconciledBoundaryIds.has(call.id))
-          && classifyReviewBoundaryCommand(command).settled) {
+          && (classifyReviewBoundaryCommand(command).settled || referencedBoundaryIds.has(call.id))) {
           const value = {
             toolUseId: call.id,
             command,
@@ -569,6 +603,8 @@ export function reviewTranscriptFacts(input: {
     latestBoundary,
     bypassed: false,
     ciLaunched: false,
+    ciRequired: false,
+    ciTerminal: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
@@ -609,6 +645,7 @@ export function reviewTranscriptFacts(input: {
     if (candidate.boundaryToolUseId && candidate.boundaryToolUseId !== boundary?.toolUseId) return current;
     return {
       ...candidate,
+      ciEvent: candidate.ciEvent ?? current?.ciEvent,
       requiredLanes: candidate.requiredLanes ?? current?.requiredLanes,
     };
   }, undefined);
@@ -650,36 +687,86 @@ export function reviewTranscriptFacts(input: {
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
+  const ci = input.ci;
+  const ciRequired = Boolean(window?.ciEvent);
+  let ciLaunched = false;
+  let ciTerminalIndex: number | undefined;
+  let ciResult: CiTerminalResult | undefined;
+  if (ci) {
+    later.forEach((entry, entryIndex) => {
+      for (const call of toolCalls(entry)) {
+        if (call.name !== "subagent"
+          || call.arguments?.subagent_type !== "ci-monitor"
+          || call.arguments?.run_in_background !== true
+          || call.arguments?.inherit_context !== false
+          || !successfulSubagentToolIds.has(call.id)
+          || typeof call.arguments?.prompt !== "string") continue;
+        let request: Record<string, unknown>;
+        try {
+          request = JSON.parse(call.arguments.prompt);
+        } catch {
+          continue;
+        }
+        if (request.repo !== ci.repository
+          || request.pr !== ci.prNumber
+          || request.head !== ci.head
+          || request.cwd !== ci.repo) continue;
+        ciLaunched = true;
+
+        const nativeTerminal = later.slice(entryIndex + 1)
+          .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
+          .find((candidate) => candidate.value?.toolUseId === call.id
+            && candidate.value.succeeded
+            && ciTerminalResult(candidate.value.text, ci) !== undefined);
+        const launchResult = later.find((candidate) => candidate.type === "message"
+          && candidate.message?.role === "toolResult"
+          && candidate.message?.toolCallId === call.id
+          && candidate.message?.toolName === "subagent"
+          && candidate.message?.isError !== true);
+        const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
+          ? launchResult.message.details.agentId
+          : undefined;
+        const publicTerminal = launchedAgent ? later
+          .map((candidate, index) => ({ candidate, index }))
+          .find(({ candidate }) => candidate.type === "message"
+            && candidate.message?.role === "toolResult"
+            && candidate.message?.toolName === "get_subagent_result"
+            && candidate.message?.isError !== true
+            && resultRequests.get(candidate.message.toolCallId) === launchedAgent
+            && completedPublicCiResult(messageContentText(candidate), ci) !== undefined)
+          : undefined;
+        const terminal = nativeTerminal && publicTerminal
+          ? nativeTerminal.index <= publicTerminal.index
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            : { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
+          : nativeTerminal
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            : publicTerminal
+              ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
+              : undefined;
+        if (terminal && (ciTerminalIndex === undefined || terminal.index < ciTerminalIndex)) {
+          ciTerminalIndex = terminal.index;
+          ciResult = terminal.result;
+        }
+      }
+    });
+  }
   const allRequiredTerminal = input.requiredLanes.length > 0
     && input.requiredLanes.every((lane) => terminalIndexes.has(lane));
   const latestRequiredTerminalIndex = allRequiredTerminal
     ? Math.max(...input.requiredLanes.map((lane) => terminalIndexes.get(lane)!))
     : undefined;
-  const triageComplete = latestRequiredTerminalIndex !== undefined && later.some((entry, index) =>
-    index > latestRequiredTerminalIndex
+  const completionIndex = latestRequiredTerminalIndex === undefined
+    || (ciRequired && ciTerminalIndex === undefined)
+    ? undefined
+    : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const triageComplete = completionIndex !== undefined && later.some((entry, index) =>
+    index > completionIndex
     && toolCalls(entry).length === 0
     && messageText(entry, "assistant").split("\n").some((line, lineIndex, lines) =>
       line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
     ),
   );
-  const ci = input.ci;
-  const ciLaunched = Boolean(ci && later.some((entry) => toolCalls(entry).some((call) => {
-    if (call.name !== "subagent"
-      || call.arguments?.subagent_type !== "ci-monitor"
-      || call.arguments?.run_in_background !== true
-      || call.arguments?.inherit_context !== false
-      || !successfulSubagentToolIds.has(call.id)
-      || typeof call.arguments?.prompt !== "string") return false;
-    try {
-      const request = JSON.parse(call.arguments.prompt);
-      return request?.repo === ci.repository
-        && request?.pr === ci.prNumber
-        && request?.head === ci.head
-        && request?.cwd === ci.repo;
-    } catch {
-      return false;
-    }
-  })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const fixDelivered = later.some((entry) => entry.type === "custom_message"
     && entry.customType === "pr-boundary-fix-follow-up"
@@ -702,6 +789,9 @@ export function reviewTranscriptFacts(input: {
     reviewRequiredLanes: window?.requiredLanes,
     bypassed,
     ciLaunched,
+    ciRequired,
+    ciTerminal: ciTerminalIndex !== undefined,
+    ciResult,
     triageComplete,
     fixDelivered,
     closedNotified,

@@ -19,7 +19,7 @@ Review fires on PRs that target `main`, `master`, or `develop`. PRs into any oth
 | No open protected-base PR, detached HEAD, nonstandard worktree, or remote head not synchronized locally | Nothing |
 | After a merge, switch to and synchronize the merge-target branch; its open protected-base PR now has a new exact local head | Required review lanes and independent CI |
 
-The cost model is per protected-base PR head: each authoritative head is reviewed once, independent of the Git or GitHub CLI syntax that exposed it. Successful `git push` and `gh pr create` delivery boundaries launch review and CI automatically. If their directive is missed, a later candidate command auto-recovers a synchronized same-PR descendant of its acknowledged review head; unrelated non-delivery Git/GitHub activity requires a neutral consent choice, never an agent-recommended bypass.
+The cost model is per protected-base PR head: each authoritative head is reviewed once. Successful `git push` and `gh pr create` delivery boundaries launch review and CI automatically. A successful clone asks for neutral consent only when the checkout it produced already exposes an eligible unacknowledged PR; all other Git and GitHub activity is inert.
 
 ## Recommended workflow
 
@@ -32,7 +32,7 @@ feature --> PR --> develop --> PR --> main
 
 The repository may permit direct fast-forward repairs on `develop`; deletion and non-fast-forward updates remain blocked. Direct push to `main` should be prevented at the GitHub layer (see Branch protection below) rather than worked around in-session.
 
-The `git-push-review-reminder.sh` PostToolUse hook checks for `sdd/` + `sdd/README.md`, treats executable `git` and `gh` commands as candidates, and emits only after the checked-out branch, local `HEAD`, and authoritative open PR head agree. The `enforce-review-spawn.sh` Stop hook repeats the same state check before entering the existing acknowledgement, triage, and FIX lifecycle. Both use PR-number-specific checkpoints. On non-SDD projects the hooks exit silently.
+The `git-push-review-reminder.sh` PostToolUse hook checks successful push, PR-create, and clone boundaries, requires `sdd/` + `sdd/README.md`, and emits only after the checked-out branch, local `HEAD`, and authoritative open PR head agree. The `enforce-review-spawn.sh` Stop hook repeats the same state check before entering the existing acknowledgement, triage, and FIX lifecycle. Both use PR-number-specific checkpoints. On non-SDD projects the hooks exit silently.
 
 To manually invoke code-reviewer or doc-updater on a non-SDD project (e.g., to audit code quality or maintain a `documentation/` folder by hand), use the Task tool directly with the agent name. The automatic PR-boundary workflow is the only thing that's gated.
 
@@ -42,15 +42,15 @@ All three review agents run **in parallel** — `code-reviewer` (source lane), `
 
 **Why parallel:** review agents are **report-only**. Each returns one complete structured report to the root session and writes no project, triage, or review-artifact files. The root waits for every required lane notification to reach its visible context, persists any deferred findings, applies legitimate fixes, and alone owns Git. With immutable reviewer inputs there is no shared-write race or ordering dependency.
 
-## Finding triage (root-owned, after ALL lanes return)
+## Joint triage (root-owned, after reviewers and CI return)
 
-Do not act on a subset of required reviewer outputs. Wait until every required lane has returned, then assess all findings together in one visible triage summary BEFORE any mutation: one line per finding — lane, severity, category, decision (`fix` / `reject (evidence)` / `defer` / `debt`), so the user sees every decision without reading the raw reports.
+Do not act on partial review or CI evidence. Wait until every required lane and the exact-head CI monitor have returned a terminal result, then assess reviewer findings and the CI outcome together in one visible triage summary BEFORE any mutation: one line per finding — lane, severity, category, decision (`fix` / `reject (evidence)` / `defer` / `debt`), so the user sees every decision without reading the raw reports.
 
 A terminal background record can reach the transcript before its native notification reaches the root. The first Stop observation of a newly complete round ends silently to let queued reports arrive; triage and acknowledgement happen only afterward. If a report remains absent, retrieve it with `Read` or `TaskOutput` before the final tool-free table.
 
 Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery; reject unsupported or oversized proposals with evidence while still fixing the underlying finding minimally. Fix every legitimate finding by default; record exactly one decision per finding; defer, reject, and debt decisions persist to `sdd/.review-decisions.md` (the `/review` triage-history contract). Ask before acting only when the user explicitly requested approval or the change is destructive or irreversible. (This mirrors the Pi pipeline's Finding-discipline contract, so both agents hand review results to the root under identical rules.)
 
-After acknowledgement, the separate FIX turn applies only accepted decisions. If files change, the root verifies focused static checks, commits, and pushes the checked-out PR branch without asking again, waiting first for this head's terminal CI result if it has not landed, treating a failing result as a finding to fix in the same commit and never pushing a head whose CI failure is unaddressed; that delivery push starts exactly one incremental review wave and one CI monitor. The runner binds each lane to the PR-specific acknowledged-head-to-current-head range even if a stale `--base` argument is supplied. Never relaunch an in-flight lane, never merge automatically, and create no commit when no fix was accepted.
+After acknowledgement, the separate FIX turn applies only accepted reviewer and CI decisions. If files change, the root verifies focused static checks, commits, and pushes the checked-out PR branch without asking again, treating a failing CI result as a finding to fix in the same commit and never pushing a head whose CI failure is unaddressed; that delivery push starts exactly one incremental review wave and one CI monitor. The runner binds each lane to the PR-specific acknowledged-head-to-current-head range even if a stale `--base` argument is supplied. Never relaunch an in-flight lane, never merge automatically, and create no commit when no fix was accepted.
 
 ## The three agents (SDD mode only)
 

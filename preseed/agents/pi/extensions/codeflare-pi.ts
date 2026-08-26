@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { clearCloneTargetState, cloneTargetHadGit, cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, rememberCloneTargetHadGit, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
@@ -573,7 +573,7 @@ function newestVaultMtime(): number | undefined {
 export default function (pi: ExtensionAPI) {
   const toolStartArgs = new Map<string, any>();
   const gatedToolIds = new Set<string>();
-  const cloneTargetHadGit = new Map<string, boolean>();
+
 
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId ?? event?.toolUseId ?? event?.id;
@@ -687,9 +687,9 @@ export default function (pi: ExtensionAPI) {
     if (command) {
       const id = toolEventId(event);
       const cloneCmd = shellCommandText(event);
-      if (id && isGitClone(cloneCmd) && !cloneTargetHadGit.has(id)) {
+      if (id && isGitClone(cloneCmd) && cloneTargetHadGit(id) === undefined) {
         const target = cloneTargetPath(cloneCmd, ctx.sessionManager.getCwd());
-        if (target) cloneTargetHadGit.set(id, existsSync(join(target, ".git")));
+        if (target) rememberCloneTargetHadGit(id, existsSync(join(target, ".git")));
       }
       try {
         updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
@@ -725,7 +725,7 @@ export default function (pi: ExtensionAPI) {
     const cloneCmd = shellCommandText(event);
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
-    const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
+    const targetWasAlreadyCloned = id ? cloneTargetHadGit(id) === true : false;
     // The interactive runtime is never a review lane, so clone prompts use lane depth 0.
     // The depth parameter remains part of the pure decision helper contract.
     const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, 0);
@@ -777,6 +777,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", (_event, _ctx) => {
     gatedToolIds.clear();
-    cloneTargetHadGit.clear();
+    clearCloneTargetState();
   });
 }

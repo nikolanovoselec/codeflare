@@ -121,9 +121,20 @@ function ghPoison(cwd) {
   return binDir;
 }
 
-function writeTranscript(cwd, lines) {
+function writeTranscript(cwd, lines, { ciResult = true } = {}) {
   const path = join(cwd, 'transcript.jsonl');
-  writeFileSync(path, lines.join('\n') + '\n');
+  const withCi = [...lines];
+  if (ciResult && lines.some((line) => line.includes(TRIAGE_HEADER))) {
+    const head = currentHead(cwd);
+    const terminal = JSON.stringify({
+      type: 'custom_message',
+      customType: 'subagent-notification',
+      content: `<status>completed</status>\nCI_RESULT success\npr=42 head=${head} repo=owner/repo`,
+    });
+    const triageIndex = withCi.findIndex((line) => line.includes(TRIAGE_HEADER));
+    withCi.splice(triageIndex < 0 ? withCi.length : triageIndex, 0, terminal);
+  }
+  writeFileSync(path, withCi.join('\n') + '\n');
   return path;
 }
 
@@ -1559,8 +1570,30 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
       'the FIX directive must order the delivery push, not leave it to a weaker rule');
     assert.match(reason, /without asking/i,
       'a fix push is the next boundary, not a new decision to put to the user');
-    assert.match(reason, /terminal CI_RESULT/,
-      'and it waits out this head\'s CI so the in-flight run is not discarded');
+    assert.match(reason, /joint reviewer-and-CI triage/,
+      'FIX is bound to the reviewer and CI decisions already triaged together');
+  });
+
+  it('waits for exact-head CI before accepting a reviewer-complete triage table', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = currentHead(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      LANE_BASH_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_ci1'),
+      LANE_BASH_DONE_LINE('toolu_ci1'),
+      LANE_BASH_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_ci2'),
+      LANE_BASH_DONE_LINE('toolu_ci2'),
+      LANE_BASH_LINE('doc-updater', '2026-05-03T12:00:03.000Z', 'toolu_ci3'),
+      LANE_BASH_DONE_LINE('toolu_ci3'),
+      TRIAGE_LINE(),
+    ], { ciResult: false });
+
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+
+    assert.equal(ackOf(cwd), '');
+    assert.match(JSON.parse(r.stdout).reason, /exact-head CI has not returned/);
   });
 
   // The retroactive scan recovers checkpoints for heads whose live enforcement

@@ -341,7 +341,7 @@ Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([
 
 While automatic delivery is reconciling, ordinary boundaries in that repository do not open a competing choice. When reconciliation finishes, they reuse the exact-head plan or automatically resume normal eligibility. A later boundary may start a new cycle only after FIX ([REQ-AGENT-153](../../sdd/spec/agents.md#req-agent-153-in-flight-delivery-reconciliation-continuity)).
 
-On the normal non-bypassed path, an automatic or confirmed boundary makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE + ACK → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
+On the normal non-bypassed path, an automatic delivery or clone-confirmed boundary makes the extension emit a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → JOINT TRIAGE + ACK → FIX`. Reviewer calls start together and CI starts immediately afterward. Joint triage waits for every required reviewer plus terminal exact-head CI success, failure, or timeout. Ordinary Git and GitHub activity is inert. The explicit user-only bypass exception is described below and specified by [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces).
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> head=<boundary-plan-head> cwd=<absolute-repo-root> reviewState=<launched|not-required>
