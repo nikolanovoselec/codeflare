@@ -21,7 +21,7 @@
     "@types/ws": "^8.18.1",
     "fast-check": "^4.9.0",
     "jsdom": "^29.1.1",
-    "mermaid": "^11.16.1",
+    "mermaid": "^11.17.0",
     "typescript": "^7.0.2"
   }
 }
