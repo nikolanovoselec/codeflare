@@ -3039,6 +3039,17 @@ describe('Pi review reminder and settled enforcement', () => {
 
     const reloadedHarness = await registerFixture(fixture);
     appendSession(fixture.sessionFile, notification('spec-1'), triageMessage());
+    const { reviewTranscriptFacts } = await import('../../../preseed/agents/pi/extensions/review-helpers');
+    const facts = reviewTranscriptFacts({
+      sessionFile: fixture.sessionFile,
+      requiredLanes: ALL_LANES,
+      ci: { repository: 'owner/repo', repo: fixture.repo, prNumber: fixture.pr.number, head: fixture.head },
+    });
+    expect(facts.ciLaunched).toBe(true);
+    expect(facts.ciTerminal).toBe(true);
+    expect(facts.ciResult).toBe('success');
+    expect(ALL_LANES.every((lane) => facts.lanes[lane].state === 'terminal')).toBe(true);
+    expect(facts.triageComplete).toBe(true);
     await reloadedHarness.emit('session_start', { reason: 'resume' });
     await reloadedHarness.emit('agent_settled');
 
@@ -3083,6 +3094,17 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     const recoveredHarness = await registerFixture(fixture);
+    const { reviewTranscriptFacts } = await import('../../../preseed/agents/pi/extensions/review-helpers');
+    const facts = reviewTranscriptFacts({
+      sessionFile: fixture.sessionFile,
+      requiredLanes: ALL_LANES,
+      ci: { repository: 'owner/repo', repo: fixture.repo, prNumber: fixture.pr.number, head: fixture.head },
+    });
+    expect(facts.ciLaunched).toBe(true);
+    expect(facts.ciTerminal).toBe(true);
+    expect(facts.ciResult).toBe('success');
+    expect(ALL_LANES.every((lane) => facts.lanes[lane].state === 'terminal')).toBe(true);
+    expect(facts.triageComplete).toBe(true);
     await recoveredHarness.emit('session_start', { reason: 'resume' });
     await recoveredHarness.emit('agent_settled');
 
@@ -3098,6 +3120,8 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    await recoveredHarness.emit('agent_settled');
+    expect(recoveredHarness.sent).toHaveLength(1);
   });
 
   it('REQ-AGENT-110/REQ-AGENT-141: startup and resume recover one evaluated plan whose queued follow-up was lost', async () => {

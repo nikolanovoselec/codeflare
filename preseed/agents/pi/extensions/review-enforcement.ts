@@ -1112,21 +1112,6 @@ function persistedBoundary(ctx: ReviewContext, file: string): ClassifiedBoundary
     .at(-1);
 }
 
-function completedTriageReadyAfterResume(ctx: ReviewContext): boolean {
-  const file = rootSessionFile(ctx);
-  if (!file) return false;
-  const preview = transcriptFacts(ctx, file, []);
-  if (!fullSha(preview.reviewHead) || !preview.reviewRepo || !preview.reviewPrNumber) return false;
-  const context = boundaryContext(ctx, preview.reviewRepo);
-  if (!context) return false;
-  const ackHead = readAck(context.repo, preview.reviewPrNumber);
-  const lanes = preview.reviewRequiredLanes?.length
-    ? preview.reviewRequiredLanes
-    : requiredReviewLanes({ repo: context.repo, ackHead, head: preview.reviewHead });
-  const facts = transcriptFacts(ctx, context.file, lanes, undefined, preview.reviewHead);
-  return facts.triageComplete && (ackHead !== preview.reviewHead || !facts.fixDelivered);
-}
-
 async function acknowledgeCompletedReview(
   pi: ReviewPi,
   ctx: ReviewContext,
@@ -1335,9 +1320,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
   pi.on("agent_settled", async (_event, ctx) => {
     await retryPendingBoundaries(ctx);
-    if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
+    if (resumedWithoutBoundary
+      && await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps)) {
       pendingBoundaries.clear();
       resumedWithoutBoundary = false;
+      return;
     }
     const recoveryFile = rootSessionFile(ctx);
     if (resumedWithoutBoundary && recoveryFile) {
@@ -1370,10 +1357,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         }
       }
     }
-    if (resumedWithoutBoundary) {
-      if (!completedTriageReadyAfterResume(ctx)) return;
-      resumedWithoutBoundary = false;
-    }
+    if (resumedWithoutBoundary) return;
     if (await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps)) return;
     const file = rootSessionFile(ctx);
     if (!file) return;

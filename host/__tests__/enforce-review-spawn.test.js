@@ -2889,10 +2889,8 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
   });
 });
 
-// Lane coverage is measured strictly after an anchor. Candidacy stays broad (any
-// executable git/gh enforces -- see the structural-boundary suite above), but the
-// anchor is the last DELIVERY, so reading lane reports with git log/git diff
-// cannot uncover a round whose lanes already returned.
+// Lane coverage is measured strictly after the delivery that opened the round.
+// Ordinary Git/GitHub activity cannot reopen or truncate that reviewed window.
 describe('enforce-review-spawn.sh — coverage anchor is the last delivery', () => {
   const reviewedRound = (...trailing) => [
     PUSH_LINE('2026-05-03T12:00:00.000Z'),
@@ -2942,7 +2940,6 @@ describe('enforce-review-spawn.sh — coverage anchor is the last delivery', () 
     'git push -u origin HEAD',
     'git -C /srv/repo push',
     'gh pr create --base develop --title x',
-    'gh pr merge 824 --squash --delete-branch',
   ]) {
     it(`a delivery after a reviewed round reopens it: ${command}`, () => {
       const { r } = drive(reviewedRound(COMMAND_LINE(command, '2026-05-03T12:20:00.000Z')));
@@ -2950,15 +2947,15 @@ describe('enforce-review-spawn.sh — coverage anchor is the last delivery', () 
     });
   }
 
-  it('a non-delivery gh subcommand does not reopen a reviewed round', () => {
-    // `gh pr ready` flips a draft flag, not a head, and AD121 excludes it by
-    // name. Pinned so widening the vocabulary has to argue with a test.
-    const { cwd, r } = drive(reviewedRound(
-      COMMAND_LINE('gh pr ready 825', '2026-05-03T12:20:00.000Z'),
-    ));
-    assert.doesNotMatch(r.stdout, DEMANDS_A_LANE, 'gh pr ready is not a delivery');
-    assert.equal(ackOf(cwd), currentHead(cwd), 'and cannot uncover the reviewed round');
-  });
+  for (const command of ['gh pr ready 825', 'gh pr merge 824 --squash --delete-branch']) {
+    it(`a non-delivery gh subcommand does not reopen a reviewed round: ${command}`, () => {
+      const { cwd, r } = drive(reviewedRound(
+        COMMAND_LINE(command, '2026-05-03T12:20:00.000Z'),
+      ));
+      assert.doesNotMatch(r.stdout, DEMANDS_A_LANE, `${command} is not a delivery boundary`);
+      assert.equal(ackOf(cwd), currentHead(cwd), 'and cannot uncover the reviewed round');
+    });
+  }
 
   it('a heredoc body naming a push does not move the anchor', () => {
     // Every fix commit here is `git commit -F - <<EOF ... EOF`, so the message
