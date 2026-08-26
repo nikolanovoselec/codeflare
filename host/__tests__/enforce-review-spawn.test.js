@@ -306,11 +306,11 @@ const CLEAN_TRIAGE_LINE = () =>
       content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|` }],
     },
   });
-const CI_TRIAGE_LINE = (result) =>
+const CI_TRIAGE_LINE = (result, finding = 'Exact-head CI', proposedFix = `CI_RESULT ${result}`) =>
   JSON.stringify({
     type: 'assistant',
     message: {
-      content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT ${result} | proportional | fix CI |` }],
+      content: [{ type: 'text', text: `${TRIAGE_HEADER}\n|---|---|---|---|---|\n| ${finding} | VALID | ${proposedFix} | proportional | fix CI |` }],
     },
   });
 
@@ -1698,6 +1698,10 @@ describe('enforce-review-spawn.sh — headless lane transport', () => {
     for (const ciResult of ['failure', 'timeout']) {
       const omitted = drive(ciResult, CLEAN_TRIAGE_LINE());
       assert.equal(ackOf(omitted.cwd), '');
+      const incidental = drive(ciResult, CI_TRIAGE_LINE(ciResult, 'Reviewer', `CI parser ignored ${ciResult} wording`));
+      assert.equal(ackOf(incidental.cwd), '');
+      const negated = drive(ciResult, CI_TRIAGE_LINE(ciResult, 'Exact-head CI', `CI_RESULT ${ciResult} was not observed`));
+      assert.equal(ackOf(negated.cwd), '');
       const included = drive(ciResult, CI_TRIAGE_LINE(ciResult));
       assert.equal(ackOf(included.cwd), included.headSha);
     }

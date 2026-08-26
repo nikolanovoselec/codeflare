@@ -832,8 +832,13 @@ stacked_table_in_stream() {
         if (rows[i] != h || rows[i + 1] != d) continue
         if (expected != "failure" && expected != "timeout") exit 0
         for (j = i + 2; j <= n && rows[j] ~ /^\|/; j++) {
-          value = tolower(rows[j])
-          if (value ~ /(^|[^a-z])ci([^a-z]|$)/ && index(value, expected)) exit 0
+          count = split(rows[j], cells, "|")
+          if (count != 7) continue
+          finding = cells[2]
+          proposed = cells[4]
+          gsub(/^[ \t]+|[ \t]+$/, "", finding)
+          gsub(/^[ \t]+|[ \t]+$/, "", proposed)
+          if (tolower(finding) == "exact-head ci" && proposed == "CI_RESULT " expected) exit 0
         }
       }
       exit 1
@@ -1629,7 +1634,7 @@ if all_required_lanes_completed_for_current_head; then
   if reack_on_repeated_demand; then
     exit 0
   fi
-  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane and exact-head CI have terminal records and their notification-delivery turn has elapsed, but no joint triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' A fully clean round publishes that empty table without synthetic clean-lane rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
+  emit_block_uncounted "PR #$PR_NUMBER @ ${CURRENT_PR_HEAD:0:7}: every required lane and exact-head CI have terminal records and their notification-delivery turn has elapsed, but no joint triage verdict is published. If any report is still absent from visible context, retrieve it now with Read/TaskOutput; never publish or defer to FIX without reading every required report. After all reports are consumed, verify every finding against the reviewers' evidence. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction, and the smallest fix reusing an existing implementation path beats new machinery. Then publish ONE table in a TOOL-FREE response that ends the turn, one row per finding across all lanes, in exactly this shape: '$REVIEW_TRIAGE_HEADER' over '$REVIEW_TRIAGE_DIVIDER' CI failure or timeout uses a dedicated row whose FINDING is exactly 'Exact-head CI' and whose PROPOSED FIX is exactly 'CI_RESULT failure' or 'CI_RESULT timeout'. A fully clean successful round publishes that empty table without synthetic clean-lane or CI rows. VALIDITY records whether the finding is real, PROPORTIONALITY whether the proposed fix is minimal or overengineered, and MINIMAL DECISION the smallest correct action. The fix directive follows next turn once this head is acknowledged."
 fi
 
 exit 0

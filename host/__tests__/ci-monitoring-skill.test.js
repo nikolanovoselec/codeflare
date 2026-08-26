@@ -43,11 +43,10 @@ async function drive(runRows, { unavailable = false } = {}) {
     repo: REPO,
     pr: PR,
     head: HEAD,
-    branch: 'develop',
     clock: time.clock,
     sleep: time.sleep,
     runner: async (_command, args) => {
-      assert.deepEqual(args.slice(0, 7), ['run', 'list', '--repo', REPO, '--branch', 'develop', '--limit']);
+      assert.deepEqual(args.slice(0, 7), ['run', 'list', '--repo', REPO, '--commit', HEAD, '--limit']);
       if (unavailable) throw new Error('gh unavailable');
       const rows = runRows[Math.min(calls, runRows.length - 1)];
       calls += 1;
@@ -98,7 +97,6 @@ test('REQ-OPS-049 AC4: attached Claude CI monitoring creates no script, PID, or 
       repo: REPO,
       pr: PR,
       head: HEAD,
-      branch: 'develop',
       cwd,
       clock: time.clock,
       sleep: time.sleep,

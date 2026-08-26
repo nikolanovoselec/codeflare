@@ -947,7 +947,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       REVIEW_TRIAGE_DIVIDER,
       "",
       ...(input.ciEvent
-        ? ["Include the CI outcome in the joint triage table. CI success, failure, and timeout are terminal outcomes; none may be omitted.", ""]
+        ? ["CI failure or timeout must use a dedicated row whose FINDING is exactly `Exact-head CI` and whose PROPOSED FIX is exactly `CI_RESULT failure` or `CI_RESULT timeout`. A clean successful round needs no synthetic CI row.", ""]
         : []),
       "For every finding:",
       "",

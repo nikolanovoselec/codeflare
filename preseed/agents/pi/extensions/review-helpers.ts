@@ -489,8 +489,11 @@ function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalRes
     if (lines[index] !== REVIEW_TRIAGE_HEADER || lines[index + 1] !== REVIEW_TRIAGE_DIVIDER) continue;
     if (result !== "failure" && result !== "timeout") return true;
     for (let row = index + 2; row < lines.length && lines[row].startsWith("|"); row += 1) {
-      const value = lines[row].toLowerCase();
-      if (/\bci\b/.test(value) && value.includes(result)) return true;
+      if (!lines[row].endsWith("|")) continue;
+      const cells = lines[row].slice(1, -1).split("|").map((cell) => cell.trim());
+      if (cells.length === 5
+        && cells[0].toLowerCase() === "exact-head ci"
+        && cells[2] === `CI_RESULT ${result}`) return true;
     }
   }
   return false;

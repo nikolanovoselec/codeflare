@@ -237,10 +237,27 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
         repo: 'owner/repo',
         pr: 42,
         head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
-        branch: spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
         cwd,
       });
     }
+  });
+
+  it('dispatches CI safely for a valid Git branch containing shell metacharacters', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    spawnSync('git', ['branch', '-m', 'review$(id)'], { cwd });
+
+    const result = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    const prompt = JSON.parse(context.match(/and prompt '([^']+)'/)?.[1]);
+
+    assert.deepEqual(prompt, {
+      repo: 'owner/repo',
+      pr: 42,
+      head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim(),
+      cwd,
+    });
+    assert.doesNotMatch(context, /review\$\(id\)/);
   });
 
   it('asks only for an eligible repository produced by a successful clone', () => {
@@ -259,7 +276,6 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
       repo: 'owner/repo',
       pr: 42,
       head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim(),
-      branch: spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim(),
       cwd: repo,
     });
   });
@@ -320,7 +336,9 @@ describe('git-push-review-reminder.sh — authoritative checked-out branch state
     const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
     const directive = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
 
-    assert.match(directive, /fully clean round publishes the header and divider with no synthetic clean-lane rows/i);
+    assert.match(directive, /fully clean successful round publishes the header and divider with no synthetic clean-lane or CI rows/i);
+    assert.match(directive, /FINDING is exactly 'Exact-head CI'/);
+    assert.match(directive, /PROPOSED FIX is exactly 'CI_RESULT failure' or 'CI_RESULT timeout'/);
     assert.match(directive, /\| FINDING \| VALIDITY \| PROPOSED FIX \| PROPORTIONALITY \| MINIMAL DECISION \|/);
     assert.doesNotMatch(directive, /one row per required lane/i);
   });

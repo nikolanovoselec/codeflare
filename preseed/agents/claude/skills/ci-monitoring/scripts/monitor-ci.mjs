@@ -41,9 +41,9 @@ function summary(status, { repo, pr, head, reason = '', rows = [] }) {
   return `${lines.join('\n')}\n`;
 }
 
-export async function monitorCi({ repo, pr, head, branch, runner = runCommand, cwd, clock = { now: Date.now }, sleep = (ms) => new Promise((done) => setTimeout(done, ms)) } = {}) {
+export async function monitorCi({ repo, pr, head, runner = runCommand, cwd, clock = { now: Date.now }, sleep = (ms) => new Promise((done) => setTimeout(done, ms)) } = {}) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo ?? '') || !Number.isInteger(pr) || pr <= 0
-    || !/^[0-9a-f]{40}$/i.test(head ?? '') || typeof branch !== 'string' || !branch.trim()) {
+    || !/^[0-9a-f]{40}$/i.test(head ?? '')) {
     return summary('timeout', { repo, pr, head, reason: 'invalid_request' });
   }
 
@@ -52,7 +52,7 @@ export async function monitorCi({ repo, pr, head, branch, runner = runCommand, c
   while (clock.now() - startedAt < TOTAL_LIMIT_MS) {
     let rows = null;
     try {
-      const result = await runner('gh', ['run', 'list', '--repo', repo, '--branch', branch, '--limit', '24', '--json', RUN_FIELDS], { cwd });
+      const result = await runner('gh', ['run', 'list', '--repo', repo, '--commit', head, '--limit', '24', '--json', RUN_FIELDS], { cwd });
       rows = parseRows(result, head);
     } catch { rows = null; }
 
@@ -94,7 +94,7 @@ function cliOptions(args) {
 async function main() {
   const [mode, ...args] = process.argv.slice(2);
   if (mode !== 'monitor') {
-    process.stderr.write('usage: monitor-ci.mjs monitor repo=<owner/repo> pr=<number> head=<sha> branch=<branch>\n');
+    process.stderr.write('usage: monitor-ci.mjs monitor repo=<owner/repo> pr=<number> head=<sha>\n');
     process.exitCode = 2;
     return;
   }

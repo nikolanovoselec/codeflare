@@ -787,6 +787,22 @@ describe('native Pi transcript review facts', () => {
       expect(afterFacts.triageComplete).toBe(result === 'success');
 
       if (result !== 'success') {
+        for (const misleadingRow of [
+          `| Reviewer | VALID | CI parser ignored ${result} wording | proportional | none |`,
+          `| Exact-head CI | VALID | CI_RESULT ${result} was not observed | proportional | none |`,
+        ]) {
+          const misleading = writeSession([
+            ...common,
+            ciNotification('ci-current', result, head),
+            assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n' + misleadingRow),
+          ]);
+          expect(reviewTranscriptFacts({
+            sessionFile: misleading,
+            requiredLanes: ALL_LANES,
+            ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+          }).triageComplete).toBe(false);
+        }
+
         const withCiOutcome = writeSession([
           ...common,
           ciNotification('ci-current', result, head),

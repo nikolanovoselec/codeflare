@@ -12,11 +12,11 @@ PR-boundary directive is sole automatic dispatcher. Launch monitor when that dir
 {
   "subagent_type": "ci-monitor",
   "description": "Monitor PR CI",
-  "prompt": "{\"repo\":\"<owner/repo>\",\"pr\":<number>,\"head\":\"<full headRefOid>\",\"branch\":\"<checked-out branch>\",\"cwd\":\"<absolute repo root>\"}",
+  "prompt": "{\"repo\":\"<owner/repo>\",\"pr\":<number>,\"head\":\"<full headRefOid>\",\"cwd\":\"<absolute repo root>\"}",
   "run_in_background": true
 }
 ```
 
-Use repository, PR, head, branch, and cwd values from boundary directive unchanged. Dedicated agent runs seeded monitor script once with Bash timeout 600000 milliseconds; script's eight-minute deadline leaves margin for terminal output. Native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`, followed by `pr`, `head`, and `repo` correlation values.
+Use repository, PR, head, and cwd values from boundary directive unchanged. Dedicated agent runs seeded monitor script once with Bash timeout 600000 milliseconds; script's eight-minute deadline leaves margin for terminal output. Native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`, followed by `pr`, `head`, and `repo` correlation values.
 
 Do not infer another trigger from Git command. Do not detach shell monitor, poll in root session, or duplicate in-flight Agent. Main session owns triage and fixes; monitor only reports.

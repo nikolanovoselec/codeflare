@@ -44,7 +44,7 @@ All three review agents run **in parallel** — `code-reviewer` (source lane), `
 
 ## Joint triage (root-owned, after reviewers and CI return)
 
-Do not act on partial review or CI evidence. Wait until every required lane and the exact-head CI monitor have returned a terminal result, then assess reviewer findings and the CI outcome together in one visible triage summary BEFORE any mutation: one line per finding, so the user sees every decision without reading the raw reports. A failed or timed-out CI result must have its own row; a clean successful round may keep an empty table.
+Do not act on partial review or CI evidence. Wait until every required lane and the exact-head CI monitor have returned a terminal result, then assess reviewer findings and the CI outcome together in one visible triage summary BEFORE any mutation: one line per finding, so the user sees every decision without reading the raw reports. A failed or timed-out result must use a dedicated row with FINDING exactly `Exact-head CI` and PROPOSED FIX exactly `CI_RESULT failure` or `CI_RESULT timeout`; a clean successful round may keep an empty table.
 
 A terminal background record can reach the transcript before its native notification reaches the root. The first Stop observation of a newly complete round ends silently to let queued reports arrive; triage and acknowledgement happen only afterward. If a report remains absent, retrieve it with `Read` or `TaskOutput` before the final tool-free table.
 

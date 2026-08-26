@@ -623,7 +623,8 @@ describe('Pi review reminder and settled enforcement', () => {
       'next-turn follow-up after acknowledgement',
     );
     expect(plan).toContain('Wait for every required reviewer and exact-head CI result');
-    expect(plan).toContain('Include the CI outcome in the joint triage table');
+    expect(plan).toContain('FINDING is exactly `Exact-head CI`');
+    expect(plan).toContain('PROPOSED FIX is exactly `CI_RESULT failure` or `CI_RESULT timeout`');
     expect(markdownValue(plan, '- Agents: ')).toBe('`code-reviewer`, `spec-reviewer`, `doc-updater`');
     expect(markdownValue(plan, '- `inherit_context`: ')).toBe('`false`');
     expect(markdownValue(plan, '- Prompt scope: ')).toBe(
@@ -2769,7 +2770,11 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(harness.sent).toEqual([]);
 
-    appendSession(fixture.sessionFile, ciNotification(fixture, 'ci-joint', 'failure', fixture.pr.headRefOid), triageMessage());
+    appendSession(
+      fixture.sessionFile,
+      ciNotification(fixture, 'ci-joint', 'failure', fixture.pr.headRefOid),
+      assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT failure | proportional | fix CI |'),
+    );
     await harness.emit('agent_end');
 
     expect(ackHead(fixture.repo)).toBe(fixture.head);
