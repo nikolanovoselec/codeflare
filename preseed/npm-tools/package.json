@@ -13,9 +13,9 @@
     "opencode-ai": "1.18.16"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1",
-    "@earendil-works/pi-tui": "0.84.1"
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2"
   },
   "overrides": {
     "@hono/node-server": "2.0.12",
