@@ -37,12 +37,21 @@ SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .sessionId // .transcr
 SESSION_KEY=$(printf '%s' "$SESSION_ID" | cksum | awk '{print $1}')
 SESSION_DIR="${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}"
 OFFSET_FILE="$SESSION_DIR/$SESSION_KEY.offset"
+PLAN_FILE="$SESSION_DIR/$SESSION_KEY.review-plan.json"
 OFFSET=$(cat "$OFFSET_FILE" 2>/dev/null)
 case "$OFFSET" in ''|*[!0-9]*) exit 0 ;; esac
+[ -f "$PLAN_FILE" ] || exit 0
+PLAN_HEAD=$(jq -r '.head // empty' "$PLAN_FILE" 2>/dev/null)
+PLAN_PR=$(jq -r '.pr // empty' "$PLAN_FILE" 2>/dev/null)
+EXPECTED_RUNNER=$(jq -r '.runner // empty' "$PLAN_FILE" 2>/dev/null)
+EXPECTED_BOUNDARY=$(jq -r '.boundary // empty' "$PLAN_FILE" 2>/dev/null)
+PLAN_SCOPE=$(jq -r '.scope // empty' "$PLAN_FILE" 2>/dev/null)
+[ "$PLAN_HEAD" = "$HEAD" ] && [ "$PLAN_PR" = "$PR_NUMBER" ] \
+  && [ "$PLAN_SCOPE" = "$EXPECTED_SCOPE" ] && [ -n "$EXPECTED_RUNNER" ] && [ -n "$EXPECTED_BOUNDARY" ] || exit 0
 
-ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" "$EXPECTED_SCOPE" <<'NODE'
+ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" "$EXPECTED_SCOPE" "$EXPECTED_RUNNER" "$EXPECTED_BOUNDARY" <<'NODE'
 const fs = require('node:fs');
-const [file, offsetText, pr, head, repository, requiredText, expectedScope] = process.argv.slice(2);
+const [file, offsetText, pr, head, repository, requiredText, expectedScope, expectedRunner, expectedBoundary] = process.argv.slice(2);
 const offset = Number(offsetText);
 const data = fs.readFileSync(file).subarray(offset).toString('utf8');
 const entries = data.split('\n').filter(Boolean).flatMap((line) => {
@@ -64,7 +73,7 @@ entries.forEach((entry, index) => {
     if (part?.type !== 'tool_use' && part?.type !== 'toolCall') continue;
     const input = part?.input ?? part?.arguments ?? {};
     const command = input.command ?? '';
-    calls.push({ id: part.id, input, command, index });
+    calls.push({ id: part.id, input, command, index, name: part?.name, role: entry?.message?.role ?? entry?.role });
   }
 });
 const shellWords = (command) => {
@@ -94,25 +103,29 @@ const validLaunch = (command, lane) => {
   let index = 0;
   while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index] ?? '')) {
     const split = words[index].indexOf('=');
-    environment.set(words[index].slice(0, split), words[index].slice(split + 1));
+    const name = words[index].slice(0, split);
+    if (environment.has(name)) return false;
+    environment.set(name, words[index].slice(split + 1));
     index += 1;
   }
   if ((words[index] ?? '').split('/').at(-1) !== 'bash') return false;
-  if (!(words[index + 1] ?? '').endsWith('run-review-lane.sh')) return false;
+  if (words[index + 1] !== expectedRunner) return false;
   const args = words.slice(index + 2);
   const [scopeName, scopeValue] = expectedScope.split(' ', 2);
   return environment.get('CODEFLARE_REVIEW_HEAD') === head
+    && environment.get('CODEFLARE_REVIEW_CI') === expectedBoundary
     && optionValue(args, '--boundary-pr') === pr
     && optionValue(args, '--lane') === lane
     && optionValue(args, scopeName) === scopeValue;
 };
 const successfulReceipt = (call) => entries.slice(call.index + 1).some((entry) => {
   const content = entry?.message?.content;
-  return Array.isArray(content) && content.some((part) => part?.type === 'tool_result'
+  return entry?.message?.role === 'user' && Array.isArray(content) && content.some((part) => part?.type === 'tool_result'
     && part?.tool_use_id === call.id && part?.is_error !== true);
 });
 const laneNames = requiredText.split(/\s+/).filter(Boolean);
-const launches = calls.filter((call) => call.input?.run_in_background === true
+const launches = calls.filter((call) => call.role === 'assistant' && call.name === 'Bash'
+  && call.input?.run_in_background === true
   && laneNames.some((lane) => validLaunch(call.command, lane))
   && successfulReceipt(call));
 if (launches.length === 0) {
@@ -144,7 +157,7 @@ if (results.length !== laneLaunches.length || results.some((result) => result.in
   process.stdout.write(JSON.stringify({ state: 'running' }));
   process.exit(0);
 }
-const ciRequired = launches.some(({ command }) => /CODEFLARE_REVIEW_CI=(?:push|pr-create)\b/.test(command));
+const ciRequired = expectedBoundary === 'push' || expectedBoundary === 'pr-create';
 let ciResult;
 let ciIndex = -1;
 if (ciRequired) {

@@ -76,7 +76,12 @@ function invoke(script, fx, input) {
 }
 
 function start(fx) {
-  return invoke(REMINDER, fx, { hook_event_name: 'SessionStart' });
+  invoke(REMINDER, fx, { hook_event_name: 'SessionStart' });
+  return invoke(REMINDER, fx, {
+    hook_event_name: 'PostToolUse',
+    tool_use_id: 'push-1',
+    tool_input: { command: 'git push origin feature' },
+  });
 }
 
 function stop(fx, extra = {}) {
@@ -129,9 +134,22 @@ function round(fx, options = {}) {
   const entries = [];
   for (const lane of lanes) {
     const id = `lane-${lane}`;
+    const runner = join(fx.home, '.claude/plugins/codeflare-hooks/scripts/run-review-lane.sh');
+    let command = `CODEFLARE_REVIEW_CI=push CODEFLARE_REVIEW_HEAD=${fx.head} bash ${runner} --lane ${lane} --boundary-pr 42 --base main > /tmp/${lane}.md 2>&1`;
+    let name = 'Bash';
+    let role = 'assistant';
+    if (lane === 'code-reviewer') {
+      if (options.malformed === 'substitute-runner') command = command.replace(runner, '/tmp/run-review-lane.sh');
+      if (options.malformed === 'missing-boundary') command = command.replace('CODEFLARE_REVIEW_CI=push ', '');
+      if (options.malformed === 'quoted') command = `printf '%s' '${command}'`;
+      if (options.malformed === 'wrong-tool') name = 'Agent';
+      if (options.malformed === 'wrong-role') role = 'user';
+    }
+    const launch = call(id, name, { command, run_in_background: true });
+    launch.message.role = role;
     entries.push(
-      call(id, 'Bash', { command: `CODEFLARE_REVIEW_CI=push CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane ${lane} --boundary-pr 42 --base main > /tmp/${lane}.md 2>&1`, run_in_background: true }),
-      toolResult(id, options.failedLaunch === lane),
+      launch,
+      toolResult(id, options.failedLaunch === lane || (lane === 'code-reviewer' && options.malformed === 'failed-receipt')),
       notification(id, options.failedLane === lane ? 'Failed' : 'Completed'),
     );
   }
@@ -190,20 +208,21 @@ describe('Claude current-round completion enforcement', () => {
     assert.notEqual(markerStatus(fx), 'complete');
   });
 
-  it('rejects quoted lane commands and failed launch receipts', () => {
-    for (const failedReceipt of [false, true]) {
+  it('rejects otherwise-complete rounds with noncanonical launch evidence', () => {
+    for (const malformed of [
+      'substitute-runner',
+      'missing-boundary',
+      'quoted',
+      'failed-receipt',
+      'wrong-tool',
+      'wrong-role',
+    ]) {
       const fx = setup();
       start(fx);
-      const command = `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main`;
-      append(fx,
-        call('fake-lane', 'Bash', { command: failedReceipt ? command : `printf '%s' '${command}'`, run_in_background: true }),
-        toolResult('fake-lane', failedReceipt),
-        notification('fake-lane', 'Completed'),
-        triage(),
-      );
+      round(fx, { malformed });
       const result = stop(fx);
-      assert.equal(result.status, 0);
-      assert.notEqual(markerStatus(fx), 'complete');
+      assert.equal(result.status, 0, malformed);
+      assert.notEqual(markerStatus(fx), 'complete', malformed);
     }
   });
 

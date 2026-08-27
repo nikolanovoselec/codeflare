@@ -282,7 +282,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(existsSync(completionPath(old, stateRoot))).toBe(false);
     expect(existsSync(outsideMarker)).toBe(true);
 
-    const later = { ...input.identity, head: 'd'.repeat(40) };
+    const later = { ...input.identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
     writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
     await app.emit('session_start', { reason: 'resume' });
     expect(existsSync(completionPath(later, stateRoot))).toBe(true);

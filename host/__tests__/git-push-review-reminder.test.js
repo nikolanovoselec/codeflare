@@ -152,7 +152,7 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.equal(existsSync(completionPath(identity, stateRoot)), false);
     assert.equal(existsSync(outsideMarker), true);
 
-    const later = { ...identity, head: 'd'.repeat(40) };
+    const later = { ...identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
     writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
     sessionStart(fx);
     assert.equal(existsSync(completionPath(later, stateRoot)), true);

@@ -17,6 +17,7 @@ TOOL_USE_ID=$(printf '%s' "$INPUT" | jq -r '.tool_use_id // .toolUseId // empty'
 TOOL_KEY=$(printf '%s' "$SESSION_ID:$TOOL_USE_ID" | cksum | awk '{print $1}')
 SESSION_DIR="${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}"
 OFFSET_FILE="$SESSION_DIR/$SESSION_KEY.offset"
+PLAN_FILE="$SESSION_DIR/$SESSION_KEY.review-plan.json"
 PRUNE_SENTINEL="$SESSION_DIR/root-pruned"
 MERGE_STATE_FILE="$SESSION_DIR/$TOOL_KEY.merge-before.json"
 
@@ -196,6 +197,13 @@ case "$BOUNDARY_KIND" in
     CI_DIRECTIVE="Immediately after reviewer launches, launch public ci-monitor in background with inherit_context=false and prompt $CI_PROMPT. Do not wait for reviewers first."
     ;;
 esac
+
+PLAN_TMP="$PLAN_FILE.$$"
+umask 077
+jq -n --arg head "$HEAD" --argjson pr "$PR_NUMBER" --arg runner "$RUNNER" \
+  --arg boundary "$BOUNDARY_KIND" --arg scope "$LANE_SCOPE" \
+  '{head:$head,pr:$pr,runner:$runner,boundary:$boundary,scope:$scope}' > "$PLAN_TMP" 2>/dev/null \
+  && mv -f "$PLAN_TMP" "$PLAN_FILE" 2>/dev/null || { rm -f "$PLAN_TMP"; exit 0; }
 
 if [ -z "$REQUIRED_LANES" ]; then
   case "$BOUNDARY_KIND" in
