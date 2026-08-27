@@ -6,6 +6,8 @@
 // planned exposure, and the final relevant exposure name otherwise. The
 // optional commit mode remains available to unrelated mutation guards.
 
+const path = require('node:path');
+
 const EMPTY = new Set();
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
 const prefixes = new Set(['command', 'builtin', 'exec', 'sudo', 'time', 'env', 'nohup', 'nice', 'xargs', 'stdbuf', 'timeout']);
@@ -35,29 +37,35 @@ const takesValue = {
   git: new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix']),
   gh: new Set(['-R', '--repo', '--hostname', '--config']),
 };
-function boundaryEvent(executable, rest, options) {
+function boundaryMatch(executable, rest, options) {
   let index = 0;
+  let repository;
   while (index < rest.length) {
     const value = rest[index] ?? '';
     if (value === '--') { index++; break; }
     if (!value.startsWith('-')) break;
+    if (executable === 'gh') {
+      if ((value === '-R' || value === '--repo') && !value.includes('=')) repository = rest[index + 1];
+      else if (value.startsWith('--repo=')) repository = value.slice('--repo='.length);
+    }
     if (takesValue[executable].has(value) && !value.includes('=')) index++;
     index++;
   }
   const args = rest.slice(index);
-  if (executable === 'git' && args[0] === 'clone') return 'clone';
-  if (executable === 'gh' && args[0] === 'repo' && args[1] === 'clone') return 'clone';
-  if (executable === 'git' && args[0] === 'switch'
-    && !args.includes('--detach') && !args.includes('-d')) return 'switch';
-  if (executable === 'git' && args[0] === 'checkout'
-    && !args.includes('--') && !args.includes('--detach')) return 'checkout';
-  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'checkout') return 'pr-checkout';
-  if (executable === 'git' && args[0] === 'pull') return 'pull';
-  if (executable === 'git' && args[0] === 'push') return 'push';
-  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'reopen')) return 'pr-create';
-  if (executable === 'git' && args[0] === 'commit' && options && options.commit) return 'commit';
-  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) return 'merge';
-  return '';
+  let kind = '';
+  if (executable === 'git' && args[0] === 'clone') kind = 'clone';
+  else if (executable === 'gh' && args[0] === 'repo' && args[1] === 'clone') kind = 'clone';
+  else if (executable === 'git' && args[0] === 'switch'
+    && !args.includes('--detach') && !args.includes('-d')) kind = 'switch';
+  else if (executable === 'git' && args[0] === 'checkout'
+    && !args.includes('--') && !args.includes('--detach')) kind = 'checkout';
+  else if (executable === 'gh' && args[0] === 'pr' && args[1] === 'checkout') kind = 'pr-checkout';
+  else if (executable === 'git' && args[0] === 'pull') kind = 'pull';
+  else if (executable === 'git' && args[0] === 'push') kind = 'push';
+  else if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'reopen')) kind = 'pr-create';
+  else if (executable === 'git' && args[0] === 'commit' && options && options.commit) kind = 'commit';
+  else if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) kind = 'merge';
+  return kind ? { kind, executable, args, repository } : undefined;
 }
 function heredocDeclarations(line) {
   const declarations = [];
@@ -110,7 +118,7 @@ function stripHeredocs(text) {
 }
 // Returns the final relevant exposure. Ordinary git/gh activity remains inert.
 function boundaryOf(text, options) {
-  let candidate = false, found = '';
+  let candidate = false, found = '', details;
   function scan(source) {
     let word = '', command = true, prefix = false;
     // Set once git/gh is seen in command position; `rest` collects that simple
@@ -131,7 +139,10 @@ function boundaryOf(text, options) {
         codeWords = null; shellName = ''; shellWantsCode = false;
         scan(code);
       }
-      if (tool) { const event = boundaryEvent(tool, rest, options); if (event) found = event; }
+      if (tool) {
+        const match = boundaryMatch(tool, rest, options);
+        if (match) { found = match.kind; details = match; }
+      }
       tool = ''; rest = [];
     };
     const finish = () => {
@@ -227,7 +238,86 @@ function boundaryOf(text, options) {
     decide();
   }
   scan(stripHeredocs(text));
-  return candidate ? (found || '-') : '';
+  return options?.details ? details : candidate ? (found || '-') : '';
 }
 
-module.exports = { boundaryOf };
+function boundaryDetails(text) {
+  return boundaryOf(text, { details: true });
+}
+
+function reopenTarget(args) {
+  for (let index = 2; index < args.length; index++) {
+    const value = args[index] ?? '';
+    if (value === '-c' || value === '--comment') { index++; continue; }
+    if (value.startsWith('--comment=') || value.startsWith('-')) continue;
+    return value;
+  }
+  return undefined;
+}
+
+function exposureTargetsCheckedOutBranch(text, identity) {
+  const match = boundaryDetails(text);
+  if (!match || !['push', 'pr-create'].includes(match.kind)) return true;
+  if (match.executable === 'gh') {
+    if (match.repository && match.repository.toLowerCase() !== identity.repository.toLowerCase()) return false;
+    if (match.args[1] === 'reopen') {
+      const target = reopenTarget(match.args);
+      if (!target) return true;
+      const url = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/i.exec(target);
+      if (url) return url[1].toLowerCase() === identity.repository.toLowerCase() && Number(url[2]) === identity.pr;
+      if (/^[0-9]+$/.test(target)) return Number(target) === identity.pr;
+      return target === identity.branch || target.endsWith(`:${identity.branch}`);
+    }
+    const headIndex = match.args.findIndex((arg) => arg === '--head' || arg === '-H');
+    const inline = match.args.find((arg) => arg.startsWith('--head='))?.slice('--head='.length);
+    const head = inline ?? (headIndex >= 0 ? match.args[headIndex + 1] : undefined);
+    return !head || head === identity.branch || head.endsWith(`:${identity.branch}`);
+  }
+  const takesPushValue = new Set(['--repo', '--receive-pack', '--exec', '--push-option', '-o']);
+  const positional = [];
+  for (let index = 1; index < match.args.length; index++) {
+    const value = match.args[index] ?? '';
+    if (value === '--') { positional.push(...match.args.slice(index + 1)); break; }
+    if (takesPushValue.has(value)) { index++; continue; }
+    if (value.startsWith('-')) continue;
+    positional.push(value);
+  }
+  const refspecs = positional.slice(1);
+  return refspecs.length === 0 || refspecs.every((refspec) => {
+    const [source, destination] = refspec.replace(/^\+/, '').split(':', 2);
+    const sourceMatches = source === identity.branch || source === `refs/heads/${identity.branch}` || source === 'HEAD';
+    const destinationMatches = !destination || destination === identity.branch
+      || destination === `refs/heads/${identity.branch}`;
+    return sourceMatches && destinationMatches;
+  });
+}
+
+function cloneTargetPath(text, cwd) {
+  const match = boundaryDetails(text);
+  if (!match || match.kind !== 'clone') return undefined;
+  let source, destination;
+  if (match.executable === 'gh') {
+    source = match.args[2];
+    destination = match.args[3];
+  } else {
+    const cloneTakesValue = new Set([
+      '-b', '--branch', '-o', '--origin', '-u', '--upload-pack', '-c', '--config', '--depth',
+      '--shallow-since', '--shallow-exclude', '--separate-git-dir', '--reference', '--reference-if-able',
+      '--dissociate', '--jobs', '-j', '--filter', '--server-option',
+    ]);
+    const positional = [];
+    for (let index = 1; index < match.args.length; index++) {
+      const value = match.args[index] ?? '';
+      if (value === '--') { positional.push(...match.args.slice(index + 1)); break; }
+      if (cloneTakesValue.has(value)) { index++; continue; }
+      if (value.startsWith('-')) continue;
+      positional.push(value);
+    }
+    [source, destination] = positional;
+  }
+  const inferred = source?.replace(/[\\/]$/, '').split(/[\\/]/).at(-1)?.replace(/\.git$/, '');
+  const target = destination || inferred;
+  return target ? path.resolve(cwd, target) : undefined;
+}
+
+module.exports = { boundaryOf, boundaryDetails, cloneTargetPath, exposureTargetsCheckedOutBranch };

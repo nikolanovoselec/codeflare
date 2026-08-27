@@ -123,7 +123,8 @@ const triage = entries.slice(completionIndex + 1).find((entry) => {
     const cells = line.startsWith('|') && line.endsWith('|')
       ? line.slice(1, -1).split('|').map((cell) => cell.trim())
       : [];
-    return cells.length === 5 && cells[0] === 'Exact-head CI' && cells[2] === `CI_RESULT ${ciResult}`;
+    const proposedFix = /^`([^`]*)`$/.exec(cells[2] ?? '')?.[1] ?? cells[2];
+    return cells.length === 5 && cells[0] === 'Exact-head CI' && proposedFix === `CI_RESULT ${ciResult}`;
   });
 });
 process.stdout.write(JSON.stringify({ state: triage ? 'triaged' : 'awaiting-triage' }));

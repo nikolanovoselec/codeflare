@@ -25,6 +25,9 @@ command_text() {
   ' 2>/dev/null
 }
 
+CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[ -n "$CWD" ] || CWD=$PWD
+REPO_CWD="$CWD"
 BOUNDARY_KIND="startup"
 case "$EVENT" in
   SessionStart)
@@ -44,13 +47,18 @@ case "$EVENT" in
       process.stdout.write(boundaryOf(process.argv[2]) || "-");
     ' "$CLASSIFIER" "$COMMAND" 2>/dev/null) || exit 0
     case "$BOUNDARY_KIND" in clone|switch|checkout|pr-checkout|pull|push|pr-create) ;; *) exit 0 ;; esac
+    if [ "$BOUNDARY_KIND" = "clone" ]; then
+      REPO_CWD=$(node -e '
+        const { cloneTargetPath } = require(process.argv[1]);
+        process.stdout.write(cloneTargetPath(process.argv[2], process.argv[3]) || "");
+      ' "$CLASSIFIER" "$COMMAND" "$CWD" 2>/dev/null) || exit 0
+      [ -n "$REPO_CWD" ] || exit 0
+    fi
     ;;
   *) exit 0 ;;
 esac
 
-CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-[ -n "$CWD" ] || CWD=$PWD
-REPO=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
+REPO=$(git -C "$REPO_CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -f "$REPO/sdd/README.md" ] || exit 0
 CONFIG="$REPO/sdd/config.yml"
 TRIAGE="$REPO/sdd/.init-triage.md"
@@ -73,6 +81,14 @@ REPOSITORY=$(printf '%s' "$STATUS" | jq -r '.identity.repository // empty' 2>/de
 ANCESTOR=$(printf '%s' "$STATUS" | jq -r '.ancestor.head // empty' 2>/dev/null)
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
+if [ "$EVENT" = "PostToolUse" ]; then
+  TARGETS_CURRENT=$(node -e '
+    const { exposureTargetsCheckedOutBranch } = require(process.argv[1]);
+    const identity = JSON.parse(process.argv[3]);
+    process.stdout.write(exposureTargetsCheckedOutBranch(process.argv[2], identity) ? "true" : "false");
+  ' "$CLASSIFIER" "$COMMAND" "$(jq -cn --arg branch "$BRANCH" --argjson pr "$PR_NUMBER" --arg repository "$REPOSITORY" '{branch:$branch,pr:$pr,repository:$repository}')" 2>/dev/null) || exit 0
+  [ "$TARGETS_CURRENT" = "true" ] || exit 0
+fi
 
 # An exact current-session round suppresses duplicate consent. Old transcript
 # bytes are ignored by the ephemeral SessionStart offset.
@@ -91,7 +107,6 @@ esac
 
 . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null || exit 0
 REQUIRED_LANES=$(compute_required_lanes "$ANCESTOR" "$HEAD")
-[ -n "$REQUIRED_LANES" ] || REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
 RUNNER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/codeflare-hooks/scripts/run-review-lane.sh"
 if [ -n "$ANCESTOR" ] && git -C "$REPO" merge-base --is-ancestor "$ANCESTOR" "$HEAD" 2>/dev/null; then
   LANE_SCOPE="--range $ANCESTOR..$HEAD"
@@ -112,16 +127,33 @@ case "$BOUNDARY_KIND" in
     ;;
 esac
 
-ROUND_DIRECTIVE=$(cat <<EOF
+if [ -z "$REQUIRED_LANES" ]; then
+  case "$BOUNDARY_KIND" in
+    push|pr-create)
+      node "$STATE_HELPER" mark --cwd "$REPO" >/dev/null 2>&1 || true
+      ROUND_DIRECTIVE="No reviewer launch or triage is required. Start only exact-head CI.
+$CI_DIRECTIVE"
+      ;;
+    *) ROUND_DIRECTIVE="No reviewer launch is required. Mark this generated-only completion with: node $STATE_HELPER mark --cwd $REPO" ;;
+  esac
+else
+  ROUND_DIRECTIVE=$(cat <<EOF
 Do not reuse prior results:
 $LANE_COMMANDS
 $CI_DIRECTIVE
-Issue all required reviewer calls together. Each command is background. After final launch, end turn. Wait for terminal evidence, then publish exactly one canonical triage table:
+Issue all required reviewer calls together. Each command is background. After final launch, end turn. Wait for all required reviewers and exact-head CI to reach terminal evidence, then publish exactly one canonical triage table:
 | FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |
 |---|---|---|---|---|
-CI failure or timeout uses FINDING Exact-head CI and PROPOSED FIX CI_RESULT failure or CI_RESULT timeout. Make no mutations in triage turn. Stop hook writes completion immediately before separate FIX reminder.
+CI failure or timeout uses FINDING Exact-head CI and PROPOSED FIX CI_RESULT failure or CI_RESULT timeout.
+For every finding:
+- verify that it is evidence-backed and in scope
+- judge the finding separately from its proposed fix
+- reject unsupported or overengineered proposals
+- prefer the smallest correction that reuses existing machinery
+Make no mutations in triage turn. Stop hook revalidates identity, writes completion, then emits separate FIX reminder regardless of whether terminal CI succeeded, failed, or timed out.
 EOF
-)
+  )
+fi
 
 case "$BOUNDARY_KIND" in
   push|pr-create)

@@ -118,13 +118,21 @@ function notification(id: string, result = ''): Record<string, unknown> {
   };
 }
 
-function triage(): Record<string, unknown> {
+function triage(ciResult?: 'failure' | 'timeout', formatted = false): Record<string, unknown> {
+  const result = ciResult ? `${formatted ? '`' : ''}CI_RESULT ${ciResult}${formatted ? '`' : ''}` : undefined;
   return {
     type: 'message',
     id: `triage-${sequence += 1}`,
     message: {
       role: 'assistant',
-      content: [{ type: 'text', text: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|' }],
+      content: [{
+        type: 'text',
+        text: [
+          '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |',
+          '|---|---|---|---|---|',
+          ...(result ? [`| Exact-head CI | Valid | ${result} | Proportional | Fix CI |`] : []),
+        ].join('\n'),
+      }],
     },
   };
 }
@@ -246,6 +254,10 @@ describe('Pi marker-or-dialog review ingress', () => {
       head: input.head,
       requiredLanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
     });
+    expect(app.sent[0]?.content).toContain('verify that it is evidence-backed and in scope');
+    expect(app.sent[0]?.content).toContain('judge the finding separately from its proposed fix');
+    expect(app.sent[0]?.content).toContain('reject unsupported or overengineered proposals');
+    expect(app.sent[0]?.content).toContain('prefer the smallest correction that reuses existing machinery');
   }
 
   it('automatically emits the exact review plan after successful push', async () => {
@@ -258,6 +270,16 @@ describe('Pi marker-or-dialog review ingress', () => {
 
   it('automatically emits the exact review plan after successful PR reopen without requiring UI', async () => {
     await expectAutomaticDeliveryPlan('gh pr reopen 42', false);
+  });
+
+  it('keeps unrelated PR reopen delivery inert', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('gh pr reopen 99', 'reopen-unrelated'));
+    await app.emit('tool_result', boundary('gh --repo other/repo pr reopen 42', 'reopen-other-repo'));
+
+    expect(app.prompts).toHaveLength(0);
+    expect(app.sent).toHaveLength(0);
   });
 
   it('repeats after cancellation and stays silent after marking complete', async () => {
@@ -302,6 +324,29 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).toContain('output_file=/tmp/codeflare-pr-42-');
   });
 
+  it('acknowledges a valid zero-lane delta and emits only independent CI', async () => {
+    const input = fixture();
+    writeCompletion(input.identity, {
+      root: join(input.home, '.codeflare/review-state/v1'),
+      requestSync: () => true,
+    });
+    write(input.repo, 'graphify-out/graph.json', '{}\n');
+    git(input.repo, 'add', 'graphify-out/graph.json');
+    git(input.repo, 'commit', '-m', 'refresh graph');
+    input.head = git(input.repo, 'rev-parse', 'HEAD');
+    input.pr.headRefOid = input.head;
+    input.identity.head = input.head;
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-generated'));
+
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    expect(app.sent).toHaveLength(1);
+    expect(app.sent[0]?.details?.requiredLanes).toEqual([]);
+    expect(app.sent[0]?.content).toContain('No reviewer launch is required; start CI now.');
+    expect(app.sent[0]?.content).not.toContain('JOINT TRIAGE');
+    expect(app.sent[0]?.content).not.toContain('FIX');
+  });
+
   it('stamps completion only after terminal evidence and canonical triage, then emits FIX', async () => {
     const input = fixture();
     const app = await harness(input, []);
@@ -343,6 +388,83 @@ describe('Pi marker-or-dialog review ingress', () => {
       'pr-boundary-launch-plan',
       'pr-boundary-fix-follow-up',
     ]);
+  });
+
+  it('treats every exact-head CI result as terminal and writes completion before FIX', async () => {
+    for (const result of ['success', 'failure', 'timeout'] as const) {
+      const input = fixture();
+      const app = await harness(input, []);
+      await app.emit('tool_result', boundary('git push origin feature', `push-${result}`));
+      await app.emit('agent_end');
+      const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+      append(input.sessionFile,
+        ...lanes.flatMap((lane, index) => {
+          const id = `${result}-review-${index}`;
+          return [
+            toolCall(id, 'subagent', {
+              subagent_type: lane,
+              run_in_background: true,
+              inherit_context: false,
+              prompt: `review_base=origin/main output_file=/tmp/${lane}.md`,
+            }),
+            toolResult(id, 'subagent'),
+            notification(id),
+          ];
+        }),
+        toolCall(`${result}-ci`, 'subagent', {
+          subagent_type: 'ci-monitor',
+          run_in_background: true,
+          inherit_context: false,
+          prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
+        }),
+        toolResult(`${result}-ci`, 'subagent'),
+        notification(`${result}-ci`, `<result>CI_RESULT ${result}\npr=42 head=${input.head} repo=owner/repo</result>`),
+        triage(result === 'success' ? undefined : result, true),
+      );
+      await app.emit('agent_end');
+
+      const marker = readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') });
+      const fix = app.sent.find((message) => message.customType === 'pr-boundary-fix-follow-up');
+      expect(marker.status).toBe('complete');
+      expect(fix).toBeDefined();
+    }
+  });
+
+  it('keeps a fully terminal round until canonical triage arrives', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-awaiting-triage'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    append(input.sessionFile,
+      ...lanes.flatMap((lane, index) => {
+        const id = `awaiting-review-${index}`;
+        return [
+          toolCall(id, 'subagent', {
+            subagent_type: lane,
+            run_in_background: true,
+            inherit_context: false,
+            prompt: `review_base=origin/main output_file=/tmp/${lane}.md`,
+          }),
+          toolResult(id, 'subagent'),
+          notification(id),
+        ];
+      }),
+      toolCall('awaiting-ci', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
+      }),
+      toolResult('awaiting-ci', 'subagent'),
+      notification('awaiting-ci', `<result>CI_RESULT success\npr=42 head=${input.head} repo=owner/repo</result>`),
+    );
+    await app.emit('agent_end');
+    expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+
+    append(input.sessionFile, triage());
+    await app.emit('agent_settled');
+    expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(true);
   });
 
   it('clears stopped work without a recovery message or marker', async () => {

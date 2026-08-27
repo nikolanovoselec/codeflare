@@ -38,6 +38,7 @@ type TranscriptFacts = {
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
+  exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
   roundLimitReached(repo: string, lane: ReviewLane): boolean;
@@ -250,6 +251,20 @@ describe('Claude-equivalent review boundary helpers', () => {
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
+  });
+
+  it('REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity', async () => {
+    const { exposureTargetsCheckedOutBranch } = await plannedHelpers();
+    const current = { branch: 'feature', pr: 42, repository: 'owner/repo' };
+    expect(exposureTargetsCheckedOutBranch('git push origin feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('git push origin unrelated', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('git push origin HEAD:other', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('git push origin HEAD:feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr create --head feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr create --head unrelated', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('gh pr reopen 42', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr reopen 99', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('gh --repo other/repo pr reopen 42', current)).toBe(false);
   });
 
   it('REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
@@ -812,16 +827,18 @@ describe('native Pi transcript review facts', () => {
           }).triageComplete).toBe(false);
         }
 
-        const withCiOutcome = writeSession([
-          ...common,
-          ciNotification('ci-current', result, head),
-          assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT ' + result + ' | proportional | fix CI |'),
-        ]);
-        expect(reviewTranscriptFacts({
-          sessionFile: withCiOutcome,
-          requiredLanes: ALL_LANES,
-          ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
-        }).triageComplete).toBe(true);
+        for (const proposedFix of [`CI_RESULT ${result}`, `\`CI_RESULT ${result}\``]) {
+          const withCiOutcome = writeSession([
+            ...common,
+            ciNotification('ci-current', result, head),
+            assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | ' + proposedFix + ' | proportional | fix CI |'),
+          ]);
+          expect(reviewTranscriptFacts({
+            sessionFile: withCiOutcome,
+            requiredLanes: ALL_LANES,
+            ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+          }).triageComplete).toBe(true);
+        }
       }
     }
   });

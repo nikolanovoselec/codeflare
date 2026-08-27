@@ -2940,7 +2940,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12); amended 2026-07-22 with live-session agent-end acknowledgement, settled fallback, and event-scoped boundary identity; amended 2026-07-30 so explicit user bypasses acknowledge the validated boundary head; amended 2026-08-03 to derive eligibility from authoritative checked-out-branch state; amended 2026-08-17 with exact-head disposition checkpoints and pre-delivery recovery; amended 2026-08-20 with initiating-cycle recovery isolation.
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for persisted boundary/checkpoint recovery, clone-local acknowledgement, and bypass state. Parallel visible reviewers plus triage-before-FIX remain accepted.
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 
@@ -2950,7 +2950,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). Each executable `git` or `gh` candidate is paired with the repository resolved from its exact executable shell segment. The repository's checked-out branch and local `HEAD` must exactly match that branch's authoritative open protected-base PR head; command arguments do not supply push source, destination, configured push branch, or merge identity. Deterministic parent-shell `cd` changes are carried between segments; pipeline cwd changes do not propagate, and unresolved conditional cwd changes fail closed.
 
-The emitted review window persists boundary-call, repository, branch, PR, base, and full-head identity, while PR-number-specific checkpoints preserve independent incremental ranges, so lifecycle acknowledgement never reroutes through ambient cwd or active-repository memory. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::commandInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
+The emitted review window carries boundary-call, repository, branch, PR, base, and full-head identity. AD144 replaces its persisted checkpoints and recovery with ephemeral coordination and user-scoped completion markers. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::commandInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 
 The live handler records a boundary as evaluated only after authoritative state resolves to a launch or a conclusive no-plan outcome. A launch or acknowledgement checkpoint includes its exact repository, PR, head, and disposition before Pi queues the follow-up; runtime-local queued identities suppress duplicate plans and missing-work messages until delivery becomes visible. A temporarily unavailable or stale boundary defers that marker and retries through same-session agent-end and settled recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
@@ -2976,7 +2976,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12; amended 2026-08-04)
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for CI launch checkpoints and settled recovery. One attached exact-head CI monitor remains accepted.
 
 **Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
@@ -2984,7 +2984,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification. Script timeouts bound runtime; no agent turn cap may replace the verbatim result with a wrapper summary. Malformed and superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the remote-qualified 41-character transcription correction. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi -->
 
-A correlated successful public launch tool result immediately writes the exact per-PR CI-head checkpoint independently from review acknowledgement. Agent-end and settled transcript correlation remain idempotent fallbacks. Settled recovery checks the durable checkpoint before requesting missing CI, so a live transcript snapshot that has not yet incorporated the tool result cannot create a repeated follow-up loop. Failed, mismatched, or transiently unverifiable launches remain retryable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCiLaunch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+AD144 removes the durable CI-head checkpoint and settled recovery. Current rounds correlate one exact-head CI launch and terminal result ephemerally; interrupted rounds retain no progress. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 **Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
 
@@ -3381,7 +3381,7 @@ The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY 
 
 **Category:** Architecture, Cost
 
-**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for failed-lane re-demand, transcript-stack recovery, and clone-local acknowledgement. Headless lane transport remains accepted and implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
 
 **Context:** A review lane began work already holding context it had no way to refuse. Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent, and exposes no frontmatter field that excludes any of them — measured at 20,513 prompt tokens against an agent whose own document is nearly empty, so the figure is the harness rather than the lane.
 
@@ -3397,15 +3397,15 @@ The Stop-hook gate matched an Agent envelope, which a subprocess never emits. It
 
 What must never count as completion is the tool_result the harness returns the instant a background call is launched: it carries the same identifier but holds a background shell id and means "launched". Accepting it would credit all three lanes at launch and acknowledge a head whose review was still running — the gate inverted. Spawn detection is likewise structural rather than textual, because a substring match let one command quoting the runner path satisfy every lane at once; the runner must occupy command position, quoted or not.
 
-`--lane <name>` is the gate's match token, and renaming it would disable enforcement silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed -->
+`--lane <name>` remains the gate's match token, and renaming it would disable enforcement silently.
 
 A launched lane can also end *badly*, and that is a third state the gate originally lacked. `completed` and `failed` are both terminal — the process is gone either way — but only `completed` may credit a review. Treating `failed` as indistinguishable from "still running" meant the gate waited on a dead process until a staleness bound expired, the head was never acknowledged, and the next push measured its range from the last *acknowledged* head rather than the last reviewed one. 
 
-One lost lane therefore widened every subsequent review permanently: measured once as a ten-commit re-review where a single commit was due. A failed lane is now re-demanded immediately and named in the demand, because its report can be readable enough to look like a finished round. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_has_coverage_after_line -->
+AD144 removes failed-lane re-demand and all durable partial progress. A stopped or failed round writes no marker; the next supported exposure starts fresh.
 
-Acknowledgement itself was also making the wrong claim. Advancing the checkpoint on lane exit records that three processes ran, not that anything was read, so a round returning into a session that never triaged it moved the checkpoint past its own unacted findings. The gate now requires the triage verdict — recognised structurally, by the table header and divider anywhere in the assistant text of a message following the last lane's completion — and then issues the fix directive itself rather than trusting the session to remember. The Pi enforcement path already worked this way, so both runtimes key on one table shape. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line -->
+Acknowledgement itself was also making the wrong claim. Advancing completion on lane exit records that processes ran, not that findings were triaged. The gate therefore requires the structural triage verdict after terminal evidence, writes the AD144 user-scoped marker, and only then issues the FIX directive.
 
-A published verdict can also fail to reach the transcript at all: a message whose tool call this same gate rejects is never persisted by the harness, so a table sharing a message with a blocked tool call can be invisible to a later scan. An interim round-stamped checkpoint file compensated for that gap, but it surfaced in the UI as diff noise and was superseded by aligning the contract to the Pi runtime's: the verdict is a tool-free message that ends the turn — the one shape the harness always persists — verified finding-by-finding before publication, with the acknowledgement's fix directive driving the following turn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::stacked_table_in_stream -->
+The verdict remains a tool-free message that ends the turn—the shape the harness persists reliably—with the marker-backed acknowledgement's FIX directive driving the following turn.
 
 The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::bounded_cap -->
 
@@ -3950,7 +3950,6 @@ Reviewer calls start together and exact-head CI starts immediately afterward. Ac
 
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerOutputPath -->
-<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::ci_completion_line_for_current_head -->
 
 ---
 

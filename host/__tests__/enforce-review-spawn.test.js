@@ -135,8 +135,9 @@ function round(fx, options = {}) {
     notification(ci, 'Completed', `<result>CI_RESULT ${ciResult}\npr=42 head=${fx.head} repo=owner/repo</result>`),
   );
   if (options.withTriage !== false) {
+    const proposedFix = options.formattedCi ? `\`CI_RESULT ${ciResult}\`` : `CI_RESULT ${ciResult}`;
     entries.push(triage(ciResult === 'failure' || ciResult === 'timeout'
-      ? `\n| Exact-head CI | valid | CI_RESULT ${ciResult} | proportional | fix |`
+      ? `\n| Exact-head CI | valid | ${proposedFix} | proportional | fix |`
       : ''));
   }
   append(fx, ...entries);
@@ -172,15 +173,20 @@ describe('Claude current-round completion enforcement', () => {
     assert.notEqual(markerStatus(fx), 'complete');
   });
 
-  it('requires exact CI failure and timeout rows', () => {
+  it('requires exact CI failure and timeout rows and accepts directive formatting', () => {
     for (const ciResult of ['failure', 'timeout']) {
-      const fx = setup();
-      start(fx);
-      round(fx, { ciResult, withTriage: false });
-      append(fx, triage());
-      assert.equal(stop(fx).status, 0);
-      append(fx, triage(`\n| Exact-head CI | valid | CI_RESULT ${ciResult} | proportional | fix |`));
-      assert.equal(stop(fx).status, 2);
+      const missing = setup();
+      start(missing);
+      round(missing, { ciResult, withTriage: false });
+      append(missing, triage());
+      assert.equal(stop(missing).status, 0);
+
+      for (const formattedCi of [false, true]) {
+        const fx = setup();
+        start(fx);
+        round(fx, { ciResult, formattedCi });
+        assert.equal(stop(fx).status, 2);
+      }
     }
   });
 

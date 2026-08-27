@@ -396,7 +396,9 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       `- \`cwd\`: \`${input.repo}\``,
       `- \`reviewState\`: \`${input.reviewers.length > 0 ? "launched" : "not-required"}\``, "",
       "Submit its returned public `ci-monitor` subagent request unchanged exactly once.", "",
-      "CI success, failure, or timeout is terminal evidence for joint triage.",
+      input.reviewers.length > 0
+        ? "CI success, failure, or timeout is terminal evidence for joint triage."
+        : "CI is independent of review completion.",
     ].join("\n"));
   }
   if (sections.length === 0) return;
@@ -404,20 +406,29 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     sections.at(-1), "", "**After the final launch:** End this turn immediately.", "",
     "Do not poll or retrieve in-flight results. Let native task notifications drive subsequent turns.",
   ].join("\n");
-  order.push("JOINT TRIAGE", "FIX");
-  sections.push([
-    `### ${sections.length + 1}. Triage before fixing`, "",
-    "Wait for all required terminal evidence, then publish one joint table:", "",
-    REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
-    ...(input.ciEvent
-      ? ["CI failure or timeout requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`.", ""]
-      : []),
-    "Make no file or Git changes in the triage turn. End the turn immediately.",
-  ].join("\n"));
+  if (input.reviewers.length > 0) {
+    order.push("JOINT TRIAGE", "FIX");
+    sections.push([
+      `### ${sections.length + 1}. Triage before fixing`, "",
+      input.ciEvent
+        ? "Wait for every required reviewer and terminal exact-head CI evidence, then publish one joint table:"
+        : "Wait for every required reviewer result, then publish one joint table:", "",
+      REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
+      ...(input.ciEvent
+        ? ["CI failure or timeout requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`.", ""]
+        : []),
+      "For every finding:", "",
+      "- verify that it is evidence-backed and in scope",
+      "- judge the finding separately from its proposed fix",
+      "- reject unsupported or overengineered proposals",
+      "- prefer the smallest correction that reuses existing machinery", "",
+      "Make no file or Git changes in the triage turn. End the turn immediately.",
+    ].join("\n"));
+  }
   pi.sendMessage({
     customType: "pr-boundary-launch-plan",
     content: [
-      "## PR boundary — review", "",
+      input.reviewers.length > 0 ? "## PR boundary — review" : "## PR boundary — CI", "",
       `**Order:** ${order.join(" → ")}`, "",
       "**Context**", "",
       `- PR: #${input.pr.number}`,
@@ -527,7 +538,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   ): Promise<void> => {
     const review = await currentReview(ctx, dependencies, repo, ciEvent);
     if (review && ciEvent && command
-      && !exposureTargetsCheckedOutBranch(command, review.pr.headRefName)) return;
+      && !exposureTargetsCheckedOutBranch(command, {
+        branch: review.pr.headRefName,
+        pr: review.pr.number,
+        repository: review.repository,
+      })) return;
     if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
@@ -560,7 +575,23 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const ackHead = ancestor?.head;
     const range = reviewRange({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
     const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
-    if (reviewers.length === 0 && !ciEvent) return;
+    if (reviewers.length === 0) {
+      try {
+        writeCompletion(refreshed.identity);
+      } catch {
+        // Exact-head CI remains independent of completion persistence.
+      }
+      if (ciEvent) sendLaunchMessage(pi, {
+        repo: refreshed.repo,
+        pr: refreshed.pr,
+        boundaryToolUseId,
+        ackHead,
+        range,
+        reviewers,
+        ciEvent,
+      });
+      return;
+    }
     const round: ActiveRound = {
       ...refreshed,
       boundaryToolUseId,
@@ -636,10 +667,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     if (facts.ciRequired && !facts.ciTerminal) return;
-    if (!facts.triageComplete) {
-      if (endOfTurn) await clearRound(ctx);
-      return;
-    }
+    if (!facts.triageComplete) return;
     const refreshed = await currentReview(ctx, dependencies, round.repo);
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       await clearRound(ctx);
@@ -647,6 +675,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
     try {
       writeCompletion(round.identity);
+      if (readCompletion(round.identity).status !== "complete") return;
     } catch {
       return;
     }

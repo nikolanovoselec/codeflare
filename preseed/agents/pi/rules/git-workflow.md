@@ -6,16 +6,16 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Review exposure
 
-Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen may expose an open protected-base PR head. A saved exact completion stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one launch plan. Other misses wait for the neutral `Mark review complete` or `Launch review` choice; never choose for the user.
+Startup, resume, clone, switch, checkout, pull, checked-out-branch push, PR creation, and PR reopen may expose an open protected-base PR head. Exact completion stays silent. Successful checked-out-branch push, PR creation, and PR reopen emit one launch plan. Other misses wait for neutral `Mark review complete` or `Launch review`; never choose.
 
-Fetch, inspection, local mutation, merge, detached or path checkout, tag, and unrelated-ref push are inert. Unpublished or unsynchronized heads never authorize review.
+Fetch, inspection, local mutation, merge, detached or path checkout, tags, unrelated-ref pushes, and unpublished or unsynchronized heads are inert.
 
 ## One current round
 
-Execute an emitted launch plan once: start listed reviewers together, start its independent CI request immediately afterward when present, then end the turn. Never poll or duplicate it. Interrupted or stopped work has no recoverable progress; after siblings settle, the next delivery starts a fresh plan and the next non-delivery exposure requests a fresh user choice.
+Execute an emitted plan once: start listed reviewers together, start independent CI next when present, then end the turn. Never poll or duplicate it. Interrupted work stores no progress; the next delivery starts fresh and the next non-delivery exposure asks again.
 
-After terminal evidence arrives, publish canonical triage without file changes. Completion is written immediately before the separate FIX reminder. Apply only accepted fixes in that later turn. Root alone changes repository state.
+After all required reviewers and terminal exact-head CI, publish canonical triage without mutations. Verify evidence and scope, judge findings separately from fixes, reject unsupported or overengineered proposals, and choose the smallest correction reusing existing machinery. Completion is written immediately before the separate FIX reminder. Apply only accepted fixes in that later turn. Root alone mutates.
 
 <!-- git-workflow-hard-obligations -->
 
-Never mutate reviewed work between triage and FIX, recreate a plan, write or consult legacy `.git/sdd-review-*` state, use a no-op PR edit, push before required review closes, or deploy before required CI is green.
+Never mutate reviewed work between triage and FIX, recreate a plan, use legacy `.git/sdd-review-*` state, use a no-op PR edit, push before review closes, or deploy before required CI is green.

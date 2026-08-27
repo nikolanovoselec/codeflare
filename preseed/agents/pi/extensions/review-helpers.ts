@@ -210,17 +210,57 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
   return exposure;
 }
 
-export function exposureTargetsCheckedOutBranch(command: string, branch: string): boolean {
+function reopenTarget(args: string[]): string | undefined {
+  for (let index = 2; index < args.length; index += 1) {
+    const value = args[index] ?? "";
+    if (value === "-c" || value === "--comment") {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--comment=") || value.startsWith("-")) continue;
+    return value;
+  }
+  return undefined;
+}
+
+function ghRepository(words: string[]): string | undefined {
+  const ghIndex = words.findIndex((word, index) => word === "gh"
+    && shellCommandExecutable(words.slice(0, index + 1)) === "gh");
+  for (let index = ghIndex + 1; ghIndex >= 0 && index < words.length; index += 1) {
+    const value = words[index] ?? "";
+    if (value === "-R" || value === "--repo") return words[index + 1]?.toLowerCase();
+    if (value.startsWith("--repo=")) return value.slice("--repo=".length).toLowerCase();
+    if (!value.startsWith("-")) break;
+  }
+  return undefined;
+}
+
+export function exposureTargetsCheckedOutBranch(
+  command: string,
+  identity: { branch: string; pr: number; repository: string },
+): boolean {
   const relevant = executableShellCommands(command)
     .map((words) => {
       const executable = shellCommandExecutable(words);
-      return { executable, args: shellCommandArguments(words, executable) };
+      return { executable, args: shellCommandArguments(words, executable), words };
     })
     .filter(({ executable, args }) => (executable === "git" && args[0] === "push")
-      || (executable === "gh" && args[0] === "pr" && args[1] === "create"))
+      || (executable === "gh" && args[0] === "pr" && (args[1] === "create" || args[1] === "reopen")))
     .at(-1);
   if (!relevant) return true;
+  const branch = identity.branch;
   if (relevant.executable === "gh") {
+    const repository = ghRepository(relevant.words);
+    if (repository && repository !== identity.repository.toLowerCase()) return false;
+    if (relevant.args[1] === "reopen") {
+      const target = reopenTarget(relevant.args);
+      if (!target) return true;
+      const url = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/i.exec(target);
+      if (url) return url[1]?.toLowerCase() === identity.repository.toLowerCase()
+        && Number(url[2]) === identity.pr;
+      if (/^[0-9]+$/.test(target)) return Number(target) === identity.pr;
+      return target === branch || target.endsWith(`:${branch}`);
+    }
     const headIndex = relevant.args.findIndex((arg) => arg === "--head" || arg === "-H");
     const inline = relevant.args.find((arg) => arg.startsWith("--head="))?.slice("--head=".length);
     const head = inline ?? (headIndex >= 0 ? relevant.args[headIndex + 1] : undefined);
@@ -243,8 +283,12 @@ export function exposureTargetsCheckedOutBranch(command: string, branch: string)
   }
   const refspecs = positional.slice(1);
   if (refspecs.length === 0) return true;
-  const sources = refspecs.map((refspec) => refspec.replace(/^\+/, "").split(":", 1)[0]);
-  return sources.every((source) => source === branch || source === `refs/heads/${branch}` || source === "HEAD");
+  return refspecs.every((refspec) => {
+    const [source, destination] = refspec.replace(/^\+/, "").split(":", 2);
+    const sourceMatches = source === branch || source === `refs/heads/${branch}` || source === "HEAD";
+    const destinationMatches = !destination || destination === branch || destination === `refs/heads/${branch}`;
+    return sourceMatches && destinationMatches;
+  });
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
@@ -543,9 +587,10 @@ function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalRes
     for (let row = index + 2; row < lines.length && lines[row].startsWith("|"); row += 1) {
       if (!lines[row].endsWith("|")) continue;
       const cells = lines[row].slice(1, -1).split("|").map((cell) => cell.trim());
+      const proposedFix = /^`([^`]*)`$/.exec(cells[2] ?? "")?.[1] ?? cells[2];
       if (cells.length === 5
         && cells[0] === "Exact-head CI"
-        && cells[2] === `CI_RESULT ${result}`) return true;
+        && proposedFix === `CI_RESULT ${result}`) return true;
     }
   }
   return false;

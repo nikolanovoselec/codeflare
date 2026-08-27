@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -39,6 +39,7 @@ function options(stateRoot, now = NOW) {
 }
 
 afterEach(() => {
+  delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -54,6 +55,17 @@ describe('Claude review completion helper parity', () => {
       syncRequested: false,
     });
     assert.equal(JSON.parse(readFileSync(path, 'utf8')).reviewedAt, first);
+  });
+
+  it('isolates protected bases in marker paths', () => {
+    const stateRoot = root();
+    const main = identity();
+    const develop = identity({ base: 'develop' });
+    assert.notEqual(completionPath(main, stateRoot), completionPath(develop, stateRoot));
+    assert.equal(writeCompletion(main, options(stateRoot)).written, true);
+    assert.equal(writeCompletion(develop, options(stateRoot)).written, true);
+    assert.equal(readCompletion(main, options(stateRoot)).status, 'complete');
+    assert.equal(readCompletion(develop, options(stateRoot)).status, 'complete');
   });
 
   it('prunes expired and excess markers and finds newest same-PR ancestor', () => {
@@ -73,6 +85,23 @@ describe('Claude review completion helper parity', () => {
       isAncestor: (base) => base === '1'.repeat(40),
     });
     assert.equal(candidate?.head, '1'.repeat(40));
+  });
+
+  it('warns for malformed daemon PID state', () => {
+    const stateRoot = root();
+    const pidFile = join(stateRoot, 'daemon.pid');
+    writeFileSync(pidFile, '0\n');
+    process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = pidFile;
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (message) => warnings.push(String(message));
+    try {
+      assert.equal(writeCompletion(identity(), { root: stateRoot, now: () => NOW }).syncRequested, false);
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /R2 sync trigger unavailable/);
   });
 
   it('keeps local completion when the sync signal fails', () => {

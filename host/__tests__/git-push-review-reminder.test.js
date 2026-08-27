@@ -131,7 +131,58 @@ describe('Claude marker-or-dialog ingress', () => {
       assert.match(delivery, /Execute this fresh contextual round now/);
       assert.match(delivery, /launch public ci-monitor/);
       assert.match(delivery, /output_file|codeflare-pr-42/);
+      assert.match(delivery, /verify that it is evidence-backed and in scope/);
+      assert.match(delivery, /judge the finding separately from its proposed fix/);
+      assert.match(delivery, /reject unsupported or overengineered proposals/);
+      assert.match(delivery, /prefer the smallest correction that reuses existing machinery/);
     }
+  });
+
+  it('rejects delivery commands targeting another branch, PR, or repository', () => {
+    for (const command of [
+      'git push origin unrelated',
+      'git push origin HEAD:other',
+      'gh pr create --head unrelated --base main',
+      'gh pr reopen 99',
+      'gh --repo other/repo pr reopen 42',
+    ]) {
+      const fx = setup();
+      sessionStart(fx);
+      assert.equal(postTool(fx, command).stdout, '', command);
+    }
+  });
+
+  it('resolves a successful clone destination before repository lookup', () => {
+    const fx = setup();
+    const parent = temp('claude-clone-parent-');
+    const result = invoke(fx, {
+      hook_event_name: 'PostToolUse',
+      cwd: parent,
+      tool_input: { command: `git clone https://github.com/owner/repo.git ${fx.repo}` },
+    });
+    assert.equal(result.status, 0);
+    assert.match(context(result), /Review completion is missing for repo:feature/);
+  });
+
+  it('auto-acknowledges generated-only delivery and emits CI without reviewers or triage', () => {
+    const fx = setup();
+    execFileSync('node', [STATE, 'mark', '--cwd', fx.repo], { cwd: fx.repo, env: fx.env, stdio: 'pipe' });
+    sessionStart(fx);
+    mkdirSync(join(fx.repo, 'graphify-out'), { recursive: true });
+    writeFileSync(join(fx.repo, 'graphify-out/graph.json'), '{}\n');
+    git(fx.repo, 'add', 'graphify-out/graph.json');
+    git(fx.repo, 'commit', '-m', 'refresh graph');
+    fx.head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: fx.head };
+
+    const delivery = context(postTool(fx, 'git push origin feature'));
+    assert.match(delivery, /No reviewer launch or triage is required/);
+    assert.match(delivery, /launch public ci-monitor/);
+    assert.doesNotMatch(delivery, /run-review-lane/);
+    const status = JSON.parse(execFileSync('node', [STATE, 'status', '--cwd', fx.repo], {
+      cwd: fx.repo, env: fx.env, encoding: 'utf8',
+    }));
+    assert.equal(status.completion.status, 'complete');
   });
 
   it('keeps consent and omits CI for a non-delivery exposure', () => {

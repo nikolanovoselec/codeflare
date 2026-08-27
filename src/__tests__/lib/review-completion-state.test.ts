@@ -39,6 +39,8 @@ function options(stateRoot: string, now = NOW) {
 }
 
 afterEach(() => {
+  delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
+  vi.restoreAllMocks();
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -61,13 +63,17 @@ describe('user-scoped review completion state', () => {
     const stateRoot = root();
     const base = options(stateRoot);
     writeCompletion(identity(), base);
+    const otherBase = identity({ base: 'develop' });
+    expect(completionPath(otherBase, stateRoot)).not.toBe(completionPath(identity(), stateRoot));
+    expect(writeCompletion(otherBase, base).written).toBe(true);
+    expect(readCompletion(identity(), base).status).toBe('complete');
+    expect(readCompletion(otherBase, base).status).toBe('complete');
 
     const mismatches: ReviewIdentity[] = [
       identity({ gitHost: 'github.enterprise.test' }),
       identity({ repository: 'owner/other' }),
       identity({ pr: 43 }),
       identity({ branch: 'feature' }),
-      identity({ base: 'develop' }),
       identity({ head: 'b'.repeat(40) }),
     ];
     for (const candidate of mismatches) {
@@ -77,16 +83,16 @@ describe('user-scoped review completion state', () => {
 
   it('deletes expired markers and retains ten newest per repository and branch', () => {
     const stateRoot = root();
+    writeCompletion(
+      identity({ head: 'f'.repeat(40), pr: 99 }),
+      options(stateRoot, new Date(NOW.getTime() - 31 * DAY)),
+    );
     for (let index = 0; index < 12; index += 1) {
       writeCompletion(
         identity({ head: index.toString(16).padStart(40, '0') }),
         options(stateRoot, new Date(NOW.getTime() - index * DAY)),
       );
     }
-    writeCompletion(
-      identity({ head: 'f'.repeat(40), pr: 99 }),
-      options(stateRoot, new Date(NOW.getTime() - 31 * DAY)),
-    );
 
     pruneCompletionState({ root: stateRoot, now: () => NOW });
     expect(readCompletion(identity({ head: '0'.repeat(40) }), options(stateRoot)).status).toBe('complete');
@@ -124,6 +130,23 @@ describe('user-scoped review completion state', () => {
     writeFileSync(target, '{}', 'utf8');
     symlinkSync(target, path);
     expect(readCompletion(identity(), options(stateRoot)).status).toBe('missing');
+  });
+
+  it('warns for malformed daemon PID state without changing local acknowledgement', async () => {
+    const stateRoot = root();
+    const pidFile = join(stateRoot, 'daemon.pid');
+    writeFileSync(pidFile, 'not-a-pid\n', 'utf8');
+    process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = pidFile;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect(writeCompletion(identity(), { root: stateRoot, now: () => NOW })).toEqual({
+      written: true,
+      syncRequested: false,
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toContain('R2 sync trigger unavailable');
+    delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
+    warn.mockRestore();
   });
 
   it('keeps local acknowledgement when sync signaling fails', () => {

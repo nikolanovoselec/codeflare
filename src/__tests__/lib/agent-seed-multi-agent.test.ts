@@ -406,6 +406,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/post-compaction-recall-helpers.ts',
       '.pi/agent/extensions/post-compaction-recall.ts',
       '.pi/agent/extensions/review-command.ts',
+      '.pi/agent/extensions/review-completion-state.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
       '.pi/agent/extensions/review-scope.ts',
