@@ -240,9 +240,11 @@ export function exposureTargetsCheckedOutBranch(
   identity: { branch: string; pr: number; repository: string },
 ): boolean {
   const relevant = executableShellCommands(command)
-    .map((words) => {
+    .flatMap((words) => {
       const executable = shellCommandExecutable(words);
-      return { executable, args: shellCommandArguments(words, executable), words };
+      return executable === "git" || executable === "gh"
+        ? [{ executable, args: shellCommandArguments(words, executable), words }]
+        : [];
     })
     .filter(({ executable, args }) => (executable === "git" && args[0] === "push")
       || (executable === "gh" && args[0] === "pr" && (args[1] === "create" || args[1] === "reopen")))
@@ -788,9 +790,10 @@ export function reviewTranscriptFacts(input: {
       const expectedOutput = window?.prNumber && window.head
         ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
         : undefined;
-      const wrongContract = Boolean(window && (!prompt.includes("scope=diff")
-        || (expectedScope && !prompt.includes(expectedScope))
-        || (expectedOutput && !prompt.includes(expectedOutput))));
+      const tokens = new Set(prompt.split(/\s+/).filter(Boolean));
+      const wrongContract = Boolean(window && (!tokens.has("scope=diff")
+        || (expectedScope && !tokens.has(expectedScope))
+        || (expectedOutput && !tokens.has(expectedOutput))));
       if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))

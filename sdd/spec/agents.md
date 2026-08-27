@@ -380,14 +380,16 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
 1. A reviewer-bearing boundary emits its launch plan before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
 2. The successful boundary operation completes before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
 3. Exactly one owned Goal pause settles before the queued launch-plan turn begins. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
 4. Missing Goal control does not block review launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
 5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
 6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-7. A recovered reviewer-bearing launch restores its deferred Goal pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC7: A recovered reviewer-bearing launch restores its deferred Goal pause.
 
 **Constraints:** A failure in review-owned Goal pause control cannot block review or CI work.
 
@@ -400,7 +402,6 @@ Multi-agent support, preseed system, and session modes.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-144: Review-owned Goal pause command compatibility
 
 **Intent:** Trusted review control must preserve pi-goal's native pause behavior without aborting unrelated Pi work.
@@ -457,11 +458,11 @@ Multi-agent support, preseed system, and session modes.
 
 **Applies To:** User
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`.
-2. Follow-up counts are isolated by PR number.
-3. A different head starts a fresh follow-up count.
+- Former AC1: One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`.
+- Former AC2: Follow-up counts are isolated by PR number.
+- Former AC3: A different head starts a fresh follow-up count.
 
 **Constraints:** Accounting never acknowledges an unreviewed head.
 
@@ -471,23 +472,24 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated Pi review-enforcement tests
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
 
-<a id="req-agent-120-claude-protected-base-review-boundaries"></a>
-### REQ-AGENT-120: Claude review enforcement lifecycle
+<a id="req-agent-120-claude-protected-base-review-boundaries"></a>### REQ-AGENT-120: Claude review enforcement lifecycle
 
 **Intent:** Claude must complete an eligible review through bounded enforcement, tool-free triage, exact-head acknowledgement, and a separate FIX handoff.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
-
-1. Before its access-preserving circuit breaker is exhausted, an eligible unacknowledged head prevents root-response completion.
 2. The root ends its triage turn without mutation. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
 3. The Stop hook acknowledges the triaged head before issuing the separate FIX directive. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-4. A synchronized closed or merged head emits one visibility notice only when it differs from the acknowledgement checkpoint; it never fabricates acknowledgement or consumes the bypass sentinel.
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: Before its access-preserving circuit breaker is exhausted, an eligible unacknowledged head prevents root-response completion.
+- Former AC4: A synchronized closed or merged head emits one visibility notice only when it differs from the acknowledgement checkpoint; it never fabricates acknowledgement or consumes the bypass sentinel.
 
 **Constraints:** GitHub PR state and exact local-head equality decide enforcement eligibility.
 
@@ -500,7 +502,6 @@ Multi-agent support, preseed system, and session modes.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-132: PR delivery and existing-head consent
 
 **Intent:** Pi and Claude must launch review automatically only for PR delivery commands while reserving explicit consent for an eligible unacknowledged PR checkout produced by a successful clone.
@@ -508,14 +509,16 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
 1. Successful executable checked-out-branch `git push`, `gh pr create`, and `gh pr reopen` delivery boundaries launch automatically without consent. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR creation without requiring UI) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 2. A successful delivery command launches automatically only when the checked-out branch has an open protected-base PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
-3. Until FIX, Pi reuses a persisted plan for the same repository, PR, and head while retaining its initiating delivery-or-clone boundary ID.
 4. Cancelling clone consent asks again without launching or acknowledging the head. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) -->
 5. Choosing `Mark review complete` revalidates the live PR identity and atomically writes its user-scoped exact marker. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) -->
-6. Choosing launch continues the existing review and CI paths, with CI launched after reviewers and before the boundary turn ends. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
-7. The choice presents only launch and acknowledgement without recommending bypass based on agent self-verification. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC3: Until FIX, Pi reuses a persisted plan for the same repository, PR, and head while retaining its initiating delivery-or-clone boundary ID.
+- Former AC6: Choosing launch continues the existing review and CI paths, with CI launched after reviewers and before the boundary turn ends.
+- Former AC7: The choice presents only launch and acknowledgement without recommending bypass based on agent self-verification.
 
 **Constraints:** The existing structural tokenizer distinguishes automatic delivery commands and successful clones from inert ordinary activity; GitHub PR state and exact local-head equality decide eligibility.
 
@@ -528,18 +531,17 @@ Multi-agent support, preseed system, and session modes.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-145: Failed PR creation reconciliation
 
 **Intent:** Pi recovers bounded failed PR creation outcomes only when authoritative checked-out-branch state proves the exact created PR head.
 
 **Applies To:** User
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. A failed `gh pr create` reporting HTTP 5xx reconciles only when the checked-out branch has an open protected-base PR whose authoritative head exactly equals local `HEAD`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
-2. A failed `gh pr create` reporting an already-existing PR reconciles only through the same authoritative exact-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
-3. Every other failed command remains inert. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+- Former AC1: A failed `gh pr create` reporting HTTP 5xx reconciles only when the checked-out branch has an open protected-base PR whose authoritative head exactly equals local `HEAD`.
+- Former AC2: A failed `gh pr create` reporting an already-existing PR reconciles only through the same authoritative exact-head check.
+- Former AC3: Every other failed command remains inert.
 
 **Constraints:** Reconciliation never bypasses protected-base, branch, local-head, or authoritative-PR identity checks.
 
@@ -549,12 +551,11 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated Pi boundary behavior tests.
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
 
-<a id="req-agent-121-downstream-boundary-after-develop-merge"></a>
-### REQ-AGENT-121: Checked-out branch boundary synchronization
+<a id="req-agent-121-downstream-boundary-after-develop-merge"></a>### REQ-AGENT-121: Checked-out branch boundary synchronization
 
 **Intent:** Pi and Claude must use authoritative checked-out-branch state to determine whether a PR head is eligible for review.
 
@@ -591,15 +592,15 @@ Multi-agent support, preseed system, and session modes.
 
 **Applies To:** User
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. Automatic delivery launches without an interactive choice.
-2. Before queued follow-up delivery becomes transcript-visible, one accepted launch remains single-flight for its exact repository, PR, and authoritative head; later duplicate delivery events reuse that plan. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-3. Startup or resume recovers one accepted-but-undelivered launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-4. After FIX delivery, a later authorized boundary for the same head starts a new cycle instead of reusing the completed plan or decision. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-5. Retroactive checkpoint recovery never claims the current head, so the live path acknowledges it and issues the fix handoff.
-6. A visible Pi plan remains inert for duplicate delivery boundaries at the same repository, PR, and head, matching Claude's head-scoped marker. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-7. An acknowledgement for the unchanged authoritative head remains inert during later delivery, clone, Git, or GitHub activity. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
+- Former AC1: Automatic delivery launches without an interactive choice.
+- Former AC2: Before queued follow-up delivery becomes transcript-visible, one accepted launch remains single-flight for its exact repository, PR, and authoritative head; later duplicate delivery events reuse that plan.
+- Former AC3: Startup or resume recovers one accepted-but-undelivered launch.
+- Former AC4: After FIX delivery, a later authorized boundary for the same head starts a new cycle instead of reusing the completed plan or decision.
+- Former AC5: Retroactive checkpoint recovery never claims the current head, so the live path acknowledges it and issues the fix handoff.
+- Former AC6: A visible Pi plan remains inert for duplicate delivery boundaries at the same repository, PR, and head, matching Claude's head-scoped marker.
+- Former AC7: An acknowledgement for the unchanged authoritative head remains inert during later delivery, clone, Git, or GitHub activity.
 
 **Constraints:** The user workflow uses a normal checked-out branch; detached HEAD and linked-worktree execution are unsupported and inert.
 
@@ -609,10 +610,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated Pi and Claude boundary behavior tests
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
-
 ### REQ-AGENT-153: In-flight delivery reconciliation continuity
 
 **Intent:** Concurrent automatic delivery reconciliation must complete without one delivery replacing, duplicating, or silently consuming another delivery's review decision.
@@ -620,12 +620,14 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
 1. Every automatic delivery candidate remains independently pending until its own authoritative reconciliation completes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
-2. Every pending delivery remains independently retryable when GitHub metadata or launch-plan queueing is temporarily unavailable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 3. When one delivery establishes an exact-head plan, duplicate deliveries for that repository, PR, and head reuse it without another launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
-4. An ineligible delivery is marked evaluated only after authoritative reconciliation completes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 5. An ineligible delivery never suppresses another pending delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC2: Every pending delivery remains independently retryable when GitHub metadata or launch-plan queueing is temporarily unavailable.
+- Former AC4: An ineligible delivery is marked evaluated only after authoritative reconciliation completes.
 
 **Constraints:** Pending deliveries remain scoped to the repository resolved from their original command invocation.
 
@@ -639,22 +641,23 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<a id="req-agent-122-downstream-merge-retry-and-recovery"></a>
-### REQ-AGENT-122: Per-PR review checkpoints
+<a id="req-agent-122-downstream-merge-retry-and-recovery"></a>### REQ-AGENT-122: Per-PR review checkpoints
 
 **Intent:** Feature and integration PR reviews must retain independent incremental checkpoints without bookkeeping failures crashing either runtime.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
-
-1. Acknowledgement and enforcement counters are keyed by PR number in the normal checkout's Git metadata directory.
-2. The acknowledgement for one PR never suppresses review of another PR at the same repository head.
-3. Invalid, missing, or non-directory bookkeeping on an unsupported checkout remains inert or releases enforcement without throwing; after triage in a validated normal checkout, failure to persist the PR-specific acknowledgement blocks FIX so the incremental base is not lost.
-4. A valid legacy repository-global acknowledgement remains readable as a migration fallback.
-5. New acknowledgements write only the PR-specific checkpoint.
 6. A Claude PR-boundary lane binds its scope to the newest retained same-PR marker ancestor and current head, overriding a stale full-base argument. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::BOUNDARY_PR --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (keeps caller-supplied PR-boundary range authoritative) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (selects the newest retained same-PR ancestor and ignores other PRs) -->
-7. A Claude PR-boundary lane invoked for an already acknowledged head returns without invoking a model or opening a duplicate reviewer wave.
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: Acknowledgement and enforcement counters are keyed by PR number in the normal checkout's Git metadata directory.
+- Former AC2: The acknowledgement for one PR never suppresses review of another PR at the same repository head.
+- Former AC3: Invalid, missing, or non-directory bookkeeping on an unsupported checkout remains inert or releases enforcement without throwing; after triage in a validated normal checkout, failure to persist the PR-specific acknowledgement blocks FIX so the incremental base is not lost.
+- Former AC4: A valid legacy repository-global acknowledgement remains readable as a migration fallback.
+- Former AC5: New acknowledgements write only the PR-specific checkpoint.
+- Former AC7: A Claude PR-boundary lane invoked for an already acknowledged head returns without invoking a model or opening a duplicate reviewer wave.
 
 **Constraints:**
 
@@ -671,7 +674,6 @@ Multi-agent support, preseed system, and session modes.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
@@ -2041,13 +2043,13 @@ None.
 
 **Applies To:** User
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. A user-controlled one-shot sentinel bypasses one otherwise eligible root review boundary and acknowledges its exact validated open PR head, whether created directly by the user, created after the user selects `Acknowledge without review`, present when the boundary completes, or created before settled recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-2. A non-SDD project or an absent, acknowledged, closed, or merged PR head does not consume the one-shot sentinel.
-3. Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) -->
-4. A recognized post-boundary user bypass emits no reviewer reminder and acknowledges the exact validated open PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-5. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+- Former AC1: A user-controlled one-shot sentinel bypasses one otherwise eligible root review boundary and acknowledges its exact validated open PR head, whether created directly by the user, created after the user selects `Acknowledge without review`, present when the boundary completes, or created before settled recovery.
+- Former AC2: A non-SDD project or an absent, acknowledged, closed, or merged PR head does not consume the one-shot sentinel.
+- Former AC3: Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass.
+- Former AC4: A recognized post-boundary user bypass emits no reviewer reminder and acknowledges the exact validated open PR head.
+- Former AC5: Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter.
 
 **Constraints:**
 
@@ -2061,10 +2063,9 @@ None.
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Claude Stop-hook tests](../../host/__tests__/enforce-review-spawn.test.js))
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
-
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
 **Intent:** Before graph extraction begins, the user chooses whether to build a graph and at what supported scope. Each runtime presents its supported modes, semantic work uses runtime-native workers, and official Graphify flows own graph generation and derived outputs.
@@ -2383,14 +2384,16 @@ None.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
 1. Only eligible public reviewer calls after the latest successful delivery-or-clone boundary can satisfy its review window; ordinary activity remains inside that window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window) -->
 2. A reviewer lane becomes terminal at its first correlated successful native notification or public result retrieval; later equivalent evidence does not reopen that completion boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) -->
-3. A failed native reviewer notification leaves its lane unacknowledged and eligible for relaunch. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 4. A reviewer call without correlated successful terminal evidence remains in flight without an age timeout. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) -->
-5. Except for an explicit REQ-AGENT-041 user bypass of the validated open PR head, acknowledgement changes only after every required reviewer reports successful completion, exact-head CI reports terminal success, failure, or timeout when required, and the root publishes its joint post-notification triage proof. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 6. Completion for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
 7. Delayed successful completion acknowledges its reviewed head only while that head remains authoritative. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC3: A failed native reviewer notification leaves its lane unacknowledged and eligible for relaunch.
+- Former AC5: Except for an explicit REQ-AGENT-041 user bypass of the validated open PR head, acknowledgement changes only after every required reviewer reports successful completion, exact-head CI reports terminal success, failure, or timeout when required, and the root publishes its joint post-notification triage proof.
 
 **Constraints:**
 
@@ -2405,7 +2408,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-055: Pi Session-Scoped Review Window
 
 **Intent:** Pi review completion must use the latest root-transcript boundary and correlated reviewer terminal evidence as its complete session-scoped window, without pending JSON, roll-forward state, or a merge interceptor.
@@ -2413,14 +2415,16 @@ None.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
-1. Only reviewer calls after the latest successful delivery-or-clone boundary belong to its active window; ordinary activity does not replace that boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window) -->
-2. Partial or failed reviewer completion leaves acknowledgement unchanged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 3. Completion for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
 4. Child sessions and shutdown cannot acknowledge active review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (clears stopped or failed work without missing-work output) -->
-5. The emitted review window persists its boundary tool call, repository, branch, PR, base, and full head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: counts reviewer calls only when their prompt carries the acknowledged-to-current range) -->
-6. Delayed successful completion may acknowledge the persisted unchanged PR identity after reload without consulting ambient active-repository memory. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-7. An acknowledged current head requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: Only reviewer calls after the latest successful delivery-or-clone boundary belong to its active window; ordinary activity does not replace that boundary.
+- Former AC2: Partial or failed reviewer completion leaves acknowledgement unchanged.
+- Former AC5: The emitted review window persists its boundary tool call, repository, branch, PR, base, and full head.
+- Former AC6: Delayed successful completion may acknowledge the persisted unchanged PR identity after reload without consulting ambient active-repository memory.
+- Former AC7: An acknowledged current head requests no reviewer.
 
 **Constraints:**
 
@@ -2435,7 +2439,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-056: Pi Local Statusline Footer
 
 **Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows.
@@ -2473,15 +2476,15 @@ None.
 
 **Applies To:** User
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. Settled enforcement recovers the latest successful supported root boundary only when its emitted window and fresh PR state report the same boundary-call, repository, branch, PR, base, and full-head identity. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-2. Without a successful persisted boundary window, settled enforcement performs no PR query and emits no follow-up. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-3. A replacement PR identity is inert and cannot satisfy recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-4. A temporarily unavailable or stale delivery boundary retries at root lifecycle recovery until GitHub reports the local full head SHA. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryHead -->
-5. Ordinary Git and GitHub activity performs no authoritative PR lookup. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr -->
-6. Failed persisted pushes are not recovered as successful boundaries. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-7. Only calls after the latest successful delivery-or-clone boundary can satisfy recovered review demand; ordinary activity does not replace that boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window) -->
+- Former AC1: Settled enforcement recovers the latest successful supported root boundary only when its emitted window and fresh PR state report the same boundary-call, repository, branch, PR, base, and full-head identity.
+- Former AC2: Without a successful persisted boundary window, settled enforcement performs no PR query and emits no follow-up.
+- Former AC3: A replacement PR identity is inert and cannot satisfy recovery.
+- Former AC4: A temporarily unavailable or stale delivery boundary retries at root lifecycle recovery until GitHub reports the local full head SHA.
+- Former AC5: Ordinary Git and GitHub activity performs no authoritative PR lookup.
+- Former AC6: Failed persisted pushes are not recovered as successful boundaries.
+- Former AC7: Only calls after the latest successful delivery-or-clone boundary can satisfy recovered review demand; ordinary activity does not replace that boundary.
 
 **Constraints:** Out-of-session pushes require a later supported root boundary; Pi creates no review event ledger.
 
@@ -2491,10 +2494,9 @@ None.
 
 **Verification:** Automated test ([Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
-
 ### REQ-AGENT-059: Pi Native Review Findings Handoff
 
 **Intent:** Reviewer findings must reach the main session through each native subagent result, without Codeflare-owned result files, summaries, severity parsing, or an automatic fix state machine.
@@ -2534,12 +2536,14 @@ None.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
 1. Only successful supported shell tool results expose commands to candidate detection. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
-2. Only executable `git push`, `gh pr create`, `git clone`, and `gh repo clone` commands are candidates; all other Git and GitHub subcommands are inert. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::executableShellCommands --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-052/REQ-AGENT-063: Pi structurally finds executable Git across shell composition) -->
 3. Commands are recognized only at executable shell command boundaries, so quoted text and heredoc bodies remain inert. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::executableShellCommands --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-052/REQ-AGENT-063: Pi structurally finds executable Git across shell composition) -->
 4. Candidate detection never decides PR eligibility; [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization) performs the authoritative branch-and-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 5. Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC2: Only executable `git push`, `gh pr create`, `git clone`, and `gh repo clone` commands are candidates; all other Git and GitHub subcommands are inert.
 
 **Constraints:**
 
@@ -2555,7 +2559,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-064: Connect to Cloudflare via OAuth
 
 **Intent:** In non-enterprise modes a user connects their own Cloudflare account via OAuth — mirroring the GitHub connect — so the per-user deploy token is obtained without pasting a dashboard-created API token. One operator-registered OAuth client serves every user; each user authorizes their own account.
@@ -2737,11 +2740,13 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
 1. Failed or cancelled checks report `CI_RESULT failure` with provider evidence, including providers whose workflow label is empty. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check with an empty workflow reports immediately) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: failed and cancelled arbitrary providers report failure with links) -->
 2. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC2: monitoring creates no Codeflare state, log, or PID files) -->
 3. Malformed or transient provider responses never become success; every terminal check row has string provider fields, an HTTP(S) link, and a recognized bucket before evaluation. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::validCheckRow --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC3: malformed and transient GitHub responses never become success) --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-125 AC3: stable malformed provider rows never become CI success) -->
-4. A correlated successful public monitor launch checkpoints its exact canonical repository, local path, PR, and head independently from review acknowledgement; failed or mismatched launches remain retryable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC4: CI request identity preserves repository paths containing whitespace) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC4: A correlated successful public monitor launch checkpoints its exact canonical repository, local path, PR, and head independently from review acknowledgement; failed or mismatched launches remain retryable.
 
 **Constraints:** The monitor is report-only and seeded in Standard and Pro modes; review handoffs and shutdown never restart it; later sessions do not repeat an unchanged checkpointed head; enabling review still requires its lanes.
 
@@ -2754,7 +2759,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
 
 **Intent:** Pi must reach consult-llm through the MCP adapter without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
@@ -2823,14 +2827,16 @@ None.
 **Applies To:** User
 
 **Acceptance Criteria:**
-
-1. Settled enforcement requests every missing required lane in one reviewer wave. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-2. An unmatched public reviewer call suppresses only its own lane until correlated successful terminal evidence arrives, while other missing lanes are requested together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 3. Only public background reviewer calls with inherited context disabled count toward completion. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation) -->
 4. Completion order does not change a lane's terminal state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) -->
 5. A valid prior acknowledgement scopes lane selection to its acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 6. Each counted reviewer prompt carries the exact valid acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: counts reviewer calls only when their prompt carries the acknowledged-to-current range) -->
 7. Missing, malformed, or non-ancestor acknowledgement requests full-PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: Settled enforcement requests every missing required lane in one reviewer wave.
+- Former AC2: An unmatched public reviewer call suppresses only its own lane until correlated successful terminal evidence arrives, while other missing lanes are requested together.
 
 **Constraints:**
 
@@ -2850,7 +2856,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-074: Pi Settled Review Handoff
 
 **Intent:** Pi must hand missing review work back to the main session and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
@@ -2858,14 +2863,16 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
-1. Settled enforcement emits one follow-up containing every missing lane for the reminder head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 2. An eligible boundary with invalid acknowledgement emits full-PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 3. Unmatched public reviewer calls are not duplicated, while missing peers are requested together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) -->
-4. Complete successful reviewer completion plus terminal exact-head CI completion followed by root joint triage in live session state acknowledges the reminder head at agent end, even before the session file flushes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
-5. Terminal evidence for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-6. Child sessions are inert, and shutdown or reload alone writes no acknowledgement or replacement request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-7. After reload or newer unpublished local work, delayed terminal evidence acknowledges its reminder head only while the authoritative PR head still matches that reviewed head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: Settled enforcement emits one follow-up containing every missing lane for the reminder head.
+- Former AC4: Complete successful reviewer completion plus terminal exact-head CI completion followed by root joint triage in live session state acknowledges the reminder head at agent end, even before the session file flushes.
+- Former AC5: Terminal evidence for an earlier reminder never acknowledges a replacement PR head.
+- Former AC6: Child sessions are inert, and shutdown or reload alone writes no acknowledgement or replacement request.
+- Former AC7: After reload or newer unpublished local work, delayed terminal evidence acknowledges its reminder head only while the authoritative PR head still matches that reviewed head.
 
 **Constraints:**
 
@@ -2882,7 +2889,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-075: Cloudflare Platform Skills Bundled into the Advanced Seed
 
 **Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, stable and preview Sandbox SDK lines, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE). The bundle is **slimmed for the Worker bundle budget**: the cloudflare mega-skill's 319-file `references/` tree is dropped (it is retrieval-first — agents fetch live docs), keeping only its decision-tree `SKILL.md`. The bundled remote-MCP config is excluded (strict-egress + interactive OAuth incompatible); retrieval is via WebFetch of `developers.cloudflare.com`.
@@ -3139,13 +3145,15 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
-1. An eligible SDD head-changing boundary emits one numbered runbook with PR/head/scope context and `REVIEWERS → CI → JOINT TRIAGE + ACK → FIX` order. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
-2. An eligible non-SDD boundary emits a CI-only plan. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-3. An eligible default-mode boundary emits a CI-only plan from its effective repository context. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewEnabled -->
 4. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion) -->
 5. After the final launch, the plan ends the turn without foreground waiting, polling, resuming, or retrieving in-flight agents; native terminal notifications drive later turns. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
-6. Only a boundary plan emitted for an unacknowledged authoritative checked-out-branch PR head authorizes reviewer launches; unpublished or unsynchronized local commits do not. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: An eligible SDD head-changing boundary emits one numbered runbook with PR/head/scope context and `REVIEWERS → CI → JOINT TRIAGE + ACK → FIX` order.
+- Former AC2: An eligible non-SDD boundary emits a CI-only plan.
+- Former AC3: An eligible default-mode boundary emits a CI-only plan from its effective repository context.
+- Former AC6: Only a boundary plan emitted for an unacknowledged authoritative checked-out-branch PR head authorizes reviewer launches; unpublished or unsynchronized local commits do not.
 
 **Constraints:**
 
@@ -3165,22 +3173,21 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-110: Pi PR-boundary missing-launch follow-up
 
 **Intent:** Settled enforcement requests only the reviewer or CI launch work still missing for the current head and acknowledges reviewer-bearing work only after complete triage proof.
 
 **Applies To:** Agent
 
-**Acceptance Criteria:**
+**Historical acceptance criteria superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
 
-1. Settled follow-up requests only missing reviewer lanes while unmatched calls remain in flight. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
-2. Settled follow-up requests one missing CI wave without duplicating in-flight reviewers or its queued message. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-3. Required successful reviewer completion plus required terminal exact-head CI completion and their post-notification joint triage proof is the only reviewer-bearing acknowledgement condition. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-4. The first settled recovery after an initial plan defers when no reviewer or CI launch is recorded. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-5. After reload, a persisted successful boundary that was not evaluated by its live handler and has no correlated launch plan emits that initial plan exactly once. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-6. A live-evaluated ineligible boundary remains inert after reload. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
-7. Existing-session startup or resume recovers one exact-head launch whose accepted evaluation was persisted but whose queued follow-up is absent, without asking again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+- Former AC1: Settled follow-up requests only missing reviewer lanes while unmatched calls remain in flight.
+- Former AC2: Settled follow-up requests one missing CI wave without duplicating in-flight reviewers or its queued message.
+- Former AC3: Required successful reviewer completion plus required terminal exact-head CI completion and their post-notification joint triage proof is the only reviewer-bearing acknowledgement condition.
+- Former AC4: The first settled recovery after an initial plan defers when no reviewer or CI launch is recorded.
+- Former AC5: After reload, a persisted successful boundary that was not evaluated by its live handler and has no correlated launch plan emits that initial plan exactly once.
+- Former AC6: A live-evaluated ineligible boundary remains inert after reload.
+- Former AC7: Existing-session startup or resume recovers one exact-head launch whose accepted evaluation was persisted but whose queued follow-up is absent, without asking again.
 
 **Constraints:**
 
@@ -3194,10 +3201,9 @@ None.
 
 **Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
 
-**Status:** Implemented
+**Status:** Superseded
 
 ---
-
 ### REQ-AGENT-082: Pi Review Range Selection
 
 **Intent:** Pi must derive review lanes and scope from an ancestry-validated acknowledged-to-head range, with a safe full-PR fallback when acknowledgement cannot define that range.
@@ -3517,11 +3523,13 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
 1. A reviewer-bearing boundary plan orders `REVIEWERS → CI → JOINT TRIAGE + ACK → FIX`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
 2. Agent-end enforcement acknowledges and emits one boundary-cycle-correlated FIX follow-up only after every required reviewer result, a terminal exact-head CI result when required, and a structural joint triage table published after both. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: recognizes structural triage only after all reviewer notifications) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) -->
-3. The latest same-head review window is selected for its own boundary cycle, while unpublished local candidates do not replace or hide it. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts -->
 4. Settled enforcement provides the acknowledgement fallback when agent-end enforcement did not complete it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps a fully terminal round until canonical triage arrives) -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC3: The latest same-head review window is selected for its own boundary cycle, while unpublished local candidates do not replace or hide it.
 
 **Constraints:** CI success, failure, and timeout are terminal triage inputs; fixes begin only in the post-acknowledgement follow-up turn after joint reviewer-and-CI triage.
 
@@ -3534,7 +3542,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-126: Pi review checkpoint persistence and head drift
 
 **Intent:** A completed review checkpoint must remain idempotent and must never authorize FIX after its PR head changes.
@@ -3542,11 +3549,13 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
-1. A persisted acknowledgement suppresses duplicate FIX delivery within its boundary cycle across later agent-end, settled, and reload events; a separately authorized same-head cycle is not suppressed by the older cycle's FIX record.
 2. The FIX follow-up requests no reviewer or CI launch for the acknowledged head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-3. Before matching acknowledgement and FIX delivery, a live PR head change after complete triage writes neither checkpoint and emits one visible triggering handoff naming both heads.
-4. Existing-session startup or resume resends one transcript-proven acknowledged FIX handoff when its queued message is absent and the authoritative head is unchanged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: A persisted acknowledgement suppresses duplicate FIX delivery within its boundary cycle across later agent-end, settled, and reload events; a separately authorized same-head cycle is not suppressed by the older cycle's FIX record.
+- Former AC3: Before matching acknowledgement and FIX delivery, a live PR head change after complete triage writes neither checkpoint and emits one visible triggering handoff naming both heads.
+- Former AC4: Existing-session startup or resume resends one transcript-proven acknowledged FIX handoff when its queued message is absent and the authoritative head is unchanged.
 
 **Constraints:** A superseded review remains historical evidence only; it never acknowledges the replacement head.
 
@@ -3559,7 +3568,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-085: Pi Reviewer Direct Evidence Transport
 
 **Intent:** Pi reviewers must consume exact scoped evidence without recovering prior output through indexed searches.
@@ -3638,14 +3646,16 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
 1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::SYSTEM_PROMPT --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh --> <!-- @test: host/__tests__/run-review-lane.test.js (forwards the model the lane document declares) -->
-2. The review gate credits a lane under either that headless transport or a legacy Agent subagent spawn.
 3. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::REQUIRED --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
 4. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable; an unavailable supervisor refuses launch. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::LANE_TIMEOUT --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — supervisor availability) -->
 5. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::GUARD_SETTINGS --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
-6. A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it.
-7. That demand states the lane already ran without being credited.
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC2: The review gate credits a lane under either that headless transport or a legacy Agent subagent spawn.
+- Former AC6: A lane whose background run ended without success counts as ended rather than in flight, so the gate re-demands it instead of awaiting it.
+- Former AC7: That demand states the lane already ran without being credited.
 
 **Constraints:**
 
@@ -3667,7 +3677,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-103: Deterministic Lane Triage
 
 **Intent:** A lane's Phase 0 answers are the same for every lane on a given range, so resolving them once outside the model costs nothing per lane and cannot drift between them.
@@ -3707,14 +3716,16 @@ None.
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-
-1. The review checkpoint advances only after every required lane has returned, the first Stop observation has yielded one notification-delivery turn, and the triage verdict has been published.
-2. A verdict forced before the required notification-delivery turn does not advance the checkpoint; only the later root-visible round may be triaged.
 3. The verdict demand requires a gate-matching table with one row per finding across all required lanes. A fully clean round still publishes the table shape but does not add redundant clean-lane rows. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: recognizes structural triage only after all reviewer notifications) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (blocks with canonical triage instruction when terminal evidence is untriaged) -->
 4. Acknowledgement is followed by a fix directive that states the head is already acknowledged, then commits and pushes accepted file changes without renewed consent, waiting first for this head's terminal CI result; it never merges or creates a no-op commit. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-5. Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan.
-6. Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged.
-7. Once every lane spawned in the session has returned and no verdict follows the last return, tool execution other than result reading is refused mid-turn until the verdict is published.
+
+**Historical clauses superseded by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent):**
+
+- Former AC1: The review checkpoint advances only after every required lane has returned, the first Stop observation has yielded one notification-delivery turn, and the triage verdict has been published.
+- Former AC2: A verdict forced before the required notification-delivery turn does not advance the checkpoint; only the later root-visible round may be triaged.
+- Former AC5: Every path that advances the checkpoint applies the verdict requirement, including the retroactive scan.
+- Former AC6: Repeated unanswered verdict demands acknowledge the head rather than leave the checkpoint wedged.
+- Former AC7: Once every lane spawned in the session has returned and no verdict follows the last return, tool execution other than result reading is refused mid-turn until the verdict is published.
 
 **Constraints:**
 
@@ -3735,7 +3746,6 @@ None.
 **Status:** Implemented
 
 ---
-
 ### REQ-AGENT-105: Review Lane Turn Economy
 
 **Intent:** A lane re-sends its whole prompt every turn, so cost grows with the square of the turn count and the drip — one lookup per turn — is what a review actually pays for.

@@ -69,12 +69,28 @@ if grep -q '^transition:[[:space:]]*true' "$CONFIG" 2>/dev/null \
   exit 0
 fi
 
+targets_current() {
+  node -e '
+    const { exposureTargetsCheckedOutBranch } = require(process.argv[1]);
+    const identity = JSON.parse(process.argv[3]);
+    process.stdout.write(exposureTargetsCheckedOutBranch(process.argv[2], identity) ? "true" : "false");
+  ' "$CLASSIFIER" "$COMMAND" "$(jq -cn --arg branch "$1" --argjson pr "$2" --arg repository "$3" '{branch:$branch,pr:$pr,repository:$repository}')" 2>/dev/null
+}
+
 STATUS=""
 case "$BOUNDARY_KIND" in
   push|pr-create)
     for RETRY_DELAY in 0 1 3 5 10 15; do
       [ "$RETRY_DELAY" = 0 ] || sleep "$RETRY_DELAY"
       STATUS=$(node "$STATE_HELPER" status --cwd "$REPO" 2>/dev/null) || exit 0
+      if [ "$EVENT" = "PostToolUse" ]; then
+        CANDIDATE_PR=$(printf '%s' "$STATUS" | jq -r '.identity.pr // empty' 2>/dev/null)
+        CANDIDATE_BRANCH=$(printf '%s' "$STATUS" | jq -r '.identity.branch // empty' 2>/dev/null)
+        CANDIDATE_REPOSITORY=$(printf '%s' "$STATUS" | jq -r '.identity.repository // empty' 2>/dev/null)
+        if printf '%s' "$CANDIDATE_PR" | grep -Eq '^[0-9]+$' && [ -n "$CANDIDATE_BRANCH" ] && [ -n "$CANDIDATE_REPOSITORY" ]; then
+          [ "$(targets_current "$CANDIDATE_BRANCH" "$CANDIDATE_PR" "$CANDIDATE_REPOSITORY")" = "true" ] || exit 0
+        fi
+      fi
       [ "$(printf '%s' "$STATUS" | jq -r '.eligible // false' 2>/dev/null)" != "true" ] || break
       [ "$(printf '%s' "$STATUS" | jq -r '.retryable // false' 2>/dev/null)" = "true" ] || break
       REMOTE_HEAD=$(printf '%s' "$STATUS" | jq -r '.identity.head // empty' 2>/dev/null)
@@ -95,14 +111,6 @@ REPOSITORY=$(printf '%s' "$STATUS" | jq -r '.identity.repository // empty' 2>/de
 ANCESTOR=$(printf '%s' "$STATUS" | jq -r '.ancestor.head // empty' 2>/dev/null)
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
-if [ "$EVENT" = "PostToolUse" ]; then
-  TARGETS_CURRENT=$(node -e '
-    const { exposureTargetsCheckedOutBranch } = require(process.argv[1]);
-    const identity = JSON.parse(process.argv[3]);
-    process.stdout.write(exposureTargetsCheckedOutBranch(process.argv[2], identity) ? "true" : "false");
-  ' "$CLASSIFIER" "$COMMAND" "$(jq -cn --arg branch "$BRANCH" --argjson pr "$PR_NUMBER" --arg repository "$REPOSITORY" '{branch:$branch,pr:$pr,repository:$repository}')" 2>/dev/null) || exit 0
-  [ "$TARGETS_CURRENT" = "true" ] || exit 0
-fi
 
 # An exact current-session round suppresses duplicate consent. Old transcript
 # bytes are ignored by the ephemeral SessionStart offset.

@@ -251,6 +251,7 @@ async function currentReview(
   dependencies: Dependencies,
   repo: string,
   ciEvent?: ReviewBoundaryEvent,
+  command?: string,
 ): Promise<CurrentReview | undefined> {
   const file = rootSessionFile(ctx);
   const root = findGitRoot(repo);
@@ -268,6 +269,11 @@ async function currentReview(
     const pr = await dependencies.queryPr(root, branch);
     if (pr === PR_LOOKUP_FAILED) return undefined;
     if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
+    if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+      branch: pr.headRefName,
+      pr: pr.number,
+      repository: repositoryIdentity.repository,
+    })) return undefined;
     if (pr.headRefOid !== head) {
       if (!ciEvent) return undefined;
       continue;
@@ -536,13 +542,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     ciEvent?: ReviewBoundaryEvent,
     command?: string,
   ): Promise<void> => {
-    const review = await currentReview(ctx, dependencies, repo, ciEvent);
-    if (review && ciEvent && command
-      && !exposureTargetsCheckedOutBranch(command, {
-        branch: review.pr.headRefName,
-        pr: review.pr.number,
-        repository: review.repository,
-      })) return;
+    const review = await currentReview(ctx, dependencies, repo, ciEvent, command);
     if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;

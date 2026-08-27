@@ -80,11 +80,12 @@ describe('Claude review completion helper parity', () => {
     assert.equal(readCompletion(identity({ head: '0'.repeat(40) }), options(stateRoot)).status, 'complete');
     assert.notEqual(readCompletion(identity({ head: 'a'.repeat(40) }), options(stateRoot)).status, 'complete');
 
+    const ancestorHead = '1'.padStart(40, '0');
     const candidate = latestAncestorCompletion(identity({ head: 'f'.repeat(40) }), '/repo', {
       ...options(stateRoot),
-      isAncestor: (base) => base === '1'.repeat(40),
+      isAncestor: (base) => base === ancestorHead,
     });
-    assert.equal(candidate?.head, '1'.repeat(40));
+    assert.equal(candidate?.head, ancestorHead);
   });
 
   it('warns for malformed daemon PID state', () => {

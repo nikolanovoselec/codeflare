@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -97,7 +97,9 @@ describe('user-scoped review completion state', () => {
     pruneCompletionState({ root: stateRoot, now: () => NOW });
     expect(readCompletion(identity({ head: '0'.repeat(40) }), options(stateRoot)).status).toBe('complete');
     expect(readCompletion(identity({ head: 'a'.repeat(40) }), options(stateRoot)).status).not.toBe('complete');
-    expect(readCompletion(identity({ head: 'f'.repeat(40), pr: 99 }), options(stateRoot)).status).toBe('missing');
+    const expired = identity({ head: 'f'.repeat(40), pr: 99 });
+    expect(readCompletion(expired, options(stateRoot)).status).toBe('changed');
+    expect(existsSync(completionPath(expired, stateRoot))).toBe(false);
   });
 
   it('selects the newest retained same-PR ancestor and ignores other PRs', () => {

@@ -194,6 +194,15 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.equal(readFileSync(sleepLog, 'utf8'), '');
   });
 
+  it('does not retry an unrelated push while the current PR head is stale', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, Array.from({ length: 6 }, () => previous));
+
+    assert.equal(postTool(fx, 'git push origin unrelated').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '');
+  });
+
   it('rejects delivery commands targeting another branch, PR, or repository', () => {
     for (const command of [
       'git push origin unrelated',

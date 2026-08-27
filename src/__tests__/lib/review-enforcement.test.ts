@@ -351,6 +351,23 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
   });
 
+  it('does not retry an unrelated push while the current PR head is stale', async () => {
+    const input = fixture();
+    const stale = { ...input.pr, headRefOid: input.base };
+    const sleep = vi.fn(async () => undefined);
+    const queryPr = vi.fn(async () => stale);
+    const app = await harness(input, [], {
+      queryPr,
+      headRetryDelaysMs: [0, 1, 3],
+      sleep,
+    });
+    await app.emit('tool_result', boundary('git push origin unrelated', 'push-unrelated-stale'));
+
+    expect(queryPr).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(app.sent).toHaveLength(0);
+  });
+
   it('keeps unrelated PR reopen delivery inert', async () => {
     const input = fixture();
     const app = await harness(input, []);
