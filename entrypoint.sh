@@ -390,6 +390,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
     --filter "+ .codeflare/managed-extensions.json"
+    --filter "+ .codeflare/managed-paths.json"
     --filter "+ .codeflare/review-state/"
     --filter "+ .codeflare/review-state/v1/"
     --filter "+ .codeflare/review-state/v1/**"
@@ -645,6 +646,56 @@ recover_vanished_files() {
 }
 
 init_recovery_filters
+
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed-resources.filter"
+: > "$MANAGED_RESOURCE_FILTER_FILE"
+RCLONE_FILTERS+=(--filter-from "$MANAGED_RESOURCE_FILTER_FILE")
+
+prepare_managed_resource_filter() {
+    local policy="${MANAGED_RESOURCE_POLICY:-mutable}"
+    local policy_file="$USER_HOME/.codeflare/managed-paths.json"
+    if [ "$policy" = "mutable" ]; then
+        rm -f "$policy_file"
+        : > "$MANAGED_RESOURCE_FILTER_FILE"
+        return 0
+    fi
+    if [ "$policy" != "immutable" ] && [ "$policy" != "exclusive" ]; then
+        echo "[entrypoint] ERROR: invalid managed resource policy" >&2
+        return 1
+    fi
+    if [ ! -f "$policy_file" ]; then
+        echo "[entrypoint] ERROR: protected managed resource policy was not restored" >&2
+        return 1
+    fi
+    node - "$policy_file" "$policy" "${MANAGED_RESOURCE_RELEASE_DIGEST:-}" "${MANAGED_RESOURCE_PATHS_DIGEST:-}" "$MANAGED_RESOURCE_FILTER_FILE" <<'NODE'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const [file, expectedPolicy, releaseDigest, pathsDigest, filterFile] = process.argv.slice(2);
+const bytes = fs.readFileSync(file);
+if (bytes.length > 8 * 1024 * 1024) throw new Error('managed policy exceeds 8 MiB');
+if (!/^[0-9a-f]{64}$/.test(releaseDigest) || !/^[0-9a-f]{64}$/.test(pathsDigest)) throw new Error('managed policy identity is invalid');
+if (crypto.createHash('sha256').update(bytes).digest('hex') !== pathsDigest) throw new Error('managed policy digest mismatch');
+const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+if (!value || value.schemaVersion !== 1 || value.releaseDigest !== releaseDigest || value.resourcePolicy !== expectedPolicy
+  || !Array.isArray(value.paths) || !Array.isArray(value.resourceRoots)
+  || Object.keys(value).sort().join(',') !== 'paths,releaseDigest,resourcePolicy,resourceRoots,schemaVersion') throw new Error('managed policy schema mismatch');
+const canonical = Buffer.from(`${JSON.stringify(value)}\n`);
+if (!canonical.equals(bytes)) throw new Error('managed policy is not canonical');
+const sortedUnique = values => values.every((entry, index) => typeof entry === 'string' && entry.length > 0 && (index === 0 || values[index - 1] < entry));
+if (!sortedUnique(value.paths) || !sortedUnique(value.resourceRoots)) throw new Error('managed policy paths are not sorted and unique');
+if (expectedPolicy === 'immutable' && value.resourceRoots.length !== 0) throw new Error('immutable policy has resource roots');
+const escapeFilter = path => path.replace(/[\\*?\[\]{}]/g, character => `\\${character}`);
+const rules = value.paths.map(path => `- /${escapeFilter(path)}`);
+if (expectedPolicy === 'exclusive') {
+  for (const root of value.resourceRoots) {
+    if (!root.endsWith('/')) throw new Error('managed resource root is invalid');
+    rules.push(`- /${escapeFilter(root.slice(0, -1))}`);
+    rules.push(`- /${escapeFilter(root)}**`);
+  }
+}
+fs.writeFileSync(filterFile, `${rules.join('\n')}\n`, { mode: 0o600 });
+NODE
+}
 
 # Step 1: One-way sync FROM R2 TO local (restore user data)
 # This ensures existing credentials, plugins, etc. are restored BEFORE anything else runs
@@ -3773,6 +3824,10 @@ configure_tab_autostart
 }
 
 complete_managed_curation_startup() {
+    # The restored policy is non-authoritative container input, but validating it
+    # before baseline keeps protected local edits from poisoning normal bisync.
+    prepare_managed_resource_filter
+
     # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
     # bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
     # on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
