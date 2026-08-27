@@ -72,6 +72,16 @@ describe('REQ-ENTERPRISE-027 managed R2 request classifier', () => {
     if (allowed.action === 'allow') expect(await allowed.request.text()).toBe(ordinary);
   });
 
+  it('fails closed above the multi-delete byte and key-count bounds', async () => {
+    const tooMany = `<Delete>${Array.from({ length: 1_001 }, (_, index) => `<Object><Key>Vault/${index}</Key></Object>`).join('')}</Delete>`;
+    expect((await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', {
+      headers: { 'content-type': 'application/xml' }, body: tooMany,
+    })).action).toBe('deny');
+    expect((await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', {
+      headers: { 'content-type': 'application/xml' }, body: `<Delete><Object><Key>${'a'.repeat(1024 * 1024)}</Key></Object></Delete>`,
+    })).action).toBe('deny');
+  });
+
   it('fails closed on malformed, compressed, or ambiguous multi-delete', async () => {
     for (const request of [
       { headers: { 'content-type': 'application/xml' }, body: '<Delete><Object><Key>x</Key></Delete>' },

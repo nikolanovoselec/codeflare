@@ -61,8 +61,21 @@ describe('REQ-ENTERPRISE-027 Storage mutation guard', () => {
       .resolves.toBeUndefined();
   });
 
-  it('fails with update-pending before policy lookup on any desired/applied mismatch', async () => {
-    state.snapshot.active.sequence = 5;
+  it.each([
+    ['release digest', (snapshot: any, applied: any) => { snapshot.active.digest = 'c'.repeat(64); }],
+    ['sequence', (snapshot: any) => { snapshot.active.sequence = 5; }],
+    ['effective mode', (_snapshot: any, applied: any) => { applied.mode = 'advanced'; }],
+    ['extension digest', (_snapshot: any, applied: any) => { applied.managedExtensionsDigest = undefined; }],
+    ['resource policy', (_snapshot: any, applied: any) => { applied.resourcePolicy = 'immutable'; }],
+    ['path digest', (_snapshot: any, applied: any) => { applied.managedPathsDigest = undefined; }],
+  ])('fails update-pending before policy lookup on %s mismatch', async (_dimension, mutate) => {
+    const applied = {
+      digest: 'd'.repeat(64), sequence: 4, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
+      resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-01-01T00:00:00.000Z',
+    };
+    mutate(state.snapshot, applied);
+    kv._set('user-prefs:bucket', { managedEnvironmentApplied: applied });
+
     await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
       .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();

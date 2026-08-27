@@ -217,7 +217,7 @@ export function canPrefixIntersectManagedPolicy(policy: ManagedR2Policy, prefix:
   });
 }
 
-export type ManagedR2RequestClassification =
+type ManagedR2RequestClassification =
   | { action: 'allow'; request: Request }
   | { action: 'deny'; status: 403 | 503; code: string; requestId: string };
 

@@ -168,9 +168,11 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourceReleaseDigest, managedResourcePathsDigest, sessionMode, sessionWorkspace, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
-    const resourceIdentityError = managedResourcePolicy !== undefined && !['mutable', 'immutable', 'exclusive'].includes(managedResourcePolicy)
-      ? 'managedResourcePolicy is invalid'
-      : managedResourcePolicy !== undefined && managedResourcePolicy !== 'mutable'
+    const resourceIdentityError = managedResourcePolicy === undefined && (managedResourceReleaseDigest !== undefined || managedResourcePathsDigest !== undefined)
+      ? 'managed resource identity requires an explicit policy mode'
+      : managedResourcePolicy !== undefined && !['mutable', 'immutable', 'exclusive'].includes(managedResourcePolicy)
+        ? 'managedResourcePolicy is invalid'
+        : managedResourcePolicy !== undefined && managedResourcePolicy !== 'mutable'
         && (!/^[0-9a-f]{64}$/.test(managedResourceReleaseDigest ?? '') || !/^[0-9a-f]{64}$/.test(managedResourcePathsDigest ?? ''))
         ? 'protected managed resources require exact release and path digests'
         : managedResourcePolicy === 'mutable' && (managedResourceReleaseDigest != null || managedResourcePathsDigest != null)

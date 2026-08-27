@@ -212,7 +212,7 @@ const browserRendering: InterceptorSpec = {
  * its scoped credentials stay Worker-side in props so intercepted R2 cannot use deployment-wide
  * credentials or cross the per-user bucket boundary.
  */
-export interface StrictEgressSecurityProps {
+interface StrictEgressSecurityProps {
   bucket?: string;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;

@@ -84,6 +84,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
+  mkdirSync(join(fx, '.config/opencode/skills/personal'), { recursive: true });
   mkdirSync(join(fx, '.codex/plugins/cache/catalog'), { recursive: true });
   mkdirSync(join(fx, '.codex/cache'), { recursive: true });
   mkdirSync(join(fx, '.copilot'), { recursive: true });
@@ -108,6 +109,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
     '.config/rclone/rclone.conf': 'r2 secrets config',
+    '.config/opencode/skills/personal/SKILL.md': 'opencode personal resource',
     '.codex/plugins/cache/catalog/plugin.json': 'regenerable plugin catalog',
     '.codex/cache/index.json': 'regenerable codex cache',
     '.codex/logs_2.sqlite': 'regenerable codex log database',
@@ -276,6 +278,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/managed-paths.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
+      assert.equal(v['.config/opencode/skills/personal/SKILL.md'], 'INCLUDED');
     }
   });
 
@@ -376,6 +379,26 @@ describe('REQ-STOR-028 managed-resource rclone filter', () => {
     assert.equal(listed.stdout.includes('.claude/skills/personal/SKILL.md'), false);
     assert.equal(listed.stdout.includes('.codeflare/managed-paths.json'), false);
     assert.equal(listed.stdout.includes('.claude/skills-other/personal.md'), true);
+  });
+
+  it('rejects an oversized policy before Node reads it', () => {
+    const fx = mkdtempSync(join(tmpdir(), 'managed-filter-oversized-'));
+    const runtime = join(fx, 'run');
+    const policyPath = join(fx, '.codeflare/managed-paths.json');
+    const filterPath = join(runtime, 'managed-resources.filter');
+    mkdirSync(dirname(policyPath), { recursive: true });
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(policyPath, Buffer.alloc(8 * 1024 * 1024 + 1));
+    const prepared = spawnSync('bash', ['-c', `${functionSource}\nprepare_managed_resource_filter`], {
+      encoding: 'utf8',
+      env: {
+        ...process.env, USER_HOME: fx, MANAGED_RESOURCE_FILTER_FILE: filterPath,
+        MANAGED_RESOURCE_POLICY: 'immutable', MANAGED_RESOURCE_RELEASE_DIGEST: 'd'.repeat(64),
+        MANAGED_RESOURCE_PATHS_DIGEST: 'e'.repeat(64),
+      },
+    });
+    assert.notEqual(prepared.status, 0);
+    assert.match(prepared.stderr, /exceeds 8 MiB/);
   });
 
   it('mutable reset removes stale policy and filter before baseline', () => {

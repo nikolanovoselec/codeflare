@@ -253,6 +253,30 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['Enterprise mode', {}, true],
+      ['Strict Gateway Egress', { ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }, false],
+      ['EGRESS binding', { ENTERPRISE_MODE: 'active' }, true],
+    ])('REQ-ENTERPRISE-027: protected admission requires %s', async (_label, envOverrides, strictEgress) => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
+      testState.strictEgress = strictEgress;
+      const expectedMode = (envOverrides as Partial<Env>).ENTERPRISE_MODE === 'active' ? 'advanced' : 'default';
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: expectedMode,
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: expectedMode,
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp(envOverrides as Partial<Env>);
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(409);
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+    });
+
     it('REQ-ENTERPRISE-027: verifies protected bucket policy without cache and transports only its identity', async () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'exclusive' };
       testState.strictEgress = true;

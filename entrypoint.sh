@@ -547,6 +547,12 @@ RCLONE_FILTERS_COMMON=(
     # rule below).
     --filter "- .wrangler/**"
 
+    # OpenCode is a governed managed-resource home. Restore/sync it like the
+    # other agent homes; the generated policy filter (ordered first) removes
+    # protected exact paths or exclusive roots without swallowing adjacent user files.
+    --filter "+ .config/opencode/"
+    --filter "+ .config/opencode/**"
+
     # ~/.config/** - tool configs that all regenerate on first use:
     # configstore (npm), fish (shell), opencode, uv (Python tooling),
     # wrangler (XDG location), rclone (R2 secrets).
@@ -649,7 +655,7 @@ init_recovery_filters
 
 MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed-resources.filter"
 : > "$MANAGED_RESOURCE_FILTER_FILE"
-RCLONE_FILTERS+=(--filter-from "$MANAGED_RESOURCE_FILTER_FILE")
+RCLONE_FILTERS=(--filter-from "$MANAGED_RESOURCE_FILTER_FILE" "${RCLONE_FILTERS[@]}")
 
 prepare_managed_resource_filter() {
     local policy="${MANAGED_RESOURCE_POLICY:-mutable}"
@@ -665,6 +671,12 @@ prepare_managed_resource_filter() {
     fi
     if [ ! -f "$policy_file" ]; then
         echo "[entrypoint] ERROR: protected managed resource policy was not restored" >&2
+        return 1
+    fi
+    local policy_size
+    policy_size="$(stat -c %s "$policy_file")" || return 1
+    if [ "$policy_size" -gt $((8 * 1024 * 1024)) ]; then
+        echo "[entrypoint] ERROR: managed resource policy exceeds 8 MiB" >&2
         return 1
     fi
     node - "$policy_file" "$policy" "${MANAGED_RESOURCE_RELEASE_DIGEST:-}" "${MANAGED_RESOURCE_PATHS_DIGEST:-}" "$MANAGED_RESOURCE_FILTER_FILE" <<'NODE'

@@ -9,6 +9,7 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
+import { escapeXml } from './xml-utils';
 import { readBoundedResponse } from './bounded-stream';
 import {
   buildManagedR2Policy,
@@ -690,6 +691,7 @@ async function deleteRetiredManagedConfigs(
   endpoint: string,
   release: ManagedReleaseIndex,
   r2SseDisabled?: boolean,
+  deleteWithoutProvenance = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const client = createR2Client(env);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
@@ -698,12 +700,13 @@ async function deleteRetiredManagedConfigs(
   const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
     const url = getR2Url(endpoint, bucketName, key);
     try {
-      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-      if (head.status === 404) return {};
-      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-      // A signed retirement may remove only content still marked as Codeflare-owned.
-      // An absent marker preserves a user-created or subsequently replaced object.
-      if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      if (!deleteWithoutProvenance) {
+        const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+        if (head.status === 404) return {};
+        if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+        // Mutable mode retains AD118 ownership transfer when provenance is absent.
+        if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      }
       const response = await client.fetch(url, { method: 'DELETE' });
       if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
       return { deleted: key };
@@ -720,6 +723,7 @@ async function deleteRetiredManagedConfigs(
 
 const MAX_EXCLUSIVE_OBJECTS = 10_000;
 const MAX_EXCLUSIVE_LIST_BYTES = 1024 * 1024 * 1024;
+const MAX_EXCLUSIVE_OBJECT_BYTES = 1024 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
 
@@ -766,6 +770,7 @@ async function listExclusiveCleanupCandidates(
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
   let listedObjects = 0;
   let listBytes = 0;
+  let objectBytes = 0;
   let listPages = 0;
 
   for (const root of policy.value.resourceRoots) {
@@ -805,8 +810,12 @@ async function listExclusiveCleanupCandidates(
       }
       const parsed = parseExclusiveListPage(xml, root);
       listedObjects += parsed.objects.length;
+      objectBytes += parsed.objects.reduce((sum, object) => sum + object.size, 0);
       if (listedObjects > MAX_EXCLUSIVE_OBJECTS) {
         throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      }
+      if (objectBytes > MAX_EXCLUSIVE_OBJECT_BYTES) {
+        throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
       }
       for (const object of parsed.objects) {
         if (!protectedPaths.has(object.key)) candidates.add(object.key);
@@ -831,11 +840,20 @@ async function deleteExclusiveCleanupCandidates(
   candidates: readonly string[],
 ): Promise<string[]> {
   const client = createR2Client(env);
-  return mapWithConcurrency(candidates, async (key) => {
-    const response = await client.fetch(getR2Url(endpoint, bucketName, key), { method: 'DELETE' });
-    if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
-    return key;
+  const batches = Array.from({ length: Math.ceil(candidates.length / 1_000) }, (_, index) => (
+    candidates.slice(index * 1_000, (index + 1) * 1_000)
+  ));
+  await mapWithConcurrency(batches, async (batch) => {
+    const body = `<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>${batch
+      .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`).join('')}</Delete>`;
+    const response = await client.fetch(`${getR2Url(endpoint, bucketName)}?delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml' },
+      body,
+    });
+    if (!response.ok) throw new Error(`DeleteObjects: HTTP ${response.status}`);
   });
+  return [...candidates];
 }
 
 async function writeAndVerifyManagedPolicy(
@@ -850,7 +868,7 @@ async function writeAndVerifyManagedPolicy(
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
   const write = await client.fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...sseHeaders },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...markerHeaders(policy.value.releaseDigest), ...sseHeaders },
     body: policy.bytes,
   });
   if (!write.ok) throw new Error(`Managed policy write failed: HTTP ${write.status}`);
@@ -972,6 +990,7 @@ export async function reconcileAgentConfigs(
         endpoint,
         managedRelease.release,
         options.r2SseDisabled,
+        options.resourcePolicy !== undefined && options.resourcePolicy !== 'mutable',
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);

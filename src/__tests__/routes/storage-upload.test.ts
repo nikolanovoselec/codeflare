@@ -51,6 +51,29 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
   }
 
+  async function configureProtectedPolicy() {
+    const releaseDigest = 'd'.repeat(64);
+    const policyValue = {
+      schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
+      paths: ['.codeflare/managed-paths.json'], resourceRoots: [],
+    };
+    const policyBytes = new TextEncoder().encode(`${JSON.stringify(policyValue)}\n`);
+    const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policyBytes)))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    managedState.snapshot = {
+      configured: true, enabled: true,
+      config: { resourcePolicy: 'immutable' },
+      active: { digest: releaseDigest, sequence: 1 },
+    };
+    mockKV._set('user-prefs:test-bucket', {
+      managedEnvironmentApplied: {
+        digest: releaseDigest, sequence: 1, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
+        resourcePolicy: 'immutable', managedPathsDigest: pathsDigest, appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    mockFetch.mockResolvedValue(new Response(policyBytes, { status: 200 }));
+  }
+
   // ── Simple upload ──────────────────────────────────────────────────
 
   describe('POST /upload (simple upload)', () => {
@@ -78,27 +101,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('REQ-ENTERPRISE-027: denies protected upload before the user-object R2 request', async () => {
-      const releaseDigest = 'd'.repeat(64);
-      const policyValue = {
-        schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
-        paths: ['.codeflare/managed-paths.json'], resourceRoots: [],
-      };
-      const policyBytes = new TextEncoder().encode(`${JSON.stringify(policyValue)}\n`);
-      const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policyBytes)))
-        .map(byte => byte.toString(16).padStart(2, '0')).join('');
-      managedState.snapshot = {
-        configured: true,
-        enabled: true,
-        config: { resourcePolicy: 'immutable' },
-        active: { digest: releaseDigest, sequence: 1 },
-      };
-      mockKV._set('user-prefs:test-bucket', {
-        managedEnvironmentApplied: {
-          digest: releaseDigest, sequence: 1, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
-          resourcePolicy: 'immutable', managedPathsDigest: pathsDigest, appliedAt: '2026-01-01T00:00:00.000Z',
-        },
-      });
-      mockFetch.mockResolvedValueOnce(new Response(policyBytes, { status: 200 }));
+      await configureProtectedPolicy();
       const app = createApp();
 
       const res = await app.request('/upload', {
@@ -107,9 +110,22 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       });
 
       expect(res.status).toBe(403);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(String(mockFetch.mock.calls[0][0])).toContain('/.codeflare/managed-paths.json');
-      expect(mockFetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+      expect(mockFetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    });
+
+    it.each([
+      ['/upload/initiate', { key: '.codeflare/managed-paths.json' }],
+      ['/upload/part', { key: '.codeflare/managed-paths.json', uploadId: 'u', partNumber: 1, content: btoa('part') }],
+      ['/upload/complete', { key: '.codeflare/managed-paths.json', uploadId: 'u', parts: [{ partNumber: 1, etag: 'abc' }] }],
+      ['/upload/abort', { key: '.codeflare/managed-paths.json', uploadId: 'u' }],
+    ])('REQ-ENTERPRISE-027: denies protected multipart mutation at %s before user R2', async (path, body) => {
+      await configureProtectedPolicy();
+      const app = createApp();
+      const res = await app.request(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(403);
+      expect(mockFetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
     });
 
     it('rejects key with path traversal (..)', async () => {

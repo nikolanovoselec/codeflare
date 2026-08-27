@@ -213,6 +213,36 @@ describe('CF-016 dispatchInternalRoute', () => {
       .toBe('replacement-access');
   });
 
+  it('REQ-ENTERPRISE-027: rejects injected policy digests when policy mode is omitted', async () => {
+    const EgressController = vi.fn(() => ({ id: 'replacement' }));
+    const host = makeHost({
+      env: { ENTERPRISE_MODE: 'active' } as any,
+      ctx: {
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        exports: { EgressController },
+        container: { interceptOutboundHttps: vi.fn() },
+      } as any,
+      _bucketName: 'b',
+      _r2AccessKeyId: 'scoped-access',
+      _r2SecretAccessKey: 'scoped-secret',
+      _strictEgress: true,
+      _managedResourcePolicy: 'mutable',
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({ bucketName: 'b', managedResourceReleaseDigest: 'd'.repeat(64) }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(400);
+    expect(EgressController).not.toHaveBeenCalled();
+    expect(host._managedResourcePolicy).toBe('mutable');
+    expect(host._managedResourceReleaseDigest).toBeUndefined();
+  });
+
   it('REQ-ENTERPRISE-027: refreshes warm strict interception when only policy identity changes', async () => {
     const EgressController = vi.fn(() => ({ id: 'replacement' }));
     const interceptOutboundHttps = vi.fn();
