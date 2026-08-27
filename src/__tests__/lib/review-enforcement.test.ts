@@ -218,21 +218,42 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent).toHaveLength(0);
   });
 
-  it('asks on switch, checkout, PR checkout, pull, push, and PR creation but not inert commands', async () => {
+  it('asks on non-delivery exposures but keeps inert commands silent', async () => {
     const input = fixture();
-    const decisions = Array.from({ length: 7 }, () => undefined);
-    const app = await harness(input, decisions);
+    const app = await harness(input, Array.from({ length: 4 }, () => undefined));
     for (const command of [
       'git switch feature',
       'git checkout feature',
       'gh pr checkout 42',
       'git pull',
-      'git push origin feature',
-      'gh pr create --base main',
       'git status',
     ]) await app.emit('tool_result', boundary(command));
 
-    expect(app.prompts).toHaveLength(6);
+    expect(app.prompts).toHaveLength(4);
+    expect(app.sent).toHaveLength(0);
+  });
+
+  async function expectAutomaticDeliveryPlan(command: string, hasUI = true) {
+    const input = fixture();
+    const app = await harness(input, []);
+    app.ctx.hasUI = hasUI;
+    if (!hasUI) app.ctx.ui = undefined as never;
+    await app.emit('tool_result', boundary(command, 'delivery-1'));
+
+    expect(app.prompts).toHaveLength(0);
+    expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(app.sent[0]?.details).toMatchObject({
+      head: input.head,
+      requiredLanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
+    });
+  }
+
+  it('automatically emits the exact review plan after successful push', async () => {
+    await expectAutomaticDeliveryPlan('git push origin feature');
+  });
+
+  it('automatically emits the exact review plan after successful PR creation without requiring UI', async () => {
+    await expectAutomaticDeliveryPlan('gh pr create --base main', false);
   });
 
   it('repeats after cancellation and stays silent after marking complete', async () => {
@@ -261,13 +282,13 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent).toHaveLength(0);
   });
 
-  it('launches current contextual reviewers and CI and suppresses duplicate dialogs while active', async () => {
+  it('launches current contextual reviewers and CI and suppresses dialogs while active', async () => {
     const input = fixture();
-    const app = await harness(input, ['Launch review']);
+    const app = await harness(input, []);
     await app.emit('tool_result', boundary('git push origin feature', 'push-1'));
     await app.emit('tool_result', boundary('git pull', 'pull-2'));
 
-    expect(app.prompts).toHaveLength(1);
+    expect(app.prompts).toHaveLength(0);
     expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
     expect(app.sent[0]?.details).toMatchObject({
       head: input.head,
@@ -279,7 +300,7 @@ describe('Pi marker-or-dialog review ingress', () => {
 
   it('stamps completion only after terminal evidence and canonical triage, then emits FIX', async () => {
     const input = fixture();
-    const app = await harness(input, ['Launch review']);
+    const app = await harness(input, []);
     await app.emit('tool_result', boundary('git push origin feature', 'push-1'));
     await app.emit('agent_end');
 

@@ -531,20 +531,24 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
-    const key = JSON.stringify(review.identity);
-    if (dialogIdentity === key || !ctx.hasUI || !ctx.ui) return;
-    dialogIdentity = key;
-    const initial = readCompletion(review.identity);
     let decision: string | undefined;
-    try {
-      decision = await ctx.ui.select(
-        `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
-        [MARK_COMPLETE, LAUNCH_REVIEW],
-      );
-    } finally {
-      dialogIdentity = undefined;
+    if (ciEvent) {
+      decision = LAUNCH_REVIEW;
+    } else {
+      const key = JSON.stringify(review.identity);
+      if (dialogIdentity === key || !ctx.hasUI || !ctx.ui) return;
+      dialogIdentity = key;
+      const initial = readCompletion(review.identity);
+      try {
+        decision = await ctx.ui.select(
+          `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
+          [MARK_COMPLETE, LAUNCH_REVIEW],
+        );
+      } finally {
+        dialogIdentity = undefined;
+      }
+      if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     }
-    if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent);
     if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;

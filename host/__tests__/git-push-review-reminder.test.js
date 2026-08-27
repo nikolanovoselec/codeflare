@@ -106,7 +106,7 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.doesNotMatch(text.split('\n').slice(0, 8).join('\n'), new RegExp(fx.head));
   });
 
-  it('asks after every planned exposure and ignores inert commands', () => {
+  it('emits handling after planned exposures and ignores inert commands', () => {
     const fx = setup();
     sessionStart(fx);
     for (const command of [
@@ -122,15 +122,24 @@ describe('Claude marker-or-dialog ingress', () => {
     }
   });
 
-  it('does not auto-launch after push and includes CI only in selected launch instructions', () => {
+  it('automatically emits review and CI launch instructions after push and PR creation', () => {
+    for (const command of ['git push origin feature', 'gh pr create --base main']) {
+      const fx = setup();
+      sessionStart(fx);
+      const delivery = context(postTool(fx, command));
+      assert.doesNotMatch(delivery, /Use AskUserQuestion once/);
+      assert.match(delivery, /Execute this fresh contextual round now/);
+      assert.match(delivery, /launch public ci-monitor/);
+      assert.match(delivery, /output_file|codeflare-pr-42/);
+    }
+  });
+
+  it('keeps consent and omits CI for a non-delivery exposure', () => {
     const fx = setup();
     sessionStart(fx);
-    const push = context(postTool(fx, 'git push origin feature'));
     const pull = context(postTool(fx, 'git pull'));
-    assert.match(push, /Use AskUserQuestion once/);
-    assert.match(push, /ci-monitor/);
+    assert.match(pull, /Use AskUserQuestion once/);
     assert.doesNotMatch(pull, /launch public ci-monitor/);
-    assert.match(push, /output_file|codeflare-pr-42/);
   });
 
   it('stays silent after exact completion is marked', () => {

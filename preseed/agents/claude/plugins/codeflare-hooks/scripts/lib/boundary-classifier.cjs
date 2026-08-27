@@ -1,4 +1,4 @@
-// Shell-aware classifier for marker-or-dialog review exposures. Quoting,
+// Shell-aware classifier for marker-aware review exposures. Quoting,
 // wrappers, substitution, and heredoc bodies must not turn mentioned commands
 // into executable review ingress.
 //

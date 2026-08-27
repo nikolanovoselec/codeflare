@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart/PostToolUse hook: marker-or-dialog review ingress for root sessions.
+# SessionStart/PostToolUse hook: marker-aware automatic-delivery or consent ingress for root sessions.
 set +e
 
 INPUT=$(cat 2>/dev/null) || exit 0
@@ -112,7 +112,30 @@ case "$BOUNDARY_KIND" in
     ;;
 esac
 
-DIRECTIVE=$(cat <<EOF
+ROUND_DIRECTIVE=$(cat <<EOF
+Do not reuse prior results:
+$LANE_COMMANDS
+$CI_DIRECTIVE
+Issue all required reviewer calls together. Each command is background. After final launch, end turn. Wait for terminal evidence, then publish exactly one canonical triage table:
+| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |
+|---|---|---|---|---|
+CI failure or timeout uses FINDING Exact-head CI and PROPOSED FIX CI_RESULT failure or CI_RESULT timeout. Make no mutations in triage turn. Stop hook writes completion immediately before separate FIX reminder.
+EOF
+)
+
+case "$BOUNDARY_KIND" in
+  push|pr-create)
+    DIRECTIVE=$(cat <<EOF
+Review completion is missing for ${REPOSITORY##*/}:$BRANCH.
+Reason: $REASON.
+
+Successful $BOUNDARY_KIND is a delivery boundary. Execute this fresh contextual round now without asking for consent.
+$ROUND_DIRECTIVE
+EOF
+)
+    ;;
+  *)
+    DIRECTIVE=$(cat <<EOF
 Review completion is missing for ${REPOSITORY##*/}:$BRANCH.
 Reason: $REASON.
 
@@ -126,15 +149,12 @@ If user chooses Mark review complete, run exactly:
 node $STATE_HELPER mark --cwd $REPO
 Treat eligible=false or written failure as unacknowledged.
 
-If user chooses Launch review, start this fresh contextual round. Do not reuse prior results:
-$LANE_COMMANDS
-$CI_DIRECTIVE
-Issue all required reviewer calls together. Each command is background. After final launch, end turn. Wait for terminal evidence, then publish exactly one canonical triage table:
-| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |
-|---|---|---|---|---|
-CI failure or timeout uses FINDING Exact-head CI and PROPOSED FIX CI_RESULT failure or CI_RESULT timeout. Make no mutations in triage turn. Stop hook writes completion immediately before separate FIX reminder.
+If user chooses Launch review, start this fresh contextual round.
+$ROUND_DIRECTIVE
 EOF
 )
+    ;;
+esac
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"'"$EVENT"'",additionalContext:$ctx}}' 2>/dev/null || exit 0
 exit 0
