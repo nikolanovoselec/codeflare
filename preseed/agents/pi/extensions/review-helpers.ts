@@ -10,11 +10,13 @@ export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create";
+export type ReviewExposureKind = "clone" | "switch" | "checkout" | "pr-checkout" | "pull" | "push" | "pr-create";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
   clone?: boolean;
+  kind?: ReviewExposureKind;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 type TranscriptBoundary = {
@@ -179,20 +181,68 @@ export function shellSegments(command: string): string[] {
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let event: ReviewBoundaryEvent | undefined;
-  let clone = false;
+  let exposure: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of executableShellCommands(command)) {
     const executable = shellCommandExecutable(words);
     if (executable !== "git" && executable !== "gh") continue;
     const args = shellCommandArguments(words, executable);
-    if (executable === "git" && args[0] === "push") event = "push";
-    if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
     if ((executable === "git" && args[0] === "clone")
-      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) clone = true;
+      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) {
+      exposure = { reminder: true, settled: true, clone: true, kind: "clone" };
+    } else if (executable === "git" && args[0] === "switch"
+      && !args.includes("--detach") && !args.includes("-d")) {
+      exposure = { reminder: true, settled: true, kind: "switch" };
+    } else if (executable === "git" && args[0] === "checkout"
+      && !args.includes("--") && !args.includes("--detach")) {
+      exposure = { reminder: true, settled: true, kind: "checkout" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "checkout") {
+      exposure = { reminder: true, settled: true, kind: "pr-checkout" };
+    } else if (executable === "git" && args[0] === "pull") {
+      exposure = { reminder: true, settled: true, kind: "pull" };
+    } else if (executable === "git" && args[0] === "push") {
+      exposure = { reminder: true, settled: true, event: "push", kind: "push" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "create") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-create" };
+    }
   }
-  if (event) return { reminder: true, settled: true, event };
-  if (clone) return { reminder: true, settled: true, clone: true };
-  return { reminder: false, settled: false };
+  return exposure;
+}
+
+export function exposureTargetsCheckedOutBranch(command: string, branch: string): boolean {
+  const relevant = executableShellCommands(command)
+    .map((words) => {
+      const executable = shellCommandExecutable(words);
+      return { executable, args: shellCommandArguments(words, executable) };
+    })
+    .filter(({ executable, args }) => (executable === "git" && args[0] === "push")
+      || (executable === "gh" && args[0] === "pr" && args[1] === "create"))
+    .at(-1);
+  if (!relevant) return true;
+  if (relevant.executable === "gh") {
+    const headIndex = relevant.args.findIndex((arg) => arg === "--head" || arg === "-H");
+    const inline = relevant.args.find((arg) => arg.startsWith("--head="))?.slice("--head=".length);
+    const head = inline ?? (headIndex >= 0 ? relevant.args[headIndex + 1] : undefined);
+    return !head || head === branch || head.endsWith(`:${branch}`);
+  }
+  const takesValue = new Set(["--repo", "--receive-pack", "--exec", "--push-option", "-o"]);
+  const positional: string[] = [];
+  for (let index = 1; index < relevant.args.length; index += 1) {
+    const value = relevant.args[index] ?? "";
+    if (value === "--") {
+      positional.push(...relevant.args.slice(index + 1));
+      break;
+    }
+    if (takesValue.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("-")) continue;
+    positional.push(value);
+  }
+  const refspecs = positional.slice(1);
+  if (refspecs.length === 0) return true;
+  const sources = refspecs.map((refspec) => refspec.replace(/^\+/, "").split(":", 1)[0]);
+  return sources.every((source) => source === branch || source === `refs/heads/${branch}` || source === "HEAD");
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
@@ -557,6 +607,7 @@ export function reviewTranscriptFacts(input: {
   requiredLanes: ReviewLane[];
   ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
+  activeBoundaryToolUseId?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
@@ -600,14 +651,29 @@ export function reviewTranscriptFacts(input: {
     }
   });
   const latestBoundary = boundary;
-  const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
-    && boundaries.has(candidate.boundaryToolUseId));
-  const reviewHead = input.reviewHead ?? windows.at(-1)?.head;
-  const selectedWindow = reviewHead
-    ? windows.filter((candidate) => candidate?.head === reviewHead).at(-1)
+  const windows = entries
+    .map((entry, index) => ({ value: reviewWindow(entry), index }))
+    .filter(({ value }) => value?.boundaryToolUseId
+      && (boundaries.has(value.boundaryToolUseId)
+        || value.boundaryToolUseId === input.activeBoundaryToolUseId));
+  const reviewHead = input.reviewHead ?? windows.at(-1)?.value?.head;
+  const selected = reviewHead
+    ? windows.filter(({ value }) => value?.head === reviewHead).at(-1)
     : undefined;
+  const selectedWindow = selected?.value;
   const selectedBoundary = selectedWindow?.boundaryToolUseId
     ? boundaries.get(selectedWindow.boundaryToolUseId)
+      ?? (selectedWindow.boundaryToolUseId === input.activeBoundaryToolUseId && selected
+        ? {
+            index: selected.index,
+            value: {
+              toolUseId: selectedWindow.boundaryToolUseId,
+              command: "",
+              toolName: "",
+              toolArguments: {},
+            },
+          }
+        : undefined)
     : undefined;
   if (selectedBoundary) {
     boundaryIndex = selectedBoundary.index;
@@ -664,7 +730,7 @@ export function reviewTranscriptFacts(input: {
       ciEvent: candidate.ciEvent ?? current?.ciEvent,
       requiredLanes: candidate.requiredLanes ?? current?.requiredLanes,
     };
-  }, undefined);
+  }, selectedWindow);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;

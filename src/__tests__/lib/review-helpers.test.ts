@@ -12,6 +12,7 @@ type BoundarySurfaces = {
   settled: boolean;
   event?: BoundaryEvent;
   clone?: boolean;
+  kind?: 'clone' | 'switch' | 'checkout' | 'pr-checkout' | 'pull' | 'push' | 'pr-create';
 };
 type TranscriptFacts = {
   boundary?: {
@@ -211,17 +212,23 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies only delivery and clone review boundaries', async () => {
+  it('classifies only planned marker-or-dialog exposures and keeps final relevant command', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const push = { reminder: true, settled: true, event: 'push' as const };
-    const prCreate = { reminder: true, settled: true, event: 'pr-create' as const };
-    const clone = { reminder: true, settled: true, clone: true };
+    const push = { reminder: true, settled: true, event: 'push' as const, kind: 'push' as const };
+    const prCreate = { reminder: true, settled: true, event: 'pr-create' as const, kind: 'pr-create' as const };
+    const clone = { reminder: true, settled: true, clone: true, kind: 'clone' as const };
+    const pull = { reminder: true, settled: true, kind: 'pull' as const };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
       ['git -C . push origin 0123456789012345678901234567890123456789:develop', push],
       ['git status --short', none],
-      ['git switch develop && git pull --ff-only', none],
+      ['git switch develop && git pull --ff-only', pull],
+      ['git switch develop', { reminder: true, settled: true, kind: 'switch' }],
+      ['git checkout develop', { reminder: true, settled: true, kind: 'checkout' }],
+      ['git checkout -- README.md', none],
+      ['git checkout --detach HEAD', none],
+      ['gh pr checkout 42', { reminder: true, settled: true, kind: 'pr-checkout' }],
       ['gh pr create --base main --title review', prCreate],
       ['gh --repo owner/repo pr create --base develop --title review', prCreate],
       ['git clone --branch pi https://github.com/owner/repo.git cloned', clone],

@@ -56,12 +56,17 @@ function boundaryEvent(executable, rest, options) {
     index++;
   }
   const args = rest.slice(index);
+  if (executable === 'git' && args[0] === 'clone') return 'clone';
+  if (executable === 'gh' && args[0] === 'repo' && args[1] === 'clone') return 'clone';
+  if (executable === 'git' && args[0] === 'switch'
+    && !args.includes('--detach') && !args.includes('-d')) return 'switch';
+  if (executable === 'git' && args[0] === 'checkout'
+    && !args.includes('--') && !args.includes('--detach')) return 'checkout';
+  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'checkout') return 'pr-checkout';
+  if (executable === 'git' && args[0] === 'pull') return 'pull';
   if (executable === 'git' && args[0] === 'push') return 'push';
-  // The Stop path asks only about delivery boundaries. The PreToolUse gate also
-  // has to stop a commit, because a commit minted mid-window is the head the
-  // round was never run against.
+  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'create') return 'pr-create';
   if (executable === 'git' && args[0] === 'commit' && options && options.commit) return 'commit';
-  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'create') return 'create';
   if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) return 'merge';
   return '';
 }
@@ -214,7 +219,7 @@ function boundaryOf(text, options) {
       }
       return source.length;
     }
-    for (let i = 0; i < source.length && !found; i++) {
+    for (let i = 0; i < source.length; i++) {
       const c = source[i];
       if (c === "'") { for (i++; i < source.length && source[i] !== "'"; i++) word += source[i]; continue; }
       if (c === '"') {

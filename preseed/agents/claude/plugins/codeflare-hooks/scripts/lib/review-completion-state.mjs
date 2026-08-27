@@ -297,14 +297,79 @@ export function writeCompletion(identity, options = {}) {
   return { written: true, syncRequested };
 }
 
+function commandOutput(command, args, cwd) {
+  return execFileSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 10_000,
+  }).trim();
+}
+
+export function resolveReviewIdentity(cwd) {
+  try {
+    const repo = commandOutput('git', ['rev-parse', '--show-toplevel'], cwd);
+    const branch = commandOutput('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], repo);
+    const head = commandOutput('git', ['rev-parse', 'HEAD'], repo);
+    const repository = JSON.parse(commandOutput('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], repo));
+    const pr = JSON.parse(commandOutput('gh', [
+      'pr', 'view', branch,
+      '--json', 'state,isDraft,baseRefName,headRefName,headRefOid,number,url',
+    ], repo));
+    const gitHost = new URL(repository.url).hostname.toLowerCase();
+    const identity = normalizedIdentity({
+      gitHost,
+      repository: String(repository.nameWithOwner ?? '').toLowerCase(),
+      pr: pr.number,
+      branch: pr.headRefName,
+      base: pr.baseRefName,
+      head: pr.headRefOid,
+    });
+    return pr.state === 'OPEN'
+      && identity
+      && identity.branch === branch
+      && identity.head === head
+      ? { repo, identity }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function argumentValue(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const command = process.argv[2];
   if (command === 'prune') {
     const changed = pruneCompletionState();
     if (changed) requestCompletionSync();
     process.stdout.write(`${JSON.stringify({ changed })}\n`);
+  } else if (command === 'status' || command === 'mark') {
+    const cwd = argumentValue('--cwd');
+    const resolved = cwd ? resolveReviewIdentity(cwd) : undefined;
+    if (!resolved) {
+      process.stdout.write(`${JSON.stringify({ eligible: false })}\n`);
+    } else if (command === 'mark') {
+      const result = writeCompletion(resolved.identity);
+      process.stdout.write(`${JSON.stringify({ eligible: true, identity: resolved.identity, ...result })}\n`);
+    } else {
+      const completion = readCompletion(resolved.identity);
+      const ancestor = completion.status === 'complete'
+        ? undefined
+        : latestAncestorCompletion(resolved.identity, resolved.repo);
+      process.stdout.write(`${JSON.stringify({
+        eligible: true,
+        repo: resolved.repo,
+        identity: resolved.identity,
+        completion,
+        ancestor,
+      })}\n`);
+    }
   } else {
-    process.stderr.write('Usage: review-completion-state.mjs prune\n');
+    process.stderr.write('Usage: review-completion-state.mjs prune|status --cwd <repo>|mark --cwd <repo>\n');
     process.exitCode = 2;
   }
 }
