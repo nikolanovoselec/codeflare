@@ -276,7 +276,7 @@ export function latestAncestorCompletion(
       && marker.branch === normalized.branch
       && marker.base === normalized.base
       && marker.head !== normalized.head)
-    .sort((left, right) => Date.parse(right.reviewedAt) - Date.parse(left.reviewedAt)
+    .sort((left, right) => Date.parse(right.reviewedAt) - Date.parse(left.reviewedAt))
     .find((marker) => isAncestor(marker.head, normalized.head, repo));
 }
 
@@ -337,3 +337,5 @@ export function writeCompletion(
   const syncRequested = (options.requestSync ?? requestCompletionSync)();
   return { written: true, syncRequested };
 }
+
+export default function () {}
