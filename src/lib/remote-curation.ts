@@ -1011,6 +1011,12 @@ async function loadManagedEnvironmentConfig(
   }
 }
 
+export async function getManagedEnvironmentConfig(
+  kv: KVNamespace,
+): Promise<ManagedEnvironmentConfig | undefined> {
+  return loadManagedEnvironmentConfig(kv, true);
+}
+
 async function readEncryptedManagedPat(
   kv: KVNamespace,
   configFingerprint: string,

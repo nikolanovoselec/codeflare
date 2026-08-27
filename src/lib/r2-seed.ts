@@ -1,4 +1,4 @@
-import type { Env, SessionMode } from '../types';
+import type { Env, ManagedResourcePolicy, SessionMode } from '../types';
 import {
   streamManagedReleaseDocuments,
   type ManagedReleaseDocument,
@@ -9,6 +9,13 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
+import { readBoundedResponse } from './bounded-stream';
+import {
+  buildManagedR2Policy,
+  MANAGED_R2_POLICY_KEY,
+  readVerifiedManagedR2Policy,
+  type BuiltManagedR2Policy,
+} from './managed-r2-policy';
 
 const logger = createLogger('r2-seed');
 
@@ -711,6 +718,107 @@ async function deleteRetiredManagedConfigs(
   return { deleted, warnings };
 }
 
+const MAX_EXCLUSIVE_OBJECTS = 10_000;
+const MAX_EXCLUSIVE_LIST_BYTES = 1024 * 1024 * 1024;
+const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
+
+async function listExclusiveCleanupCandidates(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  policy: BuiltManagedR2Policy,
+): Promise<string[]> {
+  const client = createR2Client(env);
+  const candidates = new Set<string>();
+  let listedObjects = 0;
+  let listBytes = 0;
+  let listPages = 0;
+
+  for (const root of policy.value.resourceRoots) {
+    let continuationToken: string | undefined;
+    const seenContinuationTokens = new Set<string>();
+    do {
+      const url = new URL(getR2Url(endpoint, bucketName));
+      url.searchParams.set('list-type', '2');
+      url.searchParams.set('prefix', root.slice(0, -1));
+      url.searchParams.set('max-keys', '1000');
+      if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
+      listPages += 1;
+      if (listPages > MAX_EXCLUSIVE_LIST_PAGES) throw new Error('Exclusive managed-resource cleanup exceeds listing page limit');
+      const response = await client.fetch(url.toString(), { method: 'GET' });
+      if (!response.ok) throw new Error(`Exclusive managed-resource listing failed: HTTP ${response.status}`);
+      const bytes = await readBoundedResponse(
+        response,
+        MAX_EXCLUSIVE_LIST_BYTES - listBytes,
+        'Exclusive managed-resource listing metadata',
+      );
+      listBytes += bytes.byteLength;
+      const parsed = parseListObjectsXml(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      listedObjects += parsed.objects.length;
+      if (listedObjects > MAX_EXCLUSIVE_OBJECTS) {
+        throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      }
+      for (const object of parsed.objects) {
+        if (
+          (object.key === root.slice(0, -1) || object.key.startsWith(root))
+          && !policy.value.paths.includes(object.key)
+        ) {
+          candidates.add(object.key);
+        }
+      }
+      if (parsed.isTruncated && !parsed.nextContinuationToken) {
+        throw new Error('Exclusive managed-resource listing omitted its continuation token');
+      }
+      if (parsed.nextContinuationToken && seenContinuationTokens.has(parsed.nextContinuationToken)) {
+        throw new Error('Exclusive managed-resource listing repeated its continuation token');
+      }
+      if (parsed.nextContinuationToken) seenContinuationTokens.add(parsed.nextContinuationToken);
+      continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
+    } while (continuationToken);
+  }
+  return [...candidates].sort();
+}
+
+async function deleteExclusiveCleanupCandidates(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+): Promise<string[]> {
+  const client = createR2Client(env);
+  return mapWithConcurrency(candidates, async (key) => {
+    const response = await client.fetch(getR2Url(endpoint, bucketName, key), { method: 'DELETE' });
+    if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+    return key;
+  });
+}
+
+async function writeAndVerifyManagedPolicy(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  policy: BuiltManagedR2Policy,
+  r2SseDisabled?: boolean,
+): Promise<void> {
+  const client = createR2Client(env);
+  const url = getR2Url(endpoint, bucketName, MANAGED_R2_POLICY_KEY);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const write = await client.fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...sseHeaders },
+    body: policy.bytes,
+  });
+  if (!write.ok) throw new Error(`Managed policy write failed: HTTP ${write.status}`);
+  await readVerifiedManagedR2Policy({
+    fetchPolicyObject: () => client.fetch(url, { method: 'GET', headers: sseHeaders }),
+    releaseDigest: policy.value.releaseDigest,
+    pathsDigest: policy.digest,
+    expectedPolicy: policy.value.resourcePolicy,
+    bypassMemoryCache: true,
+  });
+}
+
+/** @impl REQ-STOR-028 AC5 */
 export async function reconcileAgentConfigs(
   env: SeedEnv,
   bucketName: string,
@@ -726,10 +834,20 @@ export async function reconcileAgentConfigs(
     priorManagedRelease?: PriorManagedReleaseSelection;
     /** Prior applied ownership marker used only for bounded current-release paths. */
     priorManagedDigest?: string;
+    /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
+    resourcePolicy?: ManagedResourcePolicy;
   }
-): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
+): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[]; managedPathsDigest?: string }> {
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
+  const policy = options.resourcePolicy && options.resourcePolicy !== 'mutable'
+    ? managedRelease
+      ? await buildManagedR2Policy(managedRelease.digest, managedRelease.release, options.resourcePolicy)
+      : (() => { throw new Error('Protected managed-resource policy requires a verified active release'); })()
+    : undefined;
+  const exclusiveCandidates = policy?.value.resourcePolicy === 'exclusive'
+    ? await listExclusiveCleanupCandidates(env, bucketName, endpoint, policy)
+    : [];
   const seedResult = managedRelease
     ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
         overwrite: options.overwrite,
@@ -815,6 +933,20 @@ export async function reconcileAgentConfigs(
     }
   }
 
+  if (exclusiveCandidates.length > 0) {
+    deleted.push(...await deleteExclusiveCleanupCandidates(env, bucketName, endpoint, exclusiveCandidates));
+  }
+
+  if (policy) {
+    await writeAndVerifyManagedPolicy(env, bucketName, endpoint, policy, options.r2SseDisabled);
+  } else if (options.resourcePolicy === 'mutable') {
+    const response = await createR2Client(env).fetch(
+      getR2Url(endpoint, bucketName, MANAGED_R2_POLICY_KEY),
+      { method: 'DELETE' },
+    );
+    if (!response.ok && response.status !== 404) throw new Error(`Managed policy delete failed: HTTP ${response.status}`);
+  }
+
   logger.info('Reconciled agent configs', {
     bucketName,
     mode,
@@ -831,6 +963,7 @@ export async function reconcileAgentConfigs(
     skipped: seedResult.skipped,
     deleted,
     warnings,
+    ...(policy ? { managedPathsDigest: policy.digest } : {}),
   };
 }
 

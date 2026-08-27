@@ -14,6 +14,7 @@ import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 import { getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../../lib/managed-release-active';
+import { getManagedEnvironmentConfig } from '../../lib/remote-curation';
 
 const logger = createLogger('storage-seed');
 
@@ -83,6 +84,9 @@ app.post('/agent-configs', async (c) => {
 
   try {
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
+    const managedConfig = await getManagedEnvironmentConfig(c.env.KV);
+    if (activeManagedRelease && !managedConfig) throw new Error('Active managed release has no valid managed environment configuration');
+    const resourcePolicy = activeManagedRelease ? managedConfig!.resourcePolicy : 'mutable';
     let priorManagedRelease: PriorManagedReleaseSelection | undefined;
     let priorManagedDigest: string | undefined;
     const applied = preferences?.managedEnvironmentApplied;
@@ -131,11 +135,14 @@ app.post('/agent-configs', async (c) => {
     const managedOptions = activeManagedRelease
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
+          resourcePolicy,
           ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
         }
       : priorManagedRelease
-        ? { managedRelease: null, priorManagedRelease }
-        : {};
+        ? { managedRelease: null, priorManagedRelease, resourcePolicy: 'mutable' as const }
+        : priorManagedDigest
+          ? { resourcePolicy: 'mutable' as const }
+          : {};
 
     const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {
       overwrite: true,
@@ -146,6 +153,9 @@ app.post('/agent-configs', async (c) => {
     });
     if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
       throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
+    }
+    if (resourcePolicy !== 'mutable' && !result.managedPathsDigest) {
+      throw new Error('Protected managed-resource reconciliation did not verify policy identity');
     }
 
     // Context-mode stays image-owned even during remote curation. Complete this
@@ -183,6 +193,8 @@ app.post('/agent-configs', async (c) => {
             managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
             sequence: activeManagedRelease.release.sequence,
             mode,
+            resourcePolicy,
+            ...(result.managedPathsDigest ? { managedPathsDigest: result.managedPathsDigest } : {}),
             appliedAt: new Date().toISOString(),
           },
         }

@@ -238,6 +238,82 @@ describe('managed release user-bucket reconciliation', () => {
     expect(manifestBody).not.toContain('PK');
   });
 
+  it('REQ-STOR-028 AC5: writes and read-verifies canonical protected policy after managed content', async () => {
+    const digest = 'd'.repeat(64);
+    const managedRelease = await selection(digest, release(2, [
+      document('.claude/skills/company/SKILL.md', ['advanced']),
+      document('.pi/agent/AGENTS.md', ['default']),
+    ]));
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease,
+      resourcePolicy: 'immutable',
+    });
+
+    const policy = JSON.parse(new TextDecoder().decode(policyBytes as Uint8Array));
+    expect(policy).toMatchObject({
+      schemaVersion: 1,
+      releaseDigest: digest,
+      resourcePolicy: 'immutable',
+      resourceRoots: [],
+    });
+    expect(policy.paths).toContain('.claude/skills/company/SKILL.md');
+    expect(policy.paths).toContain('.pi/agent/AGENTS.md');
+    expect(result.managedPathsDigest).toMatch(/^[0-9a-f]{64}$/);
+    const policyCalls = fetchR2.mock.calls.filter(([url]) => String(url).endsWith('/.codeflare/managed-paths.json'));
+    expect(policyCalls.map(([, init]) => init?.method)).toEqual(['PUT', 'GET']);
+    expect(fetchR2.mock.calls.at(-1)?.[1]?.method).toBe('GET');
+  });
+
+  it('REQ-STOR-028 AC5: exclusive cleanup bounds fail before every mutation', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const objects = Array.from({ length: 10_001 }, (_, index) => (
+      `<Contents><Key>.claude/skills/personal-${index}.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`
+    )).join('');
+    fetchR2.mockResolvedValue(new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${objects}</ListBucketResult>`, { status: 200 }));
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease,
+      resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/10,000 objects/);
+    expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
+  });
+
+  it('REQ-STOR-028 AC3: exclusive generation fails before every R2 request', async () => {
+    const unknown = await selection('e'.repeat(64), release(3, [document('.claude/toolboxes/company.md')]));
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: unknown,
+      resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/recognized managed resource category/);
+    expect(fetchR2).not.toHaveBeenCalled();
+  });
+
+  it('REQ-STOR-028 AC5: mutable transition removes stale canonical policy', async () => {
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection('d'.repeat(64), release(2, [])),
+      resourcePolicy: 'mutable',
+    });
+
+    expect(fetchR2).toHaveBeenCalledWith(
+      `${endpoint}/bucket/.codeflare/managed-paths.json`,
+      { method: 'DELETE' },
+    );
+  });
+
   it('REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes', async () => {
     const managedRelease = await selection('f'.repeat(64), release(3, []));
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
