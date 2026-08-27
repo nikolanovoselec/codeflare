@@ -327,6 +327,25 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).toContain('After the final launch:** End this turn immediately.');
   });
 
+  it('emits copy-ready standalone reviewer assignment contracts without punctuation', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-contracts'));
+
+    const content = app.sent[0]?.content ?? '';
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      expect(content).toContain([
+        `- \`${lane}\``,
+        '```text',
+        'scope=diff',
+        'review_base=origin/main',
+        `output_file=/tmp/codeflare-pr-42-${input.head.slice(0, 12)}-${lane}.md`,
+        '```',
+      ].join('\n'));
+    }
+    expect(content).not.toMatch(/output_file=\S+\.md[.,]/);
+  });
+
   it('automatically emits the exact review plan after successful PR creation without requiring UI', async () => {
     await expectAutomaticDeliveryPlan('gh pr create --base main', false);
   });

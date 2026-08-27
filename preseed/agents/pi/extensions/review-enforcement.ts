@@ -351,14 +351,23 @@ function scopeSummary(pr: PrState, range: string | undefined): string {
   return range ? `diff · \`review_range=${range}\`` : `full PR against \`origin/${pr.baseRefName}\``;
 }
 
-function reviewerPromptScope(pr: PrState, range: string | undefined): string {
-  return range
-    ? `\`scope=diff\` and \`review_range=${range}\``
-    : `\`scope=diff\` and \`review_base=origin/${pr.baseRefName}\``;
+function reviewerScopeAssignment(pr: PrState, range: string | undefined): string {
+  return range ? `review_range=${range}` : `review_base=origin/${pr.baseRefName}`;
 }
 
 function reviewerOutputPath(pr: PrState, lane: ReviewLane): string {
   return `/tmp/codeflare-pr-${pr.number}-${pr.headRefOid.slice(0, 12)}-${lane}.md`;
+}
+
+function reviewerPromptContract(pr: PrState, range: string | undefined, lane: ReviewLane): string[] {
+  return [
+    `- \`${lane}\``,
+    "```text",
+    "scope=diff",
+    reviewerScopeAssignment(pr, range),
+    `output_file=${reviewerOutputPath(pr, lane)}`,
+    "```",
+  ];
 }
 
 type LaunchMessage = {
@@ -382,10 +391,9 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       `- Agents: ${input.reviewers.map((lane) => `\`${lane}\``).join(", ")}`,
       "- Calls: public background subagents",
       "- `inherit_context`: `false`",
-      `- Prompt scope: ${reviewerPromptScope(input.pr, input.range)}`,
-      "- Output files:",
-      ...input.reviewers.map((lane) => `  - \`${lane}\`: \`output_file=${reviewerOutputPath(input.pr, lane)}\``),
-      "- Every reviewer prompt must include its lane's exact `output_file=<path>` value.",
+      "- Copy each lane's three assignment lines unchanged into its prompt:",
+      ...input.reviewers.flatMap((lane) => reviewerPromptContract(input.pr, input.range, lane)),
+      "- Keep every assignment on its own line. Do not add punctuation or Markdown delimiters to assignment values.",
     ].join("\n"));
   }
   if (input.ciEvent) {
