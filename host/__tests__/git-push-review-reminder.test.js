@@ -46,12 +46,21 @@ case "$1 $2" in
   "repo view") printf '%s\\n' '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
   "pr view")
     [ "\${GH_FAIL:-0}" = 0 ] || exit 1
-    printf '%s\\n' '{"state":"'"\${PR_STATE:-OPEN}"'","isDraft":false,"baseRefName":"main","headRefName":"feature","headRefOid":"'"\${PR_HEAD}"'","number":42,"url":"https://github.com/owner/repo/pull/42"}'
+    HEAD_VALUE="\${PR_HEAD}"
+    if [ -n "\${PR_HEAD_SEQUENCE_FILE:-}" ] && [ -s "$PR_HEAD_SEQUENCE_FILE" ]; then
+      HEAD_VALUE=$(sed -n '1p' "$PR_HEAD_SEQUENCE_FILE")
+      sed '1d' "$PR_HEAD_SEQUENCE_FILE" > "$PR_HEAD_SEQUENCE_FILE.next"
+      mv "$PR_HEAD_SEQUENCE_FILE.next" "$PR_HEAD_SEQUENCE_FILE"
+    fi
+    printf '%s\\n' '{"state":"'"\${PR_STATE:-OPEN}"'","isDraft":false,"baseRefName":"main","headRefName":"feature","headRefOid":"'"\${HEAD_VALUE}"'","number":42,"url":"https://github.com/owner/repo/pull/42"}'
     ;;
   *) exit 1 ;;
 esac
 `);
   chmodSync(gh, 0o755);
+  const sleep = join(bin, 'sleep');
+  writeFileSync(sleep, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "${SLEEP_LOG:-/dev/null}"\n');
+  chmodSync(sleep, 0o755);
   const env = {
     ...process.env,
     HOME: home,
@@ -90,6 +99,15 @@ function context(result) {
   return JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
 }
 
+function sequenceHeads(fx, heads) {
+  const sequence = join(fx.home, 'pr-heads');
+  const sleepLog = join(fx.home, 'sleep.log');
+  writeFileSync(sequence, `${heads.join('\n')}\n`);
+  writeFileSync(sleepLog, '');
+  fx.env = { ...fx.env, PR_HEAD_SEQUENCE_FILE: sequence, SLEEP_LOG: sleepLog };
+  return sleepLog;
+}
+
 afterEach(() => {
   for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });
@@ -104,6 +122,16 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.match(text, /Reason: no saved completion\./);
     assert.match(text, /Mark review complete\n- Launch review/);
     assert.doesNotMatch(text.split('\n').slice(0, 8).join('\n'), new RegExp(fx.head));
+  });
+
+  it('suppresses review ingress only during an open SDD transition', () => {
+    const fx = setup();
+    writeFileSync(join(fx.repo, 'sdd/spec/config.yml'), 'transition: true\n');
+    writeFileSync(join(fx.repo, 'sdd/spec/.init-triage.md'), '**Status:** open\n');
+    assert.equal(postTool(fx, 'git push origin feature').stdout, '');
+
+    writeFileSync(join(fx.repo, 'sdd/spec/.init-triage.md'), '**Status:** resolved\n');
+    assert.match(context(postTool(fx, 'git push origin feature')), /Execute this fresh contextual round now/);
   });
 
   it('emits handling after planned exposures and ignores inert commands', () => {
@@ -136,6 +164,34 @@ describe('Claude marker-or-dialog ingress', () => {
       assert.match(delivery, /reject unsupported or overengineered proposals/);
       assert.match(delivery, /prefer the smallest correction that reuses existing machinery/);
     }
+  });
+
+  it('retries delivery until the authoritative PR head catches up', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, [previous, previous, fx.head]);
+    const result = postTool(fx, 'git push origin feature');
+
+    assert.match(context(result), /Execute this fresh contextual round now/);
+    assert.equal(readFileSync(sleepLog, 'utf8'), '1\n3\n');
+  });
+
+  it('gives up silently after bounded authoritative-head retries', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, Array.from({ length: 6 }, () => previous));
+
+    assert.equal(postTool(fx, 'git push origin feature').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '1\n3\n5\n10\n15\n');
+  });
+
+  it('never retries authoritative state for non-delivery exposure', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, [previous, fx.head]);
+
+    assert.equal(postTool(fx, 'git pull').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '');
   });
 
   it('rejects delivery commands targeting another branch, PR, or repository', () => {
@@ -205,9 +261,33 @@ describe('Claude marker-or-dialog ingress', () => {
     sessionStart(fx);
     appendFileSync(fx.transcript, `${JSON.stringify({
       type: 'message',
-      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'lane-1', name: 'Bash', input: { command: 'bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main' } }] },
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'lane-1', name: 'Bash', input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main` } }] },
     })}\n`);
     assert.equal(postTool(fx, 'git pull').stdout, '');
+  });
+
+  it('does not let an older head, PR prefix, or quoted text suppress current-head delivery', () => {
+    const fx = setup();
+    sessionStart(fx);
+    appendFileSync(fx.transcript, `${JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: [{
+        type: 'tool_use', id: 'old-same-pr', name: 'Bash',
+        input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main` },
+      }, {
+        type: 'tool_use', id: 'prefix-lane', name: 'Bash',
+        input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 420 --base main` },
+      }, {
+        type: 'text', text: `CODEFLARE_REVIEW_HEAD=${'f'.repeat(40)} bash run-review-lane.sh --boundary-pr 42`,
+      }] },
+    })}\n`);
+    writeFileSync(join(fx.repo, 'next.ts'), 'export const next = true;\n');
+    git(fx.repo, 'add', 'next.ts');
+    git(fx.repo, 'commit', '-m', 'next head');
+    fx.head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: fx.head };
+
+    assert.match(context(postTool(fx, 'git push origin feature')), /Execute this fresh contextual round now/);
   });
 
   it('fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD', () => {

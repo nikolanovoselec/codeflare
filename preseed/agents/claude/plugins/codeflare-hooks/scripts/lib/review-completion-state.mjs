@@ -310,11 +310,11 @@ function commandOutput(command, args, cwd) {
   }).trim();
 }
 
-export function resolveReviewIdentity(cwd) {
+export function resolveReviewCandidate(cwd) {
   try {
     const repo = commandOutput('git', ['rev-parse', '--show-toplevel'], cwd);
     const branch = commandOutput('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], repo);
-    const head = commandOutput('git', ['rev-parse', 'HEAD'], repo);
+    const localHead = commandOutput('git', ['rev-parse', 'HEAD'], repo);
     const repository = JSON.parse(commandOutput('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], repo));
     const pr = JSON.parse(commandOutput('gh', [
       'pr', 'view', branch,
@@ -329,15 +329,17 @@ export function resolveReviewIdentity(cwd) {
       base: pr.baseRefName,
       head: pr.headRefOid,
     });
-    return pr.state === 'OPEN'
-      && identity
-      && identity.branch === branch
-      && identity.head === head
-      ? { repo, identity }
+    return pr.state === 'OPEN' && identity && identity.branch === branch
+      ? { repo, identity, localHead, eligible: identity.head === localHead }
       : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function resolveReviewIdentity(cwd) {
+  const candidate = resolveReviewCandidate(cwd);
+  return candidate?.eligible ? { repo: candidate.repo, identity: candidate.identity } : undefined;
 }
 
 function argumentValue(name) {
@@ -353,21 +355,29 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.stdout.write(`${JSON.stringify({ changed })}\n`);
   } else if (command === 'status' || command === 'mark') {
     const cwd = argumentValue('--cwd');
-    const resolved = cwd ? resolveReviewIdentity(cwd) : undefined;
-    if (!resolved) {
+    const candidate = cwd ? resolveReviewCandidate(cwd) : undefined;
+    if (!candidate || (command === 'mark' && !candidate.eligible)) {
       process.stdout.write(`${JSON.stringify({ eligible: false })}\n`);
+    } else if (!candidate.eligible) {
+      process.stdout.write(`${JSON.stringify({
+        eligible: false,
+        retryable: true,
+        repo: candidate.repo,
+        identity: candidate.identity,
+        localHead: candidate.localHead,
+      })}\n`);
     } else if (command === 'mark') {
-      const result = writeCompletion(resolved.identity);
-      process.stdout.write(`${JSON.stringify({ eligible: true, identity: resolved.identity, ...result })}\n`);
+      const result = writeCompletion(candidate.identity);
+      process.stdout.write(`${JSON.stringify({ eligible: true, identity: candidate.identity, ...result })}\n`);
     } else {
-      const completion = readCompletion(resolved.identity);
+      const completion = readCompletion(candidate.identity);
       const ancestor = completion.status === 'complete'
         ? undefined
-        : latestAncestorCompletion(resolved.identity, resolved.repo);
+        : latestAncestorCompletion(candidate.identity, candidate.repo);
       process.stdout.write(`${JSON.stringify({
         eligible: true,
-        repo: resolved.repo,
-        identity: resolved.identity,
+        repo: candidate.repo,
+        identity: candidate.identity,
         completion,
         ancestor,
       })}\n`);

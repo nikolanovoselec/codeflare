@@ -162,14 +162,14 @@ function toolResult(
 
 function reviewReminder(
   head: string,
-  reviewRange: string,
+  reviewRange: string | undefined,
   base = 'main',
   boundaryToolUseId = 'push-1',
   ciEvent?: BoundaryEvent,
 ): Record<string, unknown> {
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
-    content: `review_range=${reviewRange}`,
+    content: reviewRange ? `review_range=${reviewRange}` : 'full PR',
     details: {
       head,
       reviewRange,
@@ -182,6 +182,10 @@ function reviewReminder(
     },
     display: true,
   });
+}
+
+function reviewerPrompt(lane: ReviewLane, head: string, scope: string): string {
+  return `scope=diff ${scope} output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-${lane}.md`;
 }
 
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
@@ -695,7 +699,8 @@ describe('native Pi transcript review facts', () => {
       toolResult('push-1', 'bash'),
       reviewReminder(head, reviewRange, 'develop'),
       assistantTool('code-range', 'subagent', {
-        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${reviewRange}`,
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
       }),
       assistantTool('spec-full', 'subagent', {
         subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: 'review full PR against main',
@@ -712,6 +717,42 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
+  });
+
+  it('REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const common = [
+      assistantTool('push-full', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-full', 'bash'),
+      reviewReminder(head, undefined, 'develop', 'push-full'),
+    ];
+    for (const prompt of [
+      `review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      'scope=diff review_base=origin/develop output_file=/tmp/wrong.md',
+    ]) {
+      const sessionFile = writeSession([
+        ...common,
+        assistantTool('code-wrong', 'subagent', {
+          subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt,
+        }),
+        notification('code-wrong'),
+      ]);
+      expect(reviewTranscriptFacts({ sessionFile, requiredLanes: ['code-reviewer'] }).lanes['code-reviewer'])
+        .toEqual({ state: 'missing' });
+    }
+
+    const valid = writeSession([
+      ...common,
+      assistantTool('code-valid', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, 'review_base=origin/develop'),
+      }),
+      notification('code-valid'),
+    ]);
+    expect(reviewTranscriptFacts({ sessionFile: valid, requiredLanes: ['code-reviewer'] }).lanes['code-reviewer'])
+      .toEqual({ state: 'terminal', toolUseId: 'code-valid' });
   });
 
   it('REQ-AGENT-098/REQ-AGENT-126: selects the latest boundary cycle when one head has multiple review windows', async () => {
@@ -770,9 +811,9 @@ describe('native Pi transcript review facts', () => {
         assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
         toolResult('push-1', 'bash'),
         reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
-        assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
-        assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
-        assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
+        assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('code-reviewer', head, `review_range=${'a'.repeat(40)}..${head}`) }),
+        assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('spec-reviewer', head, `review_range=${'a'.repeat(40)}..${head}`) }),
+        assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('doc-updater', head, `review_range=${'a'.repeat(40)}..${head}`) }),
         notification('code-1'),
         notification('spec-1'),
         notification('doc-1'),

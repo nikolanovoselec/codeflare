@@ -163,13 +163,14 @@ describe('Claude current-round completion enforcement', () => {
     assert.equal(markerStatus(fx), 'complete');
   });
 
-  it('stays silent and unacknowledged without triage', () => {
+  it('blocks with canonical triage instruction when terminal evidence is untriaged', () => {
     const fx = setup();
     start(fx);
     round(fx, { withTriage: false });
     const result = stop(fx);
-    assert.equal(result.status, 0);
-    assert.equal(result.stderr, '');
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /publish the canonical triage table/);
+    assert.match(result.stderr, /reject unsupported or overengineered proposals/);
     assert.notEqual(markerStatus(fx), 'complete');
   });
 
@@ -179,7 +180,7 @@ describe('Claude current-round completion enforcement', () => {
       start(missing);
       round(missing, { ciResult, withTriage: false });
       append(missing, triage());
-      assert.equal(stop(missing).status, 0);
+      assert.equal(stop(missing).status, 2);
 
       for (const formattedCi of [false, true]) {
         const fx = setup();

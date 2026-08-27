@@ -782,8 +782,16 @@ export function reviewTranscriptFacts(input: {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-      const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
+      const expectedScope = window?.range
+        ? `review_range=${window.range}`
+        : window?.base ? `review_base=origin/${window.base}` : undefined;
+      const expectedOutput = window?.prNumber && window.head
+        ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
+        : undefined;
+      const wrongContract = Boolean(window && (!prompt.includes("scope=diff")
+        || (expectedScope && !prompt.includes(expectedScope))
+        || (expectedOutput && !prompt.includes(expectedOutput))));
+      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);

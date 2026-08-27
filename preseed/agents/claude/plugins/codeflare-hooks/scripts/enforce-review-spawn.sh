@@ -131,6 +131,10 @@ process.stdout.write(JSON.stringify({ state: triage ? 'triaged' : 'awaiting-tria
 NODE
 ) || exit 0
 STATE=$(printf '%s' "$ANALYSIS" | jq -r '.state // "none"' 2>/dev/null)
+if [ "$STATE" = "awaiting-triage" ]; then
+  printf '%s\n' 'Review evidence is terminal. Before FIX, publish the canonical triage table with columns FINDING, VALIDITY, PROPOSED FIX, PROPORTIONALITY, and MINIMAL DECISION. Verify evidence and scope, judge each finding separately from its proposed fix, reject unsupported or overengineered proposals, prefer the smallest correction reusing existing machinery, make no mutation, and end the turn.' >&2
+  exit 2
+fi
 if [ "$STATE" = "failed" ]; then
   wc -c < "$TRANSCRIPT" 2>/dev/null > "$OFFSET_FILE" || true
   exit 0

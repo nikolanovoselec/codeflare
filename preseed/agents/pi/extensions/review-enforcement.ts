@@ -260,7 +260,7 @@ async function currentReview(
   const repositoryIdentity = await (dependencies.queryRepository ?? queryRepository)(root);
   if (!branch || !head || !repositoryIdentity) return undefined;
   const delays = ciEvent
-    ? dependencies.headRetryDelaysMs ?? [0, 300, 600, 1_200]
+    ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
     : [0];
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delay of delays) {

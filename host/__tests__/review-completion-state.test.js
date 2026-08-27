@@ -70,7 +70,7 @@ describe('Claude review completion helper parity', () => {
 
   it('prunes expired and excess markers and finds newest same-PR ancestor', () => {
     const stateRoot = root();
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 11; index >= 0; index -= 1) {
       writeCompletion(
         identity({ head: index.toString(16).padStart(40, '0') }),
         options(stateRoot, new Date(NOW.getTime() - index * DAY)),

@@ -69,7 +69,21 @@ if grep -q '^transition:[[:space:]]*true' "$CONFIG" 2>/dev/null \
   exit 0
 fi
 
-STATUS=$(node "$STATE_HELPER" status --cwd "$REPO" 2>/dev/null) || exit 0
+STATUS=""
+case "$BOUNDARY_KIND" in
+  push|pr-create)
+    for RETRY_DELAY in 0 1 3 5 10 15; do
+      [ "$RETRY_DELAY" = 0 ] || sleep "$RETRY_DELAY"
+      STATUS=$(node "$STATE_HELPER" status --cwd "$REPO" 2>/dev/null) || exit 0
+      [ "$(printf '%s' "$STATUS" | jq -r '.eligible // false' 2>/dev/null)" != "true" ] || break
+      [ "$(printf '%s' "$STATUS" | jq -r '.retryable // false' 2>/dev/null)" = "true" ] || break
+      REMOTE_HEAD=$(printf '%s' "$STATUS" | jq -r '.identity.head // empty' 2>/dev/null)
+      LOCAL_HEAD=$(printf '%s' "$STATUS" | jq -r '.localHead // empty' 2>/dev/null)
+      git -C "$REPO" merge-base --is-ancestor "$REMOTE_HEAD" "$LOCAL_HEAD" 2>/dev/null || break
+    done
+    ;;
+  *) STATUS=$(node "$STATE_HELPER" status --cwd "$REPO" 2>/dev/null) || exit 0 ;;
+esac
 [ "$(printf '%s' "$STATUS" | jq -r '.eligible // false' 2>/dev/null)" = "true" ] || exit 0
 MARKER_STATUS=$(printf '%s' "$STATUS" | jq -r '.completion.status // "missing"' 2>/dev/null)
 [ "$MARKER_STATUS" != "complete" ] || exit 0
@@ -95,8 +109,11 @@ fi
 OFFSET=$(cat "$OFFSET_FILE" 2>/dev/null)
 case "$OFFSET" in ''|*[!0-9]*) OFFSET=0 ;; esac
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  tail -c +$((OFFSET + 1)) "$TRANSCRIPT" 2>/dev/null \
-    | grep -qF -- "--boundary-pr $PR_NUMBER" && exit 0
+  ACTIVE=$(node -e '
+    const { currentRoundVisible } = require(process.argv[1]);
+    process.stdout.write(currentRoundVisible(process.argv[2], Number(process.argv[3]), Number(process.argv[4]), process.argv[5]) ? "true" : "false");
+  ' "$CLASSIFIER" "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" 2>/dev/null) || ACTIVE=false
+  [ "$ACTIVE" != "true" ] || exit 0
 fi
 
 case "$MARKER_STATUS" in
@@ -117,7 +134,7 @@ fi
 LANE_COMMANDS=""
 for LANE in $REQUIRED_LANES; do
   OUTPUT_FILE="/tmp/codeflare-pr-$PR_NUMBER-${HEAD:0:12}-$LANE.md"
-  LANE_COMMANDS="$LANE_COMMANDS\n- CODEFLARE_REVIEW_CI=$BOUNDARY_KIND bash $RUNNER --lane $LANE --boundary-pr $PR_NUMBER $LANE_SCOPE > $OUTPUT_FILE 2>&1 (background)"
+  LANE_COMMANDS="$LANE_COMMANDS\n- CODEFLARE_REVIEW_CI=$BOUNDARY_KIND CODEFLARE_REVIEW_HEAD=$HEAD bash $RUNNER --lane $LANE --boundary-pr $PR_NUMBER $LANE_SCOPE > $OUTPUT_FILE 2>&1 (background)"
 done
 CI_DIRECTIVE=""
 case "$BOUNDARY_KIND" in

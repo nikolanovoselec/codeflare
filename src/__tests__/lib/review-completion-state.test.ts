@@ -87,7 +87,7 @@ describe('user-scoped review completion state', () => {
       identity({ head: 'f'.repeat(40), pr: 99 }),
       options(stateRoot, new Date(NOW.getTime() - 31 * DAY)),
     );
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 11; index >= 0; index -= 1) {
       writeCompletion(
         identity({ head: index.toString(16).padStart(40, '0') }),
         options(stateRoot, new Date(NOW.getTime() - index * DAY)),

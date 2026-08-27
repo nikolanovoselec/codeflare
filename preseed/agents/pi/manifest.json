@@ -12,6 +12,7 @@
   },
   "extensions/review-completion-state.ts": {
     "modes": [
+      "default",
       "advanced"
     ]
   },

@@ -6,6 +6,7 @@
 // planned exposure, and the final relevant exposure name otherwise. The
 // optional commit mode remains available to unrelated mutation guards.
 
+const fs = require('node:fs');
 const path = require('node:path');
 
 const EMPTY = new Set();
@@ -320,4 +321,34 @@ function cloneTargetPath(text, cwd) {
   return target ? path.resolve(cwd, target) : undefined;
 }
 
-module.exports = { boundaryOf, boundaryDetails, cloneTargetPath, exposureTargetsCheckedOutBranch };
+function currentRoundVisible(transcript, offset, pr, head) {
+  let data;
+  try {
+    data = fs.readFileSync(transcript).subarray(offset).toString('utf8');
+  } catch {
+    return false;
+  }
+  const prToken = new RegExp(`(?:^|\\s)--boundary-pr(?:=|\\s+)${pr}(?=\\s|$)`);
+  const headToken = new RegExp(`(?:^|\\s)CODEFLARE_REVIEW_HEAD=${head}(?=\\s|$)`);
+  const runner = /(?:^|[;&|]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]+\s+)*bash\s+[^\s;&|]*run-review-lane\.sh(?=\s|$)/;
+  for (const line of data.split('\n')) {
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    const content = entry?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part?.type !== 'tool_use' && part?.type !== 'toolCall') continue;
+      const command = part?.input?.command ?? part?.arguments?.command;
+      if (typeof command === 'string' && runner.test(command) && prToken.test(command) && headToken.test(command)) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = {
+  boundaryOf,
+  boundaryDetails,
+  cloneTargetPath,
+  currentRoundVisible,
+  exposureTargetsCheckedOutBranch,
+};

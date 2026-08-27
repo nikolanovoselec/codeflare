@@ -1316,7 +1316,7 @@ Both runtimes require an advanced SDD checkout whose local branch and full `HEAD
 
 Completion lives under `~/.codeflare/review-state/v1`, not under `.git`. Do not create or repair legacy acknowledgement, plan, CI, count, bypass, or cache files. A valid exact marker suppresses the dialog. Invalid and expired markers act as absent; startup prunes them, keeps ten per repository and branch, and asks again.
 
-Pi registers SessionStart plus supported shell-result exposures. Claude registers `git-push-review-reminder.sh` for SessionStart and PostToolUse. If Claude never asks, verify both hook entries in `~/.claude/settings.json`, the helper and classifier under the plugin's `scripts/lib/`, and `CODEFLARE_REVIEW_SESSION_DIR` writability. The review-specific PreToolUse gate is retired; attribution and local-build guards still belong there.
+Pi registers SessionStart plus supported shell-result exposures. Claude registers `git-push-review-reminder.sh` for SessionStart and PostToolUse. If Claude never asks, verify both hook entries in `~/.claude/settings.json`, the helper and classifier under the plugin's `scripts/lib/`, and the resolved `${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}` directory is writable. The review-specific PreToolUse gate is retired; attribution and local-build guards still belong there.
 
 A selected Claude round runs headless lanes through `run-review-lane.sh`. Its caller-supplied `--range` or `--base` is authoritative; runner never reads completion state. Stop handling inspects only transcript bytes after the current SessionStart offset. A failed or stopped lane advances that offset and emits nothing. The next supported exposure should ask again.
 
