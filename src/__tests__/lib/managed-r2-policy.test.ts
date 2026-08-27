@@ -70,10 +70,12 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(canPrefixIntersectManagedPolicy(built.value, 'Vault/')).toBe(false);
   });
 
-  it('AC3: exclusive generation rejects a novel nested managed category', async () => {
-    await expect(buildManagedR2Policy(digest, release({
-      documents: [{ key: '.claude/toolboxes/company/tool.md', modes: ['default'] }],
-    }), 'exclusive')).rejects.toThrow(/recognized managed resource category/);
+  it('AC3: exclusive generation rejects a novel or later nested managed category', async () => {
+    for (const key of ['.claude/toolboxes/company/tool.md', '.claude/toolboxes/skills/tool.md']) {
+      await expect(buildManagedR2Policy(digest, release({
+        documents: [{ key, modes: ['default'] }],
+      }), 'exclusive')).rejects.toThrow(/recognized managed resource category/);
+    }
   });
 
   it('AC4: loader verifies exact digest, release, mode, and canonical bytes', async () => {
@@ -90,13 +92,16 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(verified.paths).toEqual(built.value.paths);
     expect(fetchPolicyObject).toHaveBeenCalledTimes(1);
 
+    const noncanonicalBytes = new TextEncoder().encode(JSON.stringify(built.value, null, 2));
+    const noncanonicalDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', noncanonicalBytes)))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
     await expect(readVerifiedManagedR2Policy({
-      fetchPolicyObject: async () => new Response(`${new TextDecoder().decode(built.bytes)} `, { status: 200 }),
+      fetchPolicyObject: async () => new Response(noncanonicalBytes, { status: 200 }),
       releaseDigest: digest,
-      pathsDigest: built.digest,
+      pathsDigest: noncanonicalDigest,
       expectedPolicy: 'immutable',
       bypassMemoryCache: true,
-    })).rejects.toThrow(/digest/);
+    })).rejects.toThrow(/canonical/);
     await expect(readVerifiedManagedR2Policy({
       fetchPolicyObject,
       releaseDigest: 'e'.repeat(64),
@@ -104,6 +109,23 @@ describe('REQ-STOR-028 managed R2 policy', () => {
       expectedPolicy: 'immutable',
       bypassMemoryCache: true,
     })).rejects.toThrow(/release/);
+
+    const invalidIdentityFetch = vi.fn(async () => new Response(built.bytes, { status: 200 }));
+    await expect(readVerifiedManagedR2Policy({
+      fetchPolicyObject: invalidIdentityFetch,
+      releaseDigest: 'bad',
+      pathsDigest: built.digest,
+      expectedPolicy: 'immutable',
+      bypassMemoryCache: true,
+    })).rejects.toThrow(/release digest/);
+    await expect(readVerifiedManagedR2Policy({
+      fetchPolicyObject: invalidIdentityFetch,
+      releaseDigest: digest,
+      pathsDigest: 'bad',
+      expectedPolicy: 'immutable',
+      bypassMemoryCache: true,
+    })).rejects.toThrow(/paths digest/);
+    expect(invalidIdentityFetch).not.toHaveBeenCalled();
   });
 
   it('AC5: cache hits still revalidate expected release and mode', async () => {

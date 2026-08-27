@@ -720,27 +720,71 @@ async function deleteRetiredManagedConfigs(
 
 const MAX_EXCLUSIVE_OBJECTS = 10_000;
 const MAX_EXCLUSIVE_LIST_BYTES = 1024 * 1024 * 1024;
+const MAX_EXCLUSIVE_LIST_PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
+
+function parseExclusiveListPage(xml: string, root: string): ReturnType<typeof parseListObjectsXml> {
+  const listRoots = xml.match(/<ListBucketResult(?:\s[^>]*)?>/g) ?? [];
+  const listRootEnds = xml.match(/<\/ListBucketResult>/g) ?? [];
+  if (listRoots.length !== 1 || listRootEnds.length !== 1 || !/^\s*(?:<\?xml[^?]*\?>\s*)?<ListBucketResult(?:\s[^>]*)?>[\s\S]*<\/ListBucketResult>\s*$/.test(xml)) {
+    throw new Error('Exclusive managed-resource listing response has an invalid root');
+  }
+  const truncatedMatches = [...xml.matchAll(/<IsTruncated>(true|false)<\/IsTruncated>/g)];
+  if (truncatedMatches.length !== 1) throw new Error('Exclusive managed-resource listing response has invalid truncation state');
+  const rawContents = xml.match(/<Contents(?:\s[^>]*)?>/g) ?? [];
+  const rawContentEnds = xml.match(/<\/Contents>/g) ?? [];
+  const parsed = parseListObjectsXml(xml);
+  if (rawContents.length !== rawContentEnds.length || parsed.objects.length !== rawContents.length) {
+    throw new Error('Exclusive managed-resource listing response contains malformed objects');
+  }
+  if (parsed.objects.some(object => (
+    !object.key.startsWith(root)
+    || !Number.isFinite(object.size)
+    || object.size < 0
+    || Number.isNaN(Date.parse(object.lastModified))
+  ))) {
+    throw new Error('Exclusive managed-resource listing response contains an invalid object');
+  }
+  const tokenMatches = [...xml.matchAll(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/g)];
+  const isTruncated = truncatedMatches[0]![1] === 'true';
+  if (isTruncated !== parsed.isTruncated || (isTruncated ? tokenMatches.length !== 1 || !parsed.nextContinuationToken : tokenMatches.length !== 0)) {
+    throw new Error('Exclusive managed-resource listing response has invalid continuation state');
+  }
+  return parsed;
+}
 
 async function listExclusiveCleanupCandidates(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
   policy: BuiltManagedR2Policy,
+  r2SseDisabled?: boolean,
 ): Promise<string[]> {
   const client = createR2Client(env);
   const candidates = new Set<string>();
+  const protectedPaths = new Set(policy.value.paths);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
   let listedObjects = 0;
   let listBytes = 0;
   let listPages = 0;
 
   for (const root of policy.value.resourceRoots) {
+    const rootObject = root.slice(0, -1);
+    const rootHead = await client.fetch(getR2Url(endpoint, bucketName, rootObject), { method: 'HEAD', headers: sseHeaders });
+    if (rootHead.ok) {
+      listedObjects += 1;
+      if (listedObjects > MAX_EXCLUSIVE_OBJECTS) throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      if (!protectedPaths.has(rootObject)) candidates.add(rootObject);
+    } else if (rootHead.status !== 404) {
+      throw new Error(`Exclusive managed-resource root check failed: HTTP ${rootHead.status}`);
+    }
+
     let continuationToken: string | undefined;
     const seenContinuationTokens = new Set<string>();
     do {
       const url = new URL(getR2Url(endpoint, bucketName));
       url.searchParams.set('list-type', '2');
-      url.searchParams.set('prefix', root.slice(0, -1));
+      url.searchParams.set('prefix', root);
       url.searchParams.set('max-keys', '1000');
       if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
       listPages += 1;
@@ -749,22 +793,23 @@ async function listExclusiveCleanupCandidates(
       if (!response.ok) throw new Error(`Exclusive managed-resource listing failed: HTTP ${response.status}`);
       const bytes = await readBoundedResponse(
         response,
-        MAX_EXCLUSIVE_LIST_BYTES - listBytes,
+        Math.min(MAX_EXCLUSIVE_LIST_PAGE_BYTES, MAX_EXCLUSIVE_LIST_BYTES - listBytes),
         'Exclusive managed-resource listing metadata',
       );
       listBytes += bytes.byteLength;
-      const parsed = parseListObjectsXml(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      let xml: string;
+      try {
+        xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch {
+        throw new Error('Exclusive managed-resource listing response is not valid UTF-8');
+      }
+      const parsed = parseExclusiveListPage(xml, root);
       listedObjects += parsed.objects.length;
       if (listedObjects > MAX_EXCLUSIVE_OBJECTS) {
         throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
       }
       for (const object of parsed.objects) {
-        if (
-          (object.key === root.slice(0, -1) || object.key.startsWith(root))
-          && !policy.value.paths.includes(object.key)
-        ) {
-          candidates.add(object.key);
-        }
+        if (!protectedPaths.has(object.key)) candidates.add(object.key);
       }
       if (parsed.isTruncated && !parsed.nextContinuationToken) {
         throw new Error('Exclusive managed-resource listing omitted its continuation token');
@@ -846,7 +891,7 @@ export async function reconcileAgentConfigs(
       : (() => { throw new Error('Protected managed-resource policy requires a verified active release'); })()
     : undefined;
   const exclusiveCandidates = policy?.value.resourcePolicy === 'exclusive'
-    ? await listExclusiveCleanupCandidates(env, bucketName, endpoint, policy)
+    ? await listExclusiveCleanupCandidates(env, bucketName, endpoint, policy, options.r2SseDisabled)
     : [];
   const seedResult = managedRelease
     ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {

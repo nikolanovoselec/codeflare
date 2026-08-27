@@ -105,9 +105,8 @@ export function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
     const home = findManagedHome(path);
     if (!home) continue;
     const relativeSegments = path.slice(home.length).split('/');
-    const categoryIndex = relativeSegments.findIndex(segment => RESOURCE_CATEGORIES.has(segment));
-    if (categoryIndex >= 0) {
-      roots.add(`${home}${relativeSegments.slice(0, categoryIndex + 1).join('/')}/`);
+    if (RESOURCE_CATEGORIES.has(relativeSegments[0]!)) {
+      roots.add(`${home}${relativeSegments[0]}/`);
       continue;
     }
     if (relativeSegments.length > 1) {
@@ -164,6 +163,8 @@ function assertExpectedIdentity(
 
 /** @impl REQ-STOR-028 AC4 */
 export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2PolicyInput): Promise<VerifiedManagedR2Policy> {
+  if (!/^[0-9a-f]{64}$/.test(input.releaseDigest)) throw new Error('Managed policy expected release digest is invalid');
+  if (!/^[0-9a-f]{64}$/.test(input.pathsDigest)) throw new Error('Managed policy expected paths digest is invalid');
   if (!input.bypassMemoryCache) {
     const cached = verifiedPolicyCache.get(input.pathsDigest);
     if (cached) {

@@ -289,6 +289,53 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
+  it('REQ-STOR-028 AC5: exclusive cleanup preserves managed and similarly prefixed objects', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/.claude/skills')) return new Response('', { status: 200 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response([
+          '<ListBucketResult><IsTruncated>false</IsTruncated>',
+          '<Contents><Key>.claude/skills/company/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/skills/personal/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '</ListBucketResult>',
+        ].join(''), { status: 200 });
+      }
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease,
+      resourcePolicy: 'exclusive',
+    });
+
+    expect(fetchR2.mock.calls.find(([url]) => String(url).includes('list-type=2'))?.[0]).toContain('prefix=.claude%2Fskills%2F');
+    expect(result.deleted).toEqual(['.claude/skills', '.claude/skills/personal/SKILL.md']);
+    const deletedUrls = fetchR2.mock.calls.filter(([, init]) => init?.method === 'DELETE').map(([url]) => url);
+    expect(deletedUrls).not.toContain(`${endpoint}/bucket/.claude/skills/company/SKILL.md`);
+    expect(deletedUrls).not.toContain(`${endpoint}/bucket/.claude/skills-other/personal.md`);
+  });
+
+  it('REQ-STOR-028 AC5: malformed exclusive listings cause zero mutations', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
+      ? new Response('', { status: 404 })
+      : new Response('<ListBucketResult><Contents><Key>.claude/skills/personal.md</Key></Contents></ListBucketResult>', { status: 200 }));
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease,
+      resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/listing response/);
+    expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
+  });
+
   it('REQ-STOR-028 AC3: exclusive generation fails before every R2 request', async () => {
     const unknown = await selection('e'.repeat(64), release(3, [document('.claude/toolboxes/company.md')]));
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
