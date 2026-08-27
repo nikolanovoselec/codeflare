@@ -390,6 +390,8 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
     --filter "+ .codeflare/managed-extensions.json"
+    --filter "+ .codeflare/review-state/"
+    --filter "+ .codeflare/review-state/**"
     --filter "- .codeflare/**"
 
     # Package manager caches — regenerated on npm/bun install

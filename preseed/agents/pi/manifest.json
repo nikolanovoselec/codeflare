@@ -10,6 +10,11 @@
       "advanced"
     ]
   },
+  "extensions/review-completion-state.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/inline-edit.ts": {
     "modes": [
       "advanced"
