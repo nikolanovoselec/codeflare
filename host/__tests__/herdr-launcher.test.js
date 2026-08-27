@@ -60,6 +60,43 @@ describe('Codeflare Herdr launcher', () => {
     assert.match(result.stderr, /invalid SESSION_ID/);
   });
 
+  it('keeps the maximum-length session client socket within the Linux path limit', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-socket-path-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const log = join(dir, 'herdr.log');
+    const sessionId = 'abcdefghijklmnopqrstuvwx';
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf 'config=%s\\n' "$XDG_CONFIG_HOME" >> "$HERDR_TEST_LOG"
+if [ "$*" = "api snapshot" ]; then
+  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, ['bootstrap'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        SESSION_ID: sessionId,
+        TAB_CONFIG: '[]',
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const configHome = join(runtime, 'herdr', sessionId);
+    assert.equal(readFileSync(log, 'utf8').trim(), `config=${configHome}`);
+    const productionConfigHome = join('/run/codeflare/herdr', sessionId);
+    const clientSocket = join(productionConfigHome, 'herdr/sessions', `cf-${sessionId}`, 'herdr-client.sock');
+    assert.ok(Buffer.byteLength(clientSocket) <= 107, clientSocket);
+  });
+
   it('maps Claude to fixed argv, bootstraps once, and bootstraps again after a successful stop', () => {
     const { result, calls, runtime, fake, log } = harness('claude --dangerously-skip-permissions');
     assert.equal(result.status, 0, result.stderr);
@@ -240,5 +277,12 @@ fi
     assert.notEqual(result.status, 0);
     assert.deepEqual(calls, ['api snapshot']);
     assert.match(result.stderr, /unsupported terminal command/);
+  });
+
+  it('reports invalid bootstrap configuration without an EXIT-trap error', () => {
+    const { result } = harness('', { invalid: true });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /invalid TAB_CONFIG/);
+    assert.doesNotMatch(result.stderr, /lock_fd: unbound variable/);
   });
 });
