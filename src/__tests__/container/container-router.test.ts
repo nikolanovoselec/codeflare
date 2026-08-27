@@ -204,12 +204,67 @@ describe('CF-016 dispatchInternalRoute', () => {
         bucket: 'b',
         r2AccessKeyId: 'replacement-access',
         r2SecretAccessKey: 'replacement-secret',
+        resourcePolicy: 'mutable',
         strict: true,
       },
     });
     expect(activeCatchAll).toBeDefined();
     expect(await (await activeCatchAll!.fetch(new Request('https://account.r2.cloudflarestorage.com/b/key'))).text())
       .toBe('replacement-access');
+  });
+
+  it('REQ-ENTERPRISE-027: refreshes warm strict interception when only policy identity changes', async () => {
+    const EgressController = vi.fn(() => ({ id: 'replacement' }));
+    const interceptOutboundHttps = vi.fn();
+    const host = makeHost({
+      env: { ENTERPRISE_MODE: 'active' } as any,
+      ctx: {
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        exports: { EgressController },
+        container: { interceptOutboundHttps },
+      } as any,
+      _bucketName: 'b',
+      _r2AccountId: 'account',
+      _r2AccessKeyId: 'scoped-access',
+      _r2SecretAccessKey: 'scoped-secret',
+      _strictEgress: true,
+      _managedResourcePolicy: 'immutable',
+      _managedResourceReleaseDigest: 'a'.repeat(64),
+      _managedResourcePathsDigest: 'b'.repeat(64),
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: 'scoped-access',
+        r2SecretAccessKey: 'scoped-secret',
+        managedResourcePolicy: 'exclusive',
+        managedResourceReleaseDigest: 'd'.repeat(64),
+        managedResourcePathsDigest: 'e'.repeat(64),
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(EgressController).toHaveBeenCalledWith({
+      props: {
+        accountId: 'account',
+        bucket: 'b',
+        r2AccessKeyId: 'scoped-access',
+        r2SecretAccessKey: 'scoped-secret',
+        resourcePolicy: 'exclusive',
+        releaseDigest: 'd'.repeat(64),
+        pathsDigest: 'e'.repeat(64),
+        strict: true,
+      },
+    });
+    expect(interceptOutboundHttps).toHaveBeenCalledWith('*', expect.anything());
+    expect(host._managedResourcePolicy).toBe('exclusive');
+    expect(host._managedResourceReleaseDigest).toBe('d'.repeat(64));
+    expect(host._managedResourcePathsDigest).toBe('e'.repeat(64));
   });
 
   it('REQ-ENTERPRISE-026: preserves the prior pair when warm catch-all replacement fails', async () => {

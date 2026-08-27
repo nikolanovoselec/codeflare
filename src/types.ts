@@ -427,6 +427,12 @@ export interface ContainerConfigPayload {
   remoteCurationReleaseDigest?: string;
   /** SHA-256 of the exact managed-extensions.json bytes synthesized by the Worker. */
   remoteCurationManifestDigest?: string;
+  /** Worker-owned managed-resource persistence mode; always explicit across the internal boundary. */
+  managedResourcePolicy: ManagedResourcePolicy;
+  /** Applied managed release identity required only for protected resource modes. */
+  managedResourceReleaseDigest?: string;
+  /** Applied canonical managed-path object digest required only for protected resource modes. */
+  managedResourcePathsDigest?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

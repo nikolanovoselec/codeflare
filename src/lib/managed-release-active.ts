@@ -77,11 +77,11 @@ async function readReleaseByDigest(
 /** Read the persisted active descriptor without repository or cache I/O. */
 export async function getCachedActiveManagedRelease(
   env: Pick<Env, 'KV'>,
-): Promise<{ digest: string; pointer: ActiveManagedRelease } | null> {
+): Promise<{ digest: string; pointer: ActiveManagedRelease; resourcePolicy: ManagedEnvironmentConfig['resourcePolicy'] } | null> {
   const snapshot = await readManagedEnvironmentSnapshot(env);
   if (!snapshot.config || !snapshot.enabled) return null;
   if (!snapshot.active) throw new Error('Managed environment is enabled without a cached verified active release');
-  return { digest: snapshot.active.digest, pointer: snapshot.active };
+  return { digest: snapshot.active.digest, pointer: snapshot.active, resourcePolicy: snapshot.config.resourcePolicy };
 }
 
 /** Refresh and read the already-verified active descriptor without loading release payload bytes. */

@@ -22,6 +22,9 @@ function validBucketNameBody(): Record<string, unknown> {
     sessionMode: 'pro',
     sessionWorkspace: 'terminal',
     sleepAfter: '30m',
+    managedResourcePolicy: 'mutable',
+    managedResourceReleaseDigest: null,
+    managedResourcePathsDigest: null,
   };
 }
 
@@ -125,6 +128,40 @@ describe('CF-046: SetBucketNameBodySchema', () => {
         remoteCurationActive: false,
         remoteCurationReleaseDigest: 'd'.repeat(64),
         remoteCurationManifestDigest: 'e'.repeat(64),
+      }).success).toBe(false);
+    });
+  });
+
+  describe('REQ-ENTERPRISE-027 managed-resource identity transport', () => {
+    it('accepts mutable only with null policy identities', () => {
+      expect(SetBucketNameBodySchema.safeParse(validBucketNameBody()).success).toBe(true);
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        managedResourceReleaseDigest: 'd'.repeat(64),
+      }).success).toBe(false);
+    });
+
+    it('requires exact release and path digests for both protected modes', () => {
+      for (const managedResourcePolicy of ['immutable', 'exclusive']) {
+        expect(SetBucketNameBodySchema.safeParse({
+          ...validBucketNameBody(),
+          managedResourcePolicy,
+          managedResourceReleaseDigest: 'd'.repeat(64),
+          managedResourcePathsDigest: 'e'.repeat(64),
+        }).success).toBe(true);
+        expect(SetBucketNameBodySchema.safeParse({
+          ...validBucketNameBody(),
+          managedResourcePolicy,
+          managedResourceReleaseDigest: 'd'.repeat(64),
+          managedResourcePathsDigest: null,
+        }).success).toBe(false);
+      }
+    });
+
+    it('rejects unknown policy modes', () => {
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        managedResourcePolicy: 'locked',
       }).success).toBe(false);
     });
   });

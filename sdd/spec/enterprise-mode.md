@@ -832,3 +832,29 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Status:** Implemented
 
 ---
+
+### REQ-ENTERPRISE-027: Managed-resource persistence enforcement
+
+**Intent:** Enterprise protected managed resources remain immutable at the Worker-owned R2 authorization boundary while mutable and unrelated personal resources retain current behavior.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Session admission compares the full desired release, sequence, effective mode, extension digest, resource policy, and required path digest with the applied stamp. Any mismatch returns the managed-update-pending response before bucket or container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
+2. Every protected session start requires Enterprise Strict Gateway Egress and its binding, then bypasses memory cache to bounded-read and verify the exact user-bucket policy object against Worker-owned release, mode, and path-digest identity before container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks corrupt protected policy before container work) -->
+3. Authenticated lifecycle transport uses one normalized policy enum with null identities for mutable mode and exact release/path digests for protected modes. Invalid combinations do not cross the Worker-to-DO boundary. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (accepts mutable only with null policy identities) --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (requires exact release and path digests for both protected modes) -->
+4. A warm Durable Object refreshes strict interception whenever bucket, scoped credentials, policy mode, release digest, or path digest changes, before committing new in-memory security state. Explicit mutable/null identity clears stale protected props and container environment. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-router.test.ts (refreshes warm strict interception when only policy identity changes) --> <!-- @test: src/__tests__/container/container-env.test.ts (clears protected state and env on an explicit mutable warm reset) -->
+5. Protected identity reaches the container only as non-authoritative mode/digest hints; policy bytes and real scoped credentials remain Worker-side under strict interception. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (emits protected identity without exposing Worker-held scoped credentials) -->
+
+**Constraints:** Worker-side interception immediately before scoped signing is the authorization boundary. No policy KV store, deployment-wide user-bucket credential, container authorization decision, or Durable Object policy persistence is introduced.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy)
+
+**Verification:** Automated admission, schema, transport, restart, interception, and Worker-boundary mutation tests
+
+**Status:** Implemented
+
+---

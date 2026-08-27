@@ -17,7 +17,7 @@
  * All props are resolved once at wiring, Worker-side; no credential, gateway
  * URL, or token ever enters the container.
  */
-import type { Env } from '../types';
+import type { Env, ManagedResourcePolicy } from '../types';
 import { toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -41,6 +41,9 @@ export interface InterceptionHost {
   _r2AccountId: string | null;
   _r2AccessKeyId: string | null;
   _r2SecretAccessKey: string | null;
+  _managedResourcePolicy?: ManagedResourcePolicy;
+  _managedResourceReleaseDigest?: string | null;
+  _managedResourcePathsDigest?: string | null;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
 }
@@ -208,11 +211,24 @@ const browserRendering: InterceptorSpec = {
  * its scoped credentials stay Worker-side in props so intercepted R2 cannot use deployment-wide
  * credentials or cross the per-user bucket boundary.
  */
+export interface StrictEgressSecurityProps {
+  bucket?: string;
+  r2AccessKeyId?: string;
+  r2SecretAccessKey?: string;
+  resourcePolicy: ManagedResourcePolicy;
+  releaseDigest?: string;
+  pathsDigest?: string;
+}
+
 function resolveStrictEgress(
   host: InterceptionHost,
-  credentials = {
+  security: StrictEgressSecurityProps = {
+    bucket: host._bucketName ?? undefined,
     r2AccessKeyId: host._r2AccessKeyId ?? undefined,
     r2SecretAccessKey: host._r2SecretAccessKey ?? undefined,
+    resourcePolicy: host._managedResourcePolicy ?? 'mutable',
+    ...(host._managedResourceReleaseDigest ? { releaseDigest: host._managedResourceReleaseDigest } : {}),
+    ...(host._managedResourcePathsDigest ? { pathsDigest: host._managedResourcePathsDigest } : {}),
   },
 ): InterceptorRegistration | null {
   if (!host._strictEgress) return null;
@@ -220,8 +236,7 @@ function resolveStrictEgress(
     entrypoint: 'EgressController',
     props: {
       accountId: host._r2AccountId ?? undefined,
-      bucket: host._bucketName ?? undefined,
-      ...credentials,
+      ...security,
       strict: true,
     },
     hosts: ['*'],
@@ -284,9 +299,9 @@ async function applyInterception(
 /** Replace the strict catch-all after a warm DO receives a rotated scoped R2 pair. */
 export async function refreshStrictEgressInterception(
   host: InterceptionHost,
-  credentials: { r2AccessKeyId: string; r2SecretAccessKey: string },
+  security: StrictEgressSecurityProps,
 ): Promise<void> {
-  const reg = resolveStrictEgress(host, credentials);
+  const reg = resolveStrictEgress(host, security);
   if (reg) await applyInterception(host, reg, true);
 }
 
