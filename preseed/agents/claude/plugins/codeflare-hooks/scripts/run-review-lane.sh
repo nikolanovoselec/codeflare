@@ -73,36 +73,16 @@ if [ -z "$RANGE" ] && [ -z "$BASE" ]; then
   exit 2
 fi
 
-# A PR-boundary review never trusts the model to preserve its scope flags. The
-# acknowledged PR checkpoint is authoritative: when it is an ancestor of the
-# current head, every lane is normalized to that exact incremental range even
-# if the caller substituted `--base`. This prevents rejected findings from an
-# earlier round being re-litigated and makes a corrected relaunch unnecessary.
+# Caller-supplied range/base is authoritative. Completion markers select any
+# incremental ancestor before this runner starts; runner never reads durable
+# review state or reconstructs an interrupted round.
 if [ -n "$BOUNDARY_PR" ]; then
   case "$BOUNDARY_PR" in *[!0-9]*|"") echo "run-review-lane: --boundary-pr must be numeric" >&2; exit 2 ;; esac
   BOUNDARY_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
-  BOUNDARY_GIT_DIR=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)
   BOUNDARY_HEAD=$(git rev-parse HEAD 2>/dev/null || true)
-  if [ -z "$BOUNDARY_ROOT" ] || [ -z "$BOUNDARY_GIT_DIR" ] \
-      || ! printf '%s' "$BOUNDARY_HEAD" | grep -Eq '^[0-9a-f]{40}$'; then
+  if [ -z "$BOUNDARY_ROOT" ] || ! printf '%s' "$BOUNDARY_HEAD" | grep -Eq '^[0-9a-f]{40}$'; then
     echo "run-review-lane: cannot resolve PR-boundary repository identity" >&2
     exit 2
-  fi
-  BOUNDARY_ACK=$(cat "$BOUNDARY_GIT_DIR/sdd-review-ack-pr-$BOUNDARY_PR" 2>/dev/null || true)
-  if printf '%s' "$BOUNDARY_ACK" | grep -Eq '^[0-9a-f]{40}$' \
-      && git merge-base --is-ancestor "$BOUNDARY_ACK" "$BOUNDARY_HEAD" 2>/dev/null; then
-    if [ "$BOUNDARY_ACK" = "$BOUNDARY_HEAD" ]; then
-      printf '## %s — NO-OP\n\n**Head:** `%s`\n\nThis PR head is already acknowledged; no review lane was launched.\n' \
-        "$LANE" "$BOUNDARY_HEAD"
-      echo "run-review-lane: lane=$LANE head already acknowledged; refusing a duplicate wave" >&2
-      exit 0
-    fi
-    BOUNDARY_RANGE="$BOUNDARY_ACK..$BOUNDARY_HEAD"
-    if [ "$RANGE" != "$BOUNDARY_RANGE" ] || [ -n "$BASE" ]; then
-      echo "run-review-lane: normalized PR-boundary scope to $BOUNDARY_RANGE" >&2
-    fi
-    RANGE="$BOUNDARY_RANGE"
-    BASE=""
   fi
 fi
 

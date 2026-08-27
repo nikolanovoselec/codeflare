@@ -1,25 +1,26 @@
 # Git Workflow
 
-**Commit format:** `<type>: <description>` (types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`). AI attribution disabled - no `Co-Authored-By`, no emoji, no "Generated with Claude".
+**Commit format:** `<type>: <description>` using `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, or `ci`. No AI attribution, emoji, or co-author line.
 
 ## Triggers and routes
 
 | Event | Skill |
 |---|---|
-| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` (one attached background `ci-monitor` Agent for an exact repository, PR, and head; never repeated chat-visible polling or `gh run watch`) |
-| PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
-| User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
-| Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
+| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` for one exact repository, PR, and head |
+| Automatic delivery plan or user-selected `Launch review` after a marker miss | `git-review-pipeline` |
+| User asks to open a PR | `pr-workflow` |
+| GitHub or Wrangler credentials are unclear | `deploy-credentials` |
 
-## SDD opt-in is binary
+## Review exposure
 
-- **Vibe-coding** (no `sdd/`): `git push` + `gh pr create` proceed with NO review agents.
-- **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`/`develop`. PRs into other integration branches such as `staging` defer until their PR to a protected base opens.
+Advanced SDD projects evaluate startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen. A saved exact completion stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one launch plan. Other misses use AskUserQuestion once with exactly `Mark review complete` and `Launch review`; never choose for the user. Cancellation writes nothing.
+
+Fetch, status and inspection, local mutation, merge, detached or path checkout, tag, unrelated-ref push, failed commands, child sessions, and non-protected-base PRs are inert. GitHub lookup failure launches and writes nothing.
 
 ## Hard obligations
 
-- Do not auto-start CI monitoring after non-boundary routine pushes. Invoke `ci-monitoring` for an eligible PR-boundary plan, when the user explicitly asks, or when deploy/merge requires a fresh CI result.
-- A successful `git push` or `gh pr create` on an eligible protected-base PR is a delivery boundary: launch review and CI automatically without asking for renewed consent. A successful clone is the only consent boundary; ordinary Git/GitHub activity is inert. A later delivery command may recover a synchronized same-PR descendant of its acknowledged review head.
-- After acknowledged joint triage, apply accepted fixes, commit, and push the checked-out PR branch without asking; never stop after the commit. CI failure or timeout is a triage finding, and a head whose accepted CI correction is unaddressed is never pushed. End after the push so the next exact incremental review and CI round can start. Never merge automatically, relaunch in-flight work, or create a no-op fix commit.
-- Never deploy to integration until every required CI run is green.
-- If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.
+- Run a selected plan once. Start required reviewers together, then exact-head CI immediately when the plan includes it. End the turn after the final launch; never poll or duplicate in-flight work.
+- Stopped or interrupted work has no durable progress. Emit no missing-work demand. The next delivery launches a fresh plan; the next non-delivery exposure asks again and replans.
+- After all required reviewers and terminal exact-head CI, publish canonical triage without mutation. Verify evidence and scope, judge findings separately from fixes, reject unsupported or overengineered proposals, and choose the smallest correction reusing existing machinery. Completion is written immediately before the separate FIX reminder regardless of CI success, failure, or timeout. Apply accepted fixes only in FIX.
+- Never read, write, migrate, or delete legacy `.git/sdd-review-*` state.
+- Never deploy until required CI is green. Never merge automatically.

@@ -10,11 +10,13 @@ export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create";
+export type ReviewExposureKind = "clone" | "switch" | "checkout" | "pr-checkout" | "pull" | "push" | "pr-create" | "pr-reopen";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
   clone?: boolean;
+  kind?: ReviewExposureKind;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 type TranscriptBoundary = {
@@ -179,20 +181,116 @@ export function shellSegments(command: string): string[] {
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let event: ReviewBoundaryEvent | undefined;
-  let clone = false;
+  let exposure: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of executableShellCommands(command)) {
     const executable = shellCommandExecutable(words);
     if (executable !== "git" && executable !== "gh") continue;
     const args = shellCommandArguments(words, executable);
-    if (executable === "git" && args[0] === "push") event = "push";
-    if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
     if ((executable === "git" && args[0] === "clone")
-      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) clone = true;
+      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) {
+      exposure = { reminder: true, settled: true, clone: true, kind: "clone" };
+    } else if (executable === "git" && args[0] === "switch"
+      && !args.includes("--detach") && !args.includes("-d")) {
+      exposure = { reminder: true, settled: true, kind: "switch" };
+    } else if (executable === "git" && args[0] === "checkout"
+      && !args.includes("--") && !args.includes("--detach")) {
+      exposure = { reminder: true, settled: true, kind: "checkout" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "checkout") {
+      exposure = { reminder: true, settled: true, kind: "pr-checkout" };
+    } else if (executable === "git" && args[0] === "pull") {
+      exposure = { reminder: true, settled: true, kind: "pull" };
+    } else if (executable === "git" && args[0] === "push") {
+      exposure = { reminder: true, settled: true, event: "push", kind: "push" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "create") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-create" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "reopen") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-reopen" };
+    }
   }
-  if (event) return { reminder: true, settled: true, event };
-  if (clone) return { reminder: true, settled: true, clone: true };
-  return { reminder: false, settled: false };
+  return exposure;
+}
+
+function reopenTarget(args: string[]): string | undefined {
+  for (let index = 2; index < args.length; index += 1) {
+    const value = args[index] ?? "";
+    if (value === "-c" || value === "--comment") {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--comment=") || value.startsWith("-")) continue;
+    return value;
+  }
+  return undefined;
+}
+
+function ghRepository(words: string[]): string | undefined {
+  const ghIndex = words.findIndex((word, index) => word === "gh"
+    && shellCommandExecutable(words.slice(0, index + 1)) === "gh");
+  for (let index = ghIndex + 1; ghIndex >= 0 && index < words.length; index += 1) {
+    const value = words[index] ?? "";
+    if (value === "-R" || value === "--repo") return words[index + 1]?.toLowerCase();
+    if (value.startsWith("--repo=")) return value.slice("--repo=".length).toLowerCase();
+    if (!value.startsWith("-")) break;
+  }
+  return undefined;
+}
+
+export function exposureTargetsCheckedOutBranch(
+  command: string,
+  identity: { branch: string; pr: number; repository: string },
+): boolean {
+  const relevant = executableShellCommands(command)
+    .flatMap((words) => {
+      const executable = shellCommandExecutable(words);
+      return executable === "git" || executable === "gh"
+        ? [{ executable, args: shellCommandArguments(words, executable), words }]
+        : [];
+    })
+    .filter(({ executable, args }) => (executable === "git" && args[0] === "push")
+      || (executable === "gh" && args[0] === "pr" && (args[1] === "create" || args[1] === "reopen")))
+    .at(-1);
+  if (!relevant) return true;
+  const branch = identity.branch;
+  if (relevant.executable === "gh") {
+    const repository = ghRepository(relevant.words);
+    if (repository && repository !== identity.repository.toLowerCase()) return false;
+    if (relevant.args[1] === "reopen") {
+      const target = reopenTarget(relevant.args);
+      if (!target) return true;
+      const url = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/i.exec(target);
+      if (url) return url[1]?.toLowerCase() === identity.repository.toLowerCase()
+        && Number(url[2]) === identity.pr;
+      if (/^[0-9]+$/.test(target)) return Number(target) === identity.pr;
+      return target === branch || target.endsWith(`:${branch}`);
+    }
+    const headIndex = relevant.args.findIndex((arg) => arg === "--head" || arg === "-H");
+    const inline = relevant.args.find((arg) => arg.startsWith("--head="))?.slice("--head=".length);
+    const head = inline ?? (headIndex >= 0 ? relevant.args[headIndex + 1] : undefined);
+    return !head || head === branch || head.endsWith(`:${branch}`);
+  }
+  const takesValue = new Set(["--repo", "--receive-pack", "--exec", "--push-option", "-o"]);
+  const positional: string[] = [];
+  for (let index = 1; index < relevant.args.length; index += 1) {
+    const value = relevant.args[index] ?? "";
+    if (value === "--") {
+      positional.push(...relevant.args.slice(index + 1));
+      break;
+    }
+    if (takesValue.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("-")) continue;
+    positional.push(value);
+  }
+  const refspecs = positional.slice(1);
+  if (refspecs.length === 0) return true;
+  return refspecs.every((refspec) => {
+    const [source, destination] = refspec.replace(/^\+/, "").split(":", 2);
+    const sourceMatches = source === branch || source === `refs/heads/${branch}` || source === "HEAD";
+    const destinationMatches = !destination || destination === branch || destination === `refs/heads/${branch}`;
+    return sourceMatches && destinationMatches;
+  });
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
@@ -491,9 +589,10 @@ function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalRes
     for (let row = index + 2; row < lines.length && lines[row].startsWith("|"); row += 1) {
       if (!lines[row].endsWith("|")) continue;
       const cells = lines[row].slice(1, -1).split("|").map((cell) => cell.trim());
+      const proposedFix = /^`([^`]*)`$/.exec(cells[2] ?? "")?.[1] ?? cells[2];
       if (cells.length === 5
         && cells[0] === "Exact-head CI"
-        && cells[2] === `CI_RESULT ${result}`) return true;
+        && proposedFix === `CI_RESULT ${result}`) return true;
     }
   }
   return false;
@@ -557,6 +656,7 @@ export function reviewTranscriptFacts(input: {
   requiredLanes: ReviewLane[];
   ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
+  activeBoundaryToolUseId?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
@@ -600,14 +700,29 @@ export function reviewTranscriptFacts(input: {
     }
   });
   const latestBoundary = boundary;
-  const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
-    && boundaries.has(candidate.boundaryToolUseId));
-  const reviewHead = input.reviewHead ?? windows.at(-1)?.head;
-  const selectedWindow = reviewHead
-    ? windows.filter((candidate) => candidate?.head === reviewHead).at(-1)
+  const windows = entries
+    .map((entry, index) => ({ value: reviewWindow(entry), index }))
+    .filter(({ value }) => value?.boundaryToolUseId
+      && (boundaries.has(value.boundaryToolUseId)
+        || value.boundaryToolUseId === input.activeBoundaryToolUseId));
+  const reviewHead = input.reviewHead ?? windows.at(-1)?.value?.head;
+  const selected = reviewHead
+    ? windows.filter(({ value }) => value?.head === reviewHead).at(-1)
     : undefined;
+  const selectedWindow = selected?.value;
   const selectedBoundary = selectedWindow?.boundaryToolUseId
     ? boundaries.get(selectedWindow.boundaryToolUseId)
+      ?? (selectedWindow.boundaryToolUseId === input.activeBoundaryToolUseId && selected
+        ? {
+            index: selected.index,
+            value: {
+              toolUseId: selectedWindow.boundaryToolUseId,
+              command: "",
+              toolName: "",
+              toolArguments: {},
+            },
+          }
+        : undefined)
     : undefined;
   if (selectedBoundary) {
     boundaryIndex = selectedBoundary.index;
@@ -664,13 +779,22 @@ export function reviewTranscriptFacts(input: {
       ciEvent: candidate.ciEvent ?? current?.ciEvent,
       requiredLanes: candidate.requiredLanes ?? current?.requiredLanes,
     };
-  }, undefined);
+  }, selectedWindow);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-      const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
+      const expectedScope = window?.range
+        ? `review_range=${window.range}`
+        : window?.base ? `review_base=origin/${window.base}` : undefined;
+      const expectedOutput = window?.prNumber && window.head
+        ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
+        : undefined;
+      const assignmentLines = new Set(prompt.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean));
+      const wrongContract = Boolean(window && (!assignmentLines.has("scope=diff")
+        || (expectedScope && !assignmentLines.has(expectedScope))
+        || (expectedOutput && !assignmentLines.has(expectedOutput))));
+      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);

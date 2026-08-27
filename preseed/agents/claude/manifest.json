@@ -130,6 +130,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
     "modes": [
       "advanced"

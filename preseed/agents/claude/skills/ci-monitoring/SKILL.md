@@ -6,7 +6,7 @@ version: 2.0.0
 
 # Independent CI Monitoring
 
-PR-boundary directive is sole automatic dispatcher. Launch monitor when that directive includes a CI wave, user explicitly requests monitoring, or deploy/merge gate requires a fresh result. At PR boundaries, issue every reviewer call first, then submit one `Agent` call with these exact fields:
+Launch a monitor when an automatic delivery directive or selected non-delivery review directive includes a CI wave, when the user explicitly requests monitoring, or when deploy/merge needs a fresh result. For a selected review round, issue every reviewer call first, then submit one `Agent` call with these exact fields:
 
 ```json
 {
@@ -19,4 +19,4 @@ PR-boundary directive is sole automatic dispatcher. Launch monitor when that dir
 
 Use repository, PR, head, and cwd values from boundary directive unchanged. Dedicated agent runs seeded monitor script once with Bash timeout 600000 milliseconds; script's eight-minute deadline leaves margin for terminal output. Native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`, followed by `pr`, `head`, and `repo` correlation values.
 
-Do not infer another trigger from Git command. Do not detach shell monitor, poll in root session, or duplicate in-flight Agent. Main session owns triage and fixes; monitor only reports.
+Use only the hook-emitted exact plan; never independently infer identity from Git text. Successful checked-out-branch push, PR creation, and PR reopen automatically plan review plus CI. Do not detach a shell monitor, poll in root session, or duplicate an in-flight Agent. Main session owns triage and fixes; monitor only reports.

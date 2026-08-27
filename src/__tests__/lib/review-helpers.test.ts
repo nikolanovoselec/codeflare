@@ -12,6 +12,7 @@ type BoundarySurfaces = {
   settled: boolean;
   event?: BoundaryEvent;
   clone?: boolean;
+  kind?: 'clone' | 'switch' | 'checkout' | 'pr-checkout' | 'pull' | 'push' | 'pr-create' | 'pr-reopen';
 };
 type TranscriptFacts = {
   boundary?: {
@@ -37,6 +38,7 @@ type TranscriptFacts = {
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
+  exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
   roundLimitReached(repo: string, lane: ReviewLane): boolean;
@@ -160,14 +162,14 @@ function toolResult(
 
 function reviewReminder(
   head: string,
-  reviewRange: string,
+  reviewRange: string | undefined,
   base = 'main',
   boundaryToolUseId = 'push-1',
   ciEvent?: BoundaryEvent,
 ): Record<string, unknown> {
   return sessionEntry('custom_message', {
     customType: 'pr-boundary-launch-plan',
-    content: `review_range=${reviewRange}`,
+    content: reviewRange ? `review_range=${reviewRange}` : 'full PR',
     details: {
       head,
       reviewRange,
@@ -180,6 +182,14 @@ function reviewReminder(
     },
     display: true,
   });
+}
+
+function reviewerPrompt(lane: ReviewLane, head: string, scope: string): string {
+  return [
+    'scope=diff',
+    scope,
+    `output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-${lane}.md`,
+  ].join('\n');
 }
 
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
@@ -211,19 +221,26 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-116/REQ-AGENT-121: classifies only delivery and clone review boundaries', async () => {
+  it('classifies only planned marker-or-dialog exposures and keeps final relevant command', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
-    const push = { reminder: true, settled: true, event: 'push' as const };
-    const prCreate = { reminder: true, settled: true, event: 'pr-create' as const };
-    const clone = { reminder: true, settled: true, clone: true };
+    const push = { reminder: true, settled: true, event: 'push' as const, kind: 'push' as const };
+    const prCreate = { reminder: true, settled: true, event: 'pr-create' as const, kind: 'pr-create' as const };
+    const clone = { reminder: true, settled: true, clone: true, kind: 'clone' as const };
+    const pull = { reminder: true, settled: true, kind: 'pull' as const };
     const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', push],
       ['git -C . push origin 0123456789012345678901234567890123456789:develop', push],
       ['git status --short', none],
-      ['git switch develop && git pull --ff-only', none],
+      ['git switch develop && git pull --ff-only', pull],
+      ['git switch develop', { reminder: true, settled: true, kind: 'switch' }],
+      ['git checkout develop', { reminder: true, settled: true, kind: 'checkout' }],
+      ['git checkout -- README.md', none],
+      ['git checkout --detach HEAD', none],
+      ['gh pr checkout 42', { reminder: true, settled: true, kind: 'pr-checkout' }],
       ['gh pr create --base main --title review', prCreate],
       ['gh --repo owner/repo pr create --base develop --title review', prCreate],
+      ['gh pr reopen 42', { reminder: true, settled: true, event: 'pr-create', kind: 'pr-reopen' }],
       ['git clone --branch pi https://github.com/owner/repo.git cloned', clone],
       ['gh repo clone owner/repo cloned -- --branch pi', clone],
       ['gh pr merge 42 --squash', none],
@@ -242,6 +259,20 @@ describe('Claude-equivalent review boundary helpers', () => {
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
+  });
+
+  it('REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity', async () => {
+    const { exposureTargetsCheckedOutBranch } = await plannedHelpers();
+    const current = { branch: 'feature', pr: 42, repository: 'owner/repo' };
+    expect(exposureTargetsCheckedOutBranch('git push origin feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('git push origin unrelated', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('git push origin HEAD:other', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('git push origin HEAD:feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr create --head feature', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr create --head unrelated', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('gh pr reopen 42', current)).toBe(true);
+    expect(exposureTargetsCheckedOutBranch('gh pr reopen 99', current)).toBe(false);
+    expect(exposureTargetsCheckedOutBranch('gh --repo other/repo pr reopen 42', current)).toBe(false);
   });
 
   it('REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition', async () => {
@@ -672,7 +703,8 @@ describe('native Pi transcript review facts', () => {
       toolResult('push-1', 'bash'),
       reviewReminder(head, reviewRange, 'develop'),
       assistantTool('code-range', 'subagent', {
-        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${reviewRange}`,
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
       }),
       assistantTool('spec-full', 'subagent', {
         subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: 'review full PR against main',
@@ -689,6 +721,48 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewBoundaryToolUseId).toBe('push-1');
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
+  });
+
+  it('REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const common = [
+      assistantTool('push-full', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-full', 'bash'),
+      reviewReminder(head, undefined, 'develop', 'push-full'),
+    ];
+    for (const prompt of [
+      `review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      'scope=diff review_base=origin/develop output_file=/tmp/wrong.md',
+      `scope=difference review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff not_review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md.bak`,
+      `instructions scope=diff\nreview_base=origin/develop\noutput_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff\nexample review_base=origin/develop\noutput_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff\nreview_base=origin/develop\nuse output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+    ]) {
+      const sessionFile = writeSession([
+        ...common,
+        assistantTool('code-wrong', 'subagent', {
+          subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt,
+        }),
+        notification('code-wrong'),
+      ]);
+      expect(reviewTranscriptFacts({ sessionFile, requiredLanes: ['code-reviewer'] }).lanes['code-reviewer'])
+        .toEqual({ state: 'missing' });
+    }
+
+    const valid = writeSession([
+      ...common,
+      assistantTool('code-valid', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, 'review_base=origin/develop'),
+      }),
+      notification('code-valid'),
+    ]);
+    expect(reviewTranscriptFacts({ sessionFile: valid, requiredLanes: ['code-reviewer'] }).lanes['code-reviewer'])
+      .toEqual({ state: 'terminal', toolUseId: 'code-valid' });
   });
 
   it('REQ-AGENT-098/REQ-AGENT-126: selects the latest boundary cycle when one head has multiple review windows', async () => {
@@ -747,9 +821,9 @@ describe('native Pi transcript review facts', () => {
         assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
         toolResult('push-1', 'bash'),
         reviewReminder(head, `${'a'.repeat(40)}..${head}`, 'main', 'push-1', 'push'),
-        assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
-        assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
-        assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false, prompt: `review_range=${'a'.repeat(40)}..${head}` }),
+        assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('code-reviewer', head, `review_range=${'a'.repeat(40)}..${head}`) }),
+        assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('spec-reviewer', head, `review_range=${'a'.repeat(40)}..${head}`) }),
+        assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false, prompt: reviewerPrompt('doc-updater', head, `review_range=${'a'.repeat(40)}..${head}`) }),
         notification('code-1'),
         notification('spec-1'),
         notification('doc-1'),
@@ -804,16 +878,18 @@ describe('native Pi transcript review facts', () => {
           }).triageComplete).toBe(false);
         }
 
-        const withCiOutcome = writeSession([
-          ...common,
-          ciNotification('ci-current', result, head),
-          assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | CI_RESULT ' + result + ' | proportional | fix CI |'),
-        ]);
-        expect(reviewTranscriptFacts({
-          sessionFile: withCiOutcome,
-          requiredLanes: ALL_LANES,
-          ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
-        }).triageComplete).toBe(true);
+        for (const proposedFix of [`CI_RESULT ${result}`, `\`CI_RESULT ${result}\``]) {
+          const withCiOutcome = writeSession([
+            ...common,
+            ciNotification('ci-current', result, head),
+            assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n| Exact-head CI | VALID | ' + proposedFix + ' | proportional | fix CI |'),
+          ]);
+          expect(reviewTranscriptFacts({
+            sessionFile: withCiOutcome,
+            requiredLanes: ALL_LANES,
+            ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
+          }).triageComplete).toBe(true);
+        }
       }
     }
   });

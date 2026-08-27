@@ -156,26 +156,22 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
     assert.match(r.stdout, /## report/);
   });
 
-  it('normalizes a PR-boundary full-diff request to the acknowledged incremental range', () => {
+  it('keeps caller-supplied PR-boundary range authoritative', () => {
     const { cwd, base, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
     const binDir = fakeClaude(cwd, witness);
-    const commonDir = git(cwd, 'rev-parse', '--git-common-dir').stdout.trim();
-    writeFileSync(join(cwd, commonDir, 'sdd-review-ack-pr-24'), `${base}\n`);
 
     const r = runLane({
       repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer',
-      scopeArgs: ['--boundary-pr', '24', '--base', 'develop'],
+      scopeArgs: ['--boundary-pr', '24', '--range', `${base}..${head}`],
     });
 
     assert.equal(r.status, 0);
-    assert.match(r.stderr, new RegExp(`normalized PR-boundary scope to ${base}\\.\\.${head}`));
-    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), new RegExp(`incremental diff .*${base}\\.\\.${head}`),
-      'the model must never receive the full PR diff when an acknowledged ancestor exists');
+    assert.match(readFileSync(`${witness}.prompt`, 'utf-8'), new RegExp(`incremental diff .*${base}\\.\\.${head}`));
   });
 
-  it('does not invoke a model for an already acknowledged PR head', () => {
+  it('never reads clone-local legacy acknowledgement state', () => {
     const { cwd, head } = makeRepo('src/thing.ts');
     const { home, hookScripts } = makeClaudeHome(cwd);
     const witness = join(cwd, 'claude-was-called');
@@ -189,9 +185,8 @@ describe('run-review-lane.sh — no-op short-circuit', () => {
     });
 
     assert.equal(r.status, 0);
-    assert.equal(existsSync(witness), false,
-      'an already acknowledged head must not start a duplicate reviewer wave');
-    assert.match(r.stdout, /already acknowledged/);
+    assert.equal(existsSync(witness), true,
+      'legacy clone-local state must not suppress caller-authorized review');
   });
 
   it('reviews rather than skips when the range cannot be resolved', () => {
