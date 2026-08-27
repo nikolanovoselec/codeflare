@@ -99,7 +99,7 @@ function findManagedHome(path: string): string | undefined {
 }
 
 /** @impl REQ-STOR-028 AC2, AC3 */
-export function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
+function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
   const roots = new Set<string>();
   for (const path of paths) {
     const home = findManagedHome(path);
@@ -180,7 +180,7 @@ export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2Po
   if (actualDigest !== input.pathsDigest) throw new Error('Managed policy digest does not match applied state');
   let decoded: unknown;
   try {
-    decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
   } catch {
     throw new Error('Managed policy is not valid UTF-8 JSON');
   }

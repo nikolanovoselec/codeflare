@@ -200,7 +200,7 @@ const SessionMetadataSchema = z.object({
   s: z.enum(['r', 'i', 's']).optional(),
 }).passthrough();
 
-export async function assertNoActiveManagedSessions(kv: KVNamespace): Promise<void> {
+async function assertNoActiveManagedSessions(kv: KVNamespace): Promise<void> {
   try {
     const keys = await listAllKvKeys(kv, 'session:');
     for (const key of keys) {

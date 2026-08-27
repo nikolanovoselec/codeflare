@@ -682,6 +682,7 @@ describe('managed release resolver', () => {
       publicKeyFingerprint: '1'.repeat(16),
       configFingerprint: 'f'.repeat(64),
       cacheBucketName: 'managed-cache',
+      resourcePolicy: 'mutable' as const,
     };
     const kv = createMockKV();
     kv._store.set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(config));

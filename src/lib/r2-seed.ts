@@ -799,7 +799,7 @@ async function listExclusiveCleanupCandidates(
       listBytes += bytes.byteLength;
       let xml: string;
       try {
-        xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
       } catch {
         throw new Error('Exclusive managed-resource listing response is not valid UTF-8');
       }
