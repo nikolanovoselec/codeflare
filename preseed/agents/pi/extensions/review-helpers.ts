@@ -790,7 +790,7 @@ export function reviewTranscriptFacts(input: {
       const expectedOutput = window?.prNumber && window.head
         ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
         : undefined;
-      const assignmentLines = new Set(prompt.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+      const assignmentLines = new Set(prompt.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean));
       const wrongContract = Boolean(window && (!assignmentLines.has("scope=diff")
         || (expectedScope && !assignmentLines.has(expectedScope))
         || (expectedOutput && !assignmentLines.has(expectedOutput))));
