@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -266,6 +266,28 @@ afterEach(() => {
 });
 
 describe('Pi marker-or-dialog review ingress', () => {
+  it('prunes marker state once on first root startup without traversing symlinks', async () => {
+    const input = fixture();
+    const stateRoot = join(input.home, '.codeflare/review-state/v1');
+    const old = { ...input.identity, head: 'c'.repeat(40) };
+    writeCompletion(old, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    const outside = join(input.home, 'outside');
+    mkdirSync(outside);
+    const outsideMarker = join(outside, 'keep.json');
+    writeFileSync(outsideMarker, '{}');
+    symlinkSync(outside, join(stateRoot, 'linked'));
+    const app = await harness(input, [undefined, undefined]);
+
+    await app.emit('session_start', { reason: 'startup' });
+    expect(existsSync(completionPath(old, stateRoot))).toBe(false);
+    expect(existsSync(outsideMarker)).toBe(true);
+
+    const later = { ...input.identity, head: 'd'.repeat(40) };
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    await app.emit('session_start', { reason: 'resume' });
+    expect(existsSync(completionPath(later, stateRoot))).toBe(true);
+  });
+
   it('asks on startup with simple copy and exact choices', async () => {
     const input = fixture();
     const app = await harness(input, [undefined]);

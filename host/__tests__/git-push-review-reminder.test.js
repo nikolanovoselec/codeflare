@@ -1,13 +1,14 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '../..');
 const SCRIPT = join(ROOT, 'preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh');
 const STATE = join(ROOT, 'preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs');
+const { completionPath, writeCompletion } = await import(STATE);
 const roots = [];
 
 function temp(prefix) {
@@ -127,6 +128,34 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.match(text, /Reason: no saved completion\./);
     assert.match(text, /Mark review complete\n- Launch review/);
     assert.doesNotMatch(text.split('\n').slice(0, 8).join('\n'), new RegExp(fx.head));
+  });
+
+  it('prunes marker state once on first root startup without traversing symlinks', () => {
+    const fx = setup();
+    const stateRoot = join(fx.home, '.codeflare/review-state/v1');
+    const identity = {
+      gitHost: 'github.com',
+      repository: 'owner/repo',
+      pr: 42,
+      branch: 'feature',
+      base: 'main',
+      head: 'c'.repeat(40),
+    };
+    writeCompletion(identity, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    const outside = join(fx.home, 'outside');
+    mkdirSync(outside);
+    const outsideMarker = join(outside, 'keep.json');
+    writeFileSync(outsideMarker, '{}');
+    symlinkSync(outside, join(stateRoot, 'linked'));
+
+    sessionStart(fx);
+    assert.equal(existsSync(completionPath(identity, stateRoot)), false);
+    assert.equal(existsSync(outsideMarker), true);
+
+    const later = { ...identity, head: 'd'.repeat(40) };
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    sessionStart(fx);
+    assert.equal(existsSync(completionPath(later, stateRoot)), true);
   });
 
   it('suppresses review ingress only during an open SDD transition', () => {

@@ -17,6 +17,7 @@ TOOL_USE_ID=$(printf '%s' "$INPUT" | jq -r '.tool_use_id // .toolUseId // empty'
 TOOL_KEY=$(printf '%s' "$SESSION_ID:$TOOL_USE_ID" | cksum | awk '{print $1}')
 SESSION_DIR="${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}"
 OFFSET_FILE="$SESSION_DIR/$SESSION_KEY.offset"
+PRUNE_SENTINEL="$SESSION_DIR/root-pruned"
 MERGE_STATE_FILE="$SESSION_DIR/$TOOL_KEY.merge-before.json"
 
 command_text() {
@@ -62,7 +63,10 @@ case "$EVENT" in
       OFFSET=$(wc -c < "$TRANSCRIPT" 2>/dev/null) || OFFSET=0
     fi
     printf '%s\n' "$OFFSET" > "$OFFSET_FILE" 2>/dev/null || true
-    CHANGED=$(node "$STATE_HELPER" prune 2>/dev/null | jq -r '.changed // false' 2>/dev/null)
+    if [ ! -f "$PRUNE_SENTINEL" ]; then
+      node "$STATE_HELPER" prune >/dev/null 2>&1 || exit 0
+      : > "$PRUNE_SENTINEL" 2>/dev/null || true
+    fi
     ;;
   PostToolUse)
     COMMAND=$(command_text)

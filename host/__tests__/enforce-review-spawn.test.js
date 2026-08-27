@@ -91,6 +91,16 @@ function call(id, name, input) {
   return { type: 'message', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } };
 }
 
+function toolResult(id, isError = false) {
+  return {
+    type: 'message',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, is_error: isError, content: 'started' }],
+    },
+  };
+}
+
 function notification(id, status, result = '') {
   return {
     type: 'message',
@@ -120,7 +130,8 @@ function round(fx, options = {}) {
   for (const lane of lanes) {
     const id = `lane-${lane}`;
     entries.push(
-      call(id, 'Bash', { command: `CODEFLARE_REVIEW_CI=push bash run-review-lane.sh --lane ${lane} --boundary-pr 42 --base main` }),
+      call(id, 'Bash', { command: `CODEFLARE_REVIEW_CI=push CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane ${lane} --boundary-pr 42 --base main > /tmp/${lane}.md 2>&1`, run_in_background: true }),
+      toolResult(id, options.failedLaunch === lane),
       notification(id, options.failedLane === lane ? 'Failed' : 'Completed'),
     );
   }
@@ -161,6 +172,39 @@ describe('Claude current-round completion enforcement', () => {
     assert.equal(result.status, 2);
     assert.match(result.stderr, /Review complete for repo:feature\. FIX:/);
     assert.equal(markerStatus(fx), 'complete');
+  });
+
+  it('does not reuse completed lane launches after the exact PR head advances', () => {
+    const fx = setup();
+    start(fx);
+    round(fx);
+    writeFileSync(join(fx.repo, 'next.ts'), 'export const next = true;\n');
+    git(fx.repo, 'add', '.');
+    git(fx.repo, 'commit', '-m', 'next head');
+    fx.head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: fx.head };
+
+    const result = stop(fx);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, '');
+    assert.notEqual(markerStatus(fx), 'complete');
+  });
+
+  it('rejects quoted lane commands and failed launch receipts', () => {
+    for (const failedReceipt of [false, true]) {
+      const fx = setup();
+      start(fx);
+      const command = `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main`;
+      append(fx,
+        call('fake-lane', 'Bash', { command: failedReceipt ? command : `printf '%s' '${command}'`, run_in_background: true }),
+        toolResult('fake-lane', failedReceipt),
+        notification('fake-lane', 'Completed'),
+        triage(),
+      );
+      const result = stop(fx);
+      assert.equal(result.status, 0);
+      assert.notEqual(markerStatus(fx), 'complete');
+    }
   });
 
   it('blocks with canonical triage instruction when terminal evidence is untriaged', () => {

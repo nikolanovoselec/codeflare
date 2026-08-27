@@ -20,12 +20,18 @@ STATUS=$(node "$STATE_HELPER" status --cwd "$REPO" 2>/dev/null) || exit 0
 PR_NUMBER=$(printf '%s' "$STATUS" | jq -r '.identity.pr // empty' 2>/dev/null)
 HEAD=$(printf '%s' "$STATUS" | jq -r '.identity.head // empty' 2>/dev/null)
 REPOSITORY=$(printf '%s' "$STATUS" | jq -r '.identity.repository // empty' 2>/dev/null)
+BASE=$(printf '%s' "$STATUS" | jq -r '.identity.base // empty' 2>/dev/null)
 ANCESTOR=$(printf '%s' "$STATUS" | jq -r '.ancestor.head // empty' 2>/dev/null)
 printf '%s' "$PR_NUMBER" | grep -Eq '^[0-9]+$' || exit 0
 printf '%s' "$HEAD" | grep -Eq '^[0-9a-f]{40}$' || exit 0
 . "$SCRIPT_DIR/lib/lane-classifier.sh" 2>/dev/null || exit 0
 REQUIRED_LANES=$(compute_required_lanes "$ANCESTOR" "$HEAD")
 [ -n "$REQUIRED_LANES" ] || REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
+if [ -n "$ANCESTOR" ] && git -C "$REPO" merge-base --is-ancestor "$ANCESTOR" "$HEAD" 2>/dev/null; then
+  EXPECTED_SCOPE="--range $ANCESTOR..$HEAD"
+else
+  EXPECTED_SCOPE="--base $BASE"
+fi
 
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .sessionId // .transcript_path // "root"' 2>/dev/null)
 SESSION_KEY=$(printf '%s' "$SESSION_ID" | cksum | awk '{print $1}')
@@ -34,9 +40,9 @@ OFFSET_FILE="$SESSION_DIR/$SESSION_KEY.offset"
 OFFSET=$(cat "$OFFSET_FILE" 2>/dev/null)
 case "$OFFSET" in ''|*[!0-9]*) exit 0 ;; esac
 
-ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" <<'NODE'
+ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" "$EXPECTED_SCOPE" <<'NODE'
 const fs = require('node:fs');
-const [file, offsetText, pr, head, repository, requiredText] = process.argv.slice(2);
+const [file, offsetText, pr, head, repository, requiredText, expectedScope] = process.argv.slice(2);
 const offset = Number(offsetText);
 const data = fs.readFileSync(file).subarray(offset).toString('utf8');
 const entries = data.split('\n').filter(Boolean).flatMap((line) => {
@@ -56,12 +62,59 @@ entries.forEach((entry, index) => {
   if (!Array.isArray(content)) return;
   for (const part of content) {
     if (part?.type !== 'tool_use' && part?.type !== 'toolCall') continue;
-    const command = part?.input?.command ?? part?.arguments?.command ?? '';
-    calls.push({ id: part.id, command, index });
+    const input = part?.input ?? part?.arguments ?? {};
+    const command = input.command ?? '';
+    calls.push({ id: part.id, input, command, index });
   }
 });
-const launches = calls.filter(({ command }) => command.includes('run-review-lane.sh')
-  && command.includes(`--boundary-pr ${pr}`));
+const shellWords = (command) => {
+  const words = [];
+  let word = '', quote = '', escaped = false;
+  for (const char of command.trim()) {
+    if (escaped) { word += char; escaped = false; continue; }
+    if (char === '\\' && quote !== "'") { escaped = true; continue; }
+    if (quote) { if (char === quote) quote = ''; else word += char; continue; }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (/\s/.test(char)) { if (word) { words.push(word); word = ''; } continue; }
+    if (';|'.includes(char)) return undefined;
+    word += char;
+  }
+  if (quote || escaped) return undefined;
+  if (word) words.push(word);
+  return words.some((value) => value === '&' || value === '&&') ? undefined : words;
+};
+const optionValue = (words, name) => {
+  const indexes = words.flatMap((word, index) => word === name ? [index] : []);
+  return indexes.length === 1 ? words[indexes[0] + 1] : undefined;
+};
+const validLaunch = (command, lane) => {
+  const words = shellWords(command);
+  if (!words) return false;
+  const environment = new Map();
+  let index = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index] ?? '')) {
+    const split = words[index].indexOf('=');
+    environment.set(words[index].slice(0, split), words[index].slice(split + 1));
+    index += 1;
+  }
+  if ((words[index] ?? '').split('/').at(-1) !== 'bash') return false;
+  if (!(words[index + 1] ?? '').endsWith('run-review-lane.sh')) return false;
+  const args = words.slice(index + 2);
+  const [scopeName, scopeValue] = expectedScope.split(' ', 2);
+  return environment.get('CODEFLARE_REVIEW_HEAD') === head
+    && optionValue(args, '--boundary-pr') === pr
+    && optionValue(args, '--lane') === lane
+    && optionValue(args, scopeName) === scopeValue;
+};
+const successfulReceipt = (call) => entries.slice(call.index + 1).some((entry) => {
+  const content = entry?.message?.content;
+  return Array.isArray(content) && content.some((part) => part?.type === 'tool_result'
+    && part?.tool_use_id === call.id && part?.is_error !== true);
+});
+const laneNames = requiredText.split(/\s+/).filter(Boolean);
+const launches = calls.filter((call) => call.input?.run_in_background === true
+  && laneNames.some((lane) => validLaunch(call.command, lane))
+  && successfulReceipt(call));
 if (launches.length === 0) {
   process.stdout.write(JSON.stringify({ state: 'none' }));
   process.exit(0);
@@ -74,10 +127,9 @@ const terminal = (id) => entries.map((entry, index) => ({ index, text: textOf(en
       ? { index, ok: ['done', 'completed', 'success'].includes(status), text }
       : undefined;
   }).filter(Boolean).at(-1);
-const laneNames = requiredText.split(/\s+/).filter(Boolean);
 const laneLaunches = laneNames.map((lane) => ({
   lane,
-  launch: launches.filter(({ command }) => command.includes(`--lane ${lane}`)).at(-1),
+  launch: launches.filter(({ command }) => validLaunch(command, lane)).at(-1),
 }));
 if (laneLaunches.some(({ launch }) => !launch)) {
   process.stdout.write(JSON.stringify({ state: 'running' }));
