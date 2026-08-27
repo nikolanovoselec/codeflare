@@ -59,12 +59,12 @@ describe('REQ-ENTERPRISE-028 managed R2 request classifier', () => {
   });
 
   it('denies a whole mixed multi-delete and forwards exact ordinary bytes', async () => {
-    const mixed = '<Delete><Object><Key>Vault/a.md</Key></Object><Object><Key>.claude/skills/company/SKILL.md</Key></Object></Delete>';
+    const mixed = '<Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>Vault/a.md</Key></Object><Object><Key>.claude/skills/company/SKILL.md</Key></Object></Delete>';
     expect((await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', {
       headers: { 'content-type': 'application/xml' }, body: mixed,
     })).action).toBe('deny');
 
-    const ordinary = '<Delete><Object><Key>Vault/a&amp;b.md</Key></Object><Quiet>true</Quiet></Delete>';
+    const ordinary = '<Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>Vault/a&amp;b.md</Key></Object><Quiet>true</Quiet></Delete>';
     const allowed = await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', {
       headers: { 'content-type': 'application/xml' }, body: ordinary,
     });
@@ -87,6 +87,8 @@ describe('REQ-ENTERPRISE-028 managed R2 request classifier', () => {
       { headers: { 'content-type': 'application/xml' }, body: '<Delete><Object><Key>x</Key></Delete>' },
       { headers: { 'content-type': 'application/xml', 'content-encoding': 'gzip' }, body: '<Delete><Object><Key>x</Key></Object></Delete>' },
       { headers: { 'content-type': 'application/xml' }, body: '<!DOCTYPE x><Delete><Object><Key>x</Key></Object></Delete>' },
+      { headers: { 'content-type': 'application/xml' }, body: '<Delete xmlns="https://example.com/not-s3"><Object><Key>x</Key></Object></Delete>' },
+      { headers: { 'content-type': 'application/xml' }, body: '<Delete unexpected="true"><Object><Key>x</Key></Object></Delete>' },
     ];
     for (const request of requests) {
       expect((await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', request)).action).toBe('deny');

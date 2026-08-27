@@ -35,7 +35,6 @@ export const SetBucketNameBodySchema = z.object({
   remoteCurationReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   remoteCurationManifestDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   managedResourcePolicy: ManagedResourcePolicySchema,
-  managedResourceReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   managedResourcePathsDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   sessionMode: z.string(),
   sessionWorkspace: z.enum(['terminal', 'vscode']),
@@ -67,14 +66,11 @@ export const SetBucketNameBodySchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationManifestDigest'], message: 'inactive remote curation cannot transport a managed extension manifest digest' });
   }
   const protectedResources = value.managedResourcePolicy !== 'mutable';
-  if (protectedResources && !value.managedResourceReleaseDigest) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourceReleaseDigest'], message: 'protected managed resources require an applied release digest' });
+  if (protectedResources && !value.remoteCurationReleaseDigest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'protected managed resources require the applied curation release digest' });
   }
   if (protectedResources && !value.managedResourcePathsDigest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourcePathsDigest'], message: 'protected managed resources require an applied path digest' });
-  }
-  if (!protectedResources && value.managedResourceReleaseDigest !== null) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourceReleaseDigest'], message: 'mutable managed resources require a null release digest' });
   }
   if (!protectedResources && value.managedResourcePathsDigest !== null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourcePathsDigest'], message: 'mutable managed resources require a null path digest' });

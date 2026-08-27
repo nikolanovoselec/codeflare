@@ -260,8 +260,9 @@ function hasDuplicateControlQuery(url: URL): boolean {
 
 function parseDeleteKeys(xml: string): string[] | null {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) return null;
-  if (!/^\s*(?:<\?xml[^?]*\?>\s*)?<Delete>[\s\S]*<\/Delete>\s*$/.test(xml)) return null;
-  const body = xml.replace(/^\s*(?:<\?xml[^?]*\?>\s*)?<Delete>/, '').replace(/<\/Delete>\s*$/, '');
+  const opening = xml.match(/^\s*(?:<\?xml[^?]*\?>\s*)?<Delete(?: xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/")?>/);
+  if (!opening || !/<\/Delete>\s*$/.test(xml)) return null;
+  const body = xml.slice(opening[0].length).replace(/<\/Delete>\s*$/, '');
   const objectMatches = [...body.matchAll(/<Object>\s*<Key>([^<]*)<\/Key>\s*<\/Object>/g)];
   if (objectMatches.length < 1 || objectMatches.length > 1_000) return null;
   const remainder = body

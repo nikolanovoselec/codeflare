@@ -14,6 +14,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
 
+const policyLogs = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('../lib/logger', () => ({
+  createLogger: () => ({ ...policyLogs, child: vi.fn() }),
+}));
+
 const STRICT_KEY = 'setup:strict_egress';
 
 function makeController(
@@ -59,6 +69,13 @@ function makeController(
   } as unknown as ExecutionContext;
   return { controller: new EgressController(ctx, env), egressFetch };
 }
+
+beforeEach(() => {
+  policyLogs.debug.mockClear();
+  policyLogs.info.mockClear();
+  policyLogs.warn.mockClear();
+  policyLogs.error.mockClear();
+});
 
 describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   it('returns 403 EGRESS_TARGET_BLOCKED for an SSRF target and never forwards', async () => {
@@ -127,6 +144,19 @@ describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
     expect(policyRequest.headers.get('authorization')).toContain('Credential=user-r2-key/');
     expect(policyRequest.headers.get('authorization')).not.toContain('admin-r2-key');
     expect(egressFetch).not.toHaveBeenCalled();
+    expect(policyLogs.warn).toHaveBeenCalledWith('Managed R2 policy decision', expect.objectContaining({
+      operation: 'delete-object',
+      policyDigest: fixture.pathsDigest.slice(0, 12),
+      pathHash: expect.stringMatching(/^[0-9a-f]{12}$/),
+      bucketHash: expect.stringMatching(/^[0-9a-f]{12}$/),
+      requestId: expect.any(String),
+      reason: 'access-denied',
+    }));
+    const denialLog = policyLogs.warn.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(Object.keys(denialLog).sort()).toEqual([
+      'bucketHash', 'operation', 'pathHash', 'policyDigest', 'reason', 'requestId',
+    ]);
+    expect(JSON.stringify(policyLogs.warn.mock.calls)).not.toContain('managed-paths.json');
     fetchSpy.mockRestore();
   });
 
@@ -145,6 +175,10 @@ describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
     const response = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/Vault/personal.md', { method: 'PUT', body: 'ok' }));
 
     expect(response.status).toBe(200);
+    expect(policyLogs.debug).toHaveBeenCalledWith('Managed R2 policy decision', expect.objectContaining({
+      operation: 'put-object', reason: 'allowed',
+    }));
+    expect(JSON.stringify(policyLogs.debug.mock.calls)).not.toContain('Vault/personal.md');
     const userRequest = fetchSpy.mock.calls.map(call => call[0] as Request).find(request => request.url.endsWith('/Vault/personal.md'))!;
     expect(userRequest.headers.get('authorization')).toContain('Credential=user-r2-key/');
     expect(userRequest.headers.get('authorization')).not.toContain('admin-r2-key');
@@ -164,6 +198,10 @@ describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
     expect(response.status).toBe(503);
     expect(await response.text()).toContain('<Code>ServiceUnavailable</Code>');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(policyLogs.warn).toHaveBeenCalledWith('Managed R2 policy decision', expect.objectContaining({
+      operation: 'put-object', reason: 'policy-unavailable', requestId: expect.any(String),
+    }));
+    expect(JSON.stringify(policyLogs.warn.mock.calls)).not.toContain('Vault/personal.md');
     fetchSpy.mockRestore();
   });
 });

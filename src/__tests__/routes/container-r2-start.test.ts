@@ -179,7 +179,6 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         remoteCurationReleaseDigest: 'd'.repeat(64),
         remoteCurationManifestDigest: 'e'.repeat(64),
         managedResourcePolicy: 'mutable',
-        managedResourceReleaseDigest: null,
         managedResourcePathsDigest: null,
       }));
     });
@@ -302,8 +301,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         .map(([request]) => request as Request)
         .find((request) => request.url.includes('/_internal/setBucketName'));
       expect(await setBucketRequest?.clone().json()).toEqual(expect.objectContaining({
+        remoteCurationReleaseDigest: 'd'.repeat(64),
         managedResourcePolicy: 'exclusive',
-        managedResourceReleaseDigest: 'd'.repeat(64),
         managedResourcePathsDigest: 'f'.repeat(64),
       }));
     });

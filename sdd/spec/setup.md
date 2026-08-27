@@ -450,6 +450,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 3. Clearing Immutable Resources also clears Disable User Created Resources. <!-- @impl: web-ui/src/stores/setup.ts::setManagedEnvironmentImmutableResources --> <!-- @test: web-ui/src/__tests__/stores/setup-managed-environment.test.ts (REQ-SETUP-015 AC3: clearing immutable resources clears exclusive mode) -->
 4. Omitted policy controls preserve the stored selection. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC4: omitted managed resource controls preserve stored policy) -->
 5. Omitted policy controls default to mutable when no prior configuration exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC5: omitted managed resource controls default to mutable) -->
+6. Setup describes selected-mode persistence and rolling activation in concise user terms. <!-- @impl: web-ui/src/components/setup/ManagedEnvironmentSection.tsx::ManagedEnvironmentSection --> <!-- @test: web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx (REQ-SETUP-015 AC6: describes the selected managed-resource mode) -->
 
 **Constraints:** Public payloads cannot select applied or interceptor state.
 
@@ -465,7 +466,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-016: Managed-resource policy safety
 
-**Intent:** Enterprise policy selection fails closed when its prerequisites or session-safety boundary are uncertain.
+**Intent:** Enterprise policy selection validates prerequisites and rolls out safely per idle user bucket.
 
 **Applies To:** Enterprise
 
@@ -473,8 +474,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. Exclusive policy is rejected unless immutable policy is selected. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-016 AC1: rejects exclusive policy without immutable policy) -->
 2. Protected policy is rejected unless Enterprise Strict Gateway Egress is available. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC2: rejects unavailable protected policy before streaming) -->
-3. A policy change is rejected before Setup writes while a session is running or initializing. <!-- @impl: src/routes/setup/index.ts::assertNoActiveManagedSessions --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions) -->
-4. Session list, parse, metadata-read, and pagination uncertainty rejects a policy change before Setup writes. <!-- @impl: src/routes/setup/index.ts::assertNoActiveManagedSessions --> <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions) --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (fails closed at MAX_KV_LIST_ITERATIONS instead of returning a partial scan) -->
+3. Setup stores a changed desired policy without scanning or draining deployment-wide sessions. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3: stores a rolling desired policy without scanning deployment-wide sessions) -->
+4. Existing sessions retain applied policy; new starts and Storage mutations wait on desired/applied mismatch until the idle user bucket reconciles. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC6: transports configured policy and stamps verified identity last) -->
 5. Policy selection preserves repository, signing-key, release-cache, and sequence fingerprints. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 
 **Constraints:** Policy safety checks run before configuration writes.
@@ -483,7 +484,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-015](#req-setup-015-managed-resource-persistence-controls), [REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
 
-**Verification:** Automated policy-shape, availability, active-session, uncertainty, and trust-fingerprint tests
+**Verification:** Automated policy-shape, availability, rolling-activation, update-pending, reconciliation, and trust-fingerprint tests
 
 **Status:** Implemented
 

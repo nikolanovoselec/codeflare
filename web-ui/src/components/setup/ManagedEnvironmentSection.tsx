@@ -54,9 +54,6 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
               checked={props.immutableResources}
               onChange={props.onImmutableResourcesChange}
             />
-            <p class="setup-field-description">
-              Managed files stay editable inside the current session, but their mutations cannot persist to R2. Protected edits are lost when the container is replaced.
-            </p>
           </div>
 
           <Show when={props.immutableResources}>
@@ -66,11 +63,21 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
                 checked={props.disableUserCreatedResources}
                 onChange={props.onDisableUserCreatedResourcesChange}
               />
-              <p class="setup-field-description">
-                Existing personal agent resources in governed skills, extensions, rules, hooks, scripts, plugins, prompts, commands, agents, and exceptions folders are deleted during reconciliation. New ones remain local and disappear after termination.
-              </p>
             </div>
           </Show>
+
+          <div class="setup-field setup-field--nested">
+            <p class="setup-field-description" data-testid="managed-resource-policy-description">
+              {props.disableUserCreatedResources
+                ? 'Only managed agent resources persist. Existing user-created agent resources are removed. New agent resources and changes to managed resources are lost when the session ends.'
+                : props.immutableResources
+                  ? 'Managed resources cannot be changed permanently. User-created resources are allowed, saved, and restored in future sessions. Changes to managed resources are lost when the session ends.'
+                  : 'Managed company resources are provisioned and updated. Users can modify them and create their own resources. New managed versions overwrite changes to managed resources.'}
+            </p>
+            <p class="setup-field-description" data-testid="managed-resource-policy-transition">
+              The new policy applies to each user after their active sessions stop. Existing sessions continue with their current policy.
+            </p>
+          </div>
         </Show>
 
         <div class="setup-field">

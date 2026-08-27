@@ -301,7 +301,9 @@ describe('managed release user-bucket reconciliation', () => {
     const objects = Array.from({ length: 10_001 }, (_, index) => (
       `<Contents><Key>.claude/skills/personal-${index}.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`
     )).join('');
-    fetchR2.mockResolvedValue(new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${objects}</ListBucketResult>`, { status: 200 }));
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
+      ? new Response('', { status: 404 })
+      : new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${objects}</ListBucketResult>`, { status: 200 }));
 
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
@@ -324,11 +326,35 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
+  it('REQ-STOR-029 AC2: exact root object size contributes to the exclusive cleanup bound', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
+      ? new Response(null, { status: 200, headers: { 'content-length': '1073741824' } })
+      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/personal</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 }));
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/1 GiB/);
+    expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
+  });
+
+  it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC4: invalid exact root size %s causes zero mutations', async (contentLength) => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
+      ? new Response(null, { status: 200, headers: contentLength === null ? {} : { 'content-length': contentLength } })
+      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', { status: 200 }));
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/root object size/);
+    expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
+  });
+
   it('REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'HEAD' && url.endsWith('/.claude/skills')) return new Response('', { status: 200 });
+      if (init?.method === 'HEAD' && url.endsWith('/.claude/skills')) return new Response(null, { status: 200, headers: { 'content-length': '0' } });
       if (init?.method === 'GET' && url.includes('list-type=2')) {
         return new Response([
           '<ListBucketResult><IsTruncated>false</IsTruncated>',

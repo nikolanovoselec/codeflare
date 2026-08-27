@@ -41,8 +41,8 @@ export interface InterceptionHost {
   _r2AccountId: string | null;
   _r2AccessKeyId: string | null;
   _r2SecretAccessKey: string | null;
+  _remoteCurationReleaseDigest?: string | null;
   _managedResourcePolicy?: ManagedResourcePolicy;
-  _managedResourceReleaseDigest?: string | null;
   _managedResourcePathsDigest?: string | null;
   _r2SseDisabled?: boolean;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
@@ -229,7 +229,7 @@ function resolveStrictEgress(
     r2AccessKeyId: host._r2AccessKeyId ?? undefined,
     r2SecretAccessKey: host._r2SecretAccessKey ?? undefined,
     resourcePolicy: host._managedResourcePolicy ?? 'mutable',
-    ...(host._managedResourceReleaseDigest ? { releaseDigest: host._managedResourceReleaseDigest } : {}),
+    ...(host._remoteCurationReleaseDigest ? { releaseDigest: host._remoteCurationReleaseDigest } : {}),
     ...(host._managedResourcePathsDigest ? { pathsDigest: host._managedResourcePathsDigest } : {}),
     ...(host._r2SseDisabled ? { r2SseDisabled: true } : {}),
   },

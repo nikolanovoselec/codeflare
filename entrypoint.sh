@@ -679,7 +679,7 @@ prepare_managed_resource_filter() {
         echo "[entrypoint] ERROR: managed resource policy exceeds 8 MiB" >&2
         return 1
     fi
-    node - "$policy_file" "$policy" "${MANAGED_RESOURCE_RELEASE_DIGEST:-}" "${MANAGED_RESOURCE_PATHS_DIGEST:-}" "$MANAGED_RESOURCE_FILTER_FILE" <<'NODE'
+    node - "$policy_file" "$policy" "${REMOTE_CURATION_RELEASE_DIGEST:-}" "${MANAGED_RESOURCE_PATHS_DIGEST:-}" "$MANAGED_RESOURCE_FILTER_FILE" <<'NODE'
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const [file, expectedPolicy, releaseDigest, pathsDigest, filterFile] = process.argv.slice(2);

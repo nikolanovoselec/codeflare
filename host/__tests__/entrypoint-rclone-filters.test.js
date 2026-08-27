@@ -368,7 +368,7 @@ describe('REQ-STOR-031 managed-resource rclone filter', () => {
         USER_HOME: fx,
         MANAGED_RESOURCE_FILTER_FILE: filterPath,
         MANAGED_RESOURCE_POLICY: 'exclusive',
-        MANAGED_RESOURCE_RELEASE_DIGEST: releaseDigest,
+        REMOTE_CURATION_RELEASE_DIGEST: releaseDigest,
         MANAGED_RESOURCE_PATHS_DIGEST: digest,
       },
     });
@@ -393,7 +393,7 @@ describe('REQ-STOR-031 managed-resource rclone filter', () => {
       encoding: 'utf8',
       env: {
         ...process.env, USER_HOME: fx, MANAGED_RESOURCE_FILTER_FILE: filterPath,
-        MANAGED_RESOURCE_POLICY: 'immutable', MANAGED_RESOURCE_RELEASE_DIGEST: 'd'.repeat(64),
+        MANAGED_RESOURCE_POLICY: 'immutable', REMOTE_CURATION_RELEASE_DIGEST: 'd'.repeat(64),
         MANAGED_RESOURCE_PATHS_DIGEST: 'e'.repeat(64),
       },
     });

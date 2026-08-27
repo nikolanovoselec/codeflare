@@ -777,8 +777,18 @@ async function listExclusiveCleanupCandidates(
     const rootObject = root.slice(0, -1);
     const rootHead = await client.fetch(getR2Url(endpoint, bucketName, rootObject), { method: 'HEAD', headers: sseHeaders });
     if (rootHead.ok) {
+      const contentLength = rootHead.headers.get('content-length');
+      if (!contentLength || !/^(?:0|[1-9]\d*)$/.test(contentLength)) {
+        throw new Error('Exclusive managed-resource root object size is invalid');
+      }
+      const rootObjectBytes = Number(contentLength);
+      if (!Number.isSafeInteger(rootObjectBytes)) {
+        throw new Error('Exclusive managed-resource root object size is invalid');
+      }
       listedObjects += 1;
+      objectBytes += rootObjectBytes;
       if (listedObjects > MAX_EXCLUSIVE_OBJECTS) throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      if (objectBytes > MAX_EXCLUSIVE_OBJECT_BYTES) throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
       if (!protectedPaths.has(rootObject)) candidates.add(rootObject);
     } else if (rootHead.status !== 404) {
       throw new Error(`Exclusive managed-resource root check failed: HTTP ${rootHead.status}`);

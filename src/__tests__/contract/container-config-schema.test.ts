@@ -31,7 +31,6 @@ function baseBody() {
     sessionWorkspace: 'terminal',
     sleepAfter: '30m',
     managedResourcePolicy: 'mutable' as const,
-    managedResourceReleaseDigest: null,
     managedResourcePathsDigest: null,
   };
 }

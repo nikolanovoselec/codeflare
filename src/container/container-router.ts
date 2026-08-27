@@ -64,7 +64,6 @@ interface SetBucketNameBody {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   managedResourcePolicy?: ManagedResourcePolicy;
-  managedResourceReleaseDigest?: string | null;
   managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
@@ -165,18 +164,18 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourceReleaseDigest, managedResourcePathsDigest, sessionMode, sessionWorkspace, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
-    const resourceIdentityError = managedResourcePolicy === undefined && (managedResourceReleaseDigest !== undefined || managedResourcePathsDigest !== undefined)
+    const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
       ? 'managed resource identity requires an explicit policy mode'
       : managedResourcePolicy !== undefined && !['mutable', 'immutable', 'exclusive'].includes(managedResourcePolicy)
         ? 'managedResourcePolicy is invalid'
         : managedResourcePolicy !== undefined && managedResourcePolicy !== 'mutable'
-        && (!/^[0-9a-f]{64}$/.test(managedResourceReleaseDigest ?? '') || !/^[0-9a-f]{64}$/.test(managedResourcePathsDigest ?? ''))
-        ? 'protected managed resources require exact release and path digests'
-        : managedResourcePolicy === 'mutable' && (managedResourceReleaseDigest != null || managedResourcePathsDigest != null)
-          ? 'mutable managed resources require null release and path digests'
+        && (!/^[0-9a-f]{64}$/.test(remoteCurationReleaseDigest ?? '') || !/^[0-9a-f]{64}$/.test(managedResourcePathsDigest ?? ''))
+        ? 'protected managed resources require exact curation release and path digests'
+        : managedResourcePolicy === 'mutable' && managedResourcePathsDigest != null
+          ? 'mutable managed resources require a null path digest'
           : null;
     const validationError = resourceIdentityError ?? validateBucketNameInput({
       bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
@@ -197,7 +196,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // payload before interception is wired after a Durable Object wake.
       const r2CredentialsProvided = r2AccessKeyId !== undefined && r2SecretAccessKey !== undefined;
       const nextPolicy = managedResourcePolicy ?? host._managedResourcePolicy ?? 'mutable';
-      const nextReleaseDigest = nextPolicy === 'mutable' ? undefined : managedResourceReleaseDigest ?? host._managedResourceReleaseDigest ?? undefined;
+      const nextReleaseDigest = nextPolicy === 'mutable' ? undefined : remoteCurationReleaseDigest ?? host._remoteCurationReleaseDigest ?? undefined;
       const nextPathsDigest = nextPolicy === 'mutable' ? undefined : managedResourcePathsDigest ?? host._managedResourcePathsDigest ?? undefined;
       const nextR2SseDisabled = r2SseDisabled ?? (host._r2SseDisabled === true);
       const securityProps = {
@@ -213,7 +212,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         || securityProps.r2AccessKeyId !== (host._r2AccessKeyId ?? undefined)
         || securityProps.r2SecretAccessKey !== (host._r2SecretAccessKey ?? undefined)
         || nextPolicy !== (host._managedResourcePolicy ?? 'mutable')
-        || (nextReleaseDigest ?? null) !== (host._managedResourceReleaseDigest ?? null)
+        || (nextReleaseDigest ?? null) !== (host._remoteCurationReleaseDigest ?? null)
         || (nextPathsDigest ?? null) !== (host._managedResourcePathsDigest ?? null)
         || nextR2SseDisabled !== (host._r2SseDisabled === true);
       if (securityChanged) await refreshStrictEgressInterception(host, securityProps);
@@ -229,7 +228,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
-        managedResourcePolicy, managedResourceReleaseDigest, managedResourcePathsDigest, sessionMode, sessionWorkspace, userTimezone,
+        managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, userTimezone,
         gitCloneRepo, gitCloneRef,
       });
 
@@ -320,7 +319,6 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       remoteCurationReleaseDigest,
       remoteCurationManifestDigest,
       managedResourcePolicy,
-      managedResourceReleaseDigest,
       managedResourcePathsDigest,
       sessionMode,
       sessionWorkspace,

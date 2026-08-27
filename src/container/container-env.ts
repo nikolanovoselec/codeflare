@@ -32,7 +32,6 @@ export interface ContainerEnvState {
   _remoteCurationReleaseDigest?: string | null;
   _remoteCurationManifestDigest?: string | null;
   _managedResourcePolicy?: ManagedResourcePolicy;
-  _managedResourceReleaseDigest?: string | null;
   _managedResourcePathsDigest?: string | null;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
@@ -91,7 +90,6 @@ interface RestartPrefsInput {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   managedResourcePolicy?: ManagedResourcePolicy;
-  managedResourceReleaseDigest?: string | null;
   managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
@@ -125,7 +123,6 @@ export interface SetBucketNameCreds {
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
   managedResourcePolicy?: ManagedResourcePolicy;
-  managedResourceReleaseDigest?: string | null;
   managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
@@ -216,23 +213,22 @@ function normalizeIanaTz(v: unknown): string | undefined {
 function setManagedResourceIdentity(
   state: ContainerEnvState,
   policy: ManagedResourcePolicy,
-  releaseDigest: string | null | undefined,
   pathsDigest: string | null | undefined,
 ): boolean {
   const protectedResources = policy !== 'mutable';
-  if (protectedResources && (!/^[0-9a-f]{64}$/.test(releaseDigest ?? '') || !/^[0-9a-f]{64}$/.test(pathsDigest ?? ''))) {
+  if (protectedResources && (
+    !/^[0-9a-f]{64}$/.test(state._remoteCurationReleaseDigest ?? '')
+    || !/^[0-9a-f]{64}$/.test(pathsDigest ?? '')
+  )) {
     throw new Error('Protected managed-resource identity is incomplete');
   }
-  if (!protectedResources && (releaseDigest != null || pathsDigest != null)) {
+  if (!protectedResources && pathsDigest != null) {
     throw new Error('Mutable managed-resource identity must be empty');
   }
-  const nextReleaseDigest = protectedResources ? releaseDigest! : null;
   const nextPathsDigest = protectedResources ? pathsDigest! : null;
   const changed = policy !== (state._managedResourcePolicy ?? 'mutable')
-    || nextReleaseDigest !== (state._managedResourceReleaseDigest ?? null)
     || nextPathsDigest !== (state._managedResourcePathsDigest ?? null);
   state._managedResourcePolicy = policy;
-  state._managedResourceReleaseDigest = nextReleaseDigest;
   state._managedResourcePathsDigest = nextPathsDigest;
   return changed;
 }
@@ -324,7 +320,6 @@ export function buildEnvVars(
     }),
     ...(state._managedResourcePolicy && state._managedResourcePolicy !== 'mutable' && {
       MANAGED_RESOURCE_POLICY: state._managedResourcePolicy,
-      MANAGED_RESOURCE_RELEASE_DIGEST: state._managedResourceReleaseDigest!,
       MANAGED_RESOURCE_PATHS_DIGEST: state._managedResourcePathsDigest!,
     }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
@@ -463,7 +458,6 @@ export async function applyBucketName(
   setManagedResourceIdentity(
     state,
     r2Creds?.managedResourcePolicy ?? 'mutable',
-    r2Creds?.managedResourceReleaseDigest,
     r2Creds?.managedResourcePathsDigest,
   );
 
@@ -644,7 +638,6 @@ export async function applyPrefsOnRestart(
     changed = setManagedResourceIdentity(
       state,
       input.managedResourcePolicy,
-      input.managedResourceReleaseDigest,
       input.managedResourcePathsDigest,
     ) || changed;
   }

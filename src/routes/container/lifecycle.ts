@@ -203,7 +203,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let remoteCurationReleaseDigest: string | undefined;
     let remoteCurationManifestDigest: string | undefined;
     let managedResourcePolicy: ManagedResourcePolicy = 'mutable';
-    let managedResourceReleaseDigest: string | undefined;
     let managedResourcePathsDigest: string | undefined;
     try {
       const activeManagedRelease = await runStartStage(
@@ -228,7 +227,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       remoteCurationReleaseDigest = activeManagedRelease?.digest;
       remoteCurationManifestDigest = applied?.managedExtensionsDigest;
       managedResourcePolicy = desiredPolicy;
-      managedResourceReleaseDigest = desiredPolicy === 'mutable' ? undefined : applied?.digest;
       managedResourcePathsDigest = desiredPolicy === 'mutable' ? undefined : applied?.managedPathsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
@@ -347,7 +345,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
             method: 'GET',
             headers: getSseHeaders(c.env, r2SseDisabled),
           }),
-          releaseDigest: managedResourceReleaseDigest!,
+          releaseDigest: remoteCurationReleaseDigest!,
           pathsDigest: managedResourcePathsDigest!,
           expectedPolicy: managedResourcePolicy,
           bypassMemoryCache: true,
@@ -411,7 +409,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       remoteCurationReleaseDigest,
       remoteCurationManifestDigest,
       managedResourcePolicy,
-      managedResourceReleaseDigest,
       managedResourcePathsDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,

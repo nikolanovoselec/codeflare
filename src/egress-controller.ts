@@ -93,6 +93,51 @@ function requestedR2Bucket(url: URL, accountId: string | undefined): string | un
   return host.endsWith(suffix) ? host.slice(0, -suffix.length) : undefined;
 }
 
+async function sha256Prefix(value: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+  return Array.from(digest.slice(0, 6), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function managedR2Operation(request: Request, url: URL): string {
+  if (request.method === 'POST' && url.searchParams.has('delete')) return 'multi-delete';
+  if (request.headers.has('x-amz-copy-source')) return 'copy-object';
+  if (url.searchParams.has('tagging')) return `${request.method.toLowerCase()}-tagging`;
+  if (url.searchParams.has('uploads')) return 'initiate-multipart';
+  if (url.searchParams.has('uploadId')) {
+    if (request.method === 'PUT') return 'upload-part';
+    if (request.method === 'POST') return 'complete-multipart';
+    if (request.method === 'DELETE') return 'abort-multipart';
+    return 'multipart';
+  }
+  if (request.method === 'PUT') return 'put-object';
+  if (request.method === 'DELETE') return 'delete-object';
+  return request.method.toLowerCase();
+}
+
+async function managedR2AuditData(input: {
+  request: Request;
+  url: URL;
+  accountId: string;
+  bucket: string;
+  pathsDigest?: string;
+  requestId: string;
+  reason: string;
+}): Promise<Record<string, unknown>> {
+  const accountHost = `${input.accountId.toLowerCase()}.r2.cloudflarestorage.com`;
+  const host = input.url.hostname.toLowerCase().replace(/\.$/, '');
+  const path = host === accountHost
+    ? input.url.pathname.slice(`/${input.bucket}`.length).replace(/^\//, '')
+    : input.url.pathname.replace(/^\//, '');
+  return {
+    operation: managedR2Operation(input.request, input.url),
+    policyDigest: input.pathsDigest?.slice(0, 12) ?? 'missing',
+    pathHash: await sha256Prefix(path),
+    bucketHash: await sha256Prefix(input.bucket),
+    requestId: input.requestId,
+    reason: input.reason,
+  };
+}
+
 export class EgressController extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const props = (this.ctx as unknown as { props?: EgressProps }).props;
@@ -129,10 +174,17 @@ export class EgressController extends WorkerEntrypoint<Env> {
       const resourcePolicy = props.resourcePolicy ?? 'mutable';
       if (resourcePolicy !== 'mutable') {
         const requestId = crypto.randomUUID();
-        if (!props.releaseDigest || !props.pathsDigest) return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        const auditInput = { request, url, accountId: accountId!, bucket: boundBucket, pathsDigest: props.pathsDigest, requestId };
+        if (!props.releaseDigest || !props.pathsDigest) {
+          logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'policy-identity-missing' }));
+          return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        }
         try {
           const config = await getR2Config(this.env);
-          if (config.accountId !== accountId) return s3PolicyError(503, 'ServiceUnavailable', requestId);
+          if (config.accountId !== accountId) {
+            logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'account-mismatch' }));
+            return s3PolicyError(503, 'ServiceUnavailable', requestId);
+          }
           const policyClient = createR2Client({
             R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
             R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
@@ -154,10 +206,17 @@ export class EgressController extends WorkerEntrypoint<Env> {
             policy,
           });
           if (classification.action === 'deny') {
+            logger.warn('Managed R2 policy decision', await managedR2AuditData({
+              ...auditInput,
+              requestId: classification.requestId,
+              reason: 'access-denied',
+            }));
             return s3PolicyError(classification.status, classification.code, classification.requestId);
           }
+          logger.debug('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'allowed' }));
           effectiveRequest = classification.request;
         } catch {
+          logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'policy-unavailable' }));
           return s3PolicyError(503, 'ServiceUnavailable', requestId);
         }
       }
@@ -252,7 +311,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // Diagnostic (REQ-016) at debug level — OFF by default (minLogLevel 'info'), enable
     // LOG_LEVEL=debug to attribute the per-op routing + worker-side latency so the R2-speed
     // lever can be chosen from data (compare fMs to $workers.wallTimeMs). Temporary.
-    logger.debug('egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
+    logger.debug('egress', { h: ownR2 ? 'own-r2' : url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
 
     // Stream the response back unread; strip ONLY hop-by-hop headers (preserve
     // set-cookie — transparent proxy).

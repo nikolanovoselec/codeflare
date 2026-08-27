@@ -133,7 +133,6 @@ export class container extends Container<Env> implements ContainerEnvState {
   _remoteCurationReleaseDigest: string | null = null;
   _remoteCurationManifestDigest: string | null = null;
   _managedResourcePolicy: ManagedResourcePolicy = 'mutable';
-  _managedResourceReleaseDigest: string | null = null;
   _managedResourcePathsDigest: string | null = null;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;

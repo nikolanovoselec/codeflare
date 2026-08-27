@@ -429,8 +429,6 @@ export interface ContainerConfigPayload {
   remoteCurationManifestDigest?: string;
   /** Worker-owned managed-resource persistence mode; always explicit across the internal boundary. */
   managedResourcePolicy: ManagedResourcePolicy;
-  /** Applied managed release identity required only for protected resource modes. */
-  managedResourceReleaseDigest?: string;
   /** Applied canonical managed-path object digest required only for protected resource modes. */
   managedResourcePathsDigest?: string;
   llmKeys?: LlmKeys;

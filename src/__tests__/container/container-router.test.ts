@@ -231,7 +231,7 @@ describe('CF-016 dispatchInternalRoute', () => {
     });
     const request = new Request('http://container/_internal/setBucketName', {
       method: 'POST',
-      body: JSON.stringify({ bucketName: 'b', managedResourceReleaseDigest: 'd'.repeat(64) }),
+      body: JSON.stringify({ bucketName: 'b', managedResourcePathsDigest: 'e'.repeat(64) }),
       headers: { 'Content-Type': 'application/json' },
     });
 
@@ -240,7 +240,7 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(response.status).toBe(400);
     expect(EgressController).not.toHaveBeenCalled();
     expect(host._managedResourcePolicy).toBe('mutable');
-    expect(host._managedResourceReleaseDigest).toBeUndefined();
+    expect(host._managedResourcePathsDigest).toBeUndefined();
   });
 
   it('REQ-ENTERPRISE-027: refreshes warm strict interception when only policy identity changes', async () => {
@@ -258,8 +258,10 @@ describe('CF-016 dispatchInternalRoute', () => {
       _r2AccessKeyId: 'scoped-access',
       _r2SecretAccessKey: 'scoped-secret',
       _strictEgress: true,
+      _remoteCurationActive: true,
+      _remoteCurationReleaseDigest: 'a'.repeat(64),
+      _remoteCurationManifestDigest: 'f'.repeat(64),
       _managedResourcePolicy: 'immutable',
-      _managedResourceReleaseDigest: 'a'.repeat(64),
       _managedResourcePathsDigest: 'b'.repeat(64),
       _sessionMode: 'default',
     });
@@ -269,8 +271,10 @@ describe('CF-016 dispatchInternalRoute', () => {
         bucketName: 'b',
         r2AccessKeyId: 'scoped-access',
         r2SecretAccessKey: 'scoped-secret',
+        remoteCurationActive: true,
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+        remoteCurationManifestDigest: 'f'.repeat(64),
         managedResourcePolicy: 'exclusive',
-        managedResourceReleaseDigest: 'd'.repeat(64),
         managedResourcePathsDigest: 'e'.repeat(64),
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -292,8 +296,8 @@ describe('CF-016 dispatchInternalRoute', () => {
       },
     });
     expect(interceptOutboundHttps).toHaveBeenCalledWith('*', expect.anything());
+    expect(host._remoteCurationReleaseDigest).toBe('d'.repeat(64));
     expect(host._managedResourcePolicy).toBe('exclusive');
-    expect(host._managedResourceReleaseDigest).toBe('d'.repeat(64));
     expect(host._managedResourcePathsDigest).toBe('e'.repeat(64));
   });
 

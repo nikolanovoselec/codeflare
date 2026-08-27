@@ -118,12 +118,43 @@ describe('Managed environment Setup section', () => {
     const section = view.getByTestId('managed-environment-section');
     expect(section).toHaveTextContent('Immutable Resources');
     expect(section).toHaveTextContent('Disable User Created Resources');
-    expect(section).toHaveTextContent('Existing personal agent resources');
+    expect(section).toHaveTextContent('User-created resources are allowed, saved, and restored in future sessions.');
     const checkboxes = section.querySelectorAll('input[type="checkbox"]');
     expect(checkboxes).toHaveLength(3);
     await fireEvent.change(checkboxes[1], { target: { checked: false } });
     await fireEvent.change(checkboxes[2], { target: { checked: true } });
     expect(onImmutableResourcesChange).toHaveBeenCalledWith(false);
     expect(onDisableUserCreatedResourcesChange).toHaveBeenCalledWith(true);
+  });
+
+  it.each([
+    [false, false, 'Managed company resources are provisioned and updated. Users can modify them and create their own resources. New managed versions overwrite changes to managed resources.'],
+    [true, false, 'Managed resources cannot be changed permanently. User-created resources are allowed, saved, and restored in future sessions. Changes to managed resources are lost when the session ends.'],
+    [true, true, 'Only managed agent resources persist. Existing user-created agent resources are removed. New agent resources and changes to managed resources are lost when the session ends.'],
+  ] as const)('REQ-SETUP-015 AC6: describes the selected managed-resource mode', (immutableResources, disableUserCreatedResources, description) => {
+    const view = render(() => (
+      <ManagedEnvironmentSection
+        enabled
+        enterpriseMode
+        immutableResources={immutableResources}
+        disableUserCreatedResources={disableUserCreatedResources}
+        repository="acme/curation"
+        personalAccessToken=""
+        personalAccessTokenSet
+        publicKey=""
+        publicKeyFingerprint="0123456789abcdef"
+        freshness="fresh"
+        patExpiryState="valid"
+        onEnabledChange={() => undefined}
+        onImmutableResourcesChange={() => undefined}
+        onDisableUserCreatedResourcesChange={() => undefined}
+        onRepositoryChange={() => undefined}
+        onPersonalAccessTokenChange={() => undefined}
+        onPublicKeyChange={() => undefined}
+      />
+    ));
+
+    expect(view.getByTestId('managed-resource-policy-description')).toHaveTextContent(description);
+    expect(view.getByTestId('managed-resource-policy-transition')).toHaveTextContent('The new policy applies to each user after their active sessions stop. Existing sessions continue with their current policy.');
   });
 });

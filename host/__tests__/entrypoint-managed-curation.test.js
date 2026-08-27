@@ -72,7 +72,7 @@ function runStartup(remoteCurationActive) {
     '}',
     'update_sync_status() { :; }',
     'initial_sync_from_r2() { echo initial >> "$EVENTS"; }',
-    'prepare_managed_resource_filter() { :; }',
+    'prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; }',
     'release_agent_pty_after_cleanup() { echo cleanup >> "$EVENTS"; }',
     'establish_bisync_baseline() { echo baseline >> "$EVENTS"; }',
     'init_user_vault() { :; }',
@@ -103,7 +103,7 @@ function runStartup(remoteCurationActive) {
 }
 
 describe('managed curation entrypoint behavior', () => {
-  it('preserves restored managed content while remote curation is active', () => {
+  it('REQ-STOR-031 AC1/AC2: restores managed content before preparing the baseline filter', () => {
     const run = runStartup(true);
 
     assert.equal(run.result.status, 0, run.result.stderr);
@@ -112,6 +112,7 @@ describe('managed curation entrypoint behavior', () => {
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'initial',
       'post-restore',
+      'prepare-filter',
       'cleanup',
       'baseline',
     ]);
@@ -127,6 +128,7 @@ describe('managed curation entrypoint behavior', () => {
       'laydown',
       'initial',
       'post-restore',
+      'prepare-filter',
       'relay',
       'cleanup',
       'baseline',

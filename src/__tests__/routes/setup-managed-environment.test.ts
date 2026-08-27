@@ -177,39 +177,24 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });
 
-  it('REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions', async () => {
-    const body = {
-      customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
-      dynamicRoutes: ['development'], strictGatewayEgress: true,
-      managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
-    };
+  it('REQ-SETUP-016 AC3: stores a rolling desired policy without scanning deployment-wide sessions', async () => {
     kv._set('session:bucket:running', { status: 'running' }, { s: 'r' });
-    const active = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    expect(active.status).toBe(400);
-    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+    kv.list.mockRejectedValue(new Error('deployment-wide session scan must not run'));
 
-    kv._clear();
-    kv.list.mockRejectedValueOnce(new Error('KV list unavailable'));
-    const unreadable = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    const response = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+        dynamicRoutes: ['development'], strictGatewayEgress: true,
+        managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
+      }),
     });
-    expect(unreadable.status).toBe(400);
-    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
 
-    let pages = 0;
-    kv.list.mockImplementation(async () => ({
-      keys: [{ name: `session:bucket:${++pages}`, metadata: null }],
-      list_complete: false,
-      cursor: `cursor-${pages}`,
-    }));
-    const exhausted = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    expect(exhausted.status).toBe(400);
-    expect(pages).toBe(100);
-    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect((await terminal(response)).success).toBe(true);
+    expect(kv.list).not.toHaveBeenCalled();
+    expect(mocks.configureManagedEnvironment).toHaveBeenCalled();
   });
 
   it('uses stored Strict Gateway Egress when the request omits that field', async () => {
