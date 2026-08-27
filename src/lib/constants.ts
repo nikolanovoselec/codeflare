@@ -39,9 +39,7 @@ export const ANONYMOUS_RATE_LIMIT_KEY = 'anonymous';
 /** Timeout for container fetch operations (5 seconds for cold start) */
 export const CONTAINER_FETCH_TIMEOUT = 5000;
 
-/** Number of terminal tabs per session */
-// One outer Codeflare terminal surface; Herdr owns inner topology.
-// Keep in sync with web-ui/src/lib/constants.ts:MAX_TERMINALS_PER_SESSION.
+/** One outer Codeflare terminal identity; Herdr owns inner topology. */
 export const MAX_TABS = 1;
 
 /** WebSocket rate limit: sliding window duration (ms) */

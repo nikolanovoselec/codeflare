@@ -66,11 +66,15 @@ bootstrap() {
     local done="$HERDR_RUNTIME_ROOT/bootstrap.done"
     local lock="$HERDR_RUNTIME_ROOT/bootstrap.lock"
     local generation_file="$HERDR_RUNTIME_ROOT/bootstrap.generation"
-    local generation acquired=0
+    local generation lock_fd acquired=0
     [ -f "$done" ] && return 0
 
+    # Older launchers used a directory lock. The runtime path is ephemeral and
+    # this version never creates a directory here, so it is always stale.
+    [ ! -d "$lock" ] || rm -rf "$lock"
+    exec {lock_fd}> "$lock"
     for _ in $(seq 1 40); do
-        if mkdir "$lock" 2>/dev/null; then
+        if flock -n "$lock_fd"; then
             acquired=1
             break
         fi
@@ -78,8 +82,7 @@ bootstrap() {
         sleep 0.25
     done
     [ "$acquired" -eq 1 ] || fail "Herdr bootstrap remained locked"
-    printf '%s\n' "$$" > "$lock/pid"
-    trap 'rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true' EXIT
+    trap 'flock -u "$lock_fd" 2>/dev/null || true; exec {lock_fd}>&-' EXIT
     generation=$(cat "$generation_file" 2>/dev/null || true)
 
     local pane command
@@ -111,11 +114,12 @@ bootstrap() {
         *) fail "unsupported terminal command" ;;
     esac
 
-    [ "$(cat "$generation_file" 2>/dev/null || true)" = "$generation" ] || return 0
-    : > "$done"
-    chmod 0600 "$done"
-    rm -f "$lock/pid"
-    rmdir "$lock"
+    if [ "$(cat "$generation_file" 2>/dev/null || true)" = "$generation" ]; then
+        : > "$done"
+        chmod 0600 "$done"
+    fi
+    flock -u "$lock_fd"
+    exec {lock_fd}>&-
     trap - EXIT
 }
 
@@ -131,10 +135,9 @@ if [ "${1:-}" = "stop" ]; then
         printf '%s-%s\n' "$$" "$(date +%s%N)" > "$generation_tmp"
         mv "$generation_tmp" "$HERDR_RUNTIME_ROOT/bootstrap.generation"
         rm -f "$HERDR_RUNTIME_ROOT/bootstrap.done"
-        lock_pid=$(cat "$HERDR_RUNTIME_ROOT/bootstrap.lock/pid" 2>/dev/null || true)
-        if [[ "$lock_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
-            rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
-        fi
+        # Recover the directory lock used by older immutable images. Current
+        # launchers use kernel-released flock ownership on a regular file.
+        [ ! -d "$HERDR_RUNTIME_ROOT/bootstrap.lock" ] || rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
     fi
     exit 0
 fi

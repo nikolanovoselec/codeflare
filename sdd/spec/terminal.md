@@ -35,7 +35,7 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 **Acceptance Criteria:**
 
 1. Single-session view mounts exactly one xterm.js surface and one terminal WebSocket. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
-2. The terminal WebSocket route accepts only the stable internal terminal identity. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (extracts the stable internal terminal 1 identity) -->
+2. The terminal WebSocket route accepts only the stable internal terminal identity. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (extracts the stable internal terminal 1 identity) --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (rejects terminal ID %s) -->
 3. Dashboard view mounts no terminal surface, and a VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts no terminal on Dashboard or for a VS Code workspace) -->
 4. Legacy per-session terminal layouts are retired without changing MultiView state. <!-- @impl: web-ui/src/stores/session.ts::retireLegacyTerminalLayoutState --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (removes codeflare:terminalsPerSession without touching MultiView state) -->
 
@@ -687,9 +687,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8 and rejects reads, malformed data, unsupported selectors, invalid UTF-8, and oversized content. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (parseOsc52ClipboardWrite) -->
-2. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
-3. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
+1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (decodes a bounded standard clipboard UTF-8 write) -->
+2. The parser rejects reads, malformed data, unsupported selectors, invalid UTF-8, and oversized content. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (parseOsc52ClipboardWrite) -->
+3. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
+4. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
 
 **Constraints:**
 

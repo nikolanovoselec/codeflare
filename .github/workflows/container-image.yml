@@ -486,6 +486,7 @@ jobs:
           docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
             test "$(stat -c %a /usr/local/bin/herdr)" = 755
+            command -v flock >/dev/null
             test "$(stat -c %a /usr/local/bin/codeflare-agent-event)" = 755
             /usr/local/bin/codeflare-agent-event input-required
             test -s /usr/share/licenses/herdr/LICENSE

@@ -1,22 +1,8 @@
-/**
- * Contract tests: verify that duplicated constants in backend and frontend stay in sync.
- *
- * These constants are intentionally duplicated (separate build targets) but must
- * have identical values. If a constant changes in one place but not the other,
- * these tests catch the mismatch.
- */
+/** Contract tests for values duplicated across backend and frontend builds. */
 import { describe, it, expect } from 'vitest';
-import { MAX_TABS, SESSION_ID_PATTERN } from '../../lib/constants';
-
-// Frontend constants are imported via relative path since they live in a
-// separate build target (web-ui/) but share the same repo root.
-import { MAX_TERMINALS_PER_SESSION } from '../../../web-ui/src/lib/constants';
+import { SESSION_ID_PATTERN } from '../../lib/constants';
 
 describe('backend/frontend constant parity', () => {
-  it('MAX_TABS (backend) equals MAX_TERMINALS_PER_SESSION (frontend)', () => {
-    expect(MAX_TABS).toBe(MAX_TERMINALS_PER_SESSION);
-  });
-
   it('SESSION_ID_PATTERN (backend) matches SESSION_ID_RE (frontend)', () => {
     // The frontend defines SESSION_ID_RE inline in web-ui/src/api/client.ts
     // as /^[a-z0-9]{8,24}$/. We verify the backend pattern matches the same spec.

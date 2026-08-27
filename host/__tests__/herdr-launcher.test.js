@@ -166,7 +166,6 @@ fi
     const runtime = join(dir, 'runtime');
     const staleLock = join(runtime, 'herdr/abc12345/bootstrap.lock');
     mkdirSync(staleLock, { recursive: true });
-    writeFileSync(join(staleLock, 'pid'), '99999999\n');
     writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "$HERDR_TEST_LOG"\n`, { mode: 0o755 });
     const result = spawnSync(launcher, ['stop'], {
       encoding: 'utf8',

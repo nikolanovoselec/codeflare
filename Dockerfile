@@ -115,6 +115,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     openssh-client \
     # Process utilities
     procps \
+    util-linux \
     # Utilities
     jq \
     ripgrep \
