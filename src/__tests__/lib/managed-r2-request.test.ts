@@ -83,11 +83,12 @@ describe('REQ-ENTERPRISE-027 managed R2 request classifier', () => {
   });
 
   it('fails closed on malformed, compressed, or ambiguous multi-delete', async () => {
-    for (const request of [
+    const requests: RequestInit[] = [
       { headers: { 'content-type': 'application/xml' }, body: '<Delete><Object><Key>x</Key></Delete>' },
       { headers: { 'content-type': 'application/xml', 'content-encoding': 'gzip' }, body: '<Delete><Object><Key>x</Key></Object></Delete>' },
       { headers: { 'content-type': 'application/xml' }, body: '<!DOCTYPE x><Delete><Object><Key>x</Key></Object></Delete>' },
-    ]) {
+    ];
+    for (const request of requests) {
       expect((await classify('POST', 'https://account.r2.cloudflarestorage.com/user-bucket?delete', request)).action).toBe('deny');
     }
   });

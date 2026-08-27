@@ -72,6 +72,7 @@ function runStartup(remoteCurationActive) {
     '}',
     'update_sync_status() { :; }',
     'initial_sync_from_r2() { echo initial >> "$EVENTS"; }',
+    'prepare_managed_resource_filter() { :; }',
     'release_agent_pty_after_cleanup() { echo cleanup >> "$EVENTS"; }',
     'establish_bisync_baseline() { echo baseline >> "$EVENTS"; }',
     'init_user_vault() { :; }',

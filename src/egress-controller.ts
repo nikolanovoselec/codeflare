@@ -122,6 +122,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (!props.bucket || requestedBucket !== props.bucket) {
         return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
       }
+      const boundBucket = props.bucket;
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
       }
@@ -138,7 +139,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
           });
           const policy = await readVerifiedManagedR2Policy({
             fetchPolicyObject: () => policyClient.fetch(
-              getR2Url(config.endpoint, props.bucket, MANAGED_R2_POLICY_KEY),
+              getR2Url(config.endpoint, boundBucket, MANAGED_R2_POLICY_KEY),
               { method: 'GET', headers: getSseHeaders(this.env, props.r2SseDisabled === true) },
             ),
             releaseDigest: props.releaseDigest,
@@ -149,7 +150,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
           const classification = await classifyManagedR2Request({
             request,
             accountId: config.accountId,
-            boundBucket: props.bucket,
+            boundBucket,
             policy,
           });
           if (classification.action === 'deny') {

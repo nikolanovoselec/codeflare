@@ -708,16 +708,15 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('still allows an abort during migration (cleanup must not be blocked)', async () => {
+    it('blocks multipart abort during migration before user R2', async () => {
       const app = migratingApp();
-      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
       const res = await app.request('/upload/abort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'big.bin', uploadId: 'u1' }),
       });
-      expect(res.status).toBe(200);
-      expect(mockFetch).toHaveBeenCalledOnce(); // abort reached R2
+      expect(res.status).toBe(409);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });
