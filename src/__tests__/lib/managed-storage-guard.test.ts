@@ -62,7 +62,7 @@ describe('REQ-ENTERPRISE-027 Storage mutation guard', () => {
   });
 
   it.each([
-    ['release digest', (snapshot: any, applied: any) => { snapshot.active.digest = 'c'.repeat(64); }],
+    ['release digest', (snapshot: any, _applied: any) => { snapshot.active.digest = 'c'.repeat(64); }],
     ['sequence', (snapshot: any) => { snapshot.active.sequence = 5; }],
     ['effective mode', (_snapshot: any, applied: any) => { applied.mode = 'advanced'; }],
     ['extension digest', (_snapshot: any, applied: any) => { applied.managedExtensionsDigest = undefined; }],
