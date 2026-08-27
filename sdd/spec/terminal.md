@@ -688,9 +688,10 @@ None.
 **Acceptance Criteria:**
 
 1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (decodes a bounded standard clipboard UTF-8 write) -->
-2. The parser rejects reads, malformed data, unsupported selectors, invalid UTF-8, and oversized content. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (parseOsc52ClipboardWrite) -->
-3. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
-4. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
+2. The parser rejects reads, malformed data, unsupported selectors, and invalid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects query, selector, malformed, or invalid UTF-8 payload %s) -->
+3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
+4. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
+5. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
 
 **Constraints:**
 

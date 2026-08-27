@@ -90,6 +90,59 @@ describe('Codeflare Herdr launcher', () => {
     ]);
   });
 
+  it('serializes concurrent bootstrap launchers to one agent start', async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-concurrent-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const log = join(dir, 'herdr.log');
+    const started = join(dir, 'agent.started');
+    const release = join(dir, 'agent.release');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "api snapshot" ]; then
+  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+elif [ "$1 $2" = "agent start" ]; then
+  : > "$HERDR_TEST_STARTED"
+  while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
+fi
+`, { mode: 0o755 });
+    const env = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      HERDR_BIN: fake,
+      HERDR_TEST_LOG: log,
+      HERDR_TEST_STARTED: started,
+      HERDR_TEST_RELEASE: release,
+      CODEFLARE_RUNTIME_ROOT: runtime,
+      SESSION_ID: 'abc12345',
+      TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
+    };
+    const first = spawn(launcher, ['bootstrap'], { stdio: 'ignore', env });
+    const firstExit = new Promise((resolve) => first.once('exit', resolve));
+    t.after(() => {
+      writeFileSync(release, '');
+      first.kill('SIGKILL');
+    });
+    for (let attempt = 0; attempt < 100 && !existsSync(started); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(existsSync(started), true, 'first bootstrap did not reach agent start');
+
+    const second = spawn(launcher, ['bootstrap'], { stdio: 'ignore', env });
+    const secondExit = new Promise((resolve) => second.once('exit', resolve));
+    t.after(() => second.kill('SIGKILL'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    writeFileSync(release, '');
+
+    assert.deepEqual(await Promise.all([firstExit, secondExit]), [0, 0]);
+    const agentStarts = readFileSync(log, 'utf8').split('\n')
+      .filter((line) => line.startsWith('agent start '));
+    assert.equal(agentStarts.length, 1);
+  });
+
   it('cancels an in-flight bootstrap without deleting its lock, then permits one restart', async (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-race-'));
     const bin = join(dir, 'bin');

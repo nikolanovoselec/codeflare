@@ -589,7 +589,6 @@ describe('useTerminal hook', () => {
         defaultProps.terminalId,
         expect.anything(),
         undefined,
-        false,
       );
 
       dispose();

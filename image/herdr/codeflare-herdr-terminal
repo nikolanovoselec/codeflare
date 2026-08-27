@@ -83,6 +83,12 @@ bootstrap() {
     done
     [ "$acquired" -eq 1 ] || fail "Herdr bootstrap remained locked"
     trap 'flock -u "$lock_fd" 2>/dev/null || true; exec {lock_fd}>&-' EXIT
+    if [ -f "$done" ]; then
+        flock -u "$lock_fd"
+        exec {lock_fd}>&-
+        trap - EXIT
+        return 0
+    fi
     generation=$(cat "$generation_file" 2>/dev/null || true)
 
     local pane command

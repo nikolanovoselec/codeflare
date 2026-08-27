@@ -1,14 +1,12 @@
 /** Contract tests for values duplicated across backend and frontend builds. */
 import { describe, it, expect } from 'vitest';
 import { SESSION_ID_PATTERN } from '../../lib/constants';
+import { SESSION_ID_RE } from '../../../web-ui/src/lib/constants';
 
 describe('backend/frontend constant parity', () => {
   it('SESSION_ID_PATTERN (backend) matches SESSION_ID_RE (frontend)', () => {
-    // The frontend defines SESSION_ID_RE inline in web-ui/src/api/client.ts
-    // as /^[a-z0-9]{8,24}$/. We verify the backend pattern matches the same spec.
-    const expectedSource = '^[a-z0-9]{8,24}$';
-    expect(SESSION_ID_PATTERN.source).toBe(expectedSource);
-    expect(SESSION_ID_PATTERN.flags).toBe('');
+    expect(SESSION_ID_PATTERN.source).toBe(SESSION_ID_RE.source);
+    expect(SESSION_ID_PATTERN.flags).toBe(SESSION_ID_RE.flags);
   });
 
   it('SESSION_ID_PATTERN accepts valid IDs and rejects invalid ones', () => {

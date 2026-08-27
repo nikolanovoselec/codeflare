@@ -1,6 +1,6 @@
 import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
 import { logger } from '../lib/logger';
-import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS } from '../lib/constants';
+import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
 import {
   UserResponseSchema,
@@ -530,9 +530,6 @@ export async function deleteUser(email: string): Promise<{ success: boolean; ema
     method: 'DELETE',
   }, z.object({ success: z.boolean(), email: z.string() }));
 }
-
-// Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
-const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 
 // Stable internal terminal identity for the sole Codeflare surface.
 export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1'): string {

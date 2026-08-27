@@ -17,6 +17,9 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
+/** Session IDs accepted by terminal and session API routes. */
+export const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
+
 /** WebSocket reconnect backoff: base delay for attempt 1 (ms). */
 export const WS_RECONNECT_BASE_MS = 500;
 
